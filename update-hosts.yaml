@@ -1,0 +1,29 @@
+---
+- name: 'perform system updates'
+  hosts: wireguard
+
+  tasks:
+    - name: update apt repo and cache
+      apt:
+        update_cache: yes
+        force_apt_get: yes
+        cache_valid_time: 3600
+
+    - name: upgrade all apt packages
+      apt:
+        upgrade: dist
+        force_apt_get: yes
+
+    - name: check if a reboot is needed
+      register: reboot_required_file
+      stat: path=/var/run/reboot-required get_md5=no
+
+    - name: reboot the server
+      when: reboot_required_file.stat.exists
+      reboot:
+        msg: "Reboot initiated by Ansible due to system updates"
+        connect_timeout: 5
+        reboot_timeout: 300
+        pre_reboot_delay: 0
+        post_reboot_delay: 30
+        test_command: uptime

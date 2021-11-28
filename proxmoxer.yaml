@@ -1,0 +1,47 @@
+---
+- name: 'prep proxmox hosts for automation'
+  hosts: proxmox
+  vars:
+    packages:
+      - python3-pip
+      - python3-dev
+      - build-essential
+
+  tasks:
+    - name: 'switch to community repos'
+      apt_repository:
+        repo: 'deb https://enterprise.proxmox.com/debian/pve bullseye pve-enterprise'
+        state: 'absent'
+      apt_repository:
+        repo: 'deb http://download.proxmox.com/debian/pve bullseye pve-no-subscription'
+        state: 'present'
+    - name: 'Update all packages to the latest version'
+      apt:
+        upgrade: 'dist'
+    - name: 'Install pip packages'
+      apt:
+        name: "{{ packages }}"
+    - name: 'pip3 update pip'
+      pip:
+        name: 'pip'
+        state: 'latest'
+    - name: 'Install dependencies'
+      pip:
+        name: 'virtualenv'
+        state: 'latest'
+      pip:
+        name: 'proxmoxer'
+        state: 'latest'
+
+    - name: load wireguard module on boot
+      template:
+        dest: /etc/modules-load.d/wireguard
+        src: wireguard_module.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: load wireguard module
+
+  handlers:
+  - name: load wireguard module
+    shell: modprobe wireguard
