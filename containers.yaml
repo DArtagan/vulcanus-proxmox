@@ -26,6 +26,7 @@
       disk: '{{ item.value.disk | default(defaults.disk.ct) }}'
       storage: '{{ item.value.storage | default(defaults.storage.ct) }}'
       onboot: '{{ item.value.onboot | default(defaults.onboot) }}'
+      mounts: '{{ item.value.mounts | default(defaults.mounts) }}'
       pubkey: '{{ item.value.pubkey | default(defaults.pubkey) }}'
       nameserver: '{{ item.value.nameserver | default(defaults.nameserver) }}'
       searchdomain: '{{ item.value.searchdomain | default(defaults.searchdomain) }}'

@@ -1,0 +1,40 @@
+---
+- name: 'set up a fileserver'
+  hosts: fileserver
+  vars:
+
+  tasks:
+    - name: install samba
+      apt:
+        name: samba
+        update_cache: yes
+        state: present
+
+    # - name: create sambauser
+
+    - name: create share directories
+      ansible.builtin.file:
+        path: /mnt/media
+        state: directory
+        owner: nobody
+
+    - name: create samba configuration
+      template:
+        dest: /etc/samba/smb.conf
+        src: smb.conf.j2
+        owner: root
+        group: root
+        mode: '0600'
+      notify: reload samba config
+
+    - name: start samba and enable on boot
+      systemd:
+        name: smbd
+        enabled: yes
+        state: started
+
+  handlers:
+  - name: reload samba config
+    shell: smbcontrol all reload-config
+    args:
+      executable: /bin/bash
