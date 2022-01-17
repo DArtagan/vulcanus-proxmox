@@ -4,6 +4,24 @@
   vars:
 
   tasks:
+    # - name: install nfs
+    #   apt:
+    #     name: nfs-kernel-server
+    #     update_cache: yes
+    #     state: present
+
+    #- name: install nfs-ganesha
+    #  apt:
+    #    name: nfs-ganesha
+    #    update_cache: yes
+    #    state: present
+
+    #- name: install nfs-ganesha-vfs
+    #  apt:
+    #    name: nfs-ganesha-vfs
+    #    update_cache: yes
+    #    state: present
+
     - name: install samba
       apt:
         name: samba
@@ -18,6 +36,15 @@
         state: directory
         owner: nobody
 
+    #- name: create nfs configuration
+    #  template:
+    #    dest: /etc/ganesha/ganesha.conf
+    #    src: ganesha.conf.j2
+    #    owner: root
+    #    group: root
+    #    mode: '0600'
+    #  notify: reload nfs config
+
     - name: create samba configuration
       template:
         dest: /etc/samba/smb.conf
@@ -27,6 +54,12 @@
         mode: '0600'
       notify: reload samba config
 
+   #- name: start nfs and enable on boot
+   #  systemd:
+   #    name: nfs-ganesha
+   #    enabled: yes
+   #    state: started
+
     - name: start samba and enable on boot
       systemd:
         name: smbd
@@ -34,6 +67,11 @@
         state: started
 
   handlers:
+  # - name: reload nfs config
+  #   shell: systemctl reload nfs-ganesha
+  #   args:
+  #     executable: /bin/bash
+
   - name: reload samba config
     shell: smbcontrol all reload-config
     args:

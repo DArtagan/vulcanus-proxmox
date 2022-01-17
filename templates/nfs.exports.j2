@@ -1,0 +1,14 @@
+EXPORT {
+  Export_Id = 1;
+  Path = /mnt/media;
+  Pseudo = /mnt/media;
+  Protocols = 3,4;
+  Access_Type = RW;
+  Squash = None;
+  FSAL {
+    Name = VFS;
+  }
+  CLIENT {
+    Clients = *;
+  }
+}

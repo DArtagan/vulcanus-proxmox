@@ -1,0 +1,27 @@
+---
+- name: 'configure RancherOS guest'
+  hosts: rancheros
+  become: yes
+  vars:
+
+  tasks:
+    - name: install nfs
+      apt:
+        name: nfs-common
+        update_cache: yes
+        state: present
+
+    - name: create share directories
+      ansible.builtin.file:
+        path: /media/phoenix
+        state: directory
+        owner: nobody
+
+    - name: mount /media NFS
+      ansible.posix.mount:
+        # TODO: get this from the hosts file or something
+        src: //192.168.0.105/media
+        path: /media/phoenix
+        opts: rw,guest,uid=1100,gid=1100
+        state: mounted
+        fstype: cifs
