@@ -1,0 +1,60 @@
+---
+- name: 'install and configure sanoid on proxmox host for zfs'
+  hosts: proxmox
+  vars:
+    packages:
+      - debhelper
+      - libcapture-tiny-perl
+      - libconfig-inifiles-perl
+      - pv
+      - lzop
+      - mbuffer
+      - build-essential
+    sanoid_repo: https://github.com/jimsalterjrs/sanoid.git 
+
+  tasks:
+    - name: 'install dependencies'
+      apt:
+        name: "{{ packages }}"
+
+    - name: 'get latest version tag'
+      shell: 'git -c "versionsort.suffix=v" ls-remote --exit-code --refs --sort="version:refname" --tags {{ sanoid_repo }} | grep "refs/tags/v" | tail -n 1 | cut --delimiter="/" --fields=3 | sed "s/^.//"'
+      args:
+        chdir: "{{ ansible_env.HOME }}/sanoid"
+      register: sanoid_latest_version
+    
+    - name: 'clone repo'
+      ansible.builtin.git:
+        repo: "{{ sanoid_repo }}"
+        dest: "{{ ansible_env.HOME }}/sanoid"
+        version: "v{{ sanoid_latest_version.stdout }}"
+
+    - name: 'create symlink to packages'
+      ansible.builtin.file:
+        src: "{{ ansible_env.HOME }}/sanoid/packages/debian"
+        dest: "{{ ansible_env.HOME }}/sanoid/debian"
+        state: link
+    
+    - name: 'build the package'
+      command: 'dpkg-buildpackage -uc -us'
+      args:
+        chdir: "{{ ansible_env.HOME }}/sanoid"
+    
+    - name: 'install sanoid'
+      apt:
+        deb: "{{ ansible_env.HOME }}/sanoid_{{ sanoid_latest_version.stdout }}_all.deb"
+    
+    - name: 'sanoid config'
+      template:
+        dest: /etc/sanoid/sanoid.conf
+        src: sanoid.conf
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: "enable sanoid timer"
+      systemd:
+        name: sanoid.timer
+        enabled: yes
+        state: started
+      
