@@ -1,0 +1,16 @@
+---
+- name: 'zfs configuration'
+  hosts: proxmox
+  vars:
+    zpool: rpool
+
+  tasks:
+    - name: 'storage/media dataset'
+      community.general.zfs:
+        name: "{{ zpool }}/storage/media"
+        state: present
+
+    - name: 'storage/filesync dataset'
+      community.general.zfs:
+        name: "{{ zpool }}/storage/filesync"
+        state: present
