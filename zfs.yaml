@@ -5,12 +5,35 @@
     zpool: rpool
 
   tasks:
-    - name: 'storage/media dataset'
+    - name: 'storage dataset'
       community.general.zfs:
-        name: "{{ zpool }}/storage/media"
+        name: "{{ zpool }}/storage"
         state: present
 
     - name: 'storage/filesync dataset'
       community.general.zfs:
         name: "{{ zpool }}/storage/filesync"
         state: present
+      notify: 'add filesync dataset to proxmox'
+
+    - name: 'storage/media dataset'
+      community.general.zfs:
+        name: "{{ zpool }}/storage/media"
+        state: present
+      notify: 'add media dataset to proxmox'
+
+    - name: 'storage/photos dataset'
+      community.general.zfs:
+        name: "{{ zpool }}/storage/photos"
+        state: present
+      notify: 'add photos dataset to proxmox'
+
+  handlers:
+    - name: 'add filesync dataset to proxmox'
+      shell: pvesm add dir storage_filesync --path /rpool/storage/filesync --is_mountpoint 1 --shared 0 --content rootdir
+
+    - name: 'add media dataset to proxmox'
+      shell: pvesm add dir storage_media --path /rpool/storage/media --is_mountpoint 1 --shared 0 --content rootdir
+
+    - name: 'add photos dataset to proxmox'
+      shell: pvesm add dir storage_photos --path /rpool/storage/photos --is_mountpoint 1 --shared 0 --content rootdir

@@ -19,14 +19,18 @@
 [media]
    browseable = yes
    writeable = yes
-   path = /mnt/media
+   path = /mnt/storage/media
    guest ok = yes
    # guest only = yes
 
 [filesync]
    browseable = yes
    writeable = yes
-   path = /mnt/filesync
+   path = /mnt/storage/filesync
    valid users = rancher
-   # guest ok = yes
-   # guest only = yes
+
+[photos]
+   browseable = yes
+   writeable = yes
+   path = /mnt/storage/photos
+   valid users = rancher

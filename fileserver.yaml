@@ -1,4 +1,6 @@
 ---
+# Note: the fileserver must be completely recreated to add new mount points to it
+
 - name: 'set up a fileserver'
   hosts: fileserver
   vars:
@@ -50,12 +52,6 @@
       with_items: "{{ samba_users }}"
       loop_control:
         label: "{{ item.username }}"
-
-    - name: create share directories
-      ansible.builtin.file:
-        path: /mnt/media
-        state: directory
-        owner: nobody
 
     #- name: create nfs configuration
     #  template:

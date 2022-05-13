@@ -11,18 +11,6 @@
         update_cache: yes
         state: present
 
-    - name: create phoenix share directory
-      ansible.builtin.file:
-        path: /media/phoenix
-        state: directory
-        owner: nobody
-
-    - name: create filesync share directory
-      ansible.builtin.file:
-        path: /mnt/filesync
-        state: directory
-        owner: rancher
-
     - name: mount /media NFS
       ansible.posix.mount:
         # TODO: get this from the hosts file or something
@@ -38,7 +26,15 @@
         src: //192.168.0.105/filesync
         path: /mnt/filesync
         opts: rw,uid=1100,gid=1100,file_mode=0777,dir_mode=0777,username=rancher,password=rancher
-          #opts: rw,guest,uid=65534,gid=65534
+        state: mounted
+        fstype: cifs
+
+    - name: mount /photos NFS
+      ansible.posix.mount:
+        # TODO: get this from the hosts file or something
+        src: //192.168.0.105/photos
+        path: /mnt/photos
+        opts: rw,uid=1100,gid=1100,file_mode=0777,dir_mode=0777,username=rancher,password=rancher
         state: mounted
         fstype: cifs
 
