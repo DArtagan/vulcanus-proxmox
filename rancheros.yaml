@@ -5,40 +5,13 @@
   vars:
 
   tasks:
-    - name: install nfs
-      apt:
-        name: nfs-common
-        update_cache: yes
-        state: present
-
-    - name: mount /media NFS
-      ansible.posix.mount:
-        # TODO: get this from the hosts file or something
-        src: //192.168.0.105/media
-        path: /media/phoenix
-        opts: rw,guest,uid=1100,gid=1100
-        state: mounted
-        fstype: cifs
-
-    - name: mount /filesync NFS
-      ansible.posix.mount:
-        # TODO: get this from the hosts file or something
-        src: //192.168.0.105/filesync
-        path: /mnt/filesync
-        opts: rw,uid=1100,gid=1100,file_mode=0777,dir_mode=0777,username=rancher,password=rancher
-        state: mounted
-        fstype: cifs
-
-    - name: mount /photos NFS
-      ansible.posix.mount:
-        # TODO: get this from the hosts file or something
-        src: //192.168.0.105/photos
-        path: /mnt/photos
-        opts: rw,uid=1100,gid=1100,file_mode=0777,dir_mode=0777,username=rancher,password=rancher
-        state: mounted
-        fstype: cifs
-
-    - name: 'resilio configuration'
+    - name: cloud config
       template:
-        dest: "/mnt/filesync/resilio/sync.conf"
-        src: resilio_sync.conf.j2
+        dest: /home/rancher/cloud-config.yml
+        src: rancheros-cloud-config.yml.j2
+        validate: ros config validate -i %s
+      notify: load cloud-config
+
+  handlers:
+    - name: load cloud-config
+      command: sudo ros config merge -i /home/rancher/cloud-config.yml
