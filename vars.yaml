@@ -45,5 +45,5 @@ cts:
     memory: 512
     swap: 0
     cores: 1
-    mounts: '{"mp0":"/rpool/storage/media,mp=/mnt/storage/media","mp1":"/rpool/storage/filesync,mp=/mnt/storage/filesync","mp2":"/rpool/storage/photos,mp=/mnt/storage/photos"}'
+    mounts: '{"mp0":"/rpool/storage/media,mp=/mnt/storage/media","mp1":"/rpool/storage/filesync,mp=/mnt/storage/filesync","mp2":"/rpool/storage/photos,mp=/mnt/storage/photos","mp3":"/spool/backups,mp=/mnt/backups"}'
     netif: '{"net0":"name=eth0,ip=192.168.0.105/24,gw=192.168.0.1,bridge=vmbr0"}'
