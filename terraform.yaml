@@ -1,0 +1,48 @@
+---
+- name: 'terraform on proxmox'
+  hosts: proxmox
+
+# Note: this playbook is not very idempotent, it will blithely attempt
+# user/role creation and assume it worked.  The API key will only be shown the
+# first time.
+
+  tasks:
+    - name: 'create terraform role'
+      shell: pveum role add Terraform -privs "VM.Allocate VM.Clone VM.Config.CDROM VM.Config.CPU VM.Config.Cloudinit VM.Config.Disk VM.Config.HWType VM.Config.Memory VM.Config.Network VM.Config.Options VM.Monitor VM.Audit VM.PowerMgmt Datastore.AllocateSpace Datastore.Audit" || true
+
+    - name: 'create terraform user'
+      shell: pveum user add terraform@pve || true
+
+    - name: 'assign role to user'
+      shell: pveum aclmod / -user terraform@pve -role Terraform || true
+
+    - name: 'create API token for user'
+      shell: pveum user token add terraform@pve terraform-provisioner --privsep 0 || true
+      register: api_token_output
+
+    - debug:
+        var: api_token_output
+
+    - name: 'add terraform repository key'
+      ansible.builtin.apt_key:
+        url: https://apt.releases.hashicorp.com/gpg
+        keyring: /usr/share/keyrings/terraform-archive-keyring.gpg
+        state: present
+
+    - name: 'add terraform repository key'
+      ansible.builtin.apt_key:
+        #id: DA418C88A3219F7B
+        url: https://apt.releases.hashicorp.com/gpg
+        keyring: /usr/share/keyrings/terraform-archive-keyring.gpg
+        state: present
+
+    - name: 'add terraform repository'
+      ansible.builtin.apt_repository:
+        repo: deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else ansible_architecture }} signed-by=/usr/share/keyrings/terraform-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main
+        state: present
+
+    - name: 'install terraform'
+      apt:
+        name: terraform
+        update_cache: yes
+        state: present
