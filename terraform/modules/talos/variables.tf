@@ -98,11 +98,13 @@ variable "public_network_bridge" {
 variable "proxmox_api_token_id" {
     description = "The ID of the API token used for authentication with the Proxmox API."
     type = string
+    sensitive = true
 }
 
 variable "proxmox_api_token_secret" {
     description = "The secret value of the token used for authentication with the Proxmox API."
     type = string
+    sensitive = true
 }
 
 variable "proxmox_host_node" {

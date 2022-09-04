@@ -40,6 +40,15 @@ resource "proxmox_vm_qemu" "talos-control-plane-node" {
     bridge = var.config_network_bridge
     #tag = var.config_vlan
   }
+  # TODO: I added this network device so it was discoverable, why this and not their way?
+  network {
+    bridge = "vmbr0"
+    firewall = false
+    link_down = false
+    model = "virtio"
+    tag = 75
+    #tag = var.config_vlan
+  }
   # TODO: why two bridges/vlans?
   #network {
   #  model = "virtio"

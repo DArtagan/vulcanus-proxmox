@@ -29,6 +29,12 @@
         state: present
       notify: 'add photos dataset to proxmox'
 
+    - name: 'proxmox_backup_server'
+      community.general.zfs:
+        name: "{{ zpool }}/proxmox_backup_server"
+        state: present
+      notify: 'add add_proxmox_backup_server dataset to the rpool'
+
     - name: 'backups dataset'
       community.general.zfs:
         name: "{{ spool }}/backups"
@@ -44,6 +50,9 @@
 
     - name: 'add photos dataset to proxmox'
       shell: pvesm add dir storage_photos --path /rpool/storage/photos --is_mountpoint 1 --shared 0 --content rootdir
+
+    - name: 'add proxmox_backup_server dataset to the rpool'
+      shell: pvesm add dir proxmox_backup_server --path /rpool/proxmox_backup_server --is_mountpoint 1 --shared 0 --content rootdir
 
     - name: 'add backups dataset to the spool'
       shell: pvesm add dir backups --path /spool/backups --is_mountpoint 1 --shared 0 --content rootdir

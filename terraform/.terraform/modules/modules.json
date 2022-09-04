@@ -1,1 +1,1 @@
-{"Modules":[{"Key":"","Source":"","Dir":"."},{"Key":"talos","Source":"./modules/talos","Dir":"modules/talos"}]}
+{"Modules":[{"Key":"","Source":"","Dir":"."},{"Key":"talos","Source":"./modules/talos","Dir":"modules/talos"},{"Key":"proxmox_backup_server","Source":"./modules/proxmox_backup_server","Dir":"modules/proxmox_backup_server"}]}

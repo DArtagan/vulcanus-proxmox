@@ -5,11 +5,13 @@
 variable "proxmox_api_token_id" {
     description = "The ID of the API token used for authentication with the Proxmox API."
     type = string
+    sensitive = true
 }
 
 variable "proxmox_api_token_secret" {
     description = "The secret value of the token used for authentication with the Proxmox API."
     type = string
+    sensitive = true
 }
 
 variable "proxmox_host_node" {
@@ -25,6 +27,19 @@ variable "proxmox_api_url" {
 # Setting these here so it can be used in root module's .tfvars files.
 #variable "ceph_mon_disk_storage_pool" {}
 #variable "proxmox_debug" {}
+
+
+module "proxmox_backup_server" {
+    source = "./modules/proxmox_backup_server"
+    proxmox_host_node = var.proxmox_host_node
+    proxmox_api_url = var.proxmox_api_url
+    proxmox_api_token_id = var.proxmox_api_token_id
+    proxmox_api_token_secret = var.proxmox_api_token_secret
+    proxmox_debug = true
+    iso_image_location = "local:iso/proxmox-backup-server_2.2-1.iso"
+    backup_disk_storage_pool = "proxmox_backup_server"
+    backup_disk_size = "500G"
+}
 
 
 module "talos" {
