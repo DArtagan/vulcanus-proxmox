@@ -5,6 +5,7 @@
   vars:
 
   tasks:
+    # Changes often require two restarts, one to add the cloud-config and one to run the config on start
     - name: cloud config
       template:
         dest: /home/rancher/cloud-config.yml
