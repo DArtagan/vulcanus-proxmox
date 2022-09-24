@@ -29,6 +29,12 @@
         state: present
       notify: 'add photos dataset to proxmox'
 
+    - name: 'backups/borg dataset'
+      community.general.zfs:
+        name: "{{ zpool }}/backups/borg"
+        state: present
+      notify: 'add backups/borg dataset to proxmox'
+
     - name: 'proxmox_backup_server'
       community.general.zfs:
         name: "{{ zpool }}/proxmox_backup_server"
@@ -50,6 +56,9 @@
 
     - name: 'add photos dataset to proxmox'
       shell: pvesm add dir storage_photos --path /rpool/storage/photos --is_mountpoint 1 --shared 0 --content rootdir
+
+    - name: 'add backups/borg dataset to proxmox'
+      shell: pvesm add dir backups_borg --path /rpool/backups/borg --is_mountpoint 1 --shared 0 --content rootdir
 
     - name: 'add proxmox_backup_server dataset to the rpool'
       shell: pvesm add dir proxmox_backup_server --path /rpool/proxmox_backup_server --is_mountpoint 1 --shared 0 --content rootdir
