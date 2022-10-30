@@ -69,7 +69,7 @@ resource "proxmox_lxc" "fileserver" {
   hostname = "fileserver"
   vmid = 105
   ostemplate = "local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst"
-  unprivileged = true # TODO: this may need to be false
+  unprivileged = false
   memory = 512
   swap = 0
   nameserver = "192.168.0.104"
@@ -148,10 +148,10 @@ module "talos" {
   proxmox_api_token_secret = var.proxmox_api_token_secret
   proxmox_debug = true
   control_plane_node_count = 3
-  worker_node_count = 0
+  worker_node_count = 1
 
   #ceph_mon_disk_storage_pool = "Intel_NVME"
-  iso_image_location = "local:iso/talos-1.1.0-amd64.iso"
+  iso_image_location = "local:iso/talos-1.2.6-amd64.iso"
 }
 
 #output "control_plane_mac_addrs" {

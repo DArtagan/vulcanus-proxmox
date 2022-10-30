@@ -17,13 +17,13 @@ variable "control_plane_node_memory" {
 variable "worker_node_count" {
     description = "Number of worker nodes for the cluster."
     type = number
-    default = 5
+    default = 3
 }
 
 variable "worker_node_memory" {
     description = "The amount of memory in MiB to give the worker nodes."
     type = number
-    default = 8192
+    default = 4096
 }
 
 variable "iso_image_location" {
