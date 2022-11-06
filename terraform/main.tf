@@ -1,7 +1,3 @@
-# Handles creating the VMs in Proxmox for a Talos Cluster.
-# Does NOT bootstrap the cluster.
-# Credit: https://github.com/chippawah/proxmox-cluster-example
-
 terraform {
   required_providers {
     proxmox = {
@@ -48,6 +44,22 @@ variable "proxmox_debug" {
 variable "public_key" {
   description = "The public key to be put recognized by containers/vms for remote connection."
   type = string
+}
+
+variable "github_token" {
+  type = string
+  sensitive = true
+  description = "Github Personal Access Token for flux's use."
+}
+
+variable "commit_author" {
+  type = string
+  description = "Name of the person associated with that Github token."
+}
+
+variable "commit_email" {
+  type = string
+  description = "Email of the person associated with that Github token."
 }
 
 
@@ -147,17 +159,30 @@ module "talos" {
   proxmox_api_token_id = var.proxmox_api_token_id
   proxmox_api_token_secret = var.proxmox_api_token_secret
   proxmox_debug = true
-  control_plane_node_count = 3
+  control_plane_node_count = 1
   worker_node_count = 1
+  cluster_name = "piraeus"
+  cluster_endpoint = "https://192.168.0.190:6443"
+  control_plane_ip_start = "192.168.0.190"
+  worker_ip_start = "192.168.0.195"
 
   #ceph_mon_disk_storage_pool = "Intel_NVME"
   iso_image_location = "local:iso/talos-1.2.6-amd64.iso"
 }
 
-#output "control_plane_mac_addrs" {
-#    value = module.talos.control_plane_config_mac_addrs
-#}
-#
-#output "worker_mac_addrs" {
-#    value = module.talos.worker_node_config_mac_addrs
-#}
+resource "local_sensitive_file" "kubeconfig" {
+  content = module.talos.kubeconfig
+  filename = "../.kubeconfig"
+}
+
+module "fluxcd" {
+  source = "./modules/fluxcd"
+  github_owner = "dartagan"
+  github_token = var.github_token
+  repository_name = "vulcanus-proxmox"
+  branch = "main"
+  target_path = "kubernetes/"
+  kubeconfig_path = local_sensitive_file.kubeconfig.filename
+  commit_author = var.commit_author
+  commit_email = var.commit_email
+}

@@ -128,3 +128,23 @@ variable "proxmox_debug" {
     type = bool
     default = false
 }
+
+variable "cluster_name" {
+  description = "A name to provide for the Talos cluster"
+  type = string
+}
+
+variable "cluster_endpoint" {
+  description = "The endpoint for the Talos cluster"
+  type = string
+}
+
+variable "control_plane_ip_start" {
+  description = ""
+  type = string
+}
+
+variable "worker_ip_start" {
+  description = ""
+  type = string
+}
