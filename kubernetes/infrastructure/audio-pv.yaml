@@ -7,13 +7,19 @@ spec:
     - ReadWriteMany
   capacity:
     storage: 1Ti
-  nfs:
-    server: 192.168.0.105
-    path: /media/audio
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: smb.csi.k8s.io
+    readonly: false
+    volumeHandle: audio-pv
+    volumeAttributes:
+      source: "//192.168.0.106/media/audio"
+    #nodeStageSecretRef:
+    #  name: smbcreds
+    #  namespace: infrastructure
   mountOptions:
     - rw
     - guest
     - uid=1100
     - gid=1100
-    - nolock
   volumeMode: Filesystem

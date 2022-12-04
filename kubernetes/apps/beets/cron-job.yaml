@@ -18,6 +18,7 @@ spec:
               args:
                 - import
                 - -q
+                - --pretend  # TODO: remove once everything's hooked up
                 - /audio/import
               env:
                 - name: PUID
