@@ -3,6 +3,7 @@ kind: Kustomization
 namespace: infrastructure
 resources:
   - audio-pv.yaml
+  - csi-driver-smb.yaml
   - openebs.yaml
   - namespace.yaml
   #- traefik
