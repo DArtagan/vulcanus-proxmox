@@ -22,7 +22,6 @@ spec:
                   value: 1100
                 - name: GUID
                   value: 1100
-              restartPolicy: OnFailure
               volumeMounts:
                 - name: config-volume
                   mountPath: /config/
@@ -32,6 +31,7 @@ spec:
                 - name: library-volume
                   mountPath: /library/
               # TODO: should I re-import all the music (moving the files?) or copy the library off of rancher?
+          restartPolicy: OnFailure
           volumes:
             - name: config-volume
               configMap:
