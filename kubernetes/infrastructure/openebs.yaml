@@ -26,6 +26,7 @@ spec:
   chart:
     spec:
       chart: openebs
+      namespace: openebs
       sourceRef:
         kind: HelmRepository
         name: openebs
