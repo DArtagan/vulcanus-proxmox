@@ -15,4 +15,5 @@ spec:
     - guest
     - uid=1100
     - gid=1100
+    - nolock
   volumeMode: Filesystem
