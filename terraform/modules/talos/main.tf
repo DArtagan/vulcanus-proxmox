@@ -56,12 +56,6 @@ resource "proxmox_vm_qemu" "control_plane_node" {
     size = var.boot_disk_size
     storage = var.boot_disk_storage_pool
   }
-  # TODO: what to do about Ceph?
-  #disk {
-  #  type = "virtio"
-  #  size = var.ceph_mon_disk_size
-  #  storage = var.ceph_mon_disk_storage_pool
-  #}
 }
 
 
@@ -100,17 +94,11 @@ resource "proxmox_vm_qemu" "worker_node" {
     size = var.boot_disk_size
     storage = var.boot_disk_storage_pool
   }
-  # TODO: what to do about Ceph?
-  #disk {
-  #  type = "virtio"
-  #  size = var.ceph_mon_disk_size
-  #  storage = var.ceph_mon_disk_storage_pool
-  #}
-  #disk {
-  #  type = "virtio"
-  #  size = var.ceph_osd_disk_size
-  #  storage = var.ceph_osd_disk_storage_pool
-  #}
+  disk {
+    type = "virtio"
+    size = var.openebs_disk_size
+    storage = var.openebs_disk_storage_pool
+  }
 }
 
 
@@ -164,11 +152,9 @@ resource "talos_machine_configuration_apply" "control_plane_config_apply" {
   endpoint = local.control_plane_endpoints[index(local.control_plane_endpoints, each.value)]
   node = local.control_plane_endpoints[index(local.control_plane_endpoints, each.value)]
   config_patches = [
-    templatefile("${path.module}/templates/patch.yaml.tmpl", {
+    templatefile("${path.module}/templates/control-plane-patch.yaml.tmpl", {
       hostname = format("%s-control-plane-%s", var.cluster_name, index(local.control_plane_endpoints, each.value))
-      install_disk = "/dev/vda"
-    }),
-    file("${path.module}/files/patch.json"),
+    })
   ]
 }
 
@@ -179,10 +165,10 @@ resource "talos_machine_configuration_apply" "worker_config_apply" {
   endpoint = local.worker_endpoints[index(local.worker_endpoints, each.value)]
   node = local.worker_endpoints[index(local.worker_endpoints, each.value)]
   config_patches = [
-    templatefile("${path.module}/templates/patch.yaml.tmpl", {
+    templatefile("${path.module}/templates/worker-patch.yaml.tmpl", {
       hostname = format("%s-worker-%s", var.cluster_name, index(local.worker_endpoints, each.value))
-      install_disk = "/dev/vda"
-    })
+    }),
+    file("${path.module}/files/worker-patch.json"),
   ]
 }
 

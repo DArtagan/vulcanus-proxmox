@@ -1,0 +1,9 @@
+machine:
+  install:
+    disk: /dev/vda
+  network:
+    hostname: ${hostname}
+  disks:
+    - device: /dev/vdb
+      partitions:
+        - mountpoint: /var/openebs

@@ -1,0 +1,47 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: beets-import
+spec:
+  schedule: "* * * * *"
+  jobTemplate:
+    spec:
+      containers:
+        - name: beets-import
+          image: linuxserver/beets
+          command: beet
+          concurrencyPolicy: Forbid
+          args:
+            - import
+            - -q
+            - /audio/import
+          env:
+            - name: PUID
+              value: 1100
+            - name: GUID
+              value: 1100
+          restartPolicy: OnFailure
+          volumeMounts:
+            - name: config-volume
+              mountPath: /config/
+              readOnly: true
+            - name: media-volume
+              mountPath: /audio/
+            - name: library-volume
+              mountPath: /library/
+          # TODO: should I re-import all the music (moving the files?) or copy the library off of rancher?
+
+
+      volumes:
+        - name: config-volume
+          configMap:
+            name: beets-config-map
+        - name: library-volume
+          persistentVolumeClaim:
+            claimName: beets-library-pvc
+          # What happens if the node dies: the storage is lost.
+          # What happens if the job is migrated to a new node: it will no longer have the storage.
+          # TODO: backup these dynamically generated volumes
+        - name: media-volume
+          persistentVolumeClaim:
+            claimName: audio-pvc

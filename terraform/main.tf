@@ -166,7 +166,7 @@ module "talos" {
   control_plane_ip_start = "192.168.0.190"
   worker_ip_start = "192.168.0.195"
 
-  #ceph_mon_disk_storage_pool = "Intel_NVME"
+  # ISO first used to create the cluster. From here on out, use `talosctl upgrade`.
   iso_image_location = "local:iso/talos-1.2.6-amd64.iso"
 }
 
@@ -175,13 +175,18 @@ resource "local_sensitive_file" "kubeconfig" {
   filename = "../.kubeconfig"
 }
 
+resource "local_sensitive_file" "talosconfig" {
+  content = module.talos.talosconfig
+  filename = "../.talosconfig"
+}
+
 module "fluxcd" {
   source = "./modules/fluxcd"
   github_owner = "dartagan"
   github_token = var.github_token
   repository_name = "vulcanus-proxmox"
   branch = "main"
-  target_path = "kubernetes/"
+  target_path = "kubernetes/cluster"
   kubeconfig_path = local_sensitive_file.kubeconfig.filename
   commit_author = var.commit_author
   commit_email = var.commit_email

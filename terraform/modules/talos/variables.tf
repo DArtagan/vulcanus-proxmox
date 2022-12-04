@@ -11,7 +11,7 @@ variable "control_plane_node_count" {
 variable "control_plane_node_memory" {
     description = "The amount of memory in MiB to give the control plane nodes."
     type = number
-    default = 2048
+    default = 4096
 }
 
 variable "worker_node_count" {
@@ -45,30 +45,16 @@ variable "boot_disk_size" {
     default = "10G"
 }
 
-variable "ceph_mon_disk_storage_pool" {
-    description = "The name of the storage pool where Ceph mon disks should be stored."
+variable "openebs_disk_storage_pool" {
+    description = "The name of the storage pool that will house the local OpenEBS storage."
     type = string
     default = "local-zfs"
-    #default = "NVME_Pool"
 }
 
-variable "ceph_mon_disk_size" {
-    description = "The size of the Ceph mon disks. A numeric string with G, M, or K appended ex: 512M or 32G."
+variable "openebs_disk_size" {
+    description = "The size of the OpenEBS disks. A numeric string with G, M, or K appended ex: 512M or 32G."
     type = string
-    default = "64G"
-}
-
-variable "ceph_osd_disk_storage_pool" {
-    description = "The name of the storage pool where Ceph OSD disks should be stored."
-    type = string
-    default = "local-zfs"
-    #default = "HDD_Pool"
-}
-
-variable "ceph_osd_disk_size" {
-    description = "The size of the Ceph OSD disks. A numeric string with G, M, or K appended ex: 512M or 32G."
-    type = string
-    default = "128G"
+    default = "256G"
 }
 
 variable "config_vlan" {

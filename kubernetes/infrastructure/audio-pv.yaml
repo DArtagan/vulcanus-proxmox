@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: audio-pv
+spec:
+  accessModes:
+    - ReadWriteMany
+  nfs:
+    server: 192.168.0.105
+    path: /media/audio
+  mountOptions:
+    - rw
+    - guest
+    - uid=1100
+    - gid=1100
+  volumeMode: Filesystem
