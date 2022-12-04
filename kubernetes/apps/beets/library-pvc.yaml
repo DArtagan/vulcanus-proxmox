@@ -6,5 +6,5 @@ spec:
   # TODO: make sure the reclaimPolicy on this is default PV right, and all the other defaults
   storageClassName: openebs-hostpath
   accessModes:
-    - ReadWriteOncePod
+    - ReadWriteOnce
   # TODO: see if other pods can connect to this claim when it's not in use by the cronjob
