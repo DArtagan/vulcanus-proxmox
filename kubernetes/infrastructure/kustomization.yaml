@@ -10,3 +10,9 @@ resources:
   # TODO:
   # How do we set flux to install infrastructure before apps?
   # Push this whole thing to the repo and watch what flux does with it.  First time success?
+patches:
+  - patch: 
+    asdf
+    target:
+      name: asdf
+      kind: ConfigMap

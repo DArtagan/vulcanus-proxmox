@@ -16,7 +16,7 @@ spec:
   interval: 5m
   chart:
     spec:
-      chart: openebs/openebs
+      chart: openebs
       sourceRef:
         kind: HelmRepository
         name: openebs
