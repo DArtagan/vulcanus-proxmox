@@ -4,6 +4,8 @@ metadata:
   name: beets-import
 spec:
   concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 1
+  successfulJobsHistoryLimit: 3
   schedule: "* * * * *"
   jobTemplate:
     spec:
