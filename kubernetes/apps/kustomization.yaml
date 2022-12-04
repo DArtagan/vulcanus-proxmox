@@ -4,3 +4,4 @@ namespace: apps
 resources:
   - beets
   - namespace.yaml
+  - podinfo.yaml
