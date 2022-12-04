@@ -13,7 +13,7 @@ spec:
     readOnly: false
     volumeHandle: audio-pv
     volumeAttributes:
-      source: "//192.168.0.106/media/audio"
+      source: "//192.168.0.105/media/audio"
     #nodeStageSecretRef:
     #  name: smbcreds
     #  namespace: infrastructure
