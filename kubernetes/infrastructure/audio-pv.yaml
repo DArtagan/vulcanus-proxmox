@@ -5,7 +5,8 @@ metadata:
 spec:
   accessModes:
     - ReadWriteMany
-  capacity: 1Ti
+  capacity:
+    storage: 1Ti
   nfs:
     server: 192.168.0.105
     path: /media/audio

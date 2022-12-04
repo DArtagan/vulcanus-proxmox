@@ -1,8 +1,9 @@
-apiVersion: batch/v1
+apiVersion: batch/v2alpha1
 kind: CronJob
 metadata:
   name: beets-import
 spec:
+  concurrencyPolicy: Forbid
   schedule: "* * * * *"
   jobTemplate:
     spec:
@@ -11,17 +12,16 @@ spec:
           containers:
             - name: beets-import
               image: linuxserver/beets
-              command: beet
-              concurrencyPolicy: Forbid
+              command: ["beet"]
               args:
                 - import
                 - -q
                 - /audio/import
               env:
                 - name: PUID
-                  value: 1100
+                  value: "1100"
                 - name: GUID
-                  value: 1100
+                  value: "1100"
               volumeMounts:
                 - name: config-volume
                   mountPath: /config/
