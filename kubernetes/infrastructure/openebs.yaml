@@ -1,7 +1,15 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openebs
+
+
+---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
   name: openebs
+  namespace: openebs
 spec:
   interval: 5m  # 24h
   url: https://openebs.github.io/charts
@@ -12,6 +20,7 @@ apiVersion: helm.toolkit.fluxcd.io/v2beta1
 kind: HelmRelease
 metadata:
   name: openebs
+  namespace: openebs
 spec:
   interval: 5m
   chart:
@@ -21,9 +30,6 @@ spec:
         kind: HelmRepository
         name: openebs
       interval: 5m
-  values:
-    rbac:
-      pspEnabled: true
 
 
 ---
