@@ -10,7 +10,7 @@ spec:
   persistentVolumeReclaimPolicy: Retain
   csi:
     driver: smb.csi.k8s.io
-    readonly: false
+    readOnly: false
     volumeHandle: audio-pv
     volumeAttributes:
       source: "//192.168.0.106/media/audio"
