@@ -17,7 +17,6 @@ spec:
   chart:
     spec:
       chart: openebs/openebs
-      version: 3.3.1
       sourceRef:
         kind: HelmRepository
         name: openebs
