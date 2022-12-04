@@ -6,7 +6,6 @@ resources:
   - audio-pv.yaml
   - openebs.yaml
   - namespace.yaml
-  - security-configuration.yaml
   #- traefik
   # TODO:
   # How do we set flux to install infrastructure before apps?
