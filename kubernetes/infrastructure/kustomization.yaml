@@ -6,4 +6,5 @@ resources:
   - csi-driver-smb.yaml
   - openebs.yaml
   - namespace.yaml
+  - smb-credentials.yaml
   #- traefik

@@ -14,12 +14,11 @@ spec:
     volumeHandle: audio-pv
     volumeAttributes:
       source: "//192.168.0.105/media/audio"
-    #nodeStageSecretRef:
-    #  name: smbcreds
-    #  namespace: infrastructure
+    nodeStageSecretRef:
+      name: smb-credentials
   mountOptions:
     - rw
-    - guest
-    #- uid=1000
+    #- guest
+    #- uid=1100
     #- gid=1100
   volumeMode: Filesystem
