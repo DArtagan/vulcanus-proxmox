@@ -6,6 +6,7 @@ data:
   config.yaml: |
     directory: /audio/
     library: /library/library.blb
+    statefile: /library/state.pickle
     asciify_paths: yes
     paths:
       default: music/$albumartist/$album%aunique{}/$track $title
