@@ -16,6 +16,7 @@ spec:
       source: "//192.168.0.105/media/audio"
     nodeStageSecretRef:
       name: smb-credentials
+      namespace: infrastructure
   mountOptions:
     - rw
     #- guest

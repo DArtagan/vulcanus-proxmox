@@ -4,7 +4,10 @@ metadata:
   name: apps
   namespace: flux-system
 spec:
-  interval: 1m0s
+  dependsOn:
+    - infrastructure
+  interval: 10m0s
+  retryInterval: 1m0s
   path: ./kubernetes/apps
   prune: true
   sourceRef:

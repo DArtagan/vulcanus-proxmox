@@ -4,7 +4,8 @@ metadata:
   name: infrastructure
   namespace: flux-system
 spec:
-  interval: 1m0s
+  interval: 10m0s
+  retryInterval: 1m0s
   path: ./kubernetes/infrastructure
   prune: true
   sourceRef:
