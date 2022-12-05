@@ -21,10 +21,10 @@ spec:
                 - --pretend  # TODO: remove once everything's hooked up
                 - /audio/import
               env:
-                - name: PUID
-                  value: "1100"
-                - name: GUID
-                  value: "1100"
+                #- name: PUID
+                #  value: "1100"
+                #- name: GUID
+                #  value: "1100"
               volumeMounts:
                 - name: config-volume
                   mountPath: /config/
