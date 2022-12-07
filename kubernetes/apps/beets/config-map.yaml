@@ -11,7 +11,7 @@ data:
     paths:
       default: music/$albumartist/$album%aunique{}/$track $title
       comp: music/Various Artists/$album%aunique{}/$track $title
-      singleton: music/Singles/$artist/$title
+      singleton: music/$artist/singles/$title
       genre:audiobook: audiobooks/$albumartist/$album%aunique{}/$track $title
       genre:podcast: podcasts/$albumartist/$album%aunique{}/$track $title
       genre:christmas: christmas/$albumartist/$album%aunique{}/$track $title
@@ -33,7 +33,6 @@ data:
     lastgenre:
       force: no
       whitelist: /config/genre_whitelist.txt
-  # TODO: refine this long genre list?
   genre_whitelist.txt: |
     2 tone
     2-step garage

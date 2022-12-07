@@ -19,12 +19,9 @@ spec:
                 - import
                 - -q
                 - --pretend  # TODO: remove once everything's hooked up
+                - -l
+                - /audio/import/import.log
                 - /audio/import
-              env:
-                #- name: PUID
-                #  value: "1100"
-                #- name: GUID
-                #  value: "1100"
               volumeMounts:
                 - name: config-volume
                   mountPath: /config/
@@ -33,7 +30,6 @@ spec:
                   mountPath: /audio/
                 - name: library-volume
                   mountPath: /library/
-              # TODO: should I re-import all the music (moving the files?) or copy the library off of rancher?
           restartPolicy: OnFailure
           volumes:
             - name: config-volume
@@ -42,9 +38,6 @@ spec:
             - name: library-volume
               persistentVolumeClaim:
                 claimName: beets-library-pvc
-              # What happens if the node dies: the storage is lost.
-              # What happens if the job is migrated to a new node: it will no longer have the storage.
-              # TODO: backup these dynamically generated volumes
             - name: media-volume
               persistentVolumeClaim:
                 claimName: audio-pvc
