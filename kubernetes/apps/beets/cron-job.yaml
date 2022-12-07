@@ -18,7 +18,6 @@ spec:
               args:
                 - import
                 - -q
-                - --pretend  # TODO: remove once everything's hooked up
                 - -l
                 - /audio/import/import.log
                 - /audio/import
