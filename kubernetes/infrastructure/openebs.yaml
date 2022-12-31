@@ -3,7 +3,7 @@ kind: HelmRepository
 metadata:
   name: openebs
 spec:
-  interval: 5m  # 24h
+  interval: 24h
   url: https://openebs.github.io/charts
 
 
@@ -13,14 +13,14 @@ kind: HelmRelease
 metadata:
   name: openebs
 spec:
-  interval: 5m
+  interval: 1h
   chart:
     spec:
       chart: openebs
       sourceRef:
         kind: HelmRepository
         name: openebs
-      interval: 5m
+      interval: 1h
 
 
 ---

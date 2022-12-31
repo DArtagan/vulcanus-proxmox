@@ -7,4 +7,4 @@ resources:
   - openebs.yaml
   - namespace.yaml
   - smb-credentials.yaml
-  #- traefik
+  - traefik.yaml
