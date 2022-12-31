@@ -4,7 +4,8 @@ namespace: infrastructure
 resources:
   - audio-pv.yaml
   - csi-driver-smb.yaml
-  - openebs.yaml
+  - kubernetes-dashboard.yaml
   - namespace.yaml
+  - openebs.yaml
   - smb-credentials.yaml
   - traefik.yaml
