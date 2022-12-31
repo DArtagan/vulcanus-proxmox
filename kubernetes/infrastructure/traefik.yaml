@@ -1,3 +1,4 @@
+# TODO: split up this file
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
@@ -83,16 +84,16 @@ subjects:
 
 
 ---
-apiVersion: traefik.containo.us/v1alpha1
-kind: IngressRoute
-metadata:
-  name: dashboard
-spec:
-  entryPoints:
-    - web
-  routes:
-    - match: Host(`192.168.0.195`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))
-      kind: Rule
-      services:
-        - name: api@internal
-          kind: TraefikService
+#apiVersion: traefik.containo.us/v1alpha1
+#kind: IngressRoute
+#metadata:
+#  name: dashboard
+#spec:
+#  entryPoints:
+#    - web
+#  routes:
+#    - match: Host(`192.168.0.195`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))
+#      kind: Rule
+#      services:
+#        - name: api@internal
+#          kind: TraefikService
