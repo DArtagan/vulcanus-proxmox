@@ -1,0 +1,39 @@
+directory: /music/
+library: /config/library.blb
+
+asciify_paths: yes
+
+paths:
+    default: music/$albumartist/$album%aunique{}/$track $title
+    comp: music/Various Artists/$album%aunique{}/$track $title
+    singleton: music/Singles/$artist/$title
+    genre:audiobook: audiobooks/$albumartist/$album%aunique{}/$track $title
+    genre:podcast: podcasts/$albumartist/$album%aunique{}/$track $title
+    genre:christmas: christmas/$albumartist/$album%aunique{}/$track $title
+
+import:
+    move: yes
+
+clutter: ["*.cue", "*.log", "*.m3u", "cover.jpg"]
+
+plugins:
+    - duplicates
+    - fetchart
+    - fromfilename
+    - importadded
+    - info
+    - lastgenre
+    - mbsync
+    - permissions
+    #- web
+
+permissions:
+    file: 755
+    dir: 755
+
+lastgenre:
+    force: no
+    whitelist: /config/genre_whitelist.txt
+
+web:
+    host: 0.0.0.0

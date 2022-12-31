@@ -3,7 +3,6 @@
   hosts: proxmox
   vars:
     zpool: rpool
-    spool: spool
 
   tasks:
     - name: 'storage dataset'
@@ -41,12 +40,6 @@
         state: present
       notify: 'add add_proxmox_backup_server dataset to the rpool'
 
-    - name: 'backups dataset'
-      community.general.zfs:
-        name: "{{ spool }}/backups"
-        state: present
-      notify: 'add backups dataset to the spool'
-
   handlers:
     - name: 'add filesync dataset to proxmox'
       shell: pvesm add dir storage_filesync --path /rpool/storage/filesync --is_mountpoint 1 --shared 0 --content rootdir
@@ -62,6 +55,3 @@
 
     - name: 'add proxmox_backup_server dataset to the rpool'
       shell: pvesm add dir proxmox_backup_server --path /rpool/proxmox_backup_server --is_mountpoint 1 --shared 0 --content rootdir
-
-    - name: 'add backups dataset to the spool'
-      shell: pvesm add dir backups --path /spool/backups --is_mountpoint 1 --shared 0 --content rootdir
