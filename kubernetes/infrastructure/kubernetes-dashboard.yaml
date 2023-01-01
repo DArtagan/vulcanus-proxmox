@@ -21,6 +21,8 @@ spec:
         kind: HelmRepository
         name: kubernetes-dashboard
       interval: 5m
+  values:
+    protocolHttp: true
 
 
 ---
@@ -39,4 +41,4 @@ spec:
               service:
                 name: kubernetes-dashboard
                 port:
-                  name: https
+                  name: http
