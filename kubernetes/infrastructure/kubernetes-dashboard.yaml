@@ -21,3 +21,23 @@ spec:
         kind: HelmRepository
         name: kubernetes-dashboard
       interval: 5m
+
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kubernetes-dashboard
+
+spec:
+  rules:
+    - host: 192.168.0.201
+      http:
+        paths:
+          - path: /kubernetes-dashboard
+            pathType: Exact
+            backend:
+              service:
+                name: kubernetes-dashboard
+                port:
+                  number: 443
