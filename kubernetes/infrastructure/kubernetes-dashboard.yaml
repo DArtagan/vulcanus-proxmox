@@ -39,4 +39,4 @@ spec:
               service:
                 name: kubernetes-dashboard
                 port:
-                  name: http
+                  name: https
