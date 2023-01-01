@@ -31,8 +31,7 @@ metadata:
 
 spec:
   rules:
-    - host: 192.168.0.201
-      http:
+    - http:
         paths:
           - path: /kubernetes-dashboard
             pathType: Exact
