@@ -162,7 +162,7 @@ module "talos" {
   control_plane_node_count = 1
   worker_node_count = 1
   cluster_name = "piraeus"
-  cluster_endpoint = "https://192.168.0.190:6443"
+  cluster_endpoint = "https://192.168.0.200:6443"
   control_plane_ip_start = "192.168.0.190"
   worker_ip_start = "192.168.0.195"
 

@@ -3,3 +3,8 @@ machine:
     disk: /dev/vda
   network:
     hostname: ${hostname}
+    interfaces:
+      - interface: eth0
+        dhcp: true
+        vip:
+          ip: 192.168.0.200

@@ -5,6 +5,7 @@ resources:
   - audio-pv.yaml
   - csi-driver-smb.yaml
   - kubernetes-dashboard.yaml
+  - metallb.yaml
   - namespace.yaml
   - openebs.yaml
   - smb-credentials.yaml
