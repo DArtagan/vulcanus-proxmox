@@ -60,7 +60,7 @@ metadata:
   name: dashboard
 spec:
   entryPoints:
-    - web
+    - websecure
   routes:
     # TODO: do better than this hard-coded host.  Docs recommend something like traefik.localhost.  That might require a network DNS server or somesuch
     - match: Host(`192.168.0.201`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))
