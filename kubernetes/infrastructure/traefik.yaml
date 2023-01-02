@@ -22,10 +22,8 @@ spec:
         name: traefik
       interval: 5m
   values:
-    providers:
-      docker:
-        enabled: true
-        endpoint: "tcp://192.168.0.112:2375"
+    additionalArguments:
+      - "--providers.docker.endpoint=tcp://192.168.0.112:2375"
 # Values: specify domain?
 # Let's Encrypt
 
