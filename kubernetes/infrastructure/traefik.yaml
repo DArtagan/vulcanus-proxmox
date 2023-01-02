@@ -24,6 +24,7 @@ spec:
   values:
     additionalArguments:
       - "--providers.docker.endpoint=tcp://192.168.0.112:2375"
+      # TODO: why isn't the exposedbydefault working?
       - "--providers.docker.exposedByDefault=false"
     certResolvers:
       # TODO: can this resolver be made the default for all websecure connections?
@@ -33,11 +34,12 @@ spec:
           email: willy@weiskopf.me
           tlsChallenge: true
           storage: /data/acme.json
-          caServer: https://acme-staging-v02.api.letsencrypt.org/directory
+          #caServer: https://acme-staging-v02.api.letsencrypt.org/directory
     persistence:
       enabled: true
       storageClass: openebs-hostpath
     ports:
+      # TODO: these are not working for creating the entryPoints
       sftp:
         expose: true
         exposedPort: 2022
