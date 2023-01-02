@@ -24,8 +24,24 @@ spec:
   values:
     additionalArguments:
       - "--providers.docker.endpoint=tcp://192.168.0.112:2375"
-# Values: specify domain?
-# Let's Encrypt
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.sftp.address=:2022"
+      - "--entrypoints.webdav.address=:10080"
+    certResolvers:
+      # TODO: can this resolver be made the default for all websecure connections?
+      # TODO: change this to "letsencrypt" and in the docker-compose to match
+      myresolver:
+        acme:
+          email: willy@weiskopf.me
+          tlsChallenge: true
+          storage: /data/acme.json
+          caServer: https://acme-staging-v02.api.letsencrypt.org/directory
+    persistence:
+      enabled: true
+      storageClass: openebs-hostpath
+    ports:
+      web:
+        redirectTo: websecure
 
 
 ---
