@@ -30,11 +30,10 @@ spec:
       # TODO: can this resolver be made the default for all websecure connections?
       # TODO: change this to "letsencrypt" and in the docker-compose to match
       myresolver:
-        acme:
-          email: willy@weiskopf.me
-          tlsChallenge: true
-          storage: /data/acme.json
-          #caServer: https://acme-staging-v02.api.letsencrypt.org/directory
+        email: willy@weiskopf.me
+        tlsChallenge: true
+        storage: /data/acme.json
+        #caServer: https://acme-staging-v02.api.letsencrypt.org/directory
     persistence:
       enabled: true
       storageClass: openebs-hostpath
