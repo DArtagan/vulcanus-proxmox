@@ -24,7 +24,7 @@ spec:
   values:
     additionalArguments:
       - "--providers.docker.endpoint=tcp://192.168.0.112:2375"
-      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.exposedByDefault=false"
     certResolvers:
       # TODO: can this resolver be made the default for all websecure connections?
       # TODO: change this to "letsencrypt" and in the docker-compose to match
