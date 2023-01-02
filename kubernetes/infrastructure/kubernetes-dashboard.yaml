@@ -21,3 +21,10 @@ spec:
         kind: HelmRepository
         name: kubernetes-dashboard
       interval: 5m
+  values:
+    ingress:
+      enabled: true
+      paths:
+        - /kubernetes-dashboard/
+      hosts:
+        - 192.168.0.201
