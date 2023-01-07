@@ -26,16 +26,16 @@ spec:
       - "--providers.docker.endpoint=tcp://192.168.0.112:2375"
       - "--providers.docker.exposedByDefault=false"
     certResolvers:
-      # TODO: change this to "letsencrypt" and in the docker-compose to match
+      letsencrypt:
+        email: willy@weiskopf.me
+        tlsChallenge: true
+        storage: /data/acme.json
+      # TODO: replace "myresolver" in all the docker-compose and then get rid of this
       myresolver:
         email: willy@weiskopf.me
         tlsChallenge: true
         storage: /data/acme.json
         #caServer: https://acme-staging-v02.api.letsencrypt.org/directory
-      letsencrypt:
-        email: willy@weiskopf.me
-        tlsChallenge: true
-        storage: /data/acme.json
     persistence:
       enabled: true
       storageClass: openebs-hostpath
