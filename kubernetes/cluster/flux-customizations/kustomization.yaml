@@ -3,4 +3,3 @@ kind: Kustomization
 namespace: flux-system
 resources:
   - flux-webhook.yaml
-  - webhook-token.yaml
