@@ -10,3 +10,4 @@ resources:
   - openebs.yaml
   - smb-credentials.yaml
   - traefik.yaml
+  - webhook-token.yaml
