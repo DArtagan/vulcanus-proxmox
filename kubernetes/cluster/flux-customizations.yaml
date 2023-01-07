@@ -6,7 +6,7 @@ metadata:
 spec:
   interval: 10m0s
   retryInterval: 1m0s
-  path: ./kubernetes/cluster/flux-customizations
+  path: ./kubernetes/flux-customizations
   prune: true
   sourceRef:
     kind: GitRepository
