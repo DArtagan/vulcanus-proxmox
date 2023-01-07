@@ -23,6 +23,7 @@ spec:
       interval: 5m
   values:
     ingress:
+      # TODO: this doesn't yet work
       enabled: true
       paths:
         - /kubernetes-dashboard/
