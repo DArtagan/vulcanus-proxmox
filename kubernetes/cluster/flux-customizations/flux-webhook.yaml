@@ -3,6 +3,9 @@ kind: Ingress
 metadata:
   name: flux-webhook
   namespace: flux-system
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
 spec:
   rules:
   - host: flux-webhook.immortalkeep.com
