@@ -63,6 +63,7 @@ spec:
         - name: rancher-key
           secret:
             secretName: rancher-key
+            defaultMode: 0400
             items:
               - key: ssh-privatekey
                 path: id_rsa
