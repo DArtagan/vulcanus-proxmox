@@ -8,3 +8,4 @@ spec:
   ports:
     - protocol: TCP
       port: 32400
+      targetPort: 80
