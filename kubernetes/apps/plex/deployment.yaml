@@ -24,7 +24,7 @@ spec:
             - mountPath: /config
               name: config
             - name: rancher-key
-              mountPath: /home/root/.ssh/
+              mountPath: /root/.ssh/
               readOnly: true
       containers:
         - name: plex
