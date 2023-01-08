@@ -4,4 +4,6 @@ namespace: apps
 resources:
   - beets
   - namespace.yaml
+  - plex
   - podinfo.yaml
+  - rancher-key.yaml

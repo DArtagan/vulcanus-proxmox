@@ -1,19 +1,19 @@
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: audio-pv
+  name: video-pv
 spec:
   accessModes:
     - ReadWriteMany
   capacity:
-    storage: 1Ti
+    storage: 5Ti
   persistentVolumeReclaimPolicy: Retain
   csi:
     driver: smb.csi.k8s.io
     readOnly: false
-    volumeHandle: audio-pv
+    volumeHandle: video-pv
     volumeAttributes:
-      source: "//192.168.0.105/media/audio"
+      source: "//192.168.0.105/media/video"
     nodeStageSecretRef:
       name: smb-credentials
       namespace: infrastructure

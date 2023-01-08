@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: plex
+  labels:
+    app: plex
+spec:
+  selector:
+    matchLabels:
+      app: plex
+  template:
+    metadata:
+      labels:
+        app: plex
+    spec:
+      # TODO: initContainer that uses a defined ssh key to copy in data, after which we can remove this
+      # Document this for ad-hoc use
+      initContainers:
+        - name: config-data
+          image: debian
+          command: ["/bin/sh", "-c"]
+          args: ["apt update; apt install -y rsync; rsync -v rancher@192.168.0.112:/home/rancher/docker-vulcanus/plex/plex-config/* /config/; chown -R 1000:1000 /config"]
+          volumeMounts:
+            - mountPath: /config
+              name: config
+            - name: rancher-secret
+              mountPath: /home/root/.ssh/
+              readOnly: true
+      containers:
+        - name: plex
+          image: plexinc/pms-docker
+          environment:
+            - name: ADVERTISE_IP
+              value: https://plex.immortalkeep.com/
+          # TODO: forward 32400 port via Traefik, if necessary
+          volumeMounts:
+            - mountPath: /config
+              name: config
+            - mountPath: /data/movies
+              name: video
+              subPath: video/movies
+              readOnly: true
+            - mountPath: /data/music
+              name: audio
+              subPath: audio/music
+              readOnly: true
+            - mountPath: /data/shows
+              name: video
+              subPath: video/shows
+              readOnly: true
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: plex-config-pvc
+        - name: audio-volume
+          persistentVolumeClaim:
+            claimName: audio-pvc
+        - name: video-volume
+          persistentVolumeClaim:
+            claimName: video-pvc
+        - name: rancher-key
+          secret:
+            secretName: rancher-key
+            items:
+              - key: ssh-privatekey
+                path: id_rsa
+              - key: known_hosts
+                path: known_hosts
