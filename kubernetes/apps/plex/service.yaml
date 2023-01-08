@@ -4,8 +4,7 @@ metadata:
   name: plex
 spec:
   selector:
-    app.kubernetes.io/name: plex
+    app: plex
   ports:
     - protocol: TCP
-      port: 80
-      targetPort: 32400
+      port: 32400
