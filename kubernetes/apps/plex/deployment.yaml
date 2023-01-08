@@ -54,7 +54,7 @@ spec:
             claimName: plex-config-pvc
         - name: audio
           persistentVolumeClaim:
-            claimName: audio-pvc
+            claimName: plex-audio-pvc
         - name: video
           persistentVolumeClaim:
             claimName: plex-video-pvc
