@@ -15,17 +15,17 @@ spec:
     spec:
       # TODO: initContainer that uses a defined ssh key to copy in data, after which we can remove this
       # Document this for ad-hoc use
-      initContainers:
-        - name: config-data
-          image: debian
-          command: ["/bin/sh", "-c"]
-          args: ["apt update; apt install -y rsync; rsync -v rancher@192.168.0.112:/home/rancher/docker-vulcanus/plex/plex-config/* /config/; chown -R 1000:1000 /config"]
-          volumeMounts:
-            - mountPath: /config
-              name: config
-            - name: rancher-key
-              mountPath: /home/root/.ssh/
-              readOnly: true
+      #initContainers:
+      #  - name: config-data
+      #    image: debian
+      #    command: ["/bin/sh", "-c"]
+      #    args: ["apt update; apt install -y rsync; rsync -v rancher@192.168.0.112:/home/rancher/docker-vulcanus/plex/plex-config/* /config/; chown -R 1000:1000 /config"]
+      #    volumeMounts:
+      #      - mountPath: /config
+      #        name: config
+      #      - name: rancher-key
+      #        mountPath: /home/root/.ssh/
+      #        readOnly: true
       containers:
         - name: plex
           image: plexinc/pms-docker
@@ -33,6 +33,8 @@ spec:
             - name: ADVERTISE_IP
               value: https://plex.immortalkeep.com/
           # TODO: forward 32400 port via Traefik, if necessary
+          ports:
+            - containerPort: 32400
           volumeMounts:
             - mountPath: /config
               name: config
