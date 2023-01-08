@@ -7,5 +7,5 @@ spec:
     app.kubernetes.io/name: plex
   ports:
     - protocol: TCP
-      port: 32400
-      targetPort: 80
+      port: 80
+      targetPort: 32400
