@@ -3,5 +3,4 @@ kind: Kustomization
 resources:
   - cron-job.yaml
   - config-map.yaml
-  - audio-pvc.yaml
   - library-pvc.yaml
