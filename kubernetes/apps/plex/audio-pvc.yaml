@@ -1,11 +1,11 @@
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: plex-audio-pvc
-spec:
-  accessModes:
-    - ReadWriteMany
-  resources:
-    requests:
-      storage: 750Gi
-  volumeName: audio-pv
+#apiVersion: v1
+#kind: PersistentVolumeClaim
+#metadata:
+#  name: plex-audio-pvc
+#spec:
+#  accessModes:
+#    - ReadWriteMany
+#  resources:
+#    requests:
+#      storage: 750Gi
+#  volumeName: audio-pv
