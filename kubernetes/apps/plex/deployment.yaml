@@ -23,7 +23,7 @@ spec:
           volumeMounts:
             - mountPath: /config
               name: config
-            - name: rancher-secret
+            - name: rancher-key
               mountPath: /home/root/.ssh/
               readOnly: true
       containers:
