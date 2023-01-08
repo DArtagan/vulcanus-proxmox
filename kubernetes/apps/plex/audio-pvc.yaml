@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: audio-pvc
+  name: plex-audio-pvc
 spec:
   accessModes:
     - ReadWriteMany

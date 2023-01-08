@@ -55,9 +55,9 @@ spec:
         - name: audio-volume
           persistentVolumeClaim:
             claimName: audio-pvc
-        - name: video-volume
+        - name: plex-audio-volume
           persistentVolumeClaim:
-            claimName: video-pvc
+            claimName: plex-video-pvc
         - name: rancher-key
           secret:
             secretName: rancher-key
