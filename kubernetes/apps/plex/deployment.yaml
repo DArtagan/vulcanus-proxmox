@@ -67,5 +67,7 @@ spec:
             items:
               - key: ssh-privatekey
                 path: id_rsa
+              - key: ssh-publickey
+                path: id_rsa.pub
               - key: known_hosts
                 path: known_hosts
