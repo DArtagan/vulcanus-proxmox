@@ -40,15 +40,15 @@ spec:
               name: config
             - mountPath: /data/movies
               name: video
-              subPath: /movies
+              subPath: movies
               readOnly: true
             - mountPath: /data/music
               name: audio
-              subPath: /music
+              subPath: music
               readOnly: true
             - mountPath: /data/shows
               name: video
-              subPath: /shows
+              subPath: shows
               readOnly: true
       volumes:
         - name: config
