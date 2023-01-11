@@ -148,7 +148,7 @@ module "proxmox_backup_server" {
   proxmox_api_token_secret = var.proxmox_api_token_secret
   iso_image_location = "local:iso/proxmox-backup-server_2.2-1.iso"
   backup_disk_storage_pool = "proxmox_backup_server"
-  backup_disk_size = "500G"
+  backup_disk_size = "1000G"
 }
 
 

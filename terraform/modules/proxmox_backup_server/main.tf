@@ -29,6 +29,7 @@ resource "proxmox_vm_qemu" "proxmox-backup-server" {
   cpu = "kvm64"
   cores = 2
   sockets = 1
+  onboot = true
   # TODO: maybe this can be set if switching to cloudinit provisioning, using router DHCP for now
   #ipconfig0 = "gw=192.168.0.1, ip=192.168.0.107/24"
   network {
