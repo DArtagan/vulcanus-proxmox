@@ -21,7 +21,7 @@ spec:
                 - "$(B2_PATH)"
                 - "--progress"
                 - "--fast-list"
-                - "--bwlimit"
+                #- "--bwlimit"
                 #- "Sat-14:00,512k:off Sun-00:00,512k:off Sun-14:00,512k:off 22:00,512k:off 10:00,off"
                 # 22:00 UTC = 4pm MT
                 # 10:00 UTC = 4am MT
