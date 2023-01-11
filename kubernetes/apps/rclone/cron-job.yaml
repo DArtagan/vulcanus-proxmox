@@ -1,0 +1,53 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: rclone
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 1
+  successfulJobsHistoryLimit: 3
+  schedule: "0 11 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: rclone
+              image: rclone/rclone
+              args:
+                - "sync"
+                - "/backups/"
+                - "B2-vulcanus-borg:vulcanus-borg/"
+                - "$(B2_PATH)"
+                - "--progress"
+                - "--fast-list"
+                - "--bwlimit"
+                #- "Sat-14:00,512k:off Sun-00:00,512k:off Sun-14:00,512k:off 22:00,512k:off 10:00,off"
+                # 22:00 UTC = 4pm MT
+                # 10:00 UTC = 4am MT
+                # 14:00 UTC = 8am MT
+              env:
+                - name: B2_PATH
+                  valueFrom:
+                    secretKeyRef:
+                      name: rclone-config
+                      key: b2-path
+              volumeMounts:
+                - name: config-volume
+                  mountPath: /config/rclone
+                  readOnly: true
+                - name: borg-backups-volume
+                  mountPath: /backups
+                  readOnly: true
+          restartPolicy: OnFailure
+          volumes:
+            - name: config-volume
+              secret:
+                secretName: rclone-config
+                items:
+                  - key: conf
+                    path: rclone.conf
+
+            - name: borg-backups-volume
+              persistentVolumeClaim:
+                claimName: borg-backups-pvc

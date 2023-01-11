@@ -3,7 +3,9 @@ kind: Kustomization
 namespace: apps
 resources:
   - audio-pvc.yaml
+  - borg-backups-pvc.yaml
   - beets
+  #- mumble
   - namespace.yaml
   - plex
   - podinfo.yaml

@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: borg-backups-pv
+spec:
+  accessModes:
+    - ReadWriteMany
+  capacity:
+    storage: 1Ti
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: smb.csi.k8s.io
+    readOnly: false
+    volumeHandle: borg-backups-pv
+    volumeAttributes:
+      source: "//192.168.0.105/borg"
+    nodeStageSecretRef:
+      name: smb-credentials
+      namespace: infrastructure
+  mountOptions:
+    - rw
+  volumeMode: Filesystem
