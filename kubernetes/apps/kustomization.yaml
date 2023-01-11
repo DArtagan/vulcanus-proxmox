@@ -9,5 +9,6 @@ resources:
   - namespace.yaml
   - plex
   - podinfo.yaml
+  - rclone
   - rancher-key.yaml
   - video-pvc.yaml
