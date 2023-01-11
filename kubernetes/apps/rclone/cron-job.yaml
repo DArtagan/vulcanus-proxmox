@@ -17,7 +17,6 @@ spec:
               args:
                 - "sync"
                 - "/backups/"
-                - "B2-vulcanus-borg:vulcanus-borg/"
                 - "$(B2_PATH)"
                 - "--progress"
                 - "--fast-list"
