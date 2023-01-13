@@ -13,17 +13,6 @@ spec:
       labels:
         app: mumble
     spec:
-      initContainers:
-        - name: config-data
-          image: debian
-          command: ["/bin/sh", "-c"]
-          args: ["apt update; apt install -y rsync openssh-client; rsync -vr rancher@192.168.0.112:/home/rancher/docker-vulcanus/murmur/data/* /data/; chown -R 1000:1000 /data"]
-          volumeMounts:
-            - mountPath: /data
-              name: data
-            - name: rancher-key
-              mountPath: /root/.ssh/
-              readOnly: true
       containers:
         - name: mumble
           image: mumblevoip/mumble-server
@@ -42,14 +31,3 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: mumble-data-pvc
-        - name: rancher-key
-          secret:
-            secretName: rancher-key
-            defaultMode: 0400
-            items:
-              - key: ssh-privatekey
-                path: id_rsa
-              - key: ssh-publickey
-                path: id_rsa.pub
-              - key: known_hosts
-                path: known_hosts
