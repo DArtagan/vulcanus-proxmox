@@ -21,8 +21,6 @@ spec:
         kind: HelmRepository
         name: traefik
       interval: 5m
-  upgrade:
-    crds: CreateReplace
   values:
     additionalArguments:
       - "--providers.docker.endpoint=tcp://192.168.0.112:2375"
@@ -47,12 +45,12 @@ spec:
         expose: true
         exposedPort: 64738
         port: 64738
-        protocol: tcp
+        protocol: TCP
       mumble-udp:
         expose: true
         exposedPort: 64738
         port: 64738
-        protocol: udp
+        protocol: UDP
       sftp:
         expose: true
         exposedPort: 2022
