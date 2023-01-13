@@ -7,7 +7,9 @@ spec:
   entryPoints:
     - mumble-tcp
   routes:
-    - services:
+    - match: Host(`immortalkeep.com`)
+      kind: Rule
+      services:
       - name: mumble
         port: 64738
 
