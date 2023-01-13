@@ -6,7 +6,9 @@ spec:
   selector:
     app: mumble
   ports:
-    - protocol: TCP
+    - name: mumble-tcp
+      protocol: TCP
       port: 64738
-    - protocol: UDP
+    - name: mumble-udp
+      protocol: UDP
       port: 64738
