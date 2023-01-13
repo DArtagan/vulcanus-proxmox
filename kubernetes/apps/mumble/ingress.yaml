@@ -4,7 +4,7 @@ metadata:
   name: mumble
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: mumble-tcp
-    #traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+    traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
 spec:
   rules:
   - host: immortalkeep.com
