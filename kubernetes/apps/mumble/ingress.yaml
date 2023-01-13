@@ -8,7 +8,6 @@ spec:
     - mumble-tcp
   routes:
     - match: Host(`immortalkeep.com`)
-      kind: Rule
       services:
       - name: mumble
         port: 64738
