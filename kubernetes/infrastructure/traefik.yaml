@@ -41,6 +41,16 @@ spec:
       storageClass: openebs-hostpath
     ports:
       # TODO: these seem to be working for creating the entryPoints...?
+      mumble-tcp:
+        expose: true
+        exposedPort: 64738
+        port: 64738
+        protocol: tcp
+      mumble-udp:
+        expose: true
+        exposedPort: 64738
+        port: 64738
+        protocol: udp
       sftp:
         expose: true
         exposedPort: 2022

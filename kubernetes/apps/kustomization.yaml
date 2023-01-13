@@ -5,7 +5,7 @@ resources:
   - audio-pvc.yaml
   - borg-backups-pvc.yaml
   - beets
-  #- mumble
+  - mumble
   - namespace.yaml
   - plex
   - podinfo.yaml

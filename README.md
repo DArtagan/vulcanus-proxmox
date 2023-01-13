@@ -25,5 +25,63 @@ kubectl debug -n apps -it --copy-to=beets-debug --container=beets-import beets-i
 ```
 
 
+## Data migration to Kubernetes
+
+Using this example deployment, notice the initContainer and `rancher-key` Volume, which points to an SSH key that can be used to connect to the old server.
+
+```
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: niftyapp
+  labels:
+    app: niftyapp
+spec:
+  selector:
+    matchLabels:
+      app: niftyapp
+  template:
+    metadata:
+      labels:
+        app: niftyapp
+    spec:
+       Document this for ad-hoc use
+      initContainers:
+        - name: config-data
+          image: debian
+          command: ["/bin/sh", "-c"]
+          args: ["apt update; apt install -y rsync openssh-client; rsync -vr rancher@192.168.0.112:/home/rancher/docker-vulcanus/nifty/config/* /config/; chown -R 1000:1000 /config"]
+          volumeMounts:
+            - mountPath: /config
+              name: config
+            - name: rancher-key
+              mountPath: /root/.ssh/
+              readOnly: true
+      containers:
+        - name: niftyapp
+          image: nifty/app
+          ports:
+            - containerPort: 32400
+          volumeMounts:
+            - mountPath: /config
+              name: config
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: nifty-config-pvc
+        - name: rancher-key
+          secret:
+            secretName: rancher-key
+            defaultMode: 0400
+            items:
+              - key: ssh-privatekey
+                path: id_rsa
+              - key: ssh-publickey
+                path: id_rsa.pub
+              - key: known_hosts
+                path: known_hosts
+```
+
+
 ## References
 * https://www.nathancurry.com/blog/14-ansible-deployment-with-proxmox/
