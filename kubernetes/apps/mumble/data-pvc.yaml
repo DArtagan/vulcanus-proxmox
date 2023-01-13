@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: mumble-config-pvc
+  name: mumble-data-pvc
 spec:
   accessModes:
     - ReadWriteOnce

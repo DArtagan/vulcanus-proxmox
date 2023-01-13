@@ -1,0 +1,10 @@
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: mumble-config-map
+data:
+  MUMBLE_BANDWIDTH: 128000
+  MUMBLE_CONFIG_AUTOBANATTEMPTS: 0
+  MUMBLE_LOGFILE: ""
+  MUMBLE_SERVERPASSWORD: ""
+  MUMBLE_WELCOMETEXT: "Long live vulcanus!"
