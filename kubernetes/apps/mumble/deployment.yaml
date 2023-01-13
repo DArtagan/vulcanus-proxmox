@@ -34,7 +34,7 @@ spec:
             - containerPort: 64738
               protocol: UDP
           volumeMounts:
-            - mountPath: /config
+            - mountPath: /data
               name: config
       volumes:
         - name: config
