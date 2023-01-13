@@ -1,19 +1,32 @@
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRouteTCP
 metadata:
-  name: mumble
-  annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: mumble-tcp
-    traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+  name: mumble-tcp
+
 spec:
-  rules:
-  - host: immortalkeep.com
-    http:
-      paths:
-      - pathType: Prefix
-        path: /
-        backend:
-          service:
-            name: mumble
-            port:
-              number: 64738
+  entryPoints:
+    - mumble-tcp
+  routes:
+    - services:
+      - name: mumble
+        port: 64738
+
+          #apiVersion: networking.k8s.io/v1
+          #kind: Ingress
+          #metadata:
+          #  name: mumble
+          #  annotations:
+          #    traefik.ingress.kubernetes.io/router.entrypoints: mumble-tcp
+          #    traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+          #spec:
+          #  rules:
+          #  - host: immortalkeep.com
+          #    http:
+          #      paths:
+          #      - pathType: Prefix
+          #        path: /
+          #        backend:
+          #          service:
+          #            name: mumble
+          #            port:
+          #              number: 64738
