@@ -69,7 +69,6 @@ spec:
             - mountPath: /photoprism/originals
               name: photos
               subPath: originals
-        # TODO: Maybe these shouldn't be in the same pod...
         - name: database
           # TODO: upgrade
           image: mariadb:10.6
