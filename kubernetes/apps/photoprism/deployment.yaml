@@ -48,7 +48,7 @@ spec:
             - name: PHOTOPRISM_DATABASE_DRIVER
               value: mysql
             - name: PHOTOPRISM_DATABASE_SERVER
-              value: localhost:3306
+              value: "localhost:3306"
             - name: PHOTOPRISM_DATABASE_NAME
               value: photoprism
             - name: PHOTOPRISM_DATABASE_USER
@@ -96,7 +96,7 @@ spec:
                   name: photoprism
                   key: database_password
             - name: MARIADB_AUTO_UPGRADE
-              value: true
+              value: "true"
           ports:
             - containerPort: 3306
           volumeMounts:
