@@ -9,6 +9,7 @@ resources:
   - metallb.yaml
   - namespace.yaml
   - openebs.yaml
+  - photos-pv.yaml
   - prometheus.yaml
   - smb-credentials.yaml
   - traefik.yaml
