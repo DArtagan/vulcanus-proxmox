@@ -8,6 +8,7 @@ resources:
   - mumble
   - namespace.yaml
   - plex
+  - photoprism
   - podinfo.yaml
   - photos-pvc.yaml
   - rclone
