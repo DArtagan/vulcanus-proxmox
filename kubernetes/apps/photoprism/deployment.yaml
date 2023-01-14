@@ -48,7 +48,7 @@ spec:
             - name: PHOTOPRISM_DATABASE_DRIVER
               value: mysql
             - name: PHOTOPRISM_DATABASE_SERVER
-              value: "localhost:3307"
+              value: "localhost:3306"
             - name: PHOTOPRISM_DATABASE_NAME
               value: photoprism
             - name: PHOTOPRISM_DATABASE_USER
