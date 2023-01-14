@@ -1,19 +1,19 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: plex
+  name: photoprism
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
 spec:
   rules:
-  - host: plex.immortalkeep.com
+  - host: photoprism.immortalkeep.com
     http:
       paths:
       - pathType: Prefix
         path: /
         backend:
           service:
-            name: plex
+            name: photoprism
             port:
-              number: 32400
+              number: 2342
