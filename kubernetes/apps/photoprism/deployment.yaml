@@ -67,8 +67,8 @@ spec:
               name: photos
               subPath: photoprism/import
             - mountPath: /photoprism/originals
-              name: photoprism/photos
-              subPath: originals
+              name: photos
+              subPath: photoprism/originals
         - name: database
           image: mariadb
           args:
