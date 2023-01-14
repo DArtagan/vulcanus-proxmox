@@ -70,8 +70,7 @@ spec:
               name: photos
               subPath: originals
         - name: database
-          # TODO: upgrade
-          image: mariadb:10.6
+          image: mariadb
           args:
             - "--innodb-buffer-pool-size=128M" 
             - "--transaction-isolation=READ-COMMITTED"
@@ -81,6 +80,8 @@ spec:
             - "--innodb-rollback-on-timeout=OFF"
             - "--innodb-lock-wait-timeout=120"
           env:
+            - name: MARIADB_AUTO_UPGRADE
+              value: "true"
             - name: MARIADB_ROOT_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -95,8 +96,6 @@ spec:
                 secretKeyRef:
                   name: photoprism
                   key: database_password
-            - name: MARIADB_AUTO_UPGRADE
-              value: "true"
           ports:
             - containerPort: 3306
           volumeMounts:
