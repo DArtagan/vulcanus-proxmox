@@ -29,7 +29,7 @@ spec:
       containers:
         - name: plex
           image: plexinc/pms-docker
-          environment:
+          env:
             - name: ADVERTISE_IP
               value: https://plex.immortalkeep.com/
           # TODO: forward 32400 port via Traefik, if necessary
