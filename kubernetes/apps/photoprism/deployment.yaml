@@ -48,7 +48,7 @@ spec:
             - name: PHOTOPRISM_DATABASE_DRIVER
               value: mysql
             - name: PHOTOPRISM_DATABASE_SERVER
-              value: "localhost:3306"
+              value: "localhost:3307"
             - name: PHOTOPRISM_DATABASE_NAME
               value: photoprism
             - name: PHOTOPRISM_DATABASE_USER
@@ -65,9 +65,9 @@ spec:
               name: data
             - mountPath: /photoprism/import
               name: photos
-              subPath: import
+              subPath: photoprism/import
             - mountPath: /photoprism/originals
-              name: photos
+              name: photoprism/photos
               subPath: originals
         - name: database
           image: mariadb
