@@ -111,7 +111,7 @@ spec:
         - name: database
           persistentVolumeClaim:
             claimName: photoprism-database-pvc
-        - name: audio
+        - name: photos
           persistentVolumeClaim:
             claimName: photos-pvc
         - name: rancher-key
