@@ -17,7 +17,7 @@ spec:
         - name: config-data
           image: debian
           command: ["/bin/sh", "-c"]
-          args: ["apt update; apt install -y rsync openssh-client; rsync -vr rancher@192.168.0.112:/home/rancher/docker-vulcanus/photoprism/* /photoprism/storage/; chown -R 1000:1000 /photoprism/storage/"]
+          args: ["apt update; apt install -y rsync openssh-client; rsync -vr --chown=1000:1000 rancher@192.168.0.112:/home/rancher/docker-vulcanus/photoprism/* /photoprism/storage/"]
           volumeMounts:
             - mountPath: /photoprism/storage
               name: data
@@ -27,7 +27,7 @@ spec:
         - name: database-data
           image: debian
           command: ["/bin/sh", "-c"]
-          args: ["apt update; apt install -y rsync openssh-client; rsync -vr rancher@192.168.0.112:/home/rancher/docker-vulcanus/photoprism_database/* /var/lib/mysql/; chown -R 999:999 /var/lib/mysql/"]
+          args: ["apt update; apt install -y rsync openssh-client; rsync -vr --chown 999:999 rancher@192.168.0.112:/home/rancher/docker-vulcanus/photoprism_database/* /var/lib/mysql/"]
           volumeMounts:
             - mountPath: /var/lib/mysql
               name: database
