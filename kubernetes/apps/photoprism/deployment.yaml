@@ -72,7 +72,6 @@ spec:
         - name: database
           # TODO: upgrade
           image: mariadb:10.6
-          command: ["mysqld"]
           args:
             - "--innodb-buffer-pool-size=128M" 
             - "--transaction-isolation=READ-COMMITTED"
