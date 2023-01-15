@@ -17,4 +17,4 @@ spec:
           service:
             name: podbook
             port:
-              number: 2342
+              number: 80

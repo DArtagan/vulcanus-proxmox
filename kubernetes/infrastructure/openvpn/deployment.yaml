@@ -13,17 +13,6 @@ spec:
       labels:
         app: openvpn
     spec:
-      initContainers:
-        - name: config-data
-          image: debian
-          command: ["/bin/sh", "-c"]
-          args: ["apt update; apt install -y rsync openssh-client; rsync -vrtplD --append-verify --chown=1000:1000 rancher@192.168.0.112:/home/rancher/docker-vulcanus/openvpn/* /etc/openvpn/"]
-          volumeMounts:
-            - mountPath: /etc/openvpn
-              name: data
-            - name: rancher-key
-              mountPath: /root/.ssh/
-              readOnly: true
       containers:
         - name: openvpn
           image: kylemanna/openvpn
@@ -41,14 +30,3 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: openvpn-data-pvc
-        - name: rancher-key
-          secret:
-            secretName: rancher-key
-            defaultMode: 0400
-            items:
-              - key: ssh-privatekey
-                path: id_rsa
-              - key: ssh-publickey
-                path: id_rsa.pub
-              - key: known_hosts
-                path: known_hosts
