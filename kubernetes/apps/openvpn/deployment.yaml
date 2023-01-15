@@ -32,7 +32,8 @@ spec:
               protocol: UDP
           securityContext:
             capabilities:
-              add: ["NET_ADMIN"]
+              add:
+                - NET_ADMIN
           volumeMounts:
             - mountPath: /etc/openvpn
               name: data
