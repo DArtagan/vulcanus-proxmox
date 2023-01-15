@@ -1,5 +1,6 @@
 apiVersion: v1
 kind: Secret
+type: kubernetes.io/basic-auth
 metadata:
     creationTimestamp: null
     name: basic-auth-credentials
@@ -21,8 +22,8 @@ sops:
             cHZHWmplNzdFK3E2QXdJby9adERKNDAK0ahfd8TD1j2FhLF8WzrEwJMHgMgB7A/G
             DO8bTjWMAq4mgvd9oJGokdXzCsijX6sBsAULjgjBDqWrMTnkNMenzw==
             -----END AGE ENCRYPTED FILE-----
-    lastmodified: "2023-01-15T04:21:39Z"
-    mac: ENC[AES256_GCM,data:uu1vfA4WtSpgxfSCeH1Mpu798GLkdaO7uGm9lCZR6a+zsagtOcbWhXXPPkCf/WLQlGHFa1gM864MkUR7wRMsjT2WUIeoIwHsIX8lIM2LEOcgeKwgaW0PjIdGqf1LHxZkXwJG/Pm/zo+689Mej+tlW+FOgvU0JruCfRrio8l79pE=,iv:qtrWiZoNdnov42U+tTEeVmg88Itj8pyl1qxKB6p7LLs=,tag:Y0WGpuCqK/c6Ag5FB0lDMg==,type:str]
+    lastmodified: "2023-01-15T05:14:20Z"
+    mac: ENC[AES256_GCM,data:R45niIKDrB39AgZbpX/c0kDg2dFR7PT+EPIfzq9YZBQv9kY9GCdT4QklE02vRyLkZoJtzJwJ4+PRRkGaewNU0ViTLilPq5uUcEi3mNjBhIdIFT47XnX48KMZ634a9GIGzyoJx+TJo+BeeqArl8NjNVbU/To1pyPrF2tpTlAZe4U=,iv:oHF/kR1ICWxYlE2qUmrEHO+mx1Xhxa4YhEeTYPyuyJ4=,tag:wMl7EZQbjDeVK83MIjQ0Gg==,type:str]
     pgp: []
     encrypted_regex: ^(data|stringData)$
     version: 3.7.3
