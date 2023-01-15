@@ -11,6 +11,7 @@ resources:
   - namespace.yaml
   - plex
   - photoprism
+  - podbook
   - podinfo.yaml
   - photos-pvc.yaml
   - rclone

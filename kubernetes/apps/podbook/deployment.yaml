@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podbook
+  labels:
+    app: podbook
+spec:
+  selector:
+    matchLabels:
+      app: podbook
+  template:
+    metadata:
+      labels:
+        app: podbook
+    spec:
+      containers:
+        - name: podbook
+          image: dartagan/podbook-minimal
+          env:
+            - name: URL_SCHEME
+              value: https
+          ports:
+            - containerPort: 5000
+          volumeMounts:
+            - mountPath: /podbook/books
+              name: audio
+              subpath: audiobooks/
+              readOnly: true
+        - name: nginx
+          image: nginx
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - mountPath: /etc/nginx/
+              name: config
+              readOnly: true
+            - mountPath: /var/www/media
+              name: audio
+              subpath: audiobooks/
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: podbook
+        - name: audio
+          persistentVolumeClaim:
+            claimName: audio-pvc
+        - name: rancher-key
+          secret:
+            secretName: rancher-key
+            defaultMode: 0400
+            items:
+              - key: ssh-privatekey
+                path: id_rsa
+              - key: ssh-publickey
+                path: id_rsa.pub
+              - key: known_hosts
+                path: known_hosts

@@ -3,6 +3,7 @@ kind: Kustomization
 namespace: infrastructure
 resources:
   - audio-pv.yaml
+  - basic-auth.yaml
   - borg-backups-pv.yaml
   - csi-driver-smb.yaml
   - kubernetes-dashboard.yaml
