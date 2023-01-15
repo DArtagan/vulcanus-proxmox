@@ -36,9 +36,6 @@ spec:
         tlsChallenge: true
         storage: /data/acme.json
         #caServer: https://acme-staging-v02.api.letsencrypt.org/directory
-    deployment:
-      imagePullSecrets:
-        - docker-credentials
     persistence:
       enabled: true
       storageClass: openebs-hostpath
