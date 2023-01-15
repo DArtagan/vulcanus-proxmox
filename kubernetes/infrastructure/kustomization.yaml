@@ -12,6 +12,7 @@ resources:
   - openvpn
   - photos-pv.yaml
   - prometheus.yaml
+  - rancher-key.yaml
   - smb-credentials.yaml
   - traefik.yaml
   - video-pv.yaml
