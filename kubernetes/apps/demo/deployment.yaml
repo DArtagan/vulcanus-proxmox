@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo
+  labels:
+    app: demo
+spec:
+  selector:
+    matchLabels:
+      app: demo
+  template:
+    metadata:
+      labels:
+        app: demo
+    spec:
+      containers:
+        - name: demo
+          image: crccheck/hello-world
+          ports:
+            - containerPort: 8000
