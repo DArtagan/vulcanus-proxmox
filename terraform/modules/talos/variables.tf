@@ -39,8 +39,14 @@ variable "boot_disk_storage_pool" {
     #default = "SSD_Pool"
 }
 
-variable "boot_disk_size" {
-    description = "The size of the boot disks. A numeric string with G, M, or K appended ex: 512M or 32G."
+variable "control_plane_boot_disk_size" {
+    description = "The size of the control plane boot disks. A numeric string with G, M, or K appended ex: 512M or 32G."
+    type = string
+    default = "10G"
+}
+
+variable "worker_boot_disk_size" {
+    description = "The size of the worker boot disks. A numeric string with G, M, or K appended ex: 512M or 32G."
     type = string
     default = "10G"
 }

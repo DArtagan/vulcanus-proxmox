@@ -54,7 +54,7 @@ resource "proxmox_vm_qemu" "control_plane_node" {
   #}
   disk {
     type = "virtio"
-    size = var.boot_disk_size
+    size = var.control_plane_boot_disk_size
     storage = var.boot_disk_storage_pool
   }
 }
@@ -93,7 +93,7 @@ resource "proxmox_vm_qemu" "worker_node" {
   #}
   disk {
     type = "virtio"
-    size = var.boot_disk_size
+    size = var.worker_boot_disk_size
     storage = var.boot_disk_storage_pool
   }
   disk {
