@@ -3,7 +3,7 @@ apiVersion: v1
 metadata:
   name: podbook
 data:
-  default.conf: |
+  nginx.conf: |
     server {
         root /var/www/;
 
