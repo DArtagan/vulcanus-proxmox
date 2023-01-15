@@ -16,6 +16,6 @@ spec:
       containers:
         - name: dnsomatic
           image: ammmze/dns-o-matic
-        envFrom:
-          secretKeyRef:
-            name: dnsomatic-credentials
+          envFrom:
+            secretKeyRef:
+              name: dnsomatic-credentials
