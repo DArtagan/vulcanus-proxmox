@@ -31,8 +31,9 @@ spec:
           ports:
             - containerPort: 80
           volumeMounts:
-            - mountPath: /etc/nginx/
+            - mountPath: /etc/nginx/default.conf
               name: config
+              subPath: default.conf
               readOnly: true
             - mountPath: /var/www/media
               name: audio
