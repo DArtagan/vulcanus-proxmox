@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dnsomatic
+  labels:
+    app: dnsomatic
+spec:
+  selector:
+    matchLabels:
+      app: dnsomatic
+  template:
+    metadata:
+      labels:
+        app: dnsomatic
+    spec:
+      containers:
+        - name: dnsomatic
+          image: ammmze/dns-o-matic
+      envFrom:
+        secretKeyRef:
+          name: dnsomatic-credentials

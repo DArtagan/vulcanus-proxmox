@@ -6,6 +6,7 @@ resources:
   - borg-backups-pvc.yaml
   - beets
   - demo
+  - dnsomatic
   - mumble
   - namespace.yaml
   - plex
