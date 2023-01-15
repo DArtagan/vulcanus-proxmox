@@ -8,7 +8,7 @@ metadata:
     traefik.ingress.kubernetes.io/router.middlewares: infrastructure-basic-auth@kubernetescrd
 spec:
   rules:
-  - host: podbook.immortalkeep.com
+  - host: podbook2.immortalkeep.com
     http:
       paths:
       - pathType: Prefix
