@@ -36,7 +36,7 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: opevpn-data-pvc
+            claimName: openvpn-data-pvc
         - name: rancher-key
           secret:
             secretName: rancher-key
