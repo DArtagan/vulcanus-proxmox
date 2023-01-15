@@ -9,6 +9,7 @@ resources:
   - dnsomatic
   - mumble
   - namespace.yaml
+  - openvpn
   - plex
   - photoprism
   - podinfo.yaml

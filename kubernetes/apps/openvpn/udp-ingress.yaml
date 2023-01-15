@@ -1,0 +1,12 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRouteUDP
+metadata:
+  name: openvpn-udp
+
+spec:
+  entryPoints:
+    - openvpn-udp
+  routes:
+    - services:
+      - name: openvpn
+        port: 1194
