@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podgrab
+  labels:
+    app: podgrab
+spec:
+  selector:
+    matchLabels:
+      app: podgrab
+  template:
+    metadata:
+      labels:
+        app: podgrab
+    spec:
+      initContainers:
+        - name: config-data
+          image: debian
+          command: ["/bin/sh", "-c"]
+          args: ["apt update; apt install -y rsync openssh-client; rsync -vrtplD --append-verify --chown=1000:1000 rancher@192.168.0.112:/home/rancher/docker-vulcanus/podgrab/* /config/"]
+          volumeMounts:
+            - mountPath: /config
+              name: data
+            - name: rancher-key
+              mountPath: /root/.ssh/
+              readOnly: true
+      containers:
+        - name: podgrab
+          image: akhilrex/podgrab
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - mountPath: /config
+              name: data
+            - mountPath: /assets
+              name: audio
+              subpath: podcasts/
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: podgrab-data-pvc
+        - name: audio
+          persistentVolumeClaim:
+            claimName: audio-pvc
+        - name: rancher-key
+          secret:
+            secretName: rancher-key
+            defaultMode: 0400
+            items:
+              - key: ssh-privatekey
+                path: id_rsa
+              - key: ssh-publickey
+                path: id_rsa.pub
+              - key: known_hosts
+                path: known_hosts
