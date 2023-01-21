@@ -44,7 +44,7 @@ spec:
                   name: borg
                   key: password
           volumeMounts:
-            - mountPath: /borgmatic.d
+            - mountPath: /etc/borgmatic.d
               name: config
               readOnly: true
             - mountPath: /root/.config
