@@ -4,13 +4,13 @@ metadata:
   name: borgmatic
 data:
   audio.yaml: |
-    <<: !include /etc/borgmatic.d/common/common.yaml
+    <<: !include /etc/borgmatic.d/common
     location:
       source_directories:
         - /mnt/audio
       repositories:
         - /mnt/repositories/audio
-  common/common.yaml: |
+  common: |
     location:
         one_file_system: true
     storage:
@@ -43,14 +43,14 @@ data:
   crontab.txt: |
     0 10 */2 * * PATH=$PATH:/usr/bin /usr/bin/borgmatic --stats --verbosity 1 --syslog-verbosity 1 2>&1
   games.yaml: |
-    <<: !include /etc/borgmatic.d/common/common.yaml
+    <<: !include /etc/borgmatic.d/common
     location:
       source_directories:
         - /mnt/games
       repositories:
         - /mnt/repositories/games
   photos.yaml: |
-    <<: !include /etc/borgmatic.d/common/common.yaml
+    <<: !include /etc/borgmatic.d/common
     location:
       source_directories:
         - /mnt/photoprism
@@ -58,14 +58,14 @@ data:
       repositories:
         - /mnt/repositories/photos
   syncthing.yaml: |
-    <<: !include /etc/borgmatic.d/common/common.yaml
+    <<: !include /etc/borgmatic.d/common
     location:
       source_directories:
         - /mnt/syncthing
       repositories:
         - /mnt/repositories/syncthing
   video.yaml: |
-    <<: !include /etc/borgmatic.d/common/common.yaml
+    <<: !include /etc/borgmatic.d/common
     location:
       source_directories:
         - /mnt/video
