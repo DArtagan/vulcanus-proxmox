@@ -40,7 +40,7 @@ data:
         - echo "Finished a backup."
       on_error:
         - echo "Error during prune/compact/create/check."
-  crontab.txt: | |
+  crontab.txt: |
     0 10 */2 * * PATH=$PATH:/usr/bin /usr/bin/borgmatic --stats --verbosity 1 --syslog-verbosity 1 2>&1
   games.yaml: |
     <<: !include /etc/borgmatic.d/common/common.yaml
