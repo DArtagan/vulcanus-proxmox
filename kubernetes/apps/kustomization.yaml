@@ -19,6 +19,7 @@ resources:
   - photos-pvc.yaml
   - rclone
   - rancher-key.yaml
+  - syncthing
   - syncthing-pvc.yaml
   - video-pvc.yaml
   - youtube-dl

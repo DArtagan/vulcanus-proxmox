@@ -61,6 +61,21 @@ spec:
         exposedPort: 2022
         port: 2022
         protocol: TCP
+      syncthing-listener-tcp:
+        expose: true
+        exposedPort: 22000
+        port: 22000
+        protocol: TCP
+      syncthing-listener-udp:
+        expose: true
+        exposedPort: 22000
+        port: 22000
+        protocol: UDP
+      syncthing-listener-lan:
+        expose: true
+        exposedPort: 21027
+        port: 21027
+        protocol: UDP
       web:
         redirectTo: websecure
       webdav:

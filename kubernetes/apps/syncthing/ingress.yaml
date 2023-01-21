@@ -1,0 +1,62 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: syncthing
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
+spec:
+  rules:
+  - host: syncthing.immortalkeep.com
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: syncthing
+            port:
+              number: 8384
+
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: syncthing-listener-tcp
+
+spec:
+  entryPoints:
+    - syncthing-listener-tcp
+  routes:
+    - match: HostSNI(`*`)
+      services:
+        - name: syncthing-listener-tcp
+          port: 22000
+
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRouteUDP
+metadata:
+  name: syncthing-listener-udp
+
+spec:
+  entryPoints:
+    - syncthing-listener-udp
+  routes:
+    - services:
+      - name: syncthing-listener-udp
+        port: 22000
+
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRouteUDP
+metadata:
+  name: syncthing-listener-lan
+
+spec:
+  entryPoints:
+    - syncthing-listener-lan
+  routes:
+    - services:
+      - name: syncthing-listener-lan
+        port: 21027
