@@ -17,7 +17,7 @@ resources:
   - podgrab
   - podinfo.yaml
   - photos-pvc.yaml
-  - rclone
+  #- rclone
   - rancher-key.yaml
   - syncthing
   - syncthing-pvc.yaml
