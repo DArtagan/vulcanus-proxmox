@@ -17,8 +17,6 @@ spec:
         - name: app
           image: syncthing/syncthing:1.21.0
           command: ["/bin/syncthing"]
-          args:
-            - "--home=/var/syncthing/config"
           ports:
             - containerPort: 8384
               protocol: TCP
