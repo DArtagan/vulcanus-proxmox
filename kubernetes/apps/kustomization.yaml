@@ -21,3 +21,4 @@ resources:
   - rancher-key.yaml
   - syncthing-pvc.yaml
   - video-pvc.yaml
+  - youtube-dl

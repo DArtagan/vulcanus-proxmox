@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: youtube-dl
+  labels:
+    app: youtube-dl
+spec:
+  selector:
+    matchLabels:
+      app: youtube-dl
+  template:
+    metadata:
+      labels:
+        app: youtube-dl
+    spec:
+      containers:
+        - name: app
+          image: nbr23/youtube-dl-server:yt-dlp
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - mountPath: /app_config/
+              name: config
+              readOnly: true
+            - mountPath: /youtube-dl
+              name: video
+              subpath: import/youtube-dl
+      volumes:
+        - name: config
+          configMap:
+            name: youtube-dl
+        - name: video
+          persistentVolumeClaim:
+            claimName: video-pvc
+        # I could add a PVC to persist the logs & history db, but it doesn't seem important
