@@ -6,7 +6,7 @@ spec:
   selector:
     app: syncthing
   ports:
-    - syncthing-web
+    - name: syncthing-web
       protocol: TCP
       port: 8384
     - name: syncthing-listener-tcp
