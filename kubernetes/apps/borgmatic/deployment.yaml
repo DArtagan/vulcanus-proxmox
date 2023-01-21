@@ -38,11 +38,11 @@ spec:
               name: config
               readOnly: true
             - mountPath: /root/.config
+              name: data
               subPath: .config/
-              name: data
             - mountPath: /root/.cache/borg
-              subPath: .cache/borg/
               name: data
+              subPath: .cache/borg/
             - mountPath: /mnt/repositories
               name: repositories
             - mountPath: /mnt/audio
@@ -71,7 +71,7 @@ spec:
             name: borgmatic
         - name: data
           persistentVolumeClaim:
-            name: borgmatic-pvc
+            name: borgmatic-data-pvc
         - name: repositories
           persistentVolumeClaim:
             claimName: borg-backups-pvc

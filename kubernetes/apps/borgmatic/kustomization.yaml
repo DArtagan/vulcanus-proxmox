@@ -3,5 +3,5 @@ kind: Kustomization
 resources:
   - borg-secret.yaml
   - config-map.yaml
-  - config-pvc.yaml
+  - data-pvc.yaml
   - deployment.yaml
