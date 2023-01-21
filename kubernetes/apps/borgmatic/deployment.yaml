@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: borgmatic
+  labels:
+    app: borgmatic
+spec:
+  selector:
+    matchLabels:
+      app: borgmatic
+  template:
+    metadata:
+      labels:
+        app: borgmatic
+    spec:
+      initContainers:
+        - name: config-data
+          image: debian
+          command: ["/bin/sh", "-c"]
+          args: ["apt update; apt install -y rsync openssh-client; rsync -vrtplD --append-verify --chown=1000:1000 rancher@192.168.0.112:/home/rancher/docker-vulcanus/borgmatic/* /data/"]
+          volumeMounts:
+            - mountPath: /data
+              name: data
+            - name: rancher-key
+              mountPath: /root/.ssh/
+              readOnly: true
+      containers:
+        - name: borgmatic
+          image: b3vis/borgmatic
+          env:
+            - name: BORG_PASSPHRASE
+              valueFrom:
+                secretKeyRef:
+                  name: borg
+                  key: password
+          volumeMounts:
+            - mountPath: /borgmatic.d
+              name: config
+              readOnly: true
+            - mountPath: /root/.config
+              subPath: .config/
+              name: data
+            - mountPath: /root/.cache/borg
+              subPath: .cache/borg/
+              name: data
+            - mountPath: /mnt/repositories
+              name: repositories
+            - mountPath: /mnt/audio
+              name: audio
+              readOnly: true
+            - mountPath: /mnt/games
+              name: games
+              readOnly: true
+            - mountPath: /mnt/photoprism
+              name: photos
+              subPath: photoprism/originals
+              readOnly: true
+            - mountPath: /mnt/salamander
+              name: photos
+              subPath: salamander/originals
+              readOnly: true
+            - mountPath: /mnt/syncthing
+              name: syncthing
+              readOnly: true
+            - mountPath: /mnt/video
+              name: video
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: borgmatic
+        - name: data
+          persistentVolumeClaim:
+            name: borgmatic-pvc
+        - name: repositories
+          persistentVolumeClaim:
+            claimName: borg-backups-pvc
+        - name: audio
+          persistentVolumeClaim:
+            claimName: audio-pvc
+        - name: games
+          persistentVolumeClaim:
+            claimName: games-pvc
+        - name: photos
+          persistentVolumeClaim:
+            claimName: photos-pvc
+        - name: syncthing
+          persistentVolumeClaim:
+            claimName: syncthing-pvc
+        - name: video
+          persistentVolumeClaim:
+            claimName: video-pvc
+        - name: rancher-key
+          secret:
+            secretName: rancher-key
+            defaultMode: 0400
+            items:
+              - key: ssh-privatekey
+                path: id_rsa
+              - key: ssh-publickey
+                path: id_rsa.pub
+              - key: known_hosts
+                path: known_hosts

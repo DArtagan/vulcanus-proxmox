@@ -46,7 +46,6 @@ spec:
                 items:
                   - key: conf
                     path: rclone.conf
-
             - name: borg-backups-volume
               persistentVolumeClaim:
                 claimName: borg-backups-pvc

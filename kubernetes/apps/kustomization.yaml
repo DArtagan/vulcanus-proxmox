@@ -4,9 +4,11 @@ namespace: apps
 resources:
   - audio-pvc.yaml
   - borg-backups-pvc.yaml
+  - borgmatic
   - beets
   - demo
   - dnsomatic
+  - games-pvc.yaml
   - mumble
   - namespace.yaml
   - plex
@@ -17,4 +19,5 @@ resources:
   - photos-pvc.yaml
   - rclone
   - rancher-key.yaml
+  - syncthing-pvc.yaml
   - video-pvc.yaml

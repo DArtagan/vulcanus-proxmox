@@ -1,0 +1,7 @@
+apiVersion: kustomize.config.k9s.io/v1beta1
+kind: Kustomization
+resources:
+  - borg-secret.yaml
+  - config-map.yaml
+  - config-pvc.yaml
+  - deployment.yaml

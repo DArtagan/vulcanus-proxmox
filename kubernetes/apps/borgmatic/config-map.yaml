@@ -1,0 +1,73 @@
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: borgmatic
+data:
+  audio.yaml: |
+    <<: !include /etc/borgmatic.d/common/common.yaml
+    location:
+      source_directories:
+        - /mnt/audio
+      repositories:
+        - /mnt/repositories/audio
+  common/common.yaml: |
+    location:
+        one_file_system: true
+    storage:
+        compression: zstd,9
+        retries: 3
+        retry_wait: 10
+    retention:
+      keep_daily: 7
+      keep_weekly: 4
+      keep_monthly: 12
+      keep_yearly: 10
+    consistency:
+      checks:
+        - repository
+        - archives
+      check_last: 3
+    hooks:
+      before_backup:
+        - echo "Starting a backup."
+      before_prune:
+        - echo "Starting pruning."
+      before_check:
+        - echo "Starting checks."
+      before_extract:
+        - echo "Starting extracting."
+      after_backup:
+        - echo "Finished a backup."
+      on_error:
+        - echo "Error during prune/compact/create/check."
+  crontab.txt: | |
+    0 10 */2 * * PATH=$PATH:/usr/bin /usr/bin/borgmatic --stats --verbosity 1 --syslog-verbosity 1 2>&1
+  games.yaml: |
+    <<: !include /etc/borgmatic.d/common/common.yaml
+    location:
+      source_directories:
+        - /mnt/games
+      repositories:
+        - /mnt/repositories/games
+  photos.yaml: |
+    <<: !include /etc/borgmatic.d/common/common.yaml
+    location:
+      source_directories:
+        - /mnt/photoprism
+        - /mnt/salamander
+      repositories:
+        - /mnt/repositories/photos
+  syncthing.yaml: |
+    <<: !include /etc/borgmatic.d/common/common.yaml
+    location:
+      source_directories:
+        - /mnt/syncthing
+      repositories:
+        - /mnt/repositories/syncthing
+  video.yaml: |
+    <<: !include /etc/borgmatic.d/common/common.yaml
+    location:
+      source_directories:
+        - /mnt/video
+      repositories:
+        - /mnt/repositories/video

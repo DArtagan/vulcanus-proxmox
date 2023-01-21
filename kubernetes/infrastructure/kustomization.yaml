@@ -6,6 +6,7 @@ resources:
   - basic-auth.yaml
   - borg-backups-pv.yaml
   - csi-driver-smb.yaml
+  - games-pv.yaml
   - kubernetes-dashboard.yaml
   - metallb.yaml
   - namespace.yaml
@@ -15,5 +16,6 @@ resources:
   - prometheus.yaml
   - rancher-key.yaml
   - smb-credentials.yaml
+  - syncthing-pv.yaml
   - traefik.yaml
   - video-pv.yaml

@@ -45,12 +45,11 @@ spec:
       labels:
         app: niftyapp
     spec:
-       Document this for ad-hoc use
       initContainers:
         - name: config-data
           image: debian
           command: ["/bin/sh", "-c"]
-          args: ["apt update; apt install -y rsync openssh-client; rsync -vr rancher@192.168.0.112:/home/rancher/docker-vulcanus/nifty/config/* /config/; chown -R 1000:1000 /config"]
+          args: ["apt update; apt install -y rsync openssh-client; rsync -vrtplD --append-verify --chown=1000:1000 rancher@192.168.0.112:/home/rancher/docker-vulcanus/nifty/config/* /config/"]
           volumeMounts:
             - mountPath: /config
               name: config
