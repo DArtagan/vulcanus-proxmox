@@ -16,6 +16,11 @@ spec:
       containers:
         - name: app
           image: syncthing/syncthing
+          env:
+            - name: PUID
+              value: "0"
+            - name: PGID
+              value: "0"
           ports:
             - containerPort: 8384
               protocol: TCP
