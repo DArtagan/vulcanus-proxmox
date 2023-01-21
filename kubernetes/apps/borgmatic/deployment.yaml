@@ -71,7 +71,7 @@ spec:
             name: borgmatic
         - name: data
           persistentVolumeClaim:
-            name: borgmatic-data-pvc
+            claimName: borgmatic-data-pvc
         - name: repositories
           persistentVolumeClaim:
             claimName: borg-backups-pvc
