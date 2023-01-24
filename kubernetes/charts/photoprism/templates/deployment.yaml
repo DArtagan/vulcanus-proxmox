@@ -35,7 +35,7 @@ spec:
             - name: PHOTOPRISM_DATABASE_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.name }}
+                  name: photoprism
                   key: database_password
           ports:
             - containerPort: 2342
