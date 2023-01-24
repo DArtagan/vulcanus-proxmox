@@ -1,0 +1,5 @@
+name: "photoprism"
+cacheSize: "50Gi"
+databaseSize: "10Gi"
+originalsPath: "photoprism/originals"
+importPath: "photoprism/import"

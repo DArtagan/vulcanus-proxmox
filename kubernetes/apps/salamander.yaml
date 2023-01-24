@@ -1,0 +1,22 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: salamander
+spec:
+  releaseName: salamander
+  chart:
+    spec:
+      chart: photoprism
+      sourceRef:
+        kind: GitRepository
+        name: flux-system
+        namespace: flux-system
+      path: ./kubernetes/charts/photoprism
+  interval: 5m
+  install:
+    remediation:
+      retries: 3
+  values:
+    name: salamander
+    originalsPath: "salamander/originals"
+    importPath: "salamander/import"
