@@ -93,14 +93,3 @@ spec:
         - name: photos
           persistentVolumeClaim:
             claimName: photos-pvc
-        - name: rancher-key
-          secret:
-            secretName: rancher-key
-            defaultMode: 0400
-            items:
-              - key: ssh-privatekey
-                path: id_rsa
-              - key: ssh-publickey
-                path: id_rsa.pub
-              - key: known_hosts
-                path: known_hosts
