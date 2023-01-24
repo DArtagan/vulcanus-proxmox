@@ -6,17 +6,16 @@ spec:
   releaseName: salamander
   chart:
     spec:
-      chart: photoprism
+      chart: ./kubernetes/charts/photoprism
       sourceRef:
         kind: GitRepository
         name: flux-system
         namespace: flux-system
-      path: ./kubernetes/charts/photoprism
   interval: 5m
   install:
     remediation:
       retries: 3
   values:
     name: salamander
-    originalsPath: "salamander/originals"
-    importPath: "salamander/import"
+    originalsPath: salamander/originals
+    importPath: salamander/import
