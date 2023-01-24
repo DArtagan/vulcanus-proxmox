@@ -5,6 +5,9 @@ metadata:
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
+    {{ if .Values.private }}
+    traefik.ingress.kubernetes.io/router.middlewares: infrastructure-private@kubernetescrd
+    {{ end }}
 spec:
   rules:
   - host: {{ .Values.name }}.immortalkeep.com
