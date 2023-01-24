@@ -22,5 +22,6 @@ resources:
   - salamander.yaml
   - syncthing
   - syncthing-pvc.yaml
+  - tinyproxy
   - video-pvc.yaml
   - youtube-dl

@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tinyproxy
+  labels:
+    app: tinyproxy
+spec:
+  selector:
+    matchLabels:
+      app: tinyproxy
+  template:
+    metadata:
+      labels:
+        app: tinyproxy
+    spec:
+      containers:
+        - name: app
+          image: kalaksi/tinyproxy
+          ports:
+            - containerPort: 8888
+          # TODO: does this do anything in our Kubernetes/Talos version
+          securityContext:
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: ALLOWED_NETWORKS
+              value: "192.168.0.0/16"
