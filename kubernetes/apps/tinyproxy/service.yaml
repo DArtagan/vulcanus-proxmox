@@ -4,6 +4,7 @@ metadata:
   name: tinyproxy
 spec:
   type: NodePort
+  externalTrafficPolicy: local
   selector:
     app: tinyproxy
   ports:
