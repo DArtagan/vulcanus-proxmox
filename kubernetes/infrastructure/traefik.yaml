@@ -85,7 +85,7 @@ spec:
         protocol: TCP
     service:
       spec:
-        externalTrafficPolicy: local
+        externalTrafficPolicy: Local
 
 
 ---
