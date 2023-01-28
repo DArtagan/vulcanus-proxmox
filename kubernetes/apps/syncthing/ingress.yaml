@@ -22,41 +22,41 @@ spec:
 apiVersion: traefik.containo.us/v1alpha1
 kind: IngressRouteTCP
 metadata:
-  name: syncthing-listener-tcp
+  name: syncthing-tcp
 
 spec:
   entryPoints:
-    - syncthing-listener-tcp
+    - syncthing-tcp
   routes:
     - match: HostSNI(`*`)
       services:
-        - name: syncthing-listener-tcp
+        - name: syncthing-tcp
           port: 22000
 
 ---
 apiVersion: traefik.containo.us/v1alpha1
 kind: IngressRouteUDP
 metadata:
-  name: syncthing-listener-udp
+  name: syncthing-udp
 
 spec:
   entryPoints:
-    - syncthing-listener-udp
+    - syncthing-udp
   routes:
     - services:
-      - name: syncthing-listener-udp
+      - name: syncthing-udp
         port: 22000
 
 ---
 apiVersion: traefik.containo.us/v1alpha1
 kind: IngressRouteUDP
 metadata:
-  name: syncthing-listener-lan
+  name: syncthing-lan
 
 spec:
   entryPoints:
-    - syncthing-listener-lan
+    - syncthing-lan
   routes:
     - services:
-      - name: syncthing-listener-lan
+      - name: syncthing-lan
         port: 21027

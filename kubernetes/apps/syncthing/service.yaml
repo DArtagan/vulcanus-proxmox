@@ -9,10 +9,10 @@ spec:
     - name: syncthing-web
       protocol: TCP
       port: 8384
-    - name: syncthing-listener-tcp
+    - name: syncthing-tcp
       protocol: TCP
       port: 22000
-    - name: syncthing-listener-udp
+    - name: syncthing-udp
       protocol: UDP
       port: 22000
     - name: syncthing-lan
