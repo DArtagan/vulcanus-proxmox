@@ -30,7 +30,7 @@ spec:
         email: willy@weiskopf.me
         tlsChallenge: true
         storage: /data/acme.json
-      # TODO: replace "myresolver" in all the docker-compose and then get rid of this
+      # TODO: replace "myresolver" everywhere and get rid of this
       myresolver:
         email: willy@weiskopf.me
         tlsChallenge: true
