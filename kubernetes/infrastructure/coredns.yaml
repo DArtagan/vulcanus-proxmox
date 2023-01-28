@@ -74,14 +74,14 @@ spec:
 
           ; =============================== Resource Records ==============================
 
-          @                 IN  SOA     ns.immortalkeep.com. hostmaster.immortalkeep.com. (
-                                            2020010510        ; Serial
-                                            1d                ; Refresh
-                                            2h                ; Retry
-                                            4w                ; Expire
-                                            1h)               ; Minimum TTL
-          @                 IN  A       192.168.0.202         ; Local IPv4 address for immortalkeep.com.
-          @                 IN  NS      ns.immortalkeep.com.  ; Name server for immortalkeep.com.
-          ns                IN  CNAME   @                     ; Alias for ns.immortalkeep.com
-          ;fileserver IN A 192.168.0.105
-          ;*.immortalkeep.com. IN A 192.168.0.203
+          @                    IN  SOA     ns.immortalkeep.com. hostmaster.immortalkeep.com. (
+                                               2023012801        ; Serial
+                                               1d                ; Refresh
+                                               2h                ; Retry
+                                               4w                ; Expire
+                                               1h)               ; Minimum TTL
+          @                    IN  A       192.168.0.202         ; Local IPv4 address for immortalkeep.com.
+          @                    IN  NS      ns.immortalkeep.com.  ; Name server for immortalkeep.com.
+          ns                   IN  CNAME   @                     ; Alias for ns.immortalkeep.com
+          fileserver           IN  A       192.168.0.105
+          *.immortalkeep.com.  IN  A       192.168.0.203
