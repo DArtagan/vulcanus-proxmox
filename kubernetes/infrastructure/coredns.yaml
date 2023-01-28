@@ -1,0 +1,51 @@
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: coredns
+spec:
+  interval: 24h
+  url: https://coredns.github.io/helm
+
+
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: coredns
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: coredns
+      sourceRef:
+        kind: HelmRepository
+        name: coredns
+      interval: 5m
+  values:
+    isClusterService: false
+    service:
+      loadBalancerIP: "192.168.0.202"
+    serviceType: LoadBalancer
+    servers:
+      - zones:
+        - zone: .
+        port: 53
+        plugins:
+          - name: errors
+          - name: health
+            configBlock: |-
+              lameduck 5s
+          - name: ready
+          # TODO: left out the kubernetes section
+          - name: prometheus
+            parameters: 0.0.0.0:9153
+          - name: cache
+            parameters: 30
+          - name: loop
+          - name: reload
+          - name: loadbalance
+          - name: forward
+            parameters: . tls://1.1.1.1
+            configBlock: |-
+              tls_servername cloudflare-dns.com
+              health_check 5s
