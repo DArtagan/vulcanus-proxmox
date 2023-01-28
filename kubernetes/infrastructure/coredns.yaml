@@ -50,18 +50,29 @@ spec:
               tls_servername cloudflare-dns.com
               health_check 5s
             # TODO: maybe rewrite all immortalkeep.com to immortalkeep.local for applications on the LAN, prevents hairpinning. https://coredns.io/2017/05/08/custom-dns-entries-for-kubernetes/
-#      - zones:
-#        - zone: immortalkeep.local
-#        port: 53
-#        plugins:
-#          # TODO: how many of these plugins are worth keeping?
-#          - name: errors
-#          - name: health
-#            configBlock: |-
-#              lameduck 5s
-#          - name: ready
-#          - name: prometheus
-#            parameters: 0.0.0.0:9153
-#          - name: reload
-#          - name: forward
-#            parameters: . tls://1.1.1.1
+      - zones:
+        - zone: immortalkeep.com
+        port: 53
+        plugins:
+          # TODO: how many of these plugins are worth keeping?
+          - name: errors
+          - name: health
+            configBlock: |-
+              lameduck 5s
+          - name: file
+            parameters: db.immortalkeep.com
+          - name: ready
+          - name: prometheus
+            parameters: 0.0.0.0:9153
+          - name: reload
+    zoneFiles:
+      - filename: db.immortalkeep.com
+        domain: immortalkeep.com
+        contents: |
+          $ORIGIN immortalkeep.com.
+          $TIL 3600
+          @ IN SOA ns.immortalkeep.com hostmaster ( 202301281 7200 3600 1209600 3600 )
+          @ IN NS ns.immortalkeep.com
+          ns IN A 192.168.0.202
+          fileserver IN A 192.168.0.105
+          *.immortalkeep.com IN A 192.168.0.203
