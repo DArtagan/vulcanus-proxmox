@@ -71,8 +71,8 @@ spec:
         contents: |
           $ORIGIN immortalkeep.com.
           $TIL 3600
-          @ IN SOA ns.immortalkeep.com hostmaster ( 202301281 7200 3600 1209600 3600 )
+          @ IN SOA ns.immortalkeep.com hostmaster ( 202301282 7200 3600 1209600 3600 )
           @ IN NS ns.immortalkeep.com
           ns IN A 192.168.0.202
           fileserver IN A 192.168.0.105
-          *.immortalkeep.com IN A 192.168.0.203
+          *.immortalkeep.com. IN A 192.168.0.203
