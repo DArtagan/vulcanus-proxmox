@@ -68,11 +68,10 @@ spec:
     zoneFiles:
       - filename: db.immortalkeep.com
         domain: immortalkeep.com
-        contents: |
+        contents: |-
           $ORIGIN immortalkeep.com.
           $TIL 3600
-          immortalkeep.com. IN SOA ns.immortalkeep.com hostmaster ( 202301282 7200 3600 1209600 3600 )
-          @ IN NS ns.immortalkeep.com
-          ns IN A 192.168.0.202
+          immortalkeep.com. IN SOA brad.ns.cloudflare.com dns.cloudflare.com ( 202301283 7200 3600 1209600 3600 )
+          @ IN NS brad.ns.cloudflare.com
           fileserver IN A 192.168.0.105
           *.immortalkeep.com. IN A 192.168.0.203
