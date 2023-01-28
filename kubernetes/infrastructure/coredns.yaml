@@ -69,9 +69,19 @@ spec:
       - filename: db.immortalkeep.com
         domain: immortalkeep.com
         contents: |-
-          $ORIGIN immortalkeep.com.
-          $TIL 3600
-          immortalkeep.com. IN SOA brad.ns.cloudflare.com dns.cloudflare.com ( 202301283 7200 3600 1209600 3600 )
-          @ IN NS brad.ns.cloudflare.com
-          fileserver IN A 192.168.0.105
-          *.immortalkeep.com. IN A 192.168.0.203
+          $ORIGIN example.com.  ; designates the start of this zone file in the namespace
+          $TTL 1h               ; default expiration time of all resource records without their own TTL value
+
+          ; =============================== Resource Records ==============================
+
+          @                 IN  SOA     ns.immortalkeep.com. hostmaster.immortalkeep.com. (
+                                            2020010510        ; Serial
+                                            1d                ; Refresh
+                                            2h                ; Retry
+                                            4w                ; Expire
+                                            1h)               ; Minimum TTL
+          @                 IN  A       192.168.0.202         ; Local IPv4 address for immortalkeep.com.
+          @                 IN  NS      ns.immortalkeep.com.  ; Name server for immortalkeep.com.
+          ns                IN  CNAME   @                     ; Alias for ns.immortalkeep.com
+          ;fileserver IN A 192.168.0.105
+          ;*.immortalkeep.com. IN A 192.168.0.203
