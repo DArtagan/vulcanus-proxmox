@@ -60,13 +60,13 @@ spec:
             configBlock: |-
               lameduck 5s
           - name: file
-            parameters: db.immortalkeep.com
+            parameters: /etc/db.immortalkeep.com
           - name: ready
           - name: prometheus
             parameters: 0.0.0.0:9153
           - name: reload
     zoneFiles:
-      - filename: db.immortalkeep.com
+      - filename: /etc/db.immortalkeep.com
         domain: immortalkeep.com
         contents: |
           $ORIGIN immortalkeep.com.
