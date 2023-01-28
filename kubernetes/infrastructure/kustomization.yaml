@@ -19,4 +19,5 @@ resources:
   - smb-credentials.yaml
   - syncthing-pv.yaml
   - traefik.yaml
+  - traefik-internal.yaml
   - video-pv.yaml
