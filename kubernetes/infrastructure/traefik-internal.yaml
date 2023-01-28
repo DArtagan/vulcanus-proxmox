@@ -89,8 +89,10 @@ spec:
     - websecure
   routes:
     # TODO: do better than this hard-coded host.  Docs recommend something like traefik.localhost.  That might require a network DNS server or somesuch
-    - match: Host(`192.168.0.203`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))
+    - match: Host(`traefik-internal.immortalkeep.com`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))
       kind: Rule
       services:
         - name: api@internal
           kind: TraefikService
+  tls:
+    certResolver: letsencrypt
