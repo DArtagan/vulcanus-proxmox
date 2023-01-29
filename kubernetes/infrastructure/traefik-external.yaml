@@ -91,6 +91,11 @@ spec:
         exposedPort: 10080
         port: 10080
         protocol: TCP
+    providers:
+      kubernetesCRD:
+        labelSelector: public=true
+      kubernetesIngress:
+        labelSelector: public=true
     service:
       spec:
         # TODO: validate this worked
