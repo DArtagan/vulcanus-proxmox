@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sftpgo
+spec:
+  selector:
+    app: sftpgo
+  ports:
+    - name: sftpgo-web
+      protocol: TCP
+      port: 8080
+    - name: sftpgo-sftp
+      protocol: TCP
+      port: 2022
+    - name: sftpgo-webdav
+      protocol: TCP
+      port: 10080

@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sftpgo
+  labels:
+    app: sftpgo
+spec:
+  selector:
+    matchLabels:
+      app: sftpgo
+  template:
+    metadata:
+      labels:
+        app: sftpgo
+    spec:
+      initContainers:
+        - name: config-data
+          image: debian
+          command: ["/bin/sh", "-c"]
+          args: ["apt update; apt install -y rsync openssh-client; rsync -vrtplD --append-verify --chown=1000:1000 rancher@192.168.0.112:/home/rancher/docker-vulcanus/sftpgo/* /data/"]
+          volumeMounts:
+            - mountPath: /data
+              name: data
+            - name: rancher-key
+              mountPath: /root/.ssh/
+              readOnly: true
+      containers:
+        - name: app
+          image: sftpgo/sftpgo:distroless-slim
+          env:
+            - name: SFTPGO_WEBDAVD__BINDINGS__0__PORT
+              value: "10080"
+            - name: SFTPGO_DATA_PROVIDER__CREATE_DEFAULT_ADMIN
+              value: "true"
+            - name: SFTPGO_DEFAULT_ADMIN_USERNAME
+              valueFrom:
+                secretRef:
+                  name: sftpgo-credentials
+                  value: username
+            - name: SFTPGO_DEFAULT_ADMIN_PASSWORD
+              valueFrom:
+                secretRef:
+                  name: sftpgo-credentials
+                  value: password
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+            - containerPort: 2022
+              protocol: TCP
+            - containerPort: 10080
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /var/lib/sftpgo
+              name: data
+            - mountPath: /notes
+              name: dropbox/notes
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: sftpgo-pvc
+        - name: syncthing
+          persistentVolumeClaim:
+            claimName: syncthing-pvc
+        - name: rancher-key
+          secret:
+            secretName: rancher-key
+            defaultMode: 0400
+            items:
+              - key: ssh-privatekey
+                path: id_rsa
+              - key: ssh-publickey
+                path: id_rsa.pub
+              - key: known_hosts
+                path: known_hosts

@@ -20,6 +20,7 @@ resources:
   #- rclone
   - rancher-key.yaml
   - salamander.yaml
+  - sftpgo
   - syncthing
   - syncthing-pvc.yaml
   - tinyproxy
