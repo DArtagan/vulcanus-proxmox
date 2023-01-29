@@ -34,12 +34,12 @@ spec:
               value: "true"
             - name: SFTPGO_DEFAULT_ADMIN_USERNAME
               valueFrom:
-                secretRef:
+                secretKeyRef:
                   name: sftpgo-credentials
                   value: username
             - name: SFTPGO_DEFAULT_ADMIN_PASSWORD
               valueFrom:
-                secretRef:
+                secretKeyRef:
                   name: sftpgo-credentials
                   value: password
           ports:
