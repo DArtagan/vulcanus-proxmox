@@ -78,6 +78,12 @@ spec:
         protocol: UDP
       web:
         redirectTo: websecure
+#      websecure:
+#        tls:
+#          enabled: true
+#          certResolver: letsencrypt
+#          domains:
+#            - immortalkeep.com
       webdav:
         expose: true
         exposedPort: 10080
