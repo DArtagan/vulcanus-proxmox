@@ -6,7 +6,7 @@ metadata:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
 spec:
-  ingressClassName: traefik-external
+  ingressClassName: traefik
   rules:
   - host: immortalkeep.com
     http:
