@@ -94,5 +94,5 @@ spec:
       services:
         - name: api@internal
           kind: TraefikService
-  tls:
-    certResolver: letsencrypt
+#  tls:
+#    certResolver: letsencrypt
