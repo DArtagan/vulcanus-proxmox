@@ -36,12 +36,12 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: sftpgo-credentials
-                  value: username
+                  key: username
             - name: SFTPGO_DEFAULT_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: sftpgo-credentials
-                  value: password
+                  key: password
           ports:
             - containerPort: 8080
               protocol: TCP
