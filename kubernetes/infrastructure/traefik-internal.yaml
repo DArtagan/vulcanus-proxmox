@@ -1,7 +1,7 @@
 apiVersion: helm.toolkit.fluxcd.io/v2beta1
 kind: HelmRelease
 metadata:
-  name: traefik-internal
+  name: traefik-internal2
 spec:
   interval: 5m
   chart:
@@ -12,7 +12,7 @@ spec:
         name: traefik
       interval: 5m
   values:
-    fullnameOverride: traefik-internal
+    fullnameOverride: traefik-internal2
     additionalArguments:
       - "--providers.docker.endpoint=tcp://192.168.0.112:2375"
       - "--providers.docker.exposedByDefault=false"
