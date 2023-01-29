@@ -22,7 +22,6 @@ spec:
         name: traefik
       interval: 5m
   values:
-    fullnameOverride: traefik-external
     additionalArguments:
       - "--providers.docker.endpoint=tcp://192.168.0.112:2375"
       - "--providers.docker.exposedByDefault=false"
