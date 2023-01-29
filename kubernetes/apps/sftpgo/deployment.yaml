@@ -26,7 +26,7 @@ spec:
               readOnly: true
       containers:
         - name: app
-          image: sftpgo/sftpgo:distroless-slim
+          image: drakkan/sftpgo:distroless-slim
           env:
             - name: SFTPGO_WEBDAVD__BINDINGS__0__PORT
               value: "10080"
