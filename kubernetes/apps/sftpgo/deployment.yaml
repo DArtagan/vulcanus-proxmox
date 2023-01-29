@@ -53,7 +53,8 @@ spec:
             - mountPath: /var/lib/sftpgo
               name: data
             - mountPath: /notes
-              name: dropbox/notes
+              name: syncthing
+              subPath: dropbox/notes
       volumes:
         - name: data
           persistentVolumeClaim:
