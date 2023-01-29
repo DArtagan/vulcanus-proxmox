@@ -30,7 +30,7 @@ spec:
   routes:
     - match: HostSNI(`*`)
       services:
-        - name: syncthing-tcp
+        - name: syncthing
           port: 22000
 
 ---
@@ -44,7 +44,7 @@ spec:
     - syncthing-udp
   routes:
     - services:
-      - name: syncthing-udp
+      - name: syncthing
         port: 22000
 
 ---
@@ -58,5 +58,5 @@ spec:
     - syncthing-lan
   routes:
     - services:
-      - name: syncthing-lan
+      - name: syncthing
         port: 21027
