@@ -5,6 +5,8 @@ metadata:
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
+  labels:
+    public: "true"
 spec:
   rules:
   - host: photoprism.immortalkeep.com

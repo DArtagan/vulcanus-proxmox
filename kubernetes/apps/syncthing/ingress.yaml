@@ -5,6 +5,8 @@ metadata:
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
+  labels:
+    public: "true"
 spec:
   rules:
   - host: syncthing.immortalkeep.com
@@ -23,7 +25,8 @@ apiVersion: traefik.containo.us/v1alpha1
 kind: IngressRouteTCP
 metadata:
   name: syncthing-tcp
-
+  labels:
+    public: "true"
 spec:
   entryPoints:
     - syncthing-tcp
@@ -38,7 +41,8 @@ apiVersion: traefik.containo.us/v1alpha1
 kind: IngressRouteUDP
 metadata:
   name: syncthing-udp
-
+  labels:
+    public: "true"
 spec:
   entryPoints:
     - syncthing-udp
@@ -52,7 +56,6 @@ apiVersion: traefik.containo.us/v1alpha1
 kind: IngressRouteUDP
 metadata:
   name: syncthing-lan
-
 spec:
   entryPoints:
     - syncthing-lan

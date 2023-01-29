@@ -6,6 +6,8 @@ metadata:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
     traefik.ingress.kubernetes.io/router.middlewares: infrastructure-basic-auth@kubernetescrd
+  labels:
+    public: "true"
 spec:
   rules:
   - host: podbook2.immortalkeep.com
