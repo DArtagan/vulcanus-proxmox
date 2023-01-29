@@ -117,19 +117,6 @@ spec:
 
 ---
 apiVersion: traefik.containo.us/v1alpha1
-kind: Middleware
-metadata:
-  name: private
-spec:
-  ipWhiteList:
-    sourceRange:
-      - 127.0.0.1/32
-      - 192.168.0.0/16
-        #- 10.0.0.0/8
-
-
----
-apiVersion: traefik.containo.us/v1alpha1
 kind: IngressRoute
 metadata:
   name: dashboard

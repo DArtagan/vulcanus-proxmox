@@ -3,4 +3,4 @@ cacheSize: "50Gi"
 databaseSize: "10Gi"
 originalsPath: "photoprism/originals"
 importPath: "photoprism/import"
-private: true
+public: false
