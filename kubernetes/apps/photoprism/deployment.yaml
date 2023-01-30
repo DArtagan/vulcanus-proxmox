@@ -37,6 +37,8 @@ spec:
                 secretKeyRef:
                   name: photoprism
                   key: database_password
+            - name: PHOTOPRISM_SPONSOR
+              value: "true"
           ports:
             - containerPort: 2342
           resources:
