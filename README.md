@@ -49,7 +49,7 @@ spec:
         - name: config-data
           image: debian
           command: ["/bin/sh", "-c"]
-          args: ["apt update; apt install -y rsync openssh-client; rsync -vrtplD --append-verify --chown=1000:1000 rancher@192.168.0.112:/home/rancher/docker-vulcanus/nifty/config/* /data/"]
+          args: ["apt update; apt install -y rsync openssh-client; rsync -vrtplDog --append-verify --chown=1000:1000 rancher@192.168.0.112:/home/rancher/docker-vulcanus/nifty/config/* /data/"]
           volumeMounts:
             - mountPath: /data
               name: config
