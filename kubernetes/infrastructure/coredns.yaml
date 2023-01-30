@@ -80,9 +80,8 @@ spec:
                                                2h                ; Retry
                                                4w                ; Expire
                                                1h)               ; Minimum TTL
-          @                    IN  A       192.168.0.202         ; Local IPv4 address for immortalkeep.com.
+          @                    IN  A       192.168.0.203         ; Local IPv4 address for immortalkeep.com.
           @                    IN  NS      ns.immortalkeep.com.  ; Name server for immortalkeep.com.
           ns                   IN  CNAME   @                     ; Alias for ns.immortalkeep.com
           fileserver           IN  A       192.168.0.105
-          www                  IN  A       192.168.0.203
           *.immortalkeep.com.  IN  A       192.168.0.203
