@@ -23,7 +23,7 @@ spec:
               name: data
             - mountPath: /assets
               name: audio
-              subpath: podcasts/
+              subPath: podcasts/
       volumes:
         - name: data
           persistentVolumeClaim:

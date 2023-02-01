@@ -24,7 +24,7 @@ spec:
               readOnly: true
             - mountPath: /youtube-dl
               name: video
-              subpath: import/youtube-dl
+              subPath: import/youtube-dl
       volumes:
         - name: config
           configMap:

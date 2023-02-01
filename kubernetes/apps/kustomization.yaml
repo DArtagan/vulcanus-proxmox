@@ -17,12 +17,12 @@ resources:
   - podgrab
   - podinfo.yaml
   - photos-pvc.yaml
-  #- rclone
+  - rclone
   - rancher-key.yaml
   - salamander.yaml
   - sftpgo
   - syncthing
   - syncthing-pvc.yaml
-  - tinyproxy
+  #- tinyproxy
   - video-pvc.yaml
   - youtube-dl

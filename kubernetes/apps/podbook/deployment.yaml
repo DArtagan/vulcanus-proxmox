@@ -24,7 +24,7 @@ spec:
           volumeMounts:
             - mountPath: /podbook/books
               name: audio
-              subpath: audiobooks/
+              subPath: audiobooks/
               readOnly: true
         - name: nginx
           image: nginx
@@ -37,7 +37,7 @@ spec:
               readOnly: true
             - mountPath: /var/www/media
               name: audio
-              subpath: audiobooks/
+              subPath: audiobooks/
               readOnly: true
       volumes:
         - name: config
