@@ -14,7 +14,7 @@ resources:
   - plex
   - photoprism
   - podbook
-  #- podgrab
+  - podgrab
   - podinfo.yaml
   - photos-pvc.yaml
   - rclone
