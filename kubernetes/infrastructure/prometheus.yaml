@@ -31,6 +31,22 @@ spec:
   values:
     alertmanager:
       enabled: false
+    grafana:
+      ingress:
+        enabled: true
+        annotations:
+          traefik.ingress.kubernetes.io/router.entrypoints: websecure
+          traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
+        hosts:
+          - prometheus-grafana.immortalkeep.com
+    prometheus:
+      ingress:
+        enabled: true
+        annotations:
+          traefik.ingress.kubernetes.io/router.entrypoints: websecure
+          traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
+        hosts:
+          - prometheus.immortalkeep.com
     prometheus:
       prometheusSpec:
         retention: 24h
