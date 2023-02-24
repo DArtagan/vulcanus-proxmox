@@ -41,5 +41,7 @@ spec:
         - kubernetes.immortalkeep.com
     metrics-server:
       enabled: true
+      args:
+        - --kubelet-insecure-tls
     service:
       externalPort: 8000
