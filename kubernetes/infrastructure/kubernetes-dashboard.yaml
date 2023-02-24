@@ -23,9 +23,11 @@ spec:
       interval: 5m
   values:
     ingress:
-      # TODO: this doesn't yet work
       enabled: true
+      annotations:
+	traefik.ingress.kubernetes.io/router.entrypoints: websecure
+	traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
       paths:
-        - /kubernetes-dashboard/
+        - /
       hosts:
-        - 192.168.0.201
+        - kubernetes.immortalkeep.com
