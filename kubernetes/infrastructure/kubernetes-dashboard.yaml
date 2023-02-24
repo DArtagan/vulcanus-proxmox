@@ -28,7 +28,16 @@ spec:
       annotations:
         traefik.ingress.kubernetes.io/router.entrypoints: websecure
         traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
-      paths:
-        - /
+      paths: []
+      customPaths:
+        - pathType: Prefix
+          path: /
+          backend:
+            service:
+              name: kubernetes-dashboard
+              port:
+                number: 8000
       hosts:
         - kubernetes.immortalkeep.com
+    service:
+      externalPort: 8000
