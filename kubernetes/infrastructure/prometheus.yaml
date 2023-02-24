@@ -47,7 +47,6 @@ spec:
           traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
         hosts:
           - prometheus.immortalkeep.com
-    prometheus:
       prometheusSpec:
         retention: 24h
         resources:
