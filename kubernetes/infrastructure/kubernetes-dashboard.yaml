@@ -39,5 +39,7 @@ spec:
                 number: 8000
       hosts:
         - kubernetes.immortalkeep.com
+    metrics-server:
+      enabled: true
     service:
       externalPort: 8000
