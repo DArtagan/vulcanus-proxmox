@@ -4,24 +4,24 @@ namespace: apps
 resources:
   - audio-pvc.yaml
   - borg-backups-pvc.yaml
-  - borgmatic # commented out deployment.yaml
+  - borgmatic
   - beets
-  #- demo
-  #- dnsomatic
+  - demo
+  - dnsomatic
   - games-pvc.yaml
   - mumble
   - namespace.yaml
-  - plex # commented out deployment.yaml
-  - photoprism # commented out deployment.yaml
-  #- podbook
-  - podgrab # commented out deployment.yaml
+  - plex
+  - photoprism
+  - podbook
+  - podgrab
   - photos-pvc.yaml
   #- rclone
   - rancher-key.yaml
   - salamander.yaml
-  - sftpgo # commented out deployment.yaml
-  #- syncthing
+  - sftpgo
+  - syncthing
   - syncthing-pvc.yaml
   #- tinyproxy
   - video-pvc.yaml
-  #- youtube-dl
+  - youtube-dl
