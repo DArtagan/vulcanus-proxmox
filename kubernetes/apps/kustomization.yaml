@@ -4,14 +4,14 @@ namespace: apps
 resources:
   - audio-pvc.yaml
   - borg-backups-pvc.yaml
-  - borgmatic
+  - borgmatic # commented out deployment.yaml
   - beets
   #- demo
-  - dnsomatic
+  #- dnsomatic
   - games-pvc.yaml
   - mumble
   - namespace.yaml
-  - plex
+  - plex # commented out deployment.yaml
   - photoprism # commented out deployment.yaml
   #- podbook
   - podgrab # commented out deployment.yaml

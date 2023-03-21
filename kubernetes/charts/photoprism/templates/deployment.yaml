@@ -13,78 +13,78 @@ spec:
       labels:
         app: {{ .Values.name }}
     spec:
-      containers:
-        - name: app
-          image: photoprism/photoprism
-          env:
-            - name: PHOTOPRISM_ADMIN_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: photoprism
-                  key: admin_password
-            - name: PHOTOPRISM_SITE_URL
-              value: https://photoprism.immortalkeep.com/
-            - name: PHOTOPRISM_DATABASE_DRIVER
-              value: mysql
-            - name: PHOTOPRISM_DATABASE_SERVER
-              value: "localhost:3306"
-            - name: PHOTOPRISM_DATABASE_NAME
-              value: photoprism
-            - name: PHOTOPRISM_DATABASE_USER
-              value: photoprism
-            - name: PHOTOPRISM_DATABASE_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: photoprism
-                  key: database_password
-            - name: PHOTOPRISM_SPONSOR
-              value: "true"
-          ports:
-            - containerPort: 2342
-          resources:
-            limits:
-              cpu: "1000m"
-          volumeMounts:
-            - mountPath: /photoprism/storage
-              name: data
-            - mountPath: /photoprism/import
-              name: photos
-              subPath: {{ .Values.importPath }}
-            - mountPath: /photoprism/originals
-              name: photos
-              subPath: {{ .Values.originalsPath }}
-        - name: database
-          image: mariadb
-          args:
-            - "--innodb-buffer-pool-size=128M" 
-            - "--transaction-isolation=READ-COMMITTED"
-            - "--character-set-server=utf8mb4"
-            - "--collation-server=utf8mb4_unicode_ci"
-            - "--max-connections=512"
-            - "--innodb-rollback-on-timeout=OFF"
-            - "--innodb-lock-wait-timeout=120"
-          env:
-            - name: MARIADB_AUTO_UPGRADE
-              value: "true"
-            - name: MARIADB_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: photoprism
-                  key: database_password
-            - name: MARIADB_DATABASE
-              value: photoprism
-            - name: MARIADB_USER
-              value: photoprism
-            - name: MARIADB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: photoprism
-                  key: database_password
-          ports:
-            - containerPort: 3306
-          volumeMounts:
-            - mountPath: /var/lib/mysql
-              name: database
+      #containers:
+      #  - name: app
+      #    image: photoprism/photoprism
+      #    env:
+      #      - name: PHOTOPRISM_ADMIN_PASSWORD
+      #        valueFrom:
+      #          secretKeyRef:
+      #            name: photoprism
+      #            key: admin_password
+      #      - name: PHOTOPRISM_SITE_URL
+      #        value: https://photoprism.immortalkeep.com/
+      #      - name: PHOTOPRISM_DATABASE_DRIVER
+      #        value: mysql
+      #      - name: PHOTOPRISM_DATABASE_SERVER
+      #        value: "localhost:3306"
+      #      - name: PHOTOPRISM_DATABASE_NAME
+      #        value: photoprism
+      #      - name: PHOTOPRISM_DATABASE_USER
+      #        value: photoprism
+      #      - name: PHOTOPRISM_DATABASE_PASSWORD
+      #        valueFrom:
+      #          secretKeyRef:
+      #            name: photoprism
+      #            key: database_password
+      #      - name: PHOTOPRISM_SPONSOR
+      #        value: "true"
+      #    ports:
+      #      - containerPort: 2342
+      #    resources:
+      #      limits:
+      #        cpu: "1000m"
+      #    volumeMounts:
+      #      - mountPath: /photoprism/storage
+      #        name: data
+      #      - mountPath: /photoprism/import
+      #        name: photos
+      #        subPath: {{ .Values.importPath }}
+      #      - mountPath: /photoprism/originals
+      #        name: photos
+      #        subPath: {{ .Values.originalsPath }}
+      #  - name: database
+      #    image: mariadb
+      #    args:
+      #      - "--innodb-buffer-pool-size=128M" 
+      #      - "--transaction-isolation=READ-COMMITTED"
+      #      - "--character-set-server=utf8mb4"
+      #      - "--collation-server=utf8mb4_unicode_ci"
+      #      - "--max-connections=512"
+      #      - "--innodb-rollback-on-timeout=OFF"
+      #      - "--innodb-lock-wait-timeout=120"
+      #    env:
+      #      - name: MARIADB_AUTO_UPGRADE
+      #        value: "true"
+      #      - name: MARIADB_ROOT_PASSWORD
+      #        valueFrom:
+      #          secretKeyRef:
+      #            name: photoprism
+      #            key: database_password
+      #      - name: MARIADB_DATABASE
+      #        value: photoprism
+      #      - name: MARIADB_USER
+      #        value: photoprism
+      #      - name: MARIADB_PASSWORD
+      #        valueFrom:
+      #          secretKeyRef:
+      #            name: photoprism
+      #            key: database_password
+      #    ports:
+      #      - containerPort: 3306
+      #    volumeMounts:
+      #      - mountPath: /var/lib/mysql
+      #        name: database
       volumes:
         - name: data
           persistentVolumeClaim:

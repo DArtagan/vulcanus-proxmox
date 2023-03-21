@@ -4,4 +4,4 @@ resources:
   - borg-secret.yaml
   - config-map.yaml
   - data-pvc.yaml
-  - deployment.yaml
+  #- deployment.yaml
