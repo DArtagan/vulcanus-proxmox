@@ -16,7 +16,7 @@ resources:
   - podbook
   - podgrab
   - photos-pvc.yaml
-  #- rclone
+  - rclone
   - rancher-key.yaml
   - salamander.yaml
   - sftpgo
