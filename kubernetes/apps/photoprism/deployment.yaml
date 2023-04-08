@@ -43,7 +43,7 @@ spec:
             - containerPort: 2342
           resources:
             limits:
-              cpu: "1000m"
+              cpu: "500m"
           volumeMounts:
             - mountPath: /photoprism/storage
               name: data
