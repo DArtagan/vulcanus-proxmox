@@ -60,8 +60,9 @@ provider "flux" {
 
 resource "flux_bootstrap_git" "main" {
   depends_on = [github_repository_deploy_key.main]
-  # TODO: changed this
-  #path = "staging-cluster"
-  #path = "piraeus-fluxcd"
   path = var.target_path
+  components_extra = [
+    "image-automation-controller",
+    "image-reflector-controller"
+  ]
 }
