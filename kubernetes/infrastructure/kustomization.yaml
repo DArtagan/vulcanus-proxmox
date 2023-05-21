@@ -9,6 +9,7 @@ resources:
   - csi-driver-smb.yaml
   - games-pv.yaml
   - kubernetes-dashboard.yaml
+  - image-update-automation.yaml
   - metallb.yaml
   - namespace.yaml
   - openebs.yaml
