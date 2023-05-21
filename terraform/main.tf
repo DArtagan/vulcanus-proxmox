@@ -161,7 +161,7 @@ module "talos" {
   proxmox_debug = true
   control_plane_node_count = 1
   worker_node_count = 1
-  worker_node_memory = 8192
+  worker_node_memory = 10240
   worker_boot_disk_size = "100G"
   cluster_name = "piraeus"
   cluster_endpoint = "https://192.168.0.200:6443"
