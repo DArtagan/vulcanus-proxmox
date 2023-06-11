@@ -3,4 +3,5 @@ kind: Kustomization
 resources:
   - cron-job.yaml
   - config-map.yaml
+  - image.yaml
   - library-pvc.yaml

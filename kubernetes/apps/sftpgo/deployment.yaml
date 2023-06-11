@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: app
-          image: drakkan/sftpgo:distroless-slim
+          image: drakkan/sftpgo:distroless-slim  # {"$imagepolicy": "apps:sftpgo"}
           env:
             - name: SFTPGO_WEBDAVD__BINDINGS__0__PORT
               value: "10080"

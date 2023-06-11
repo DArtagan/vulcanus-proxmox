@@ -4,5 +4,6 @@ resources:
   - credentials.yaml
   - data-pvc.yaml
   - deployment.yaml
+  - image.yaml
   - ingress.yaml
   - service.yaml

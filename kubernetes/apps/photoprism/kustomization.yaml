@@ -4,6 +4,7 @@ resources:
   - data-pvc.yaml
   - database-pvc.yaml
   - deployment.yaml
+  - image.yaml
   - ingress.yaml
   - secrets.yaml
   - service.yaml

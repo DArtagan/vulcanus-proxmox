@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: photoprism
-          image: photoprism/photoprism
+          image: photoprism/photoprism  # {"$imagepolicy": "apps:photoprism"}
           env:
             - name: PHOTOPRISM_ADMIN_PASSWORD
               valueFrom:

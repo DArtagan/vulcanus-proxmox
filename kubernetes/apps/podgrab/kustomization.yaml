@@ -3,5 +3,6 @@ kind: Kustomization
 resources:
   - data-pvc.yaml
   - deployment.yaml
+  - image.yaml
   - ingress.yaml
   - service.yaml

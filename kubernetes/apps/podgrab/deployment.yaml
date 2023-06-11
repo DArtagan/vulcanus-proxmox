@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: podgrab
-          image: akhilrex/podgrab
+          image: akhilrex/podgrab  # {"$imagepolicy": "apps:podgrab"}
           ports:
             - containerPort: 8080
           volumeMounts:

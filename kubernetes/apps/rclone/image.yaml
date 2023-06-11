@@ -1,0 +1,23 @@
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: rclone
+spec:
+  image: rclone/rclone
+  interval: 15m0s
+
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: rclone
+spec:
+  imageRepositoryRef:
+    name: rclone
+  filterTags:
+    pattern: '^(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$'
+    extract: '$version'
+  policy:
+    semver:
+      range: '^1.0.0'
