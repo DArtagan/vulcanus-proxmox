@@ -12,7 +12,7 @@ spec:
       template:
         spec:
           containers:
-            - name: rclone  # {"$imagepolicy": "apps:rclone"}
+            - name: rclone/rclone:1.62.2 # {"$imagepolicy": "apps:rclone"}
               image: rclone/rclone
               args:
                 - "copy"
