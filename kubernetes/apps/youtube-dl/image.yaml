@@ -1,0 +1,23 @@
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: youtube-dl-server
+spec:
+  image: nbr23/youtube-dl-server
+  interval: 15m0s
+
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: youtube-dl-server
+spec:
+  imageRepositoryRef:
+    name: youtube-dl-server
+  filterTags:
+    pattern: '^(?P<commit>[0-9a-f]+)-(?P<timestamp>[0-9]+)-yt-dlp$'
+    extract: '$timestamp'
+  policy:
+    numerical:
+      order: asc
