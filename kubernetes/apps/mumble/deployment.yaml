@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: mumble
-          image: mumblevoip/mumble-server  # {"$imagepolicy": "apps:mumble"}
+          image: mumblevoip/mumble-server:v1.4.287 # {"$imagepolicy": "apps:mumble"}
           envFrom:
             - configMapRef:
                 name: mumble-config-map

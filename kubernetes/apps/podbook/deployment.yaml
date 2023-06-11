@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: podbook
-          image: dartagan/podbook-minimal  # {"$imagepolicy": "apps:podbook"}
+          image: dartagan/podbook-minimal # {"$imagepolicy": "apps:podbook"}
           env:
             - name: URL_SCHEME
               value: https
@@ -27,7 +27,7 @@ spec:
               subPath: audiobooks/
               readOnly: true
         - name: nginx
-          image: nginx  # {"$imagepolicy": "apps:nginx"}
+          image: nginx:1.25.0 # {"$imagepolicy": "apps:nginx"}
           ports:
             - containerPort: 80
           volumeMounts:
