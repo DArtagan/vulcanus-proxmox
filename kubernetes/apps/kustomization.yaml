@@ -9,6 +9,7 @@ resources:
   - demo
   - dnsomatic
   - games-pvc.yaml
+  - image-update-automation.yaml
   - mumble
   - namespace.yaml
   - plex
