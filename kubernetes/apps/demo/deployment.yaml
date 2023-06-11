@@ -15,6 +15,6 @@ spec:
     spec:
       containers:
         - name: demo
-          image: crccheck/hello-world  # {"$imagepolicy": "apps:hello-world"}
+          image: crccheck/hello-world:v1.0.0 # {"$imagepolicy": "apps:hello-world"}
           ports:
             - containerPort: 8000
