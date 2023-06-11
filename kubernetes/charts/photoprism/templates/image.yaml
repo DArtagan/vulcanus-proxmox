@@ -1,0 +1,48 @@
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: {{ .Values.name }}
+spec:
+  image: photoprism/photoprism
+  interval: 15m0s
+
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: {{ .Values.name }}
+spec:
+  imageRepositoryRef:
+    name: {{ .Values.name }}
+  filterTags:
+    pattern: '^(?P<version>[0-9]{6})$'
+    extract: '$version'
+  policy:
+    numerical:
+      order: asc
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: {{ .Values.name }}-mariadb
+spec:
+  image: mariadb
+  interval: 15m0s
+
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: {{ .Values.name }}-mariadb
+spec:
+  imageRepositoryRef:
+    name: {{ .Values.name }}-mariadb
+  filterTags:
+    pattern: '^(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$'
+    extract: '$version'
+  policy:
+    semver:
+      range: '^10.5.12'
