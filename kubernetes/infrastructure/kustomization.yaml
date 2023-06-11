@@ -8,6 +8,7 @@ resources:
   - coredns.yaml
   - csi-driver-smb.yaml
   - games-pv.yaml
+  - image-update-automation.yaml
   - kubernetes-dashboard.yaml
   - metallb.yaml
   - namespace.yaml
