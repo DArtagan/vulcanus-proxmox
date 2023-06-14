@@ -27,7 +27,7 @@ spec:
               subPath: audiobooks/
               readOnly: true
         - name: nginx
-          image: nginx:1.25.0 # {"$imagepolicy": "apps:nginx"}
+          image: nginx:1.25.1 # {"$imagepolicy": "apps:nginx"}
           ports:
             - containerPort: 80
           volumeMounts:
