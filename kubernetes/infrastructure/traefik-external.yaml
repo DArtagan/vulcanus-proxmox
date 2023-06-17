@@ -17,6 +17,7 @@ spec:
   chart:
     spec:
       chart: traefik
+      # Don't upgrade both traefik-internal and traefik charts at the same time, unless you `flux suspend` one first
       version: 23.1.0
       sourceRef:
         kind: HelmRepository
