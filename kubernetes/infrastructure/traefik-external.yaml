@@ -13,14 +13,19 @@ kind: HelmRelease
 metadata:
   name: traefik
 spec:
-  interval: 5m
+  interval: 15m
   chart:
     spec:
       chart: traefik
+      version: 23.1.0
       sourceRef:
         kind: HelmRepository
         name: traefik
-      interval: 5m
+      interval: 15m
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
   values:
     #additionalArguments:
     #  #- "--providers.docker.endpoint=tcp://192.168.0.112:2375"
