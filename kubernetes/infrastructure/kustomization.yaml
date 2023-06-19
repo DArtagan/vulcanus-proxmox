@@ -5,6 +5,7 @@ resources:
   - audio-pv.yaml
   - basic-auth.yaml
   - borg-backups-pv.yaml
+  - cert-manager.yaml
   - coredns.yaml
   - csi-driver-smb.yaml
   - games-pv.yaml
