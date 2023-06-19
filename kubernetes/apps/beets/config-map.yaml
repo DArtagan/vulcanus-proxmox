@@ -26,10 +26,15 @@ data:
       - info
       - lastgenre
       - mbsync
+      - mbsubmit
+      - missing
       - permissions
+      - replaygain
     permissions:
       file: 755
       dir: 755
+    replaygain:
+      backend: gstreamer
     lastgenre:
       force: no
       whitelist: /config/genre_whitelist.txt
