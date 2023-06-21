@@ -97,6 +97,7 @@ spec:
         port: 21027
         protocol: UDP
       web:
+        priority: 1
         redirectTo: websecure
 #      websecure:
 #        tls:
