@@ -47,6 +47,5 @@ spec:
             ingressClassName: traefik
             ingressTemplate:
               metadata:
-                annotations:
-                  labels:
-                    public: "true"
+                labels:
+                  public: "true"
