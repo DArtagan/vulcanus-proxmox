@@ -3,12 +3,17 @@ kind: Ingress
 metadata:
   name: demo
   annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
+    cert-manager.io/issuer: "letsencrypt"
+    #traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    #traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
   labels:
     public: "true"
 spec:
   #ingressClassName: traefik
+  tls:
+    - hosts:
+      - immortalkeep.com
+      secretName: demo-ingress-tls
   rules:
   - host: immortalkeep.com
     http:
