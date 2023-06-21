@@ -13,7 +13,9 @@ spec:
   tls:
     - hosts:
       - immortalkeep.com
-      secretName: demo-ingress-tls
+        secretName: immortalkeep-ingress-tls
+      - demo.immortalkeep.com
+        secretName: demo-ingress-tls
   rules:
   - host: immortalkeep.com
     http:

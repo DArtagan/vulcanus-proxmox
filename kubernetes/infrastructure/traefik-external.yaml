@@ -123,6 +123,19 @@ spec:
     #    externalTrafficPolicy: Local
 
 
+#---
+#apiVersion: traefik.containo.us/v1alpha1
+#kind: Middleware
+#metadata:
+#  name: redirect-http-to-https
+#  labels:
+#    public: "true"
+#spec:
+#  redirectRegex:
+#    regex: HostRegexp(`{host:.+}`)
+#    replacement: https
+
+
 ---
 apiVersion: traefik.containo.us/v1alpha1
 kind: Middleware
