@@ -3,11 +3,14 @@ kind: Ingress
 metadata:
   name: photoprism
   annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
+    cert-manager.io/cluster-issuer: letsencrypt
   labels:
     public: "true"
 spec:
+  tls:
+    - hosts:
+        - photoprism.immortalkeep.com
+      secretName: photoprism-ingress-tls
   rules:
   - host: photoprism.immortalkeep.com
     http:

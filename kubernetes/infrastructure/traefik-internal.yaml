@@ -22,17 +22,6 @@ spec:
     #additionalArguments:
     #  #- "--providers.docker.endpoint=tcp://192.168.0.112:2375"
     #  #- "--providers.docker.exposedByDefault=false"
-    certResolvers:
-      letsencrypt:
-        email: willy@weiskopf.me
-        tlsChallenge: true
-        storage: /data/acme.json
-      # TODO: replace "myresolver" in all the docker-compose and then get rid of this
-      myresolver:
-        email: willy@weiskopf.me
-        tlsChallenge: true
-        storage: /data/acme.json
-        caServer: https://acme-staging-v02.api.letsencrypt.org/directory
     deployment:
       initContainers:
         - name: volume-permissions

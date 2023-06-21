@@ -31,17 +31,6 @@ spec:
     #additionalArguments:
     #  #- "--providers.docker.endpoint=tcp://192.168.0.112:2375"
     #  - "--providers.docker.exposedByDefault=false"
-    certResolvers:
-      letsencrypt:
-        email: willy@weiskopf.me
-        tlsChallenge: true
-        storage: /data/acme.json
-      # TODO: replace "myresolver" everywhere and get rid of this
-      myresolver:
-        email: willy@weiskopf.me
-        tlsChallenge: true
-        storage: /data/acme.json
-        #caServer: https://acme-staging-v02.api.letsencrypt.org/directory
     deployment:
       initContainers:
         - name: volume-permissions
@@ -96,15 +85,8 @@ spec:
         exposedPort: 21027
         port: 21027
         protocol: UDP
-      #web:
-        #priority: 1
-        #redirectTo: websecure
-#      websecure:
-#        tls:
-#          enabled: true
-#          certResolver: letsencrypt
-#          domains:
-#            - immortalkeep.com
+      web:
+        redirectTo: websecure
       webdav:
         expose: true
         exposedPort: 10080
@@ -124,19 +106,6 @@ spec:
     #    externalTrafficPolicy: Local
 
 
-#---
-#apiVersion: traefik.containo.us/v1alpha1
-#kind: Middleware
-#metadata:
-#  name: redirect-http-to-https
-#  labels:
-#    public: "true"
-#spec:
-#  redirectRegex:
-#    regex: HostRegexp(`{host:.+}`)
-#    replacement: https
-
-
 ---
 apiVersion: traefik.containo.us/v1alpha1
 kind: Middleware
@@ -154,8 +123,6 @@ apiVersion: traefik.containo.us/v1alpha1
 kind: IngressRoute
 metadata:
   name: dashboard
-  labels:
-    public: "true"
 spec:
   entryPoints:
     - websecure
@@ -166,3 +133,26 @@ spec:
       services:
         - name: api@internal
           kind: TraefikService
+
+#---
+#apiVersion: networking.k8s.io/v1
+#kind: Ingress
+#metadata:
+#  name: traefik-external
+#  annotations:
+#    cert-manager.io/cluster-issuer: letsencrypt
+#spec:
+#  tls:
+#    - hosts:
+#        - traefik-external.immortalkeep.com
+#      secretName: traefik-external-ingress-tls
+#  rules:
+#  - host: traefik-external.immortalkeep.com
+#    http:
+#      paths:
+#      - pathType: Prefix
+#        path: /dashboard
+#        backend:
+#          service:
+#            name: api
+#            kind: TraefikService

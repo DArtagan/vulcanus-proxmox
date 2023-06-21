@@ -3,13 +3,16 @@ kind: Ingress
 metadata:
   name: {{ .Values.name }}
   annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
+    cert-manager.io/cluster-issuer: letsencrypt
   {{ if .Values.public }}
   labels:
     public: "true"
   {{ end }}
 spec:
+  tls:
+    - hosts:
+        - {{ .Values.name }}.immortalkeep.com
+      secretName: {{ .Values.name }}-ingress-tls
   rules:
   - host: {{ .Values.name }}.immortalkeep.com
     http:

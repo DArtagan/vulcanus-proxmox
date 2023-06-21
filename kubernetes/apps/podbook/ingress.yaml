@@ -3,12 +3,15 @@ kind: Ingress
 metadata:
   name: podbook
   annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
+    cert-manager.io/cluster-issuer: letsencrypt
     traefik.ingress.kubernetes.io/router.middlewares: infrastructure-basic-auth@kubernetescrd
   labels:
     public: "true"
 spec:
+  tls:
+    - hosts:
+        - podbook.immortalkeep.com
+      secretName: podbook-ingress-tls
   rules:
   - host: podbook2.immortalkeep.com
     http:

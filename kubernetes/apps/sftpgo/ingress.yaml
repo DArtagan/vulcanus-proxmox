@@ -3,11 +3,14 @@ kind: Ingress
 metadata:
   name: sftpgo
   annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
+    cert-manager.io/cluster-issuer: letsencrypt
   labels:
     public: "true"
 spec:
+  tls:
+    - hosts:
+        - sftpgo.immortalkeep.com
+      secretName: sftpgo-ingress-tls
   rules:
   - host: sftpgo.immortalkeep.com
     http:
