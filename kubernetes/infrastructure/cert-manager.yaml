@@ -45,7 +45,8 @@ spec:
       - http01:
           ingress:
             ingressClassName: traefik
-            #ingressTemplate:
-            #  metadata:
-            #    annotations:
-            #      kubernetes.io/ingress.class: traefik
+            ingressTemplate:
+              metadata:
+                annotations:
+                  labels:
+                    public: "true"
