@@ -25,6 +25,8 @@ spec:
     crds: CreateReplace
   upgrade:
     crds: CreateReplace
+  values:
+    installCRDs=true
 
 ---
 apiVersion: cert-manager.io/v1
