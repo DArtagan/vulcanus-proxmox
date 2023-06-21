@@ -43,5 +43,5 @@ spec:
       name: letsencrypt-account-key
     solvers:
       - http01:
-        ingress:
-          class: traefik
+          ingress:
+            class: traefik
