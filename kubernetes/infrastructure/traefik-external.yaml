@@ -96,9 +96,9 @@ spec:
         exposedPort: 21027
         port: 21027
         protocol: UDP
-      web:
+      #web:
         #priority: 1
-          #redirectTo: websecure
+        #redirectTo: websecure
 #      websecure:
 #        tls:
 #          enabled: true

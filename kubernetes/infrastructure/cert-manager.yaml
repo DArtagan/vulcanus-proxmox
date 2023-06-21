@@ -44,4 +44,8 @@ spec:
     solvers:
       - http01:
           ingress:
-            class: traefik
+            ingressClassName: traefik
+            #ingressTemplate:
+            #  metadata:
+            #    annotations:
+            #      kubernetes.io/ingress.class: traefik
