@@ -12,10 +12,9 @@ spec:
   #ingressClassName: traefik
   tls:
     - hosts:
-      - immortalkeep.com
-        secretName: immortalkeep-ingress-tls
-      - demo.immortalkeep.com
-        secretName: demo-ingress-tls
+        - immortalkeep.com
+        - demo.immortalkeep.com
+      secretName: demo-ingress-tls
   rules:
   - host: immortalkeep.com
     http:
