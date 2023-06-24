@@ -33,6 +33,8 @@ spec:
         type: filesystem
     singleBinary:
       replicas: 1
+      persistence:
+        storageClass: openebs-hostpath
 
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2beta1
