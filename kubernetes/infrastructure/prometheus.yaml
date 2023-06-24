@@ -81,17 +81,23 @@ spec:
             secretName: prometheus-ingress-tls
       prometheusSpec:
         retention: 24h
-        resources:
-          requests:
-            cpu: 200m
-            memory: 200Mi
+        #resources:
+        #  requests:
+        #    cpu: 200m
+        #    memory: 200Mi
+        ruleSelector: {}
+        ruleSelectorNilUsesHelmValues: false
+        ruleNamespaceSelector: {}
+        podMonitorSelector: {}
+        podMonitorSelectorNilUsesHelmValues: false
         podMonitorNamespaceSelector: {}
+        probeSelector: {}
+        probeSelectorNilUsesHelmValues: false
+        probeNamespaceSelector: {}
+        serviceMonitorSelector: {}
+        serviceMonitorSelectorNilUsesHelmValues: false
+        serviceMonitorNamespaceSelector: {}
+
         #podMonitorSelector:
         #  matchLabels:
         #    app.kubernetes.io/component: monitoring
-        ruleSelectorNilUsesHelmValues: false
-        serviceMonitorSelectorNilUsesHelmValues: false
-        podMonitorSelectorNilUsesHelmValues: false
-        probeSelectorNilUsesHelmValues: false
-        scrapeConfigSelectorNilUsesHelmValues: false
-
