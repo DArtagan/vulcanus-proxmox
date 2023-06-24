@@ -44,12 +44,23 @@ spec:
         - --kubelet-insecure-tls
   postRenders:
     - kustomize:
-        patchesJson6902:
+        patches:
           - target:
               kind: Ingress
-            patch:
+            patch: |-
               #- op: remove
               #path: /metadata/annotations/cert-manager.io~1issuer
-            - op: add
-              path: /metadata/annotations/cert-manager.io~1cluster-issuer
-              value: letsencrypt
+              - op: add
+                path: /metadata/annotations/cert-manager.io~1cluster-issuer
+                value: letsencrypt
+        #patchesJson6902:
+        #  - target:
+        #      kind: Ingress
+        #      version: 
+        #      name: 
+        #    patch:
+        #      #- op: remove
+        #      #path: /metadata/annotations/cert-manager.io~1issuer
+        #    - op: add
+        #      path: /metadata/annotations/cert-manager.io~1cluster-issuer
+        #      value: letsencrypt
