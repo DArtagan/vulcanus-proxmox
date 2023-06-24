@@ -89,4 +89,10 @@ spec:
         #podMonitorSelector:
         #  matchLabels:
         #    app.kubernetes.io/component: monitoring
+        serviceMonitorSelectorNilUsesHelmValues: false
+        ruleSelectorNilUsesHelmValues: false
+        serviceMonitorSelectorNilUsesHelmValues: false
+        podMonitorSelectorNilUsesHelmValues: false
+        probeSelectorNilUsesHelmValues: false
+        scrapeConfigSelectorNilUsesHelmValues: false
 
