@@ -11,6 +11,7 @@ resources:
   - games-pv.yaml
   - image-update-automation.yaml
   - kubernetes-dashboard.yaml
+  - loki.yaml
   - metallb.yaml
   - namespace.yaml
   - openebs.yaml
