@@ -48,8 +48,8 @@ spec:
           - target:
               kind: Ingress
             patch:
-            - op: remove
-              path: /metadata/annotations/cert-manager.io~1issuer
+              #- op: remove
+              #path: /metadata/annotations/cert-manager.io~1issuer
             - op: add
               path: /metadata/annotations/cert-manager.io~1cluster-issuer
               value: letsencrypt
