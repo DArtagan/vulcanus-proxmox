@@ -3,4 +3,5 @@ kind: Kustomization
 namespace: flux-system
 resources:
   - flux-webhook.yaml
+  - pod-monitor.yaml
   - webhook-token.yaml
