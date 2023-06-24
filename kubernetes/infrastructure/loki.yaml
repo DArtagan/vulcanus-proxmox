@@ -31,5 +31,34 @@ spec:
         replication_factor: 1
       storage:
         type: filesystem
-    singleBinary:
-      replicas: 1
+    backend:
+      singleBinary:
+        replicas: 1
+
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: promtail
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: promtail
+      version: 6.11.5
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+      interval: 60m
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
+  values:
+    config:
+      logLevel: info
+      serverPort: 3101
+      clients:
+        - http://{{ .Release.Name }}:3100/loki/api/v1/push
+    serviceMonitor:
+      enabled: true
