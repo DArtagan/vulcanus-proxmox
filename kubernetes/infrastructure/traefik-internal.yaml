@@ -23,22 +23,25 @@ spec:
     #  #- "--providers.docker.endpoint=tcp://192.168.0.112:2375"
     #  #- "--providers.docker.exposedByDefault=false"
     deployment:
-      initContainers:
-        - name: volume-permissions
-          image: busybox:latest
-          command: ["sh", "-c", "touch /data/acme.json; chmod -v 600 /data/acme.json"]
-          securityContext:
-            runAsNonRoot: true
-            runAsGroup: 65532
-            runAsUser: 65532
-          volumeMounts:
-            - name: data
-              mountPath: /data
+      #initContainers:
+      #  - name: volume-permissions
+      #    image: busybox:latest
+      #    command: ["sh", "-c", "touch /data/acme.json; chmod -v 600 /data/acme.json"]
+      #    securityContext:
+      #      runAsNonRoot: true
+      #      runAsGroup: 65532
+      #      runAsUser: 65532
+      #    volumeMounts:
+      #      - name: data
+      #        mountPath: /data
     ingressClass:
       isDefaultClass: false
-    persistence:
-      enabled: true
-      storageClass: openebs-hostpath
+    metrics:
+      service:
+        enabled: true
+    #persistence:
+    #  enabled: true
+    #  storageClass: openebs-hostpath
     ports:
       # TODO: these seem to be working for creating the entryPoints...?
       mumble-tcp:
