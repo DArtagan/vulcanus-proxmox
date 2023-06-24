@@ -3,9 +3,34 @@ kind: HelmRepository
 metadata:
   name: prometheus-community
 spec:
-  interval: 5m  # 24h
+  type: oci
+  interval: 15m  # 24h
   url: https://prometheus-community.github.io/helm-charts
+  #url: oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack:latest # {"$imagepolicy": "infrastructure:kube-prometheus"}
 
+#---
+#apiVersion: image.toolkit.fluxcd.io/v1beta2
+#kind: ImageRepository
+#metadata:
+#  name: kube-prometheus
+#spec:
+#  image: ghcr.io/prometheus-community/charts/kube-prometheus-stack
+#  interval: 15m0s
+#
+#---
+#apiVersion: image.toolkit.fluxcd.io/v1beta2
+#kind: ImagePolicy
+#metadata:
+#  name: kube-prometheus
+#spec:
+#  imageRepositoryRef:
+#    name: kube-prometheus
+#  filterTags:
+#    pattern: '^(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$'
+#    extract: '$version'
+#  policy:
+#    semver:
+#      range: '>=47.0.0'
 
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2beta1
@@ -17,6 +42,7 @@ spec:
   chart:
     spec:
       chart: kube-prometheus-stack
+      version: 47.0.0
       sourceRef:
         kind: HelmRepository
         name: prometheus-community
@@ -24,7 +50,7 @@ spec:
       #  provider: cosign
       interval: 60m
   install:
-    crds: Create
+    crds: CreateReplace
   upgrade:
     crds: CreateReplace
   # https://github.com/prometheus-community/helm-charts/blob/main/charts/kube-prometheus-stack/values.yaml
@@ -39,12 +65,15 @@ spec:
           traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
         hosts:
           - prometheus-grafana.immortalkeep.com
+        tls:
+          - hosts:
+              - prometheus.immortalkeep.com
+            secretName: prometheus-ingress-tls
     prometheus:
       ingress:
         enabled: true
         annotations:
-          traefik.ingress.kubernetes.io/router.entrypoints: websecure
-          traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
+          cert-manager.io/cluster-issuer: letsencrypt
         hosts:
           - prometheus.immortalkeep.com
       prometheusSpec:
@@ -57,3 +86,4 @@ spec:
         podMonitorSelector:
           matchLabels:
             app.kubernetes.io/component: monitoring
+

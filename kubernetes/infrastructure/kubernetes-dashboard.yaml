@@ -17,6 +17,7 @@ spec:
   chart:
     spec:
       chart: kubernetes-dashboard
+      # TODO: this version was cut yesterday (2023-06-24), but their CI is failing it
       version: 7.0.0
       sourceRef:
         kind: HelmRepository
