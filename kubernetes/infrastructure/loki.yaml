@@ -31,9 +31,8 @@ spec:
         replication_factor: 1
       storage:
         type: filesystem
-    backend:
-      singleBinary:
-        replicas: 1
+    singleBinary:
+      replicas: 1
 
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2beta1
