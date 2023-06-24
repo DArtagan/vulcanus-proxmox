@@ -54,10 +54,8 @@ spec:
   upgrade:
     crds: CreateReplace
   values:
-    config:
-      logLevel: info
-      serverPort: 3101
-      clients:
-        - http://{{ .Release.Name }}:3100/loki/api/v1/push
+    #config:
+    #  clients:
+    #    - http://{{ .Release.Name }}:3100/loki/api/v1/push
     serviceMonitor:
       enabled: true
