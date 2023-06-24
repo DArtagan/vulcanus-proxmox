@@ -61,14 +61,13 @@ spec:
       ingress:
         enabled: true
         annotations:
-          traefik.ingress.kubernetes.io/router.entrypoints: websecure
-          traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
+          cert-manager.io/cluster-issuer: letsencrypt
         hosts:
           - prometheus-grafana.immortalkeep.com
         tls:
           - hosts:
-              - prometheus.immortalkeep.com
-            secretName: prometheus-ingress-tls
+              - prometheus-grafana.immortalkeep.com
+            secretName: prometheus-grafana-ingress-tls
     prometheus:
       ingress:
         enabled: true
@@ -76,6 +75,10 @@ spec:
           cert-manager.io/cluster-issuer: letsencrypt
         hosts:
           - prometheus.immortalkeep.com
+        tls:
+          - hosts:
+              - prometheus.immortalkeep.com
+            secretName: prometheus-ingress-tls
       prometheusSpec:
         retention: 24h
         resources:
