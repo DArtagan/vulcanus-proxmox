@@ -63,10 +63,10 @@ spec:
         annotations:
           cert-manager.io/cluster-issuer: letsencrypt
         hosts:
-          - prometheus-grafana.immortalkeep.com
+          - grafana.immortalkeep.com
         tls:
           - hosts:
-              - prometheus-grafana.immortalkeep.com
+              - grafana.immortalkeep.com
             secretName: prometheus-grafana-ingress-tls
     prometheus:
       ingress:

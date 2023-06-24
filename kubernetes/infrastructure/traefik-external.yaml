@@ -31,18 +31,18 @@ spec:
     #additionalArguments:
     #  #- "--providers.docker.endpoint=tcp://192.168.0.112:2375"
     #  - "--providers.docker.exposedByDefault=false"
-    deployment:
-      #initContainers:
-      #  - name: volume-permissions
-      #    image: busybox:latest
-      #    command: ["sh", "-c", "touch /data/acme.json; chmod -v 600 /data/acme.json"]
-      #    securityContext:
-      #      runAsNonRoot: true
-      #      runAsGroup: 65532
-      #      runAsUser: 65532
-      #    volumeMounts:
-      #      - name: data
-      #        mountPath: /data
+    #deployment:
+    #  initContainers:
+    #    - name: volume-permissions
+    #      image: busybox:latest
+    #      command: ["sh", "-c", "touch /data/acme.json; chmod -v 600 /data/acme.json"]
+    #      securityContext:
+    #        runAsNonRoot: true
+    #        runAsGroup: 65532
+    #        runAsUser: 65532
+    #      volumeMounts:
+    #        - name: data
+    #          mountPath: /data
     ingressClass:
       isDefaultClass: true
     metrics:

@@ -25,6 +25,8 @@ spec:
     prometheus:
       serviceMonitor:
         enabled: true
+      rbacPrometheus: false
+      #serviceAccount: "kube-prometheus-metallb"
 
 
 ---
