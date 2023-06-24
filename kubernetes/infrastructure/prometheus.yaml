@@ -3,9 +3,9 @@ kind: HelmRepository
 metadata:
   name: prometheus-community
 spec:
-  #type: oci
   interval: 15m  # 24h
   url: https://prometheus-community.github.io/helm-charts
+  #type: oci
   #url: oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack:latest # {"$imagepolicy": "infrastructure:kube-prometheus"}
 
 #---
@@ -86,7 +86,7 @@ spec:
             cpu: 200m
             memory: 200Mi
         podMonitorNamespaceSelector: {}
-        podMonitorSelector:
-          matchLabels:
-            app.kubernetes.io/component: monitoring
+        #podMonitorSelector:
+        #  matchLabels:
+        #    app.kubernetes.io/component: monitoring
 
