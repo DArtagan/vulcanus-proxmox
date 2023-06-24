@@ -22,6 +22,10 @@ spec:
         kind: HelmRepository
         name: kubernetes-dashboard
       interval: 5m
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
   values:
     app:
       ingress:
