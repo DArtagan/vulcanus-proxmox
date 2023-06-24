@@ -42,17 +42,17 @@ spec:
       args:
         - --kubelet-preferred-address-types=InternalIP
         - --kubelet-insecure-tls
-  postRenders:
-    - kustomize:
-        patches:
-          - target:
-              kind: Ingress
-            patch: |-
-              #- op: remove
-              #path: /metadata/annotations/cert-manager.io~1issuer
-              - op: add
-                path: /metadata/annotations/cert-manager.io~1cluster-issuer
-                value: letsencrypt
+#  postRenders:
+#    - kustomize:
+#        patches:
+#          - target:
+#              kind: Ingress
+#            patch: |-
+#              #- op: remove
+#              #path: /metadata/annotations/cert-manager.io~1issuer
+#              - op: add
+#                path: /metadata/annotations/cert-manager.io~1cluster-issuer
+#                value: letsencrypt
         #patchesJson6902:
         #  - target:
         #      kind: Ingress
