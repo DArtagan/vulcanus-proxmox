@@ -20,29 +20,25 @@ spec:
       sourceRef:
         kind: HelmRepository
         name: kubernetes-dashboard
+        version: 6.0.8
       interval: 5m
   values:
-    protocolHttp: true
-    ingress:
-      enabled: true
-      annotations:
-        traefik.ingress.kubernetes.io/router.entrypoints: websecure
-        traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
-      paths: []
-      customPaths:
-        - pathType: Prefix
-          path: /
-          backend:
-            service:
-              name: kubernetes-dashboard
-              port:
-                number: 8000
-      hosts:
-        - kubernetes.immortalkeep.com
+    app:
+      ingress:
+        host: kubernetes.immortalkeep.com
+        ingressClassName: traefik-internal
+        secretName: kubernetes-dashboard-ingress-tls
+        issuer: letsencrypt
+        paths:
+          web: /
+          api: /api
+    cert-manager:
+      enabled: false
+      installCRDs: false
+    nginx:
+      enabled: false
     metrics-server:
       enabled: true
       args:
         - --kubelet-preferred-address-types=InternalIP
         - --kubelet-insecure-tls
-    service:
-      externalPort: 8000
