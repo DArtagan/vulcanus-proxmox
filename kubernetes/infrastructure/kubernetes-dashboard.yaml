@@ -42,6 +42,7 @@ spec:
       installCRDs: false
     nginx:
       enabled: false
+    # TODO: how does this coexist with Prometheus?
     metrics-server:
       enabled: true
       args:

@@ -1,0 +1,12 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: openvpn
+spec:
+  selector:
+    matchLabels:
+      app: openvpn
+  endpoints:
+    - port: openvpn-udp
+  namespaceSelector:
+    any: true

@@ -21,6 +21,10 @@ spec:
         kind: HelmRepository
         name: metallb
       interval: 5m
+  values:
+    prometheus:
+      serviceMonitor:
+        enabled: true
 
 
 ---

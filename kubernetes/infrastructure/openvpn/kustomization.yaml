@@ -3,5 +3,6 @@ kind: Kustomization
 resources:
   - data-pvc.yaml
   - deployment.yaml
+  - monitoring.yaml
   - service.yaml
   - udp-ingress.yaml
