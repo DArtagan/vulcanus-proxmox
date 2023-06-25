@@ -21,6 +21,13 @@ spec:
         kind: HelmRepository
         name: openebs
       interval: 1h
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
+  values:
+    ndmExporter:
+      enabled: true
 
 
 ---
