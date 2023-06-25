@@ -9,6 +9,7 @@ resources:
   - coredns.yaml
   - csi-driver-smb.yaml
   - games-pv.yaml
+  - grafana-auth.yaml
   - image-update-automation.yaml
   - kubernetes-dashboard.yaml
   - loki.yaml
