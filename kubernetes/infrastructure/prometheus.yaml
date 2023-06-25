@@ -97,7 +97,3 @@ spec:
         serviceMonitorSelector: {}
         serviceMonitorSelectorNilUsesHelmValues: false
         serviceMonitorNamespaceSelector: {}
-
-        #podMonitorSelector:
-        #  matchLabels:
-        #    app.kubernetes.io/component: monitoring
