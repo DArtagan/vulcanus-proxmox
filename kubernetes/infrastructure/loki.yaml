@@ -57,8 +57,8 @@ spec:
   upgrade:
     crds: CreateReplace
   values:
-    #config:
-    #  clients:
-    #    - http://{{ .Release.Name }}:3100/loki/api/v1/push
+    config:
+      clients:
+        - http://loki-gateway/loki/api/v1/push
     serviceMonitor:
       enabled: true
