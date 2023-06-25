@@ -37,8 +37,8 @@ spec:
     ingressClass:
       isDefaultClass: false
     metrics:
-      service:
-        enabled: true
+      prometheus:
+        serviceMonitor: true
     #persistence:
     #  enabled: true
     #  storageClass: openebs-hostpath
