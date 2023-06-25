@@ -27,6 +27,7 @@ spec:
     crds: CreateReplace
   values:
     loki:
+      auth_enabled: false
       isDefault: false
       commonConfig:
         replication_factor: 1
