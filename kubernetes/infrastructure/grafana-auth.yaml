@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Secret
+type: kubernetes.io/basic-auth
+metadata:
+    creationTimestamp: null
+    name: basic-auth-credentials
+stringData:
+    username: ENC[AES256_GCM,data:TkFbu+g=,iv:UdEXfrhg8RGghiVIqbXIPeqN5+7+vuaH0BUxjcvX00Q=,tag:2u2qHsazxfVyqK2KklDgWQ==,type:str]
+    password: ENC[AES256_GCM,data:39uu8vkF9usjua2OKQ==,iv:bPJNNuWb+eGROA5UOrNutEfipeBHIEJo3SCEQAhgLqI=,tag:s6a3WiG+fN3NCbnY1x2a2A==,type:str]
+sops:
+    kms: []
+    gcp_kms: []
+    azure_kv: []
+    hc_vault: []
+    age:
+        - recipient: age1rkkc3rmwczelakcy57fh3schs5qv6488hujf9c9s7zh3jpng6acsxuradu
+          enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSAwVGNRckVKRFZFdEtPZlk4
+            VzRKSGl1WVdINVZReUJVTTM2S3l3RzVWa3dBClpEQWZwRC9FR0Q5OXBGZWdHRFQy
+            Nm80TVVzbzZaZHkxQUI1dE5qZGlkdlUKLS0tIE0zUENLS1FPYzViU1o1cW9BcUdk
+            TytRUjcxelRZRVBGV1dxTHdON3VvSkEKIncgKVna/2OjJosD20MKI1GZ0C02tGFE
+            hJc1eX9mMIr4bq3uxxwZJW90EzfLZQ/NseruQvc580o5jLqp7wFb4w==
+            -----END AGE ENCRYPTED FILE-----
+    lastmodified: "2023-06-25T00:52:08Z"
+    mac: ENC[AES256_GCM,data:qgMuimxlXDHLh4j/o3JPWT//naWkOP05Wc779Q49nj+LKUtUHwX80ctcOD5cjMK9W0G9yBP2bh2xFDhQpav6MkDqb5Nd9oOaKItYfdZNWIUXyet+R8qB4fby+eaxp/37huqqkKmWNPPeqMMxjAhZP3Zy0+fh4YFlbg02pPv1DOc=,iv:i27cYOLBzPIw2JpeVAy6/NK7FptKMHwZ/P9riM0f9Y8=,tag:6uQsbygm+mNj/B1nkU0jNw==,type:str]
+    pgp: []
+    encrypted_regex: ^(data|stringData)$
+    version: 3.7.3
