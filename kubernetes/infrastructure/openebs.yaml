@@ -25,7 +25,14 @@ spec:
     crds: CreateReplace
   upgrade:
     crds: CreateReplace
-  #values:
+  values:
+  resources:
+    # TODO: https://github.com/openebs/node-disk-manager/issues/673
+    limits:
+      cpu: 200m
+    requests:
+      cpu: 200m
+  #  # https://github.com/openebs/charts/issues/324
   #  ndmExporter:
   #    enabled: true
 
