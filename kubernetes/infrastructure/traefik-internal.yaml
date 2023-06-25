@@ -38,7 +38,8 @@ spec:
       isDefaultClass: false
     metrics:
       prometheus:
-        serviceMonitor: true
+        serviceMonitor:
+          namespace: infrastructure
     #persistence:
     #  enabled: true
     #  storageClass: openebs-hostpath
