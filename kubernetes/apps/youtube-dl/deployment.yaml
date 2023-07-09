@@ -25,10 +25,15 @@ spec:
             - mountPath: /youtube-dl
               name: video
               subPath: import/youtube-dl
+            - mountPath: /db
+              name: db
       volumes:
         - name: config
           configMap:
             name: youtube-dl
+        - name: db
+          persistentVolumeClaim:
+            claimName: youtube-dl-pvc
         - name: video
           persistentVolumeClaim:
             claimName: video-pvc

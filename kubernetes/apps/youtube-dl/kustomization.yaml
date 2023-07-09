@@ -3,6 +3,7 @@ kind: Kustomization
 resources:
   - config-map.yaml
   - deployment.yaml
+  - db-pvc.yaml
   - image.yaml
   - ingress.yaml
   - service.yaml
