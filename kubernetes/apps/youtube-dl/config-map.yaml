@@ -9,7 +9,7 @@ data:
       host: 0.0.0.0
       #metadata_db_path: '/tmp/.ydl-metadata.db'
       # Store the metadata db in the /media/video/import/youtube-dl folder
-      metadata_db_path: '/db/.ydl-metadata.db'
+      metadata_db_path: '/db/metadata.db'
       download_workers_count: 2
 
     ydl_options:
