@@ -7,7 +7,9 @@ data:
     ydl_server:
       port: 8080
       host: 0.0.0.0
-      metadata_db_path: '/tmp/.ydl-metadata.db'
+      #metadata_db_path: '/tmp/.ydl-metadata.db'
+      # Store the metadata db in the /media/video/import/youtube-dl folder
+      metadata_db_path: '/youtube-dl/.ydl-metadata.db'
 
     ydl_options:
       output: '/youtube-dl/%(title)s %(id)s.%(ext)s'
