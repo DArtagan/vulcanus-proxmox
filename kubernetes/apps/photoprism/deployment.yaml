@@ -54,7 +54,7 @@ spec:
               name: photos
               subPath: photoprism/originals
         - name: database
-          image: mariadb:10.11.4 # {"$imagepolicy": "apps:photoprism-mariadb"}
+          image: mariadb:10.11.5 # {"$imagepolicy": "apps:photoprism-mariadb"}
           args:
             - "--innodb-buffer-pool-size=128M"
             - "--transaction-isolation=READ-COMMITTED"
