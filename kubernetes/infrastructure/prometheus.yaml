@@ -80,7 +80,7 @@ spec:
               - prometheus.immortalkeep.com
             secretName: prometheus-ingress-tls
       prometheusSpec:
-        retention: 7d
+        retention: 30d
         #resources:
         #  requests:
         #    cpu: 200m
@@ -97,6 +97,15 @@ spec:
         serviceMonitorSelector: {}
         serviceMonitorSelectorNilUsesHelmValues: false
         serviceMonitorNamespaceSelector: {}
+        storageSpec:
+          volumeClaimTemplate:
+            spec:
+              storageClassName: openebs-hostpath
+              accessModes:
+                - ReadWriteOnce
+            resources:
+              requests:
+                storage: 256Mi
 
 ---
 apiVersion: notification.toolkit.fluxcd.io/v1beta2
