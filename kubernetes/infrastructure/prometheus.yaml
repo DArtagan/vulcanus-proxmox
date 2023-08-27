@@ -80,7 +80,7 @@ spec:
               - prometheus.immortalkeep.com
             secretName: prometheus-ingress-tls
       prometheusSpec:
-        retention: 24h
+        retention: 7d
         #resources:
         #  requests:
         #    cpu: 200m
