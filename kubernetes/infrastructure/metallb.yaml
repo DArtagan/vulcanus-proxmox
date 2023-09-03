@@ -30,7 +30,7 @@ spec:
     prometheus:
       serviceMonitor:
         enabled: true
-      rbacPrometheus: true
+      rbacPrometheus: false
       #serviceAccount: "kube-prometheus-metallb"
 
 
