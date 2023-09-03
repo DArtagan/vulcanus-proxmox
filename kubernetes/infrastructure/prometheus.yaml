@@ -105,9 +105,9 @@ spec:
               storageClassName: openebs-hostpath
               accessModes:
                 - ReadWriteOnce
-            resources:
-              requests:
-                storage: 100Gi
+              resources:
+                requests:
+                  storage: 100Gi
 
 ---
 apiVersion: notification.toolkit.fluxcd.io/v1beta2
