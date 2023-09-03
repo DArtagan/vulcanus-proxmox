@@ -7,5 +7,9 @@ PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEP
 PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
 
 [Peer]
-PublicKey = {{ lookup('env', 'WIREGUARD_PEER_PUBLIC_KEY') }}
+PublicKey = {{ lookup('env', 'WIREGUARD_MANJARO_PUBLIC_KEY') }}
 AllowedIPs = 10.0.1.8
+
+[Peer]
+PublicKey = {{ lookup('env', 'WIREGUARD_THE_GUIDE_PUBLIC_KEY') }}
+AllowedIPs = 10.0.1.9
