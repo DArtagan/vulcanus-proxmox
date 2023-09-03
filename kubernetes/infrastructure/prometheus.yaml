@@ -99,8 +99,6 @@ spec:
         serviceMonitorNamespaceSelector: {}
         storageSpec:
           volumeClaimTemplate:
-            metadata:
-              name: prometheus-pvc
             spec:
               storageClassName: openebs-hostpath
               accessModes:
