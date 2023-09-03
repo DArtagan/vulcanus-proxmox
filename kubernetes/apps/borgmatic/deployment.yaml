@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: borgmatic
-          image: b3vis/borgmatic:1.7.15 # {"$imagepolicy": "apps:borgmatic"}
+          image: b3vis/borgmatic:1.8.2 # {"$imagepolicy": "apps:borgmatic"}
           env:
             - name: BORG_PASSPHRASE
               valueFrom:
