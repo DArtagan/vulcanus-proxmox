@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: plex
-          image: plexinc/pms-docker:1.32.6.7468-07e0d4a7e # {"$imagepolicy": "apps:plex"}
+          image: plexinc/pms-docker:1.32.6.7557-1cf77d501 # {"$imagepolicy": "apps:plex"}
           env:
             - name: ADVERTISE_IP
               value: https://plex.immortalkeep.com/
