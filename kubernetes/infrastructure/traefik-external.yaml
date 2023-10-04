@@ -28,9 +28,8 @@ spec:
   upgrade:
     crds: CreateReplace
   values:
-    additionalArguments:
-    - "--api.dashboard=true"
-    #  #- "--providers.docker.endpoint=tcp://192.168.0.112:2375"
+    #additionalArguments:
+    #  - "--providers.docker.endpoint=tcp://192.168.0.112:2375"
     #  - "--providers.docker.exposedByDefault=false"
     #deployment:
     #  initContainers:
@@ -46,10 +45,6 @@ spec:
     #          mountPath: /data
     ingressClass:
       isDefaultClass: true
-    ingressRoute:
-      dashboard:
-        enabled: true
-        matchRule: Host(`192.168.0.201`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))
     metrics:
       prometheus:
         serviceMonitor:
@@ -108,11 +103,7 @@ spec:
         labelSelector: public=true
     service:
       spec:
-        # TODO: validate this worked
         loadBalancerIP: "192.168.0.201"
-    #service:
-    #  spec:
-    #    externalTrafficPolicy: Local
 
 
 ---
@@ -127,41 +118,18 @@ spec:
     secret: basic-auth-credentials
 
 
-#---
-#apiVersion: traefik.containo.us/v1alpha1
-#kind: IngressRoute
-#metadata:
-#  name: dashboard
-#spec:
-#  entryPoints:
-#    - websecure
-#  routes:
-#    # TODO: do better than this hard-coded host.  Docs recommend something like traefik.localhost.  That might require a network DNS server or somesuch
-#    - match: Host(`192.168.0.201`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))
-#      kind: Rule
-#      services:
-#        - name: api@internal
-#          kind: TraefikService
-
-#---
-#apiVersion: networking.k8s.io/v1
-#kind: Ingress
-#metadata:
-#  name: traefik-external
-#  annotations:
-#    cert-manager.io/cluster-issuer: letsencrypt
-#spec:
-#  tls:
-#    - hosts:
-#        - traefik-external.immortalkeep.com
-#      secretName: traefik-external-ingress-tls
-#  rules:
-#  - host: traefik-external.immortalkeep.com
-#    http:
-#      paths:
-#      - pathType: Prefix
-#        path: /dashboard
-#        backend:
-#          service:
-#            name: api
-#            kind: TraefikService
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: dashboard
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    # TODO: do better than this hard-coded host.  Docs recommend something like traefik.localhost.  That might require a network DNS server or somesuch
+    - match: Host(`192.168.0.201`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))
+      kind: Rule
+      services:
+        - name: api@internal
+          kind: TraefikService
