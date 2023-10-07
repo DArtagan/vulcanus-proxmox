@@ -23,18 +23,30 @@
    guest ok = yes
    # guest only = yes
    valid users = rancher nobody
+   vfs objects = shadow_copy2
+   shadow:snapdir = .zfs/snapshot
+   shadow:sort = desc
+   shadow:format = autosnap_%Y-%m-%d_%H:%M:%S
 
 [filesync]
    browseable = yes
    writeable = yes
    path = /mnt/storage/filesync
    valid users = rancher
+   vfs objects = shadow_copy2
+   shadow:snapdir = .zfs/snapshot
+   shadow:sort = desc
+   shadow:format = autosnap_%Y-%m-%d_%H:%M:%S
 
 [photos]
    browseable = yes
    writeable = yes
    path = /mnt/storage/photos
    valid users = rancher
+   vfs objects = shadow_copy2
+   shadow:snapdir = .zfs/snapshot
+   shadow:sort = desc
+   shadow:format = autosnap_%Y-%m-%d_%H:%M:%S
 
 [borg]
    browseable = yes
