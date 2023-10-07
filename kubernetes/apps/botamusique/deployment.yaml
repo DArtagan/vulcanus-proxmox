@@ -25,7 +25,6 @@ spec:
             - name: config-volume
               mountPath: /config/
               readOnly: true
-      restartPolicy: OnFailure
       volumes:
         - name: config-volume
           configMap:
