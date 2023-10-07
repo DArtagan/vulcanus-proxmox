@@ -19,7 +19,6 @@ spec:
           env:
             - name: ADVERTISE_IP
               value: https://plex.immortalkeep.com/
-          # TODO: forward 32400 port via Traefik, if necessary
           ports:
             - containerPort: 32400
           volumeMounts:

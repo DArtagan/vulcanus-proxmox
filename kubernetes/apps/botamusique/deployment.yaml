@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: botamusique
+  labels:
+    app: botamusique
+spec:
+  selector:
+    matchLabels:
+      app: botamusique
+  template:
+    metadata:
+      labels:
+        app: botamusique
+    spec:
+      containers:
+        - name: botamusique
+          image: azlux/botamusique:latest
+          env:
+            - name: BAM_CONFIG_FILE
+              value: /config/config.ini
+          ports:
+            - containerPort: 8181
+          volumeMounts:
+            - name: config-volume
+              mountPath: /config/
+              readOnly: true
+      restartPolicy: OnFailure
+      volumes:
+        - name: config-volume
+          configMap:
+            name: botamusique-config-map

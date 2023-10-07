@@ -5,6 +5,7 @@ resources:
   - audio-pvc.yaml
   - borg-backups-pvc.yaml
   - borgmatic
+  - botamusique
   - beets
   - demo
   - dnsomatic

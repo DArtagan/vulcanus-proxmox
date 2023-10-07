@@ -1,0 +1,8 @@
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: botamusique-config-map
+data:
+  config.ini: |
+    [server]
+    host = immortalkeep.com
