@@ -7,12 +7,15 @@ data:
     [server]
     host = immortalkeep.com
     certificate = /certificates/certificate.pem
+    channel = disco
 
     [bot]
+    bandwidth = 128000
     save_music_library = False
     stereo = True
+    volume = 0.7
     when_nobody_in_channel = pause_resume
 
     [webinterface]
     enabled = True
-    listening_addr = 0.0.0.0
+    listening_addr = "0.0.0.0"
