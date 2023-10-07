@@ -6,3 +6,4 @@ data:
   config.ini: |
     [server]
     host = immortalkeep.com
+    certificate = /certificates/certificate.pem

@@ -25,7 +25,12 @@ spec:
             - name: config-volume
               mountPath: /config/
               readOnly: true
+            - name: certificates
+              mountPath: /certificates/
       volumes:
         - name: config-volume
           configMap:
             name: botamusique-config-map
+        - name: certificates
+          secret:
+            secretName: botamusique-mumble-certificate
