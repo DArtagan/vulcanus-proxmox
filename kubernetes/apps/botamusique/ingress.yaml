@@ -4,8 +4,6 @@ metadata:
   name: botamusique
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
-  labels:
-    public: "true"
 spec:
   tls:
     - hosts:
