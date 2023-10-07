@@ -4,9 +4,6 @@ metadata:
   name: syncthing
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-  labels:
-    public: "true"
 spec:
   tls:
     - hosts:

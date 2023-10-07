@@ -3,7 +3,7 @@ kind: Ingress
 metadata:
   name: flux-webhook
   annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt
   labels:
     public: "true"
 spec:
