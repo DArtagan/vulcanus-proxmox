@@ -5,5 +5,5 @@ resources:
   - config-map.yaml
   - deployment.yaml
   #- image.yaml
-  #- ingress.yaml
-  #- service.yaml
+  - ingress.yaml
+  - service.yaml

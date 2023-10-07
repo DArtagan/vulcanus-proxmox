@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: demo
+  name: botamusique
 spec:
   selector:
-    app: demo
+    app: botamusique
   ports:
     - protocol: TCP
-      port: 8000
+      port: 8181

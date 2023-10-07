@@ -1,11 +1,24 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: botamusique-mumble-cert
+  name: botamusique
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
+  labels:
+    public: "true"
 spec:
   tls:
     - hosts:
-        - botamusique-mumble-cert.immortalkeep.com
-      secretName: botamusique-mumble-tls
+        - botamusique.immortalkeep.com
+      secretName: botamusique-ingress-tls
+  rules:
+  - host: botamusique.immortalkeep.com
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: botamusique
+            port:
+              number: 8181
