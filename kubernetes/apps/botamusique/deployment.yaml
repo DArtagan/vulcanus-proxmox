@@ -17,7 +17,7 @@ spec:
         - name: botamusique
           image: azlux/botamusique:latest
           env:
-            - name: BAM_CONFIG_FILE
+            - name: BAM_CONFIG_file
               value: /config/config.ini
           ports:
             - containerPort: 8181
