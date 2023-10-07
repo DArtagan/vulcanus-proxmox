@@ -7,3 +7,6 @@ data:
     [server]
     host = immortalkeep.com
     certificate = /certificates/certificate.pem
+    save_music_library = False
+    stereo = True
+    when_nobody_in_channel = pause
