@@ -1,0 +1,42 @@
+---
+- name: set up notifications for proxmox
+  hosts: proxmox
+
+  tasks:
+    - name: apt update cache
+      apt:
+        update_cache: yes
+
+    - name: install mailutils
+      apt:
+        name: mailutils
+
+    - name: install libsasl2-modules
+      apt:
+        name: libsasl2-modules
+
+    - name: configure credentials for postfix
+      lineinfile:
+        create: yes
+        dest: /etc/postfix/sasl_passwd
+        regexp: "^smtp.gmail.com"
+        line: "smtp.gmail.com {{ lookup('env', 'GMAIL_ADDRESS') }}:{{ lookup('env', 'GMAIL_PASSWORD') }}"
+        mode: 0600
+      notify: 
+        - hash postfix credentials
+        - restart postfix
+
+    - name: create postfix config
+      template:
+        dest: /etc/postfix/main.cf
+        src: postfix.cf.j2
+      notify: restart postfix
+
+  handlers:
+    - name: hash postfix credentials
+      command: postmap hash:/etc/postfix/sasl_passwd
+
+    - name: restart postfix
+      systemd:
+        name: postfix
+        state: restarted

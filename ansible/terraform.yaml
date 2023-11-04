@@ -29,13 +29,6 @@
         keyring: /usr/share/keyrings/terraform-archive-keyring.gpg
         state: present
 
-    - name: 'add terraform repository key'
-      ansible.builtin.apt_key:
-        #id: DA418C88A3219F7B
-        url: https://apt.releases.hashicorp.com/gpg
-        keyring: /usr/share/keyrings/terraform-archive-keyring.gpg
-        state: present
-
     - name: 'add terraform repository'
       ansible.builtin.apt_repository:
         repo: deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else ansible_architecture }} signed-by=/usr/share/keyrings/terraform-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main
