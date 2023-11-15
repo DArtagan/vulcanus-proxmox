@@ -7,23 +7,10 @@ terraform {
     }
     talos = {
       source = "siderolabs/talos"
-      version = "0.1.0-alpha.10"
+      version = "0.3.4"
     }
   }
 }
-
-provider "proxmox" {
-  pm_api_url = var.proxmox_api_url
-  #pm_api_token_id = var.proxmox_api_token_id
-  #pm_api_token_secret = var.proxmox_api_token_secret
-  pm_tls_insecure = var.proxmox_tls_insecure
-  pm_debug = var.proxmox_debug
-}
-
-# Note: the first time this was run, to set the `args` value, which is a
-# root-only setting, the `_api_token` lines above were commented out and
-# PM_USER and PM_PASS environment variables were set with root's
-# credentials.
 
 resource "proxmox_vm_qemu" "control_plane_node" {
   count = var.control_plane_node_count
@@ -70,7 +57,7 @@ resource "proxmox_vm_qemu" "worker_node" {
   scsihw = "virtio-scsi-pci"
   memory = var.worker_node_memory
   cpu = "kvm64"
-  cores = 3
+  cores = var.worker_node_cpus
   sockets = 1
   args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2"
   onboot = true
@@ -127,31 +114,34 @@ locals {
 }
 
 
-resource "talos_machine_secrets" "machine_secrets" {}
+resource "talos_machine_secrets" "main" {}
 
-resource "talos_machine_configuration_controlplane" "machineconfig_control_plane" {
+data "talos_machine_configuration" "control_plane" {
   cluster_name = var.cluster_name
   cluster_endpoint = var.cluster_endpoint
-  machine_secrets = talos_machine_secrets.machine_secrets.machine_secrets
+  machine_type = "controlplane"
+  talos_version = talos_machine_secrets.main.talos_version
+  machine_secrets = talos_machine_secrets.main.machine_secrets
 }
 
-resource "talos_machine_configuration_worker" "machineconfig_worker" {
+data "talos_machine_configuration" "worker" {
   cluster_name = var.cluster_name
   cluster_endpoint = var.cluster_endpoint
-  machine_secrets = talos_machine_secrets.machine_secrets.machine_secrets
+  machine_type = "worker"
+  talos_version = talos_machine_secrets.main.talos_version
+  machine_secrets = talos_machine_secrets.main.machine_secrets
 }
 
-resource "talos_client_configuration" "talosconfig" {
+data "talos_client_configuration" "main" {
   cluster_name = var.cluster_name
-  machine_secrets = talos_machine_secrets.machine_secrets.machine_secrets
+  client_configuration = talos_machine_secrets.main.client_configuration
   endpoints = local.control_plane_endpoints
 }
 
 resource "talos_machine_configuration_apply" "control_plane_config_apply" {
-  talos_config = talos_client_configuration.talosconfig.talos_config
-  machine_configuration = talos_machine_configuration_controlplane.machineconfig_control_plane.machine_config
+  client_configuration = talos_machine_secrets.main.client_configuration
+  machine_configuration_input = data.talos_machine_configuration.control_plane.machine_configuration
   for_each = toset(local.control_plane_endpoints)
-  endpoint = local.control_plane_endpoints[index(local.control_plane_endpoints, each.value)]
   node = local.control_plane_endpoints[index(local.control_plane_endpoints, each.value)]
   config_patches = [
     templatefile("${path.module}/templates/control-plane-patch.yaml.tmpl", {
@@ -161,10 +151,9 @@ resource "talos_machine_configuration_apply" "control_plane_config_apply" {
 }
 
 resource "talos_machine_configuration_apply" "worker_config_apply" {
-  talos_config = talos_client_configuration.talosconfig.talos_config
-  machine_configuration = talos_machine_configuration_worker.machineconfig_worker.machine_config
+  client_configuration = talos_machine_secrets.main.client_configuration
+  machine_configuration_input = data.talos_machine_configuration.worker.machine_configuration
   for_each = toset(local.worker_endpoints)
-  endpoint = local.worker_endpoints[index(local.worker_endpoints, each.value)]
   node = local.worker_endpoints[index(local.worker_endpoints, each.value)]
   config_patches = [
     templatefile("${path.module}/templates/worker-patch.yaml.tmpl", {
@@ -175,13 +164,12 @@ resource "talos_machine_configuration_apply" "worker_config_apply" {
 }
 
 resource "talos_machine_bootstrap" "bootstrap" {
-  talos_config = talos_client_configuration.talosconfig.talos_config
+  client_configuration = talos_machine_secrets.main.client_configuration
   endpoint = var.control_plane_ip_start
   node = var.control_plane_ip_start
 }
 
-resource "talos_cluster_kubeconfig" "kubeconfig" {
-  talos_config = talos_client_configuration.talosconfig.talos_config
-  endpoint = var.control_plane_ip_start
+data "talos_cluster_kubeconfig" "main" {
+  client_configuration = talos_machine_secrets.main.client_configuration
   node = var.control_plane_ip_start
 }

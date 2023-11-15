@@ -11,11 +11,17 @@ variable "control_plane_node_count" {
 variable "control_plane_node_memory" {
     description = "The amount of memory in MiB to give the control plane nodes."
     type = number
-    default = 4096
+    default = 3072
 }
 
 variable "worker_node_count" {
     description = "Number of worker nodes for the cluster."
+    type = number
+    default = 3
+}
+
+variable "worker_node_cpus" {
+    description = "The number of CPU cores (threads) to give each worker node."
     type = number
     default = 3
 }
@@ -87,39 +93,39 @@ variable "public_network_bridge" {
     default = "vmbr0"
 }
 
-variable "proxmox_api_token_id" {
-    description = "The ID of the API token used for authentication with the Proxmox API."
-    type = string
-    sensitive = true
-}
-
-variable "proxmox_api_token_secret" {
-    description = "The secret value of the token used for authentication with the Proxmox API."
-    type = string
-    sensitive = true
-}
+#variable "proxmox_api_token_id" {
+#    description = "The ID of the API token used for authentication with the Proxmox API."
+#    type = string
+#    sensitive = true
+#}
+#
+#variable "proxmox_api_token_secret" {
+#    description = "The secret value of the token used for authentication with the Proxmox API."
+#    type = string
+#    sensitive = true
+#}
 
 variable "proxmox_host_node" {
     description = "The name of the proxmox node where the cluster will be deployed"
     type = string
 }
 
-variable "proxmox_api_url" {
-    description = "The URL for the Proxmox API."
-    type = string
-}
-
-variable "proxmox_tls_insecure" {
-    description = "If the TLS connection is insecure (self-signed). This is usually the case."
-    type = bool
-    default = true
-}
-
-variable "proxmox_debug" {
-    description = "If the debug flag should be set when interacting with the Proxmox API."
-    type = bool
-    default = false
-}
+#variable "proxmox_api_url" {
+#    description = "The URL for the Proxmox API."
+#    type = string
+#}
+#
+#variable "proxmox_tls_insecure" {
+#    description = "If the TLS connection is insecure (self-signed). This is usually the case."
+#    type = bool
+#    default = true
+#}
+#
+#variable "proxmox_debug" {
+#    description = "If the debug flag should be set when interacting with the Proxmox API."
+#    type = bool
+#    default = false
+#}
 
 variable "cluster_name" {
   description = "A name to provide for the Talos cluster"

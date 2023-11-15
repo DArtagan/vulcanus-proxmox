@@ -18,12 +18,6 @@ terraform {
 }
 
 
-provider "github" {
-  owner = var.github_owner
-  token = var.github_token
-}
-
-
 data "github_repository" "main" {
   full_name = join("/", [var.github_owner, var.repository_name])
 }

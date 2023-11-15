@@ -7,21 +7,21 @@
 #}
 
 output "machineconfig_controlplane" {
-  value = talos_machine_configuration_controlplane.machineconfig_control_plane.machine_config
+  value = data.talos_machine_configuration.control_plane.machine_configuration
   sensitive = true
 }
 
 output "machineconfig_worker" {
-  value = talos_machine_configuration_worker.machineconfig_worker.machine_config
+  value = data.talos_machine_configuration.worker.machine_configuration
   sensitive = true
 }
 
 output "talosconfig" {
-  value = talos_client_configuration.talosconfig.talos_config
+  value = data.talos_client_configuration.main.talos_config
   sensitive = true
 }
 
 output "kubeconfig" {
-  value = talos_cluster_kubeconfig.kubeconfig.kube_config
+  value = data.talos_cluster_kubeconfig.main.kubeconfig_raw
   sensitive = true
 }

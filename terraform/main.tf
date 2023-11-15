@@ -1,8 +1,12 @@
 terraform {
   required_providers {
+    github = {
+      source = "integrations/github"
+      version = "5.9.1"
+    }
     proxmox = {
       source = "telmate/proxmox"
-      version = ">=2.9.11"
+      version = "2.9.11"
     }
   }
 }
@@ -66,6 +70,21 @@ variable "commit_email" {
 # Setting these here so it can be used in root module's .tfvars files.
 #variable "ceph_mon_disk_storage_pool" {}
 #variable "proxmox_debug" {}
+
+
+data "github_repository" "main" {
+  full_name = "dartagan/vulcanus-proxmox"
+}
+
+provider "github" {
+  owner = "dartagan"
+  token = var.github_token
+}
+
+# Note: the first time this was run, to set the `args` value, which is a
+# root-only setting, the `_api_token` lines above were commented out and
+# PM_USER and PM_PASS environment variables were set with root's
+# credentials.  Then they're toggled back on afterwards
 
 provider "proxmox" {
   pm_api_url = var.proxmox_api_url
@@ -155,13 +174,14 @@ module "proxmox_backup_server" {
 module "talos" {
   source = "./modules/talos"
   proxmox_host_node = var.proxmox_host_node
-  proxmox_api_url = var.proxmox_api_url
-  proxmox_api_token_id = var.proxmox_api_token_id
-  proxmox_api_token_secret = var.proxmox_api_token_secret
-  proxmox_debug = true
+  #proxmox_api_url = var.proxmox_api_url
+  #proxmox_api_token_id = var.proxmox_api_token_id
+  #proxmox_api_token_secret = var.proxmox_api_token_secret
+  #proxmox_debug = true
   control_plane_node_count = 1
   worker_node_count = 1
-  worker_node_memory = 10240
+  worker_node_cpus = 8
+  worker_node_memory = 24576
   worker_boot_disk_size = "100G"
   cluster_name = "piraeus"
   cluster_endpoint = "https://192.168.0.200:6443"
@@ -184,12 +204,12 @@ resource "local_sensitive_file" "talosconfig" {
 
 module "fluxcd" {
   source = "./modules/fluxcd"
-  github_owner = "dartagan"
-  github_token = var.github_token
-  repository_name = "vulcanus-proxmox"
   branch = "main"
-  target_path = "kubernetes/cluster"
-  kubeconfig_path = local_sensitive_file.kubeconfig.filename
   commit_author = var.commit_author
   commit_email = var.commit_email
+  github_owner = "dartagan"
+  github_token = var.github_token
+  kubeconfig_path = local_sensitive_file.kubeconfig.filename
+  repository_name = data.github_repository.main.name
+  target_path = "kubernetes/cluster"
 }

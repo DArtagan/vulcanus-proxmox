@@ -1,0 +1,44 @@
+---
+- name: set up netdata on proxmox
+  hosts: proxmox
+
+  tasks:
+    #- name: 'create terraform role'
+    #  shell: pveum role add Terraform -privs "VM.Allocate VM.Clone VM.Config.CDROM VM.Config.CPU VM.Config.Cloudinit VM.Config.Disk VM.Config.HWType VM.Config.Memory VM.Config.Network VM.Config.Options VM.Monitor VM.Audit VM.PowerMgmt Datastore.AllocateSpace Datastore.Audit" || true
+
+    #- name: 'create terraform user'
+    #  shell: pveum user add terraform@pve || true
+
+    #- name: 'assign role to user'
+    #  shell: pveum aclmod / -user terraform@pve -role Terraform || true
+
+    - name: 'add netdata repository key'
+      ansible.builtin.apt_key:
+        url: https://repo.netdata.cloud/netdatabot.gpg.key
+        keyring: /usr/share/keyrings/netdata-archive-keyring.gpg
+        state: present
+
+    - name: 'add netdata repository'
+      ansible.builtin.apt_repository:
+        repo: deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else ansible_architecture }} signed-by=/usr/share/keyrings/netdata-archive-keyring.gpg] https://repo.netdata.cloud/repos/stable/debian/ {{ ansible_distribution_release }}/
+        state: present
+
+    - name: 'install netdata'
+      apt:
+        name: netdata
+        update_cache: yes
+        state: present
+    - name: 'set configuration file'
+      template:
+        src: netdata.conf.j2
+        dest: /etc/netdata/netdata.conf
+        owner: root
+        group: root
+        mode: u=wrx,g=rx,o=r,+x
+      notify: Restart Netdata
+  
+  handlers:
+  - name: Restart Netdata
+    service:
+      name: netdata
+      state: restarted
