@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: app
-          image: nbr23/youtube-dl-server:1370a664b74a0f5864a3e7c1fcaef975c5875911-1700348798-yt-dlp # {"$imagepolicy": "apps:youtube-dl-server"}
+          image: nbr23/youtube-dl-server:3f31f917195044dc0001fcf9ec36db8d13aa44dd-1701566808-yt-dlp # {"$imagepolicy": "apps:youtube-dl-server"}
           ports:
             - containerPort: 8080
           volumeMounts:
