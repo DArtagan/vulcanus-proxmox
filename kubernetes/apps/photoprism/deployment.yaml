@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: photoprism
-          image: photoprism/photoprism:231021 # {"$imagepolicy": "apps:photoprism"}
+          image: photoprism/photoprism:231128 # {"$imagepolicy": "apps:photoprism"}
           env:
             - name: PHOTOPRISM_ADMIN_PASSWORD
               valueFrom:
@@ -54,7 +54,7 @@ spec:
               name: photos
               subPath: photoprism/originals
         - name: database
-          image: mariadb:10.11.5 # {"$imagepolicy": "apps:photoprism-mariadb"}
+          image: mariadb:10.11.6 # {"$imagepolicy": "apps:photoprism-mariadb"}
           args:
             - "--innodb-buffer-pool-size=128M"
             - "--transaction-isolation=READ-COMMITTED"
