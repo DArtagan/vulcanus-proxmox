@@ -20,13 +20,15 @@ spec:
                 - -q
                 - -l
                 - /audio/import/import.log
-                - /audio/import
+                - /media/audio/import
               volumeMounts:
                 - name: config-volume
                   mountPath: /config/
                   readOnly: true
-                - name: media-volume
+                - name: audio-volume
                   mountPath: /audio/
+                - name: media-volume
+                  mountPath: /media/
                 - name: library-volume
                   mountPath: /library/
           restartPolicy: OnFailure
@@ -38,5 +40,8 @@ spec:
               persistentVolumeClaim:
                 claimName: beets-library-pvc
             - name: media-volume
+              persistentVolumeClaim:
+                claimName: media-pvc
+            - name: audio-volume
               persistentVolumeClaim:
                 claimName: audio-pvc

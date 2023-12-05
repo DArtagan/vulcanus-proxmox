@@ -4,10 +4,19 @@
 - name: 'set up a fileserver'
   hosts: fileserver
   vars:
+    samba_groups:
+      - groupname: fileshare
+        gid: 1200
     samba_users:
       - username: rancher
         password: rancher
         uid: 1100
+        group: 1100
+        groups: fileshare
+      - username: nobody
+        uid: 65534
+        group: nogroup
+        groups: nogroup,fileshare
 
   tasks:
     # - name: install nfs
@@ -34,22 +43,34 @@
         update_cache: yes
         state: present
 
+    - name: create samba groups
+      ansible.builtin.group:
+        name: "{{ item.groupname }}"
+        gid: "{{ item.gid }}"
+      with_items: "{{ samba_groups }}"
+      loop_control:
+        label: "{{ item.groupname }}"
+
     - name: create samba users
       ansible.builtin.user:
         name: "{{ item.username }}"
         uid: "{{ item.uid }}"
+        create_home: false
+        group: "{{ item.uid }}"
+        groups: "{{ item.groups }}"
       with_items: "{{ samba_users }}"
       loop_control:
         label: "{{ item.username }}"
 
     - name: add users to samba
+      with_items: "{{ samba_users }}"
+      when: "'password' in item"
       shell: >
         (pdbedit --user={{ item.username }} 2>&1 > /dev/null)
         || (echo '{{ item.password }}'; echo '{{ item.password }}')
         | smbpasswd -s -a {{ item.username }}
       register: smbpasswd
       changed_when: "'Added user' in smbpasswd.stdout"
-      with_items: "{{ samba_users }}"
       loop_control:
         label: "{{ item.username }}"
 

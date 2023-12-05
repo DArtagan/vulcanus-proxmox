@@ -13,6 +13,7 @@ resources:
   - image-update-automation.yaml
   - kubernetes-dashboard.yaml
   - loki.yaml
+  - media-pv.yaml
   - metallb.yaml
   - namespace.yaml
   - openebs.yaml

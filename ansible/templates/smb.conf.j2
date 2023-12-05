@@ -17,11 +17,14 @@
    disable spoolss = yes
 
 [media]
+   # For use by guests, to be read-write but only for pubic files
    browseable = yes
    writeable = yes
    path = /mnt/storage/media
    guest ok = yes
    # guest only = yes
+   force user = nobody
+   force group = fileshare
    valid users = rancher nobody
    vfs objects = shadow_copy2
    shadow:snapdir = .zfs/snapshot
@@ -38,7 +41,20 @@
    shadow:sort = desc
    shadow:format = autosnap_%Y-%m-%d_%H:%M:%S
 
+[audio-rw]
+   # For use by internal services, managing the audio folder
+   browseable = yes
+   writeable = yes
+   path = /mnt/storage/media/audio
+   valid users = rancher
+   vfs objects = shadow_copy2
+   shadow:snapdir = .zfs/snapshot
+   shadow:sort = desc
+   shadow:format = autosnap_%Y-%m-%d_%H:%M:%S
+
 [photos]
+   # For use by internal services, managing the photos folder
+   # TODO: consider renaming to 'photos-rw'
    browseable = yes
    writeable = yes
    path = /mnt/storage/photos
