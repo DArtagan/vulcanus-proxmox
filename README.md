@@ -81,6 +81,39 @@ spec:
                 path: known_hosts
 ```
 
+## Listing all the hard drive details
+
+```
+lsblk -o name,model,serial,uuid
+```
+
+## Hard drive testing and rebuild
+
+Testing a fresh or potentially bad drive
+```
+smartctl /dev/sdf -t long  # Run a long SMART test of the drive
+smartctl /dev/sdf -a  # SMART results
+badblocks -nsv -b 4096 /dev/sdf  # Non-destructive check of the disk for bad sectors, blocksize=4096.  Substitute `w` for `n` for a destructive test.
+```
+
+Initializing a fresh ZFS boot disk
+```
+sgdisk /dev/sda -R /dev/sdc  # Copy partition table from old drive to new one
+sgdisk -G /dev/sdc  # Initialize new guids for partitions on the new disk
+zpool replace rpool sda-part3 /dev/disk/by-id/sdc-part3  # Replace old disk with new one in the pool
+proxmox-boot-tool format /dev/sdc2
+proxmox-boot-tool init /dev/sdc2  # Make the new disk bootable
+proxmox-boot-tool refresh  # For good measure, refresh the boot partitions on all disks
+```
+
+
+## Hard drive performance test
+```
+fio --name=random-write --ioengine=posixaio --rw=randwrite --bs=1m --size=16g --numjobs=1 --iodepth=1 --runtime=60 --ti
+me_based --end_fsync=1
+```
+
 
 ## References
 * https://www.nathancurry.com/blog/14-ansible-deployment-with-proxmox/
+* Replacing a ZFS Proxmox boot disk: http://r00t.dk/post/2022/05/02/proxmox-ve-7-replace-zfs-boot-disk/
