@@ -44,4 +44,4 @@ spec:
                 claimName: media-pvc
             - name: audio-volume
               persistentVolumeClaim:
-                claimName: audio-pvc
+                claimName: audio-rw-pvc

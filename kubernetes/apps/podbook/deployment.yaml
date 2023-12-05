@@ -45,4 +45,4 @@ spec:
             name: podbook
         - name: audio
           persistentVolumeClaim:
-            claimName: audio-pvc
+            claimName: audio-rw-pvc

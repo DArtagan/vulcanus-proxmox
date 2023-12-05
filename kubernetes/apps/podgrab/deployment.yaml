@@ -33,4 +33,4 @@ spec:
             claimName: podgrab-data-pvc
         - name: audio
           persistentVolumeClaim:
-            claimName: audio-pvc
+            claimName: audio-rw-pvc
