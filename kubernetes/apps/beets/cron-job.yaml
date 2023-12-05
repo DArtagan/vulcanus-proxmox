@@ -19,7 +19,7 @@ spec:
                 - import
                 - -q
                 - -l
-                - /audio/import/import.log
+                - /media/audio/import/import.log
                 - /media/audio/import
               volumeMounts:
                 - name: config-volume
