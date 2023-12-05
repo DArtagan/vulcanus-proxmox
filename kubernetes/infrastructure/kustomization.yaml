@@ -3,6 +3,7 @@ kind: Kustomization
 namespace: infrastructure
 resources:
   - audio-pv.yaml
+  - audio-rw-pv.yaml
   - basic-auth.yaml
   - borg-backups-pv.yaml
   - cert-manager.yaml

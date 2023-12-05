@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: audio-pv
+  name: audio-rw-pv
 spec:
   accessModes:
     - ReadWriteMany
@@ -11,9 +11,9 @@ spec:
   csi:
     driver: smb.csi.k8s.io
     readOnly: false
-    volumeHandle: audio-pv
+    volumeHandle: audio-rw-pv
     volumeAttributes:
-      source: "//192.168.0.105/media/audio"
+      source: "//192.168.0.105/audio-rw"
     nodeStageSecretRef:
       name: smb-credentials
       namespace: infrastructure

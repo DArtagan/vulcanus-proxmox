@@ -8,4 +8,4 @@ spec:
   resources:
     requests:
       storage: 750Gi
-  volumeName: audio-pv
+  volumeName: audio-rw-pv
