@@ -12,6 +12,7 @@ resources:
   - dnsomatic
   - games-pvc.yaml
   - image-update-automation.yaml
+  - media-pvc.yaml
   - mumble
   - namespace.yaml
   - plex
