@@ -18,13 +18,16 @@
 
 [media]
    # For use by guests, to be read-write but only for pubic files
+   # Share should be `chown -R nobody:fileshare` and `chmod -R 777`
    browseable = yes
    writeable = yes
    path = /mnt/storage/media
    guest ok = yes
    # guest only = yes
    force user = nobody
-   force group = fileshare
+   force group = +fileshare
+   create mask = 0664
+   directory mask = 0775
    valid users = rancher nobody
    vfs objects = shadow_copy2
    shadow:snapdir = .zfs/snapshot
