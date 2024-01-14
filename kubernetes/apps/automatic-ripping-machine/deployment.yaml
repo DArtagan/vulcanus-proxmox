@@ -40,7 +40,7 @@ spec:
             - mountPath: /etc/arm/config
               name: data
               subPath: config
-            - mountPath: /etc/arm/db
+            - mountPath: /home/arm/db
               name: data
               subPath: db
             - mountPath: /home/arm/logs
