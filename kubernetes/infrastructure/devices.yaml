@@ -86,6 +86,7 @@ spec:
   containers:
   - name: generic-device-plugin-debug
     image: debian
+    command: ["sh", "-c", "trap : TERM INT; sleep infinity & wait"]
     resources:
       limits:
         squat.ai/cdrom: 1
