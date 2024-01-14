@@ -16,6 +16,9 @@ data:
 
     ### Setup Files
 
+    # symlink for the arm.log file
+    ln -s /home/root/logs/arm.log /home/arm/logs/arm.log
+
     # setup needed/expected dirs if not found
     SUBDIRS="media/completed media/raw media/movies media/transcode logs/progress .MakeMKV"
     for dir in $SUBDIRS ; do
