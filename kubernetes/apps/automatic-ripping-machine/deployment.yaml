@@ -16,7 +16,8 @@ spec:
       initContainers:
         - name: set-up-config-files
           image: busybox
-          command: "rm -rf /mnt/destination/* && cp -r /mnt/source /mnt/destination/"
+          command: ["/bin/sh", "-c"]
+          args: "rm -rf /mnt/destination/* && cp -r /mnt/source /mnt/destination/"
           volumeMounts:
             - mountPath: /mnt/source
               name: config
