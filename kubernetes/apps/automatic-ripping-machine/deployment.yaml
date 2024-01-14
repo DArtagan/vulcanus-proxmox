@@ -26,9 +26,11 @@ spec:
       containers:
         - name: automatic-ripping-machine
           image: automaticrippingmachine/automatic-ripping-machine:2.6.67 # {"$imagepolicy": "apps:automatic-ripping-machine"}
-          #env:
-          #  - name: ARM_UID
-          #    value: 1000
+          env:
+            - name: ARM_UID
+              value: 0
+            - name: ARM_GID
+              value: 0
           ports:
             - containerPort: 8080
           resources:
@@ -50,9 +52,9 @@ spec:
             - mountPath: /home/arm/audio
               name: audio
               subPath: import
-      securityContext:
-        runAsUser: 1000
-        runAsGroup: 1000
+      #securityContext:
+      #  runAsUser: 1000
+      #  runAsGroup: 1000
       volumes:
         - name: audio
           persistentVolumeClaim:
