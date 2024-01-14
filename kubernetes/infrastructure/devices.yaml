@@ -78,15 +78,25 @@ spec:
 
 
 ---
-apiVersion: v1
-kind: Pod
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: generic-device-plugin-debug
+  labels:
+    app: generic-device-plugin-debug
 spec:
-  containers:
-  - name: generic-device-plugin-debug
-    image: debian
-    command: ["sh", "-c", "trap : TERM INT; sleep infinity & wait"]
-    resources:
-      limits:
-        squat.ai/cdrom: 1
+  selector:
+    matchLabels:
+      app: generic-device-plugin-debug
+  template:
+    metadata:
+      labels:
+        app: generic-device-plugin-debug
+    spec:
+      containers:
+        - name: generic-device-plugin-debug
+          image: debian
+          command: ["sh", "-c", "trap : TERM INT; sleep infinity & wait"]
+          resources:
+            limits:
+              squat.ai/cdrom: 1
