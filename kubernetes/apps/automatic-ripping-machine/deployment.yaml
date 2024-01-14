@@ -53,7 +53,7 @@ spec:
               name: audio
               subPath: import
       securityContext:
-      #  runAsUser: 1000
+        runAsUser: 0
         runAsGroup: 1000
         fsGroup: 1000
       volumes:
