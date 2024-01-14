@@ -27,7 +27,7 @@ spec:
           name: cdrom
           groups:
             - paths:
-                - path: /dev/sr1
+                - path: /dev/sr0
         name: generic-device-plugin
         resources:
           requests:
