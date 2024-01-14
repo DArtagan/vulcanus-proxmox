@@ -75,3 +75,17 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: generic-device-plugin
+
+
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: generic-device-plugin-debug
+spec:
+  containers:
+  - name: generic-device-plugin-debug
+    image: debian
+    resources:
+      limits:
+        squat.ai/cdrom: 1
