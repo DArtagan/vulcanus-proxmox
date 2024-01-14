@@ -31,6 +31,9 @@ spec:
           #    value: 1000
           ports:
             - containerPort: 8080
+          resources:
+            limits:
+              squat.ai/cdrom: 1
           volumeMounts:
             - mountPath: /etc/arm/config
               name: data
@@ -47,9 +50,6 @@ spec:
             - mountPath: /home/arm/audio
               name: audio
               subPath: import
-        resources:
-          limits:
-            squat.ai/cdrom: 1
       volumes:
         - name: audio
           persistentVolumeClaim:
