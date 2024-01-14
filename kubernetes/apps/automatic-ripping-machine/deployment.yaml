@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: automatic-ripping-machine
+  labels:
+    app: automatic-ripping-machine
+spec:
+  selector:
+    matchLabels:
+      app: automatic-ripping-machine
+  template:
+    metadata:
+      labels:
+        app: automatic-ripping-machine
+    spec:
+      containers:
+        - name: automatic-ripping-machine
+          image: automaticrippingmachine/automatic-ripping-machine:2.6.67 # {"$imagepolicy": "apps:automatic-ripping-machine"}
+          #env:
+          #  - name: ARM_UID
+          #    value: 1000
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - mountPath: /etc/arm/config
+              name: config
+              readOnly: true
+            - mountPath: /etc/arm/db
+              name: data
+              subPath: db
+            - mountPath: /home/arm/logs
+              name: data
+              subPath: logs
+            - mountPath: /home/arm/media
+              name: video
+              subPath: import/automatic-ripping-machine
+            - mountPath: /home/arm/music
+              name: audio
+              subPath: import
+      resources:
+        limits:
+          squat.ai/cdrom: 1
+      volumes:
+        - name: audio
+          persistentVolumeClaim:
+            claimName: audio-rw-pvc
+        - name: config
+          configMap:
+            name: automatic-ripping-machine
+        - name: data
+          persistentVolumeClaim:
+            claimName: automatic-ripping-machine-pvc
+        - name: video
+          persistentVolumeClaim:
+            claimName: video-pvc

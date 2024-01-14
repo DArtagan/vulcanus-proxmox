@@ -4,6 +4,7 @@ namespace: apps
 resources:
   - audio-rw-pvc.yaml
   - audio-pvc.yaml
+  - automatic-ripping-machine
   - borg-backups-pvc.yaml
   - borgmatic
   - botamusique

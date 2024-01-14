@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: automatic-ripping-machine
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  tls:
+    - hosts:
+        - arm.immortalkeep.com
+      secretName: automatic-ripping-machine-ingress-tls
+  rules:
+  - host: arm.immortalkeep.com
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: automatic-ripping-machine
+            port:
+              number: 8080
