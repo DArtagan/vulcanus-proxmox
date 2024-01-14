@@ -13,16 +13,16 @@ spec:
       labels:
         app: automatic-ripping-machine
     spec:
-      initContainers:
-        - name: set-up-config-files
-          image: busybox
-          command: ["sh", "-c", "rm -rf /mnt/destination/* && cp -r /mnt/source /mnt/destination/"]
-          volumeMounts:
-            - mountPath: /mnt/source
-              name: config
-            - mountPath: /mnt/destination
-              name: data
-              subPath: config
+      #initContainers:
+      #  - name: set-up-config-files
+      #    image: busybox
+      #    command: ["sh", "-c", "rm -rf /mnt/destination/* && cp -r /mnt/source /mnt/destination/"]
+      #    volumeMounts:
+      #      - mountPath: /mnt/source
+      #        name: config
+      #      - mountPath: /mnt/destination
+      #        name: data
+      #        subPath: config
       containers:
         - name: automatic-ripping-machine
           image: automaticrippingmachine/automatic-ripping-machine:2.6.67 # {"$imagepolicy": "apps:automatic-ripping-machine"}
@@ -49,16 +49,16 @@ spec:
             - mountPath: /etc/my_init.d/arm_user_files_setup.sh
               name: init-scripts
               subPath: arm_user_files_setup.sh
-            - mountPath: /home/arm/db
+            - mountPath: /home/root/db
               name: data
               subPath: db
-            - mountPath: /home/arm/logs
+            - mountPath: /home/root/logs
               name: data
               subPath: logs
-            - mountPath: /home/arm/media
+            - mountPath: /home/root/media
               name: video
               subPath: import/automatic-ripping-machine
-            - mountPath: /home/arm/audio
+            - mountPath: /home/root/audio
               name: audio
               subPath: import
       #securityContext:

@@ -8,7 +8,7 @@ data:
     # This script is first to run due to this: https://github.com/phusion/baseimage-docker#running_startup_scripts.
     set -euo pipefail
 
-    export ARM_HOME="/home/arm"
+    export ARM_HOME="/home/root"
 
     echo "Adding users to 'render' group"
     usermod -a -G render arm
@@ -18,7 +18,7 @@ data:
     #chown -R arm:arm /opt/arm
 
     # setup needed/expected dirs if not found
-    SUBDIRS="media media/completed media/raw media/movies media/transcode logs logs/progress db Music .MakeMKV"
+    SUBDIRS="media/completed media/raw media/movies media/transcode logs/progress .MakeMKV"
     for dir in $SUBDIRS ; do
         thisDir="$ARM_HOME/$dir"
         if [[ ! -d "$thisDir" ]] ; then
