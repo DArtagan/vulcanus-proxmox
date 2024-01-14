@@ -13,17 +13,17 @@ spec:
       labels:
         app: automatic-ripping-machine
     spec:
-      #initContainers:
-      #  - name: set-up-config-files
-      #    image: busybox
-      #    command: ["/bin/sh", "-c"]
-      #    args: "rm -rf /mnt/destination/* && cp -r /mnt/source /mnt/destination/"
-      #    volumeMounts:
-      #      - mountPath: /mnt/source
-      #        name: config
-      #      - mountPath: /mnt/destination
-      #        name: data
-      #        subPath: config
+      initContainers:
+        - name: set-up-config-files
+          image: busybox
+          command: ["/bin/sh", "-c"]
+          args: "rm -rf /mnt/destination/* && cp -r /mnt/source /mnt/destnation/"
+          volumeMounts:
+            - mountPath: /mnt/source
+              name: config
+            - mountPath: /mnt/destination
+              name: data
+              subPath: config
       containers:
         - name: automatic-ripping-machine
           image: automaticrippingmachine/automatic-ripping-machine:2.6.67 # {"$imagepolicy": "apps:automatic-ripping-machine"}
