@@ -17,6 +17,7 @@ data:
     ### Setup Files
 
     # symlink for the arm.log file
+    touch /home/root/logs/arm.log
     ln -s /home/root/logs/arm.log /home/arm/logs/arm.log
 
     # setup needed/expected dirs if not found
