@@ -44,7 +44,7 @@ spec:
             - mountPath: /home/arm/media
               name: video
               subPath: import/automatic-ripping-machine
-            - mountPath: /home/arm/music
+            - mountPath: /home/arm/audio
               name: audio
               subPath: import
       resources:

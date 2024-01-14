@@ -753,7 +753,7 @@ data:
     # If you'd like to make a default location that overrides the current
     # directory for putting mp3's, uncomment this.
     # OUTPUTDIR="$home/music/"
-    OUTPUTDIR="/home/arm/music/"
+    OUTPUTDIR="/home/arm/audio/"
 
     # Or if you'd just like to put the temporary .wav files somewhere else
     # you can specify that here
