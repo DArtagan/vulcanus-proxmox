@@ -9,6 +9,7 @@ resources:
   - cert-manager.yaml
   - coredns.yaml
   - csi-driver-smb.yaml
+  - devices.yaml
   - games-pv.yaml
   - grafana-auth.yaml
   - image-update-automation.yaml
