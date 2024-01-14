@@ -47,9 +47,9 @@ spec:
             - mountPath: /home/arm/audio
               name: audio
               subPath: import
-      resources:
-        limits:
-          squat.ai/cdrom: 1
+        resources:
+          limits:
+            squat.ai/cdrom: 1
       volumes:
         - name: audio
           persistentVolumeClaim:
@@ -63,28 +63,3 @@ spec:
         - name: video
           persistentVolumeClaim:
             claimName: video-pvc
-
-
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: automatic-ripping-machine-debug
-  labels:
-    app: automatic-ripping-machine-debug
-spec:
-  selector:
-    matchLabels:
-      app: automatic-ripping-machine-debug
-  template:
-    metadata:
-      labels:
-        app: automatic-ripping-machine-debug
-    spec:
-      containers:
-        - name: automatic-ripping-machine-debug
-          image: debian
-          command: ["sh", "-c", "trap : TERM INT; sleep infinity & wait"]
-          resources:
-            limits:
-              squat.ai/cdrom: 1

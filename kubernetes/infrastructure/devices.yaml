@@ -27,8 +27,6 @@ spec:
           name: cdrom
           groups:
             - paths:
-                - path: /dev/sr0
-            - paths:
                 - path: /dev/sr1
         name: generic-device-plugin
         resources:
@@ -75,28 +73,3 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: generic-device-plugin
-
-
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: generic-device-plugin-debug
-  labels:
-    app: generic-device-plugin-debug
-spec:
-  selector:
-    matchLabels:
-      app: generic-device-plugin-debug
-  template:
-    metadata:
-      labels:
-        app: generic-device-plugin-debug
-    spec:
-      containers:
-        - name: generic-device-plugin-debug
-          image: debian
-          command: ["sh", "-c", "trap : TERM INT; sleep infinity & wait"]
-          resources:
-            limits:
-              squat.ai/cdrom: 1
