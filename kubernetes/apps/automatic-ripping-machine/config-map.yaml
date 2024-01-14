@@ -126,19 +126,19 @@ data:
 
     # Location of your ABCDE config file
     # This over-rides any other abcde.conf files
-    ABCDE_CONFIG_FILE: "/etc/arm/config/abcde.conf"
+    ABCDE_CONFIG_FILE: "/etc/root/config/abcde.conf"
 
     # Path to raw MakeMKV directory
     # Destination for MakeMKV and source for HandBrake
-    RAW_PATH: "/home/arm/media/raw/"
+    RAW_PATH: "/home/root/media/raw/"
 
     # Intermediary directory for transcoding files
     # Destination for HandBrake
-    TRANSCODE_PATH: "/home/arm/media/transcode/"
+    TRANSCODE_PATH: "/home/root/media/transcode/"
 
     # Final directory of transcoded files
     # Ripped and transcoded files end up here
-    COMPLETED_PATH: "/home/arm/media/completed/"
+    COMPLETED_PATH: "/home/root/media/completed/"
 
     # Movie subdirectory name for "extras"
     # Valid names are dependent on your media server
@@ -151,7 +151,7 @@ data:
 
     # Path to directory to hold log files
     # Make sure to include trailing /
-    LOGPATH: "/home/arm/logs/"
+    LOGPATH: "/home/root/logs/"
 
     # Log level.  DEBUG, INFO, WARNING, ERROR, CRITICAL
     # The default is INFO
@@ -163,7 +163,7 @@ data:
     LOGLIFE: 1
 
     # Path to ARM database file
-    DBFILE: "/home/arm/db/arm.db"
+    DBFILE: "/home/root/db/arm.db"
 
 
     ##################
