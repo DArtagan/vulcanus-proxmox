@@ -38,8 +38,7 @@ spec:
               squat.ai/cdrom: 1
           volumeMounts:
             - mountPath: /etc/arm/config
-              name: data
-              subPath: config
+              name: config
             - mountPath: /lib/udev/rules.d/51-docker-arm.rules
               name: init-scripts
               subPath: 51-docker-arm.rules
