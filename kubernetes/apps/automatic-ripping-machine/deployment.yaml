@@ -24,7 +24,6 @@ spec:
           volumeMounts:
             - mountPath: /etc/arm/config
               name: config
-              readOnly: true
             - mountPath: /etc/arm/db
               name: data
               subPath: db
