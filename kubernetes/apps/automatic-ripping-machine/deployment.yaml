@@ -45,6 +45,7 @@ spec:
               subPath: 51-docker-arm.rules
             - mountPath: /etc/service/armui/run
               name: init-scripts
+              defaultMode: 0777
               subPath: armui.sh
             - mountPath: /etc/my_init.d/arm_user_files_setup.sh
               name: init-scripts
