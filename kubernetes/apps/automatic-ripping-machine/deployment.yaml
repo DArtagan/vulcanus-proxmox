@@ -46,9 +46,9 @@ spec:
             - mountPath: /etc/service/armui/run
               name: init-scripts
               subPath: armui.sh
-            #- mountPath: /etc/my_init.d/arm_user_files_setup.sh
-            #  name: init-scripts
-            #  subPath: arm_user_files_setup.sh
+            - mountPath: /etc/my_init.d/arm_user_files_setup.sh
+              name: init-scripts
+              subPath: arm_user_files_setup.sh
             - mountPath: /home/arm/db
               name: data
               subPath: db
