@@ -50,6 +50,9 @@ spec:
             - mountPath: /home/arm/audio
               name: audio
               subPath: import
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
       volumes:
         - name: audio
           persistentVolumeClaim:
