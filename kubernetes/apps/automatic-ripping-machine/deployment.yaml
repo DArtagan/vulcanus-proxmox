@@ -16,7 +16,6 @@ spec:
       initContainers:
         - name: set-up-config-files
           image: busybox
-          command: ["/bin/sh", "-c"]
           volumeMounts:
             - mountPath: /mnt/source
               name: config
