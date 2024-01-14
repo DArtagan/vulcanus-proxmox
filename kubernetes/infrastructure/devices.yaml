@@ -28,6 +28,7 @@ spec:
           groups:
             - paths:
                 - path: /dev/sr0
+                - path: /dev/sg4
             - paths:
                 - path: /dev/sr1
         name: generic-device-plugin
