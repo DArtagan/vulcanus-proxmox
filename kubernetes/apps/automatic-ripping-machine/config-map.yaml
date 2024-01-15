@@ -124,15 +124,15 @@ data:
 
     # Path to raw MakeMKV directory
     # Destination for MakeMKV and source for HandBrake
-    RAW_PATH: "/home/root/media/raw/"
+    RAW_PATH: "/root/media/raw/"
 
     # Intermediary directory for transcoding files
     # Destination for HandBrake
-    TRANSCODE_PATH: "/home/root/media/transcode/"
+    TRANSCODE_PATH: "/root/media/transcode/"
 
     # Final directory of transcoded files
     # Ripped and transcoded files end up here
-    COMPLETED_PATH: "/home/root/media/completed/"
+    COMPLETED_PATH: "/root/media/completed/"
 
     # Movie subdirectory name for "extras"
     # Valid names are dependent on your media server
@@ -145,7 +145,7 @@ data:
 
     # Path to directory to hold log files
     # Make sure to include trailing /
-    LOGPATH: "/home/root/logs/"
+    LOGPATH: "/root/logs/"
 
     # Log level.  DEBUG, INFO, WARNING, ERROR, CRITICAL
     # The default is INFO
@@ -157,7 +157,7 @@ data:
     LOGLIFE: 30
 
     # Path to ARM database file
-    DBFILE: "/home/root/db/arm.db"
+    DBFILE: "/root/db/arm.db"
 
 
     ##################
@@ -204,7 +204,7 @@ data:
     # This method seems to offer success on Blu-ray discs that fail in "mkv" mode.
     # *** NOTE: MakeMKV only supports the backup or backup_dvd method on BluRay discs.
     # backup_dvd forces arm to extract the dvd with MakeMKV prior to the Handbrake step
-    RIPMETHOD: "backup"
+    RIPMETHOD: "backup_dvd"
     RIPMETHOD_DVD: "PLACEHOLDER"
     RIPMETHOD_BR: "PLACEHOLDER"
 
@@ -747,7 +747,7 @@ data:
     # If you'd like to make a default location that overrides the current
     # directory for putting mp3's, uncomment this.
     # OUTPUTDIR="$home/music/"
-    OUTPUTDIR="/home/root/audio/"
+    OUTPUTDIR="/root/audio/"
 
     # Or if you'd just like to put the temporary .wav files somewhere else
     # you can specify that here

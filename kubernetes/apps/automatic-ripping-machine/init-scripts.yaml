@@ -8,7 +8,7 @@ data:
     # This script is first to run due to this: https://github.com/phusion/baseimage-docker#running_startup_scripts.
     set -euo pipefail
 
-    export ARM_HOME="/home/root"
+    export ARM_HOME="/root"
 
     echo "Adding users to 'render' group"
     usermod -a -G render arm
@@ -16,8 +16,8 @@ data:
 
     ### Setup Files
 
-    touch /home/root/logs/arm.log
-    ln -s /home/root/logs/arm.log /home/arm/logs/arm.log
+    touch /root/logs/arm.log
+    ln -s /root/logs/arm.log /home/arm/logs/arm.log
 
     # setup needed/expected dirs if not found
     SUBDIRS="media/completed media/raw media/movies media/transcode logs/progress .MakeMKV"
@@ -29,7 +29,7 @@ data:
         fi
     done
 
-    ln -s /home/root/.MakeMKV/ /home/arm/.MakeMKV
+    ln -s /root/.MakeMKV/ /home/arm/.MakeMKV
 
     # abcde.conf is expected in /etc by the abcde installation
     cp --no-clobber /opt/arm/setup/.abcde.conf /etc/arm/config/abcde.conf
