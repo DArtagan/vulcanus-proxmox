@@ -18,6 +18,8 @@ WIREGUARD_PEER_PUBLIC_KEY=ASDFSADFSADFASDFASDF
 
 ## Ad-hoc Kubernetes
 
+Use [k9s](https://k9scli.io/), it's amazing for peering at kubernetes cluster resources.  The logs can be a bit finicky though, so still use `kubectl logs` as necessary.
+
 Useful line for ad-hoc operations (where `beets-import-27836809-c6wsg` is a current pod, `beets-debug` is a replica pod you will make from it, `beets-import` is the container name in that pod to attach to):
 
 ```

@@ -16,7 +16,6 @@ data:
 
     ### Setup Files
 
-    # symlink for the arm.log file
     touch /home/root/logs/arm.log
     ln -s /home/root/logs/arm.log /home/arm/logs/arm.log
 
@@ -29,6 +28,8 @@ data:
             mkdir -p "$thisDir"
         fi
     done
+
+    ln -s /home/root/.MakeMKV/ /home/arm/.MakeMKV
 
     # abcde.conf is expected in /etc by the abcde installation
     cp --no-clobber /opt/arm/setup/.abcde.conf /etc/arm/config/abcde.conf
