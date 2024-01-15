@@ -204,7 +204,7 @@ data:
     # This method seems to offer success on Blu-ray discs that fail in "mkv" mode.
     # *** NOTE: MakeMKV only supports the backup or backup_dvd method on BluRay discs.
     # backup_dvd forces arm to extract the dvd with MakeMKV prior to the Handbrake step
-    RIPMETHOD: "mkv"
+    RIPMETHOD: "backup"
     RIPMETHOD_DVD: "PLACEHOLDER"
     RIPMETHOD_BR: "PLACEHOLDER"
 
@@ -217,7 +217,7 @@ data:
     MKV_ARGS: ""
 
     # Remove the files created by MakeMKV after processing is complete
-    DELRAWFILES: true
+    DELRAWFILES: false
 
 
     ##########################
@@ -226,11 +226,11 @@ data:
 
     # Handbrake preset profile for DVDs
     # Execute "HandBrakeCLI -z" to see a list of all presets
-    HB_PRESET_DVD: "HQ 720p30 Surround"
+    HB_PRESET_DVD: "Super HQ 720p30 Surround"
 
     # Handbrake preset profile for Blurays
     # Execute "HandBrakeCLI -z" to see a list of all presets
-    HB_PRESET_BD: "HQ 1080p30 Surround"
+    HB_PRESET_BD: "Super HQ 1080p30 Surround"
 
     # Extension of the final video file
     DEST_EXT: mkv
