@@ -32,6 +32,9 @@ spec:
             - paths:
                 - path: /dev/sr1
                 - path: /dev/sg1
+            - paths:
+                - path: /dev/sr2
+                - path: /dev/sg2
         name: generic-device-plugin
         resources:
           requests:
