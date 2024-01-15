@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Secret
+metadata:
+    name: automatic-ripping-machine-api-keys
+    creationTimestamp: "2024-01-15T15:55:00Z"
+stringData:
+    OMDB_KEY: ENC[AES256_GCM,data:h4XVDAzzMQI=,iv:aUNWW5wmRwaYA1+u1/wtNI+aNIxdh9HPn32Miis2JCs=,tag:Jxpu47y5FIkbX/39AnJNrQ==,type:str]
+    MAKEMKV_KEY: ENC[AES256_GCM,data:tb3dzWVNuUwjWJCzK8s8pOFaFUvAPRRTdUOcfV6yR/lE6MZ7FD6oBOmgZEEH4BIctuaiVXMEfoIkOPXuWY3TIY+JBf0=,iv:8rbd1ZjtwRSHsHOZ8AJU2gor+CZxuL4enVOtXR0e8ZE=,tag:fDgx9f7iTLQKc0uxbnbkKA==,type:str]
+sops:
+    kms: []
+    gcp_kms: []
+    azure_kv: []
+    hc_vault: []
+    age:
+        - recipient: age1rkkc3rmwczelakcy57fh3schs5qv6488hujf9c9s7zh3jpng6acsxuradu
+          enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBuQjdDQkxmUnRCZklaQlRB
+            WEd6VHBLdldkUGUyVWFJRjRnb3R5RlZqaWtnCjl3QXIrSDNFOURDbXpCUVFOOWZr
+            cXo0U0tQdlpLQ2ExL0QxS3RoRjk1ckUKLS0tIEhpTzdGSlViOWFVZTdYQXRxVXoy
+            RFdmMStLTzFmMTArQ1hsWTc4STczQ0EK6ijX6UTuKZ2WT9ywAdZzGPeVnDkiQ1hB
+            POMaIB4VPp7M8Q/4Q2q2epELlXlYdqapFrMSnPl3hNVkHUDlCpaqHQ==
+            -----END AGE ENCRYPTED FILE-----
+    lastmodified: "2024-01-15T16:23:49Z"
+    mac: ENC[AES256_GCM,data:YMBu2kyJe9Xaf+kK7XuwCH5Bp7ueDg3c+F3+aCQph0zWBEAV13SEUDSEGN38eIY0A/g4omQABdNtr7zEHTy7hGb0MaraN01K0EX1oFHcWQE4pBeRlSxJT3n7JV8AuCmzKFuIL1aixoYXsqQdrI9olNODCeiKXCRiSFn1LCf3mPA=,iv:L6dLM0MMGn2e8p6naHij5HJ5UgjkbQh2t5SyRe2LdRQ=,tag:jBmDpQlf6cQ7QU3tnwnjMA==,type:str]
+    pgp: []
+    encrypted_regex: ^(data|stringData)$
+    version: 3.8.1

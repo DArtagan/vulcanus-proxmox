@@ -13,24 +13,21 @@ spec:
       labels:
         app: automatic-ripping-machine
     spec:
-      #initContainers:
-      #  - name: set-up-config-files
-      #    image: busybox
-      #    command: ["sh", "-c", "rm -rf /mnt/destination/* && cp -r /mnt/source /mnt/destination/"]
-      #    volumeMounts:
-      #      - mountPath: /mnt/source
-      #        name: config
-      #      - mountPath: /mnt/destination
-      #        name: data
-      #        subPath: config
+      initContainers:
+        - name: config-injector
+          image: bhgedigital/envsubst
+          args: ["sh", "-c", 'cd source; for f in *; do cat "$f" | envsubst "$(printf \'${%s} \' $(env | cut -d\'=\' -f1))" > /destination/"$f"; done']
+          envFrom:
+            - secretRef:
+                name: automatic-ripping-machine-api-keys
+          volumeMounts:
+            - mountPath: /source
+              name: config
+            - mountPath: /destination
+              name: config-data
       containers:
         - name: automatic-ripping-machine
           image: automaticrippingmachine/automatic-ripping-machine:2.6.67 # {"$imagepolicy": "apps:automatic-ripping-machine"}
-          #env:
-          #  - name: ARM_UID
-          #    value: "0"
-          #  - name: ARM_GID
-          #    value: "0"
           ports:
             - containerPort: 8080
           resources:
@@ -38,7 +35,7 @@ spec:
               squat.ai/cdrom: 2
           volumeMounts:
             - mountPath: /etc/arm/config
-              name: config
+              name: config-data
             - mountPath: /lib/udev/rules.d/51-docker-arm.rules
               name: init-scripts
               subPath: 51-docker-arm.rules
@@ -60,10 +57,6 @@ spec:
             - mountPath: /home/root/audio
               name: audio
               subPath: import
-      #securityContext:
-      #  runAsUser: 1000
-      #  runAsGroup: 1000
-      #  fsGroup: 1000
       volumes:
         - name: audio
           persistentVolumeClaim:
@@ -71,6 +64,8 @@ spec:
         - name: config
           configMap:
             name: automatic-ripping-machine
+        - name: config-data
+          emptyDir: {}
         - name: init-scripts
           configMap:
             name: automatic-ripping-machine-init-scripts

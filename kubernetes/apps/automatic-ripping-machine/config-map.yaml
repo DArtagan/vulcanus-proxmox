@@ -4,12 +4,6 @@ metadata:
   name: automatic-ripping-machine
 data:
   arm.yaml: |
-    # ARM (Automatic Ripping Machine) config file
-
-    #################
-    ## ARM Options ##
-    #################
-
     # A friendly name for this machine. Useful if you are running multiple instances.
     # Used in notification titles.
     ARM_NAME: ""
@@ -45,7 +39,7 @@ data:
     # True will leave all of the pages open to be editable/viewable by anyone
     # False will require you to login to view/edit jobs or settings from the ui
     # ARMui will need to be restared for this to update
-    DISABLE_LOGIN: false
+    DISABLE_LOGIN: true
 
     # Skip transcoding if you want the original MakeMKV files as your final output
     # This will produce the highest quality videos (and use the most storage)
@@ -75,12 +69,12 @@ data:
 
     # Allows you to format the date/time to your own liking
     # This will be used throughout ARM and ARMui
-    DATE_FORMAT: "%m-%d-%Y %H:%M:%S"
+    DATE_FORMAT: "%Y-%m-%d %H:%M:%S"
 
     ## Do you want to allow Rips of the same disk multiple times
     ## With this set as false the task will exit if it recognises the same movie being ripped
     ## recommended to set to true for series
-    ALLOW_DUPLICATES: false
+    ALLOW_DUPLICATES: true
 
     # Number of Transcodes that runs at the same time.
     # Certain Video cards are limited to how many encodes they can run at the same time.
@@ -160,7 +154,7 @@ data:
 
     # How long to let log files live before deleting (in days)
     # Set to 0 to disable
-    LOGLIFE: 1
+    LOGLIFE: 30
 
     # Path to ARM database file
     DBFILE: "/home/root/db/arm.db"
@@ -201,7 +195,7 @@ data:
     ########################
 
     # Storage for a purchased key the user may have paid for. Populating will prevent the beta key updater from running.
-    MAKEMKV_PERMA_KEY: ""
+    MAKEMKV_PERMA_KEY: "${MAKEMKV_KEY}"
 
     # Method of MakeMKV to use for Blu-ray discs
     # Options are "mkv", "backup", or "backup_dvd".
@@ -339,7 +333,7 @@ data:
     # See README-OMDBAPI for background and info
     # This is the API key for omdbapi.com queries.
     # More info at https://omdbapi.com/
-    OMDB_API_KEY: ""
+    OMDB_API_KEY: "${OMDB_KEY}"
 
     # TMDB_API_KEY
     # https://www.themoviedb.org/ API Key
@@ -753,7 +747,7 @@ data:
     # If you'd like to make a default location that overrides the current
     # directory for putting mp3's, uncomment this.
     # OUTPUTDIR="$home/music/"
-    OUTPUTDIR="/home/arm/audio/"
+    OUTPUTDIR="/home/root/audio/"
 
     # Or if you'd just like to put the temporary .wav files somewhere else
     # you can specify that here
