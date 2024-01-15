@@ -1,3 +1,6 @@
+# Note: the pod generally needs to be manually terminated, to free up the
+# available "cdrom" resources for the new pod to be scheduled.  There might
+# be a way to tell fluxcd to kill first then launch, but I haven't found it
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -16,7 +19,7 @@ spec:
       initContainers:
         - name: config-injector
           image: bhgedigital/envsubst
-          args: ["sh", "-c", 'cd source; for f in *; do cat "$f" | envsubst "$(printf \'${%s} \' $(env | cut -d\'=\' -f1))" > /destination/"$f"; done']
+          args: ["sh", "-c", 'cd source; for f in *; do cat "$f" | envsubst "$(printf ''${%s} '' $(env | cut -d''='' -f1))" > /destination/"$f"; done']
           envFrom:
             - secretRef:
                 name: automatic-ripping-machine-api-keys
