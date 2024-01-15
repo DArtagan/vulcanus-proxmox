@@ -26,15 +26,15 @@ spec:
         - |
           name: cdrom
           groups:
+            # One of these is the talos ISO, the other is the disc drive
+            # (attached via magic SCSI options in the talos worker's
+            # terraform).
             - paths:
                 - path: /dev/sr0
                 - path: /dev/sg0
             - paths:
                 - path: /dev/sr1
                 - path: /dev/sg1
-            - paths:
-                - path: /dev/sr2
-                - path: /dev/sg2
         name: generic-device-plugin
         resources:
           requests:

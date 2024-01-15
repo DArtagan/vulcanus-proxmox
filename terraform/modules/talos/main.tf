@@ -59,8 +59,8 @@ resource "proxmox_vm_qemu" "worker_node" {
   cpu = "kvm64"
   cores = var.worker_node_cpus
   sockets = 1
+  # CPU options are special for talos.  SCSI and drive options are to attach the CD drive to the worker VM.  `addr=0x6` because 6 was the first spare PCI address after doing guess-and-check.
   args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2 -device virtio-scsi-pci,id=scsi0,bus=pci.0,addr=0x6 -drive file=/dev/sg4,if=none,format=raw,id=drive-hostdev0,readonly=on -device scsi-generic,bus=scsi0.0,channel=0,scsi-id=0,lun=0,drive=drive-hostdev0,id=hostdev0"
-  #args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2"
   onboot = true
   # TODO: maybe this can be set if switching to cloudinit provisioning, using router DHCP for now
   network {

@@ -35,7 +35,7 @@ spec:
             - containerPort: 8080
           resources:
             limits:
-              squat.ai/cdrom: 3
+              squat.ai/cdrom: 2
           volumeMounts:
             - mountPath: /etc/arm/config
               name: config
