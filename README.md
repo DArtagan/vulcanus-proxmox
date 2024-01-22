@@ -115,6 +115,12 @@ fio --name=random-write --ioengine=posixaio --rw=randwrite --bs=1m --size=16g --
 me_based --end_fsync=1
 ```
 
+## Troubleshooting
+
+### talos-worker VM doesn't start, sits on booting HDD screen
+
+In the arguments for the talos-worker VM is a virtual SCSI that expects a cdrom drive to be connected to the host.  No cdrom drive, no launch.
+
 
 ## References
 * https://www.nathancurry.com/blog/14-ansible-deployment-with-proxmox/

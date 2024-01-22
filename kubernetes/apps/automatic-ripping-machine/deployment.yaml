@@ -36,6 +36,8 @@ spec:
           resources:
             limits:
               squat.ai/cdrom: 2
+          securityContext:
+            allowPrivilegeEscalation: true
           volumeMounts:
             - mountPath: /etc/arm/config
               name: config-data

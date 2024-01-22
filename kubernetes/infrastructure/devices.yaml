@@ -1,3 +1,5 @@
+# Note: it's also possible that this all could have been done by mounting raw block devices from hostpaths
+# https://kubernetes.io/blog/2019/03/07/raw-block-volume-support-to-beta/
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
