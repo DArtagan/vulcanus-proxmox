@@ -55,7 +55,7 @@ data:
     VIDEOTYPE: "auto"
 
     # Minimum length of track for ARM rip (in seconds)
-    MINLENGTH: "600"
+    MINLENGTH: "420"
 
     # Maximum length of track for ARM rip (in seconds)
     # Use "99999" to indicate no maximum length
