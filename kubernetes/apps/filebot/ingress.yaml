@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: filebot
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  tls:
+    - hosts:
+        - filebot.immortalkeep.com
+      secretName: automatic-ripping-machine-ingress-tls
+  rules:
+  - host: filebot.immortalkeep.com
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: filebot
+            port:
+              number: 5452

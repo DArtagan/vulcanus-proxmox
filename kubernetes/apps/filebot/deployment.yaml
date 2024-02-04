@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: filebot
+  labels:
+    app: filebot
+spec:
+  selector:
+    matchLabels:
+      app: filebot
+  template:
+    metadata:
+      labels:
+        app: filebot
+    spec:
+      containers:
+        - name: filebot
+          image: rednoah/filebot:505872599555  # "node" tag, latest as of last checking
+          ports:
+            - containerPort: 5452
+          volumeMounts:
+            - mountPath: /data
+              name: data
+            - mountPath: /video
+              name: video
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: filebot-pvc
+        - name: video
+          persistentVolumeClaim:
+            claimName: video-pvc

@@ -11,6 +11,7 @@ resources:
   - beets
   - demo
   - dnsomatic
+  - filebot
   - games-pvc.yaml
   - image-update-automation.yaml
   - media-pvc.yaml
