@@ -17,6 +17,9 @@ spec:
         - name: filebot
           image: rednoah/filebot:node@sha256:505872599555762d49feb9bf1c0b65022de9dc5806b6be028129d9040aeba042
               # "node" tag, latest as of last checking
+          env:
+            - name: PUID
+              value: 0
           ports:
             - containerPort: 5452
           volumeMounts:
