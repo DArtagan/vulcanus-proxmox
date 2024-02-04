@@ -8,7 +8,7 @@ spec:
   tls:
     - hosts:
         - filebot.immortalkeep.com
-      secretName: automatic-ripping-machine-ingress-tls
+      secretName: filebot-ingress-tls
   rules:
   - host: filebot.immortalkeep.com
     http:
