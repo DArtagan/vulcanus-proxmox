@@ -19,7 +19,7 @@ spec:
               # "node" tag, latest as of last checking
           env:
             - name: PUID
-              value: 0
+              value: "0"
           ports:
             - containerPort: 5452
           volumeMounts:
