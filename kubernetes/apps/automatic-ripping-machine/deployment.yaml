@@ -36,6 +36,11 @@ spec:
           resources:
             limits:
               squat.ai/cdrom: 2
+              cpu: 6000m
+              memory: 12Gi
+            requests:
+              cpu: 500m
+              memory: 1.5Gi
           volumeMounts:
             - mountPath: /etc/arm/config
               name: config-data
