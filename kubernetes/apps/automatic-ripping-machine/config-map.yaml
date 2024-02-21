@@ -734,7 +734,7 @@ data:
     #  ACTIONS=default,playlist
     # The default action list (referenced as "default") is defined in the following
     # comment:
-    ACTIONS=musicbrainz,read,encode,tag,move,clean,playlist,getalbumart,embedalbumart
+    ACTIONS=musicbrainz,read,encode,tag,move,replaygain,clean,playlist,getalbumart,embedalbumart
 
     # CD device you want to read from
     # It can be defined as a singletrack flac file, but since it might change from
@@ -757,7 +757,7 @@ data:
     # (e.g. "ogg") or a combination of them separated with ","
     # (e.g. "flac,mp3"). Currently recognised and supported are:
     # "flac", "m4a", "mp3, "mpc", "ogg", "opus", "mka", "spx", "vorbis", "wav", "wv", "ape", "aiff"
-    #OUTPUTTYPE=ogg
+    OUTPUTTYPE=flac
 
     # Output filename format - change this to reflect your inner desire to
     # organize things differently than everyone else :)
@@ -955,7 +955,7 @@ data:
 
     # If you'd like to have abcde eject the cdrom after all the tracks have been
     # read, uncomment the following line.
-    #EJECTCD=y
+    EJECTCD=y
 
     # To encode on the remote machines foo, bar, baz, quux, and qiix, as well as
     # on the local machine (requires distmp3 to be installed on local machine and
