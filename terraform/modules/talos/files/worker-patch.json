@@ -4,7 +4,7 @@
         "path": "/machine/install/extensions",
         "value": [
             {
-                "image": "ghcr.io/siderolabs/iscsi-tools:v0.1.1"
+                "image": "ghcr.io/siderolabs/iscsi-tools:v0.1.4"
             }
         ]
     },

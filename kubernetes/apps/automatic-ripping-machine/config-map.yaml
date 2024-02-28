@@ -226,11 +226,11 @@ data:
 
     # Handbrake preset profile for DVDs
     # Execute "HandBrakeCLI -z" to see a list of all presets
-    HB_PRESET_DVD: "Super HQ 720p30 Surround"
+    HB_PRESET_DVD: "vulcanus-handbrake-preset"
 
     # Handbrake preset profile for Blurays
     # Execute "HandBrakeCLI -z" to see a list of all presets
-    HB_PRESET_BD: "Super HQ 1080p30 Surround"
+    HB_PRESET_BD: "vulcanus-handbrake-preset"
 
     # Extension of the final video file
     DEST_EXT: mkv
@@ -249,10 +249,10 @@ data:
     MAINFEATURE: false
 
     # Additional HandBrake arguments for DVDs.
-    HB_ARGS_DVD: "--subtitle scan -F"
+    HB_ARGS_DVD: "--preset-import-file=/etc/arm/config/vulcanus-handbrake-preset.json"
 
     # Additional Handbrake arguments for Bluray Discs.
-    HB_ARGS_BD: "--subtitle scan -F --subtitle-burned --audio-lang-list eng --all-audio"
+    HB_ARGS_BD: "--preset-import-file=/etc/arm/config/vulcanus-handbrake-preset.json"
 
 
     #####################
@@ -734,7 +734,7 @@ data:
     #  ACTIONS=default,playlist
     # The default action list (referenced as "default") is defined in the following
     # comment:
-    ACTIONS=musicbrainz,read,encode,tag,move,replaygain,clean,playlist,getalbumart,embedalbumart
+    ACTIONS=musicbrainz,read,encode,tag,move,replaygain,clean,getalbumart,embedalbumart
 
     # CD device you want to read from
     # It can be defined as a singletrack flac file, but since it might change from
@@ -1184,4 +1184,146 @@ data:
     ## DESKTOP NOTI
 
     ## EMAIL NOTI
-
+  vulcanus-handbrake-preset.json
+    {
+        "PresetList": [
+            {
+                "AlignAVStart": false,
+                "AudioCopyMask": [
+                    "copy:truehd"
+                ],
+                "AudioEncoderFallback": "opus",
+                "AudioLanguageList": [
+                    "any"
+                ],
+                "AudioList": [
+                    {
+                        "AudioBitrate": 192,
+                        "AudioCompressionLevel": -1.0,
+                        "AudioDitherMethod": "auto",
+                        "AudioEncoder": "opus",
+                        "AudioMixdown": "stereo",
+                        "AudioNormalizeMixLevel": false,
+                        "AudioSamplerate": "auto",
+                        "AudioTrackDRCSlider": 0.0,
+                        "AudioTrackGainSlider": -3.0,
+                        "AudioTrackQuality": 1.0,
+                        "AudioTrackQualityEnable": false
+                    },
+                    {
+                        "AudioBitrate": 320,
+                        "AudioCompressionLevel": -1.0,
+                        "AudioDitherMethod": "auto",
+                        "AudioEncoder": "opus",
+                        "AudioMixdown": "5point1",
+                        "AudioNormalizeMixLevel": false,
+                        "AudioSamplerate": "auto",
+                        "AudioTrackDRCSlider": 0.0,
+                        "AudioTrackGainSlider": 0.0,
+                        "AudioTrackQuality": 3.0,
+                        "AudioTrackQualityEnable": false
+                    }
+                ],
+                "AudioSecondaryEncoderMode": true,
+                "AudioTrackSelectionBehavior": "all",
+                "ChapterMarkers": true,
+                "ChildrenArray": [],
+                "Default": true,
+                "FileFormat": "av_mkv",
+                "Folder": false,
+                "FolderOpen": false,
+                "InlineParameterSets": false,
+                "MetadataPassthrough": true,
+                "Mp4iPodCompatible": false,
+                "Optimize": false,
+                "PictureAllowUpscaling": false,
+                "PictureAutoCrop": true,
+                "PictureBottomCrop": 22,
+                "PictureChromaSmoothCustom": "",
+                "PictureChromaSmoothPreset": "off",
+                "PictureChromaSmoothTune": "none",
+                "PictureColorspaceCustom": "",
+                "PictureColorspacePreset": "off",
+                "PictureCombDetectCustom": "",
+                "PictureCombDetectPreset": "default",
+                "PictureCropMode": 0,
+                "PictureDARWidth": 1920,
+                "PictureDeblockCustom": "strength=strong:thresh=20:blocksize=8",
+                "PictureDeblockPreset": "off",
+                "PictureDeblockTune": "medium",
+                "PictureDeinterlaceCustom": "",
+                "PictureDeinterlaceFilter": "decomb",
+                "PictureDeinterlacePreset": "default",
+                "PictureDenoiseCustom": "",
+                "PictureDenoiseFilter": "off",
+                "PictureDenoisePreset": "",
+                "PictureDenoiseTune": "none",
+                "PictureDetelecine": "off",
+                "PictureDetelecineCustom": "",
+                "PictureForceHeight": 0,
+                "PictureForceWidth": 0,
+                "PictureHeight": 4320,
+                "PictureItuPAR": false,
+                "PictureKeepRatio": true,
+                "PictureLeftCrop": 0,
+                "PictureModulus": 2,
+                "PicturePAR": "auto",
+                "PicturePARHeight": 1,
+                "PicturePARWidth": 1,
+                "PicturePadBottom": 0,
+                "PicturePadColor": "black",
+                "PicturePadLeft": 0,
+                "PicturePadMode": "none",
+                "PicturePadRight": 0,
+                "PicturePadTop": 0,
+                "PictureRightCrop": 0,
+                "PictureRotate": "angle=0:hflip=0",
+                "PictureSharpenCustom": "",
+                "PictureSharpenFilter": "off",
+                "PictureSharpenPreset": "",
+                "PictureSharpenTune": "",
+                "PictureTopCrop": 22,
+                "PictureUseMaximumSize": true,
+                "PictureWidth": 7680,
+                "PresetDescription": "H.264 video, same resolution and fps as source, Opus stereo and 5.1 audio (first track only, else just stereo), mkv container, all subtitles",
+                "PresetDisabled": false,
+                "PresetName": "vulcanus-handbrake-preset",
+                "SubtitleAddCC": false,
+                "SubtitleAddForeignAudioSearch": true,
+                "SubtitleAddForeignAudioSubtitle": false,
+                "SubtitleBurnBDSub": false,
+                "SubtitleBurnBehavior": "none",
+                "SubtitleBurnDVDSub": false,
+                "SubtitleLanguageList": [
+                    "eng",
+                    "any"
+                ],
+                "SubtitleTrackSelectionBehavior": "all",
+                "Type": 1,
+                "UsesPictureFilters": true,
+                "VideoAvgBitrate": 15000,
+                "VideoColorMatrixCodeOverride": 0,
+                "VideoEncoder": "x264_10bit",
+                "VideoFramerate": "auto",
+                "VideoFramerateMode": "vfr",
+                "VideoGrayScale": false,
+                "VideoHWDecode": 0,
+                "VideoLevel": "auto",
+                "VideoMultiPass": true,
+                "VideoOptionExtra": "",
+                "VideoPreset": "medium",
+                "VideoProfile": "auto",
+                "VideoQSVDecode": false,
+                "VideoQualitySlider": 20.0,
+                "VideoQualityType": 2,
+                "VideoScaler": "swscale",
+                "VideoTune": "",
+                "VideoTurboMultiPass": false,
+                "x264Option": "",
+                "x264UseAdvancedOptions": false
+            }
+        ],
+        "VersionMajor": 53,
+        "VersionMicro": 0,
+        "VersionMinor": 0
+    }
