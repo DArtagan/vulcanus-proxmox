@@ -154,7 +154,7 @@ data:
 
     # How long to let log files live before deleting (in days)
     # Set to 0 to disable
-    LOGLIFE: 30
+    LOGLIFE: 90
 
     # Path to ARM database file
     DBFILE: "/root/db/arm.db"
