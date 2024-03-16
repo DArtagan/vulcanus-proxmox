@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: media-toolkit-webtop
+  labels:
+    app: media-toolkit-webtop
+spec:
+  selector:
+    matchLabels:
+      app: media-toolkit-webtop
+  template:
+    metadata:
+      labels:
+        app: media-toolkit-webtop
+    spec:
+      containers:
+        - name: media-toolkit-webtop
+          image: dartagan/media-toolkit-webtop
+          ports:
+            - containerPort: 3000
+          resources:
+            limits:
+              cpu: 6000m
+              memory: 12Gi
+            requests:
+              cpu: 250m
+              memory: 0.25Gi
+          volumeMounts:
+            - mountPath: /video
+              name: video
+            - mountPath: /audio
+              name: audio
+      volumes:
+        - name: audio
+          persistentVolumeClaim:
+            claimName: audio-rw-pvc
+        - name: video
+          persistentVolumeClaim:
+            claimName: video-pvc

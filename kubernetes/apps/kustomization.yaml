@@ -14,6 +14,7 @@ resources:
   - filebot
   - games-pvc.yaml
   - image-update-automation.yaml
+  - media-toolkit-webtop
   - media-pvc.yaml
   - mumble
   - namespace.yaml

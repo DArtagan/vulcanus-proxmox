@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: media-toolkit-webtop
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  tls:
+    - hosts:
+        - media-toolkit.immortalkeep.com
+      secretName: media-toolkit-webtop-ingress-tls
+  rules:
+  - host: media-toolkit.immortalkeep.com
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: media-toolkit-webtop
+            port:
+              number: 3000
