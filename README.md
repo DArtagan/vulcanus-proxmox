@@ -122,6 +122,11 @@ me_based --end_fsync=1
 In the arguments for the talos-worker VM is a virtual SCSI that expects a cdrom drive to be connected to the host.  No cdrom drive, no launch.
 
 
+### Plex is failing to start
+
+`kubectl exec` into the Plex container and see if the file `/config/Library/Application\ Support/Plex\ Media\ Server/Preferences.xml` is empty.  If so, delete it and then recreate the pod.  Then launching Plex in a browser might not work, because it hasn't been locally claimed.  To claim it locally do a `kubectl port-forward -n apps plex-blahblah-blah 32400:32400` (with the proper pod name) to forward its local port to your machine, and then visit `http://localhost:32400/web/index.html` in your browser (yes the full URL is important).
+
+
 ## References
 * https://www.nathancurry.com/blog/14-ansible-deployment-with-proxmox/
 * Replacing a ZFS Proxmox boot disk: http://r00t.dk/post/2022/05/02/proxmox-ve-7-replace-zfs-boot-disk/
