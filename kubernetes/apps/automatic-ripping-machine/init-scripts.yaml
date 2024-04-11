@@ -17,6 +17,7 @@ data:
     ### Setup Files
 
     touch /root/logs/arm.log
+    mkdir -m 777 /home/arm/logs
     ln -s /root/logs/arm.log /home/arm/logs/arm.log
 
     # setup needed/expected dirs if not found
