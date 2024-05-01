@@ -20,7 +20,7 @@ spec:
   values:
     fullnameOverride: traefik-internal
     #additionalArguments:
-    #  - "--providers.docker.endpoint=tcp://192.168.0.112:2375"
+    #  - "--providers.docker.endpoint=tcp://192.168.1.112:2375"
     #  - "--providers.docker.exposedByDefault=false"
     #deployment:
     #  initContainers:
@@ -89,7 +89,7 @@ spec:
         protocol: TCP
     service:
       spec:
-        loadBalancerIP: "192.168.0.203"
+        loadBalancerIP: "192.168.1.203"
 
 
 ---
@@ -102,7 +102,7 @@ spec:
     - websecure
   routes:
     # TODO: do better than this hard-coded host.  Docs recommend something like traefik.localhost.  That might require a network DNS server or somesuch
-    - match: Host(`192.168.0.203`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))
+    - match: Host(`192.168.1.203`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))
       kind: Rule
       services:
         - name: api@internal

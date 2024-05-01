@@ -103,7 +103,7 @@ resource "proxmox_lxc" "fileserver" {
   unprivileged = false
   memory = 512
   swap = 0
-  nameserver = "192.168.0.104"
+  nameserver = "192.168.1.104"
   onboot = true
   start = true
 
@@ -153,8 +153,8 @@ resource "proxmox_lxc" "fileserver" {
   network {
     name = "eth0"
     bridge = "vmbr0"
-    gw = "192.168.0.1"
-    ip = "192.168.0.105/24"
+    gw = "192.168.1.1"
+    ip = "192.168.1.105/24"
   }
 }
 
@@ -185,9 +185,9 @@ module "talos" {
   worker_boot_disk_size = "100G"
   openebs_disk_size = "512G"
   cluster_name = "piraeus"
-  cluster_endpoint = "https://192.168.0.200:6443"
-  control_plane_ip_start = "192.168.0.190"
-  worker_ip_start = "192.168.0.195"
+  cluster_endpoint = "https://192.168.1.200:6443"
+  control_plane_ip_start = "192.168.1.190"
+  worker_ip_start = "192.168.1.195"
 
   # ISO first used to create the cluster. From here on out, use `talosctl upgrade`.
   iso_image_location = "local:iso/talos-1.2.6-amd64.iso"

@@ -27,7 +27,7 @@ spec:
       service:
         enabled: true
     service:
-      loadBalancerIP: "192.168.0.202"
+      loadBalancerIP: "192.168.1.202"
     serviceType: LoadBalancer
     servers:
       - zones:
@@ -83,8 +83,8 @@ spec:
                                                2h                ; Retry
                                                4w                ; Expire
                                                1h)               ; Minimum TTL
-          @                    IN  A       192.168.0.203         ; Local IPv4 address for immortalkeep.com.
+          @                    IN  A       192.168.1.203         ; Local IPv4 address for immortalkeep.com.
           @                    IN  NS      ns.immortalkeep.com.  ; Name server for immortalkeep.com.
           ns                   IN  CNAME   @                     ; Alias for ns.immortalkeep.com
-          fileserver           IN  A       192.168.0.105
-          *.immortalkeep.com.  IN  A       192.168.0.203
+          fileserver           IN  A       192.168.1.105
+          *.immortalkeep.com.  IN  A       192.168.1.203

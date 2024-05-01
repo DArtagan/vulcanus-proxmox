@@ -1,5 +1,5 @@
 # After provisioning the box, complete the install manually via the booted GUI
-# Then complete configuration at the web GUI at https://192.168.0.107:8007/
+# Then complete configuration at the web GUI at https://192.168.1.107:8007/
 
 terraform {
   required_providers {
@@ -31,7 +31,7 @@ resource "proxmox_vm_qemu" "proxmox-backup-server" {
   sockets = 1
   onboot = true
   # TODO: maybe this can be set if switching to cloudinit provisioning, using router DHCP for now
-  #ipconfig0 = "gw=192.168.0.1, ip=192.168.0.107/24"
+  #ipconfig0 = "gw=192.168.1.1, ip=192.168.1.107/24"
   network {
     model = "virtio"
     bridge = var.config_network_bridge

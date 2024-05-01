@@ -15,8 +15,8 @@ defaults:
     ct: 1024
     vm: 2048
   mounts: '{}'
-  nameserver: '192.168.0.104'
-  netif: '{"net0":"name=eth0,gw=192.168.0.1,bridge=vmbr0"}'
+  nameserver: '192.168.1.104'
+  netif: '{"net0":"name=eth0,gw=192.168.1.1,bridge=vmbr0"}'
   onboot: true
   ostype: 'l26'
   pubkey: "{{ lookup('env', 'PUBLIC_KEY') }}"
@@ -38,4 +38,4 @@ cts:
     memory: 512
     swap: 0
     cores: 1
-    netif: '{"net0":"name=eth0,ip=192.168.0.103/24,gw=192.168.0.1,bridge=vmbr0"}'
+    netif: '{"net0":"name=eth0,ip=192.168.1.103/24,gw=192.168.1.1,bridge=vmbr0"}'

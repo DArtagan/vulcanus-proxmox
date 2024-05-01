@@ -13,7 +13,7 @@ spec:
     readOnly: false
     volumeHandle: video-pv
     volumeAttributes:
-      source: "//192.168.0.105/media/video"
+      source: "//192.168.1.105/media/video"
     nodeStageSecretRef:
       name: smb-credentials
       namespace: infrastructure
