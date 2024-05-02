@@ -27,7 +27,7 @@ resource "proxmox_vm_qemu" "control_plane_node" {
   args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2"
   onboot = true
   # TODO: maybe this can be set if switching to cloudinit provisioning, using router DHCP for now
-  #ipconfig0 = "[gw=192.168.1.1, ip=192.168.1.${ sum([190, count.index]) }/24]"
+  #ipconfig0 = "[gw=192.168.0.1, ip=192.168.0.${ sum([190, count.index]) }/24]"
   network {
     model = "virtio"
     bridge = var.config_network_bridge

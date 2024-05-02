@@ -10,7 +10,7 @@ data:
 
     # ARM_CHILDREN
     # Comma delimited list of child ARM servers to display on the Home Page
-    # Should be full protocol, path, and port: http://192.168.1.100:8080
+    # Should be full protocol, path, and port: http://192.168.0.100:8080
     ARM_CHILDREN: ""
 
     # Workaround for Track 99
