@@ -14,12 +14,6 @@ spec:
         app: mumble
     spec:
       initContainers:
-        - name: volume-permissions
-          image: busybox:latest
-          command: ["sh", "-c", "chown -R mumble:mumble /data"]
-          volumeMounts:
-            - name: data
-              mountPath: /data
       containers:
         - name: mumble
           image: mumblevoip/mumble-server:v1.5.634 # {"$imagepolicy": "apps:mumble"}
