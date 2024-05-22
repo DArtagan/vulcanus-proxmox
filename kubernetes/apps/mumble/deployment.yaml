@@ -13,7 +13,6 @@ spec:
       labels:
         app: mumble
     spec:
-      initContainers:
       containers:
         - name: mumble
           image: mumblevoip/mumble-server:v1.5.634 # {"$imagepolicy": "apps:mumble"}
