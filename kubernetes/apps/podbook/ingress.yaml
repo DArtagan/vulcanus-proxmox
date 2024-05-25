@@ -1,7 +1,7 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: podbook
+  name: podbook-rebound
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
     traefik.ingress.kubernetes.io/router.middlewares: infrastructure-basic-auth@kubernetescrd
@@ -11,15 +11,15 @@ spec:
   tls:
     - hosts:
         - podbook.immortalkeep.com
-      secretName: podbook-ingress-tls
+      secretName: podbook-rebound-ingress-tls
   rules:
-  - host: podbook2.immortalkeep.com
+  - host: podbook.immortalkeep.com
     http:
       paths:
       - pathType: Prefix
         path: /
         backend:
           service:
-            name: podbook
+            name: podbook-rebound
             port:
-              number: 80
+              number: 8000

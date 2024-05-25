@@ -1,48 +1,38 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: podbook
+  name: podbook-rebound
   labels:
-    app: podbook
+    app: podbook-rebound
 spec:
   selector:
     matchLabels:
-      app: podbook
+      app: podbook-rebound
   template:
     metadata:
       labels:
-        app: podbook
+        app: podbook-rebound
     spec:
       containers:
-        - name: podbook
-          image: dartagan/podbook-minimal # {"$imagepolicy": "apps:podbook"}
+        - name: podbook-rebound
+          image: dartagan/podbook-rebound # {"$imagepolicy": "apps:podbook-rebound"}
           env:
-            - name: URL_SCHEME
-              value: https
+            - name: BOOKS_DIRECTORY
+              value: "/books"
+            - name: UUID_NAMESPACE:
+              valueFrom:
+                secretKeyRef:
+                  name: podbook-rebound
+                  key: UUID_NAMESPACE
           ports:
-            - containerPort: 5000
+            - containerPort: 8000
           volumeMounts:
-            - mountPath: /podbook/books
-              name: audio
-              subPath: audiobooks/
-              readOnly: true
-        - name: nginx
-          image: nginx:1.26.0 # {"$imagepolicy": "apps:nginx"}
-          ports:
-            - containerPort: 80
-          volumeMounts:
-            - mountPath: /etc/nginx/default.conf
-              name: config
-              subPath: default.conf
-              readOnly: true
-            - mountPath: /var/www/media
+            - mountPath: /books
               name: audio
               subPath: audiobooks/
               readOnly: true
       volumes:
-        - name: config
-          configMap:
-            name: podbook
         - name: audio
           persistentVolumeClaim:
+            # TODO: shift to a read-only mount
             claimName: audio-rw-pvc

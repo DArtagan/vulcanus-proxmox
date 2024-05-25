@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: podbook
+  name: podbook-rebound
 spec:
   selector:
-    app: podbook
+    app: podbook-rebound
   ports:
     - protocol: TCP
-      port: 80
+      port: 8000
