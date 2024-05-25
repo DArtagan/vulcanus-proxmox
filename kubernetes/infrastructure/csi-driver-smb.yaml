@@ -21,3 +21,9 @@ spec:
         kind: HelmRepository
         name: csi-driver-smb
       interval: 5m
+      install:
+        remediation:
+          retries: 3
+      upgrade:
+        remediation:
+          retries: 3
