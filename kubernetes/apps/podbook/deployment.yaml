@@ -19,14 +19,18 @@ spec:
           env:
             - name: BOOKS_DIRECTORY
               value: "/books"
-            - name: UUID_NAMESPACE
+            - name: BASIC_AUTH_USERNAME
               valueFrom:
                 secretKeyRef:
                   name: podbook-rebound
                   key: BASIC_AUTH_USERNAME
+            - name: BASIC_AUTH_PASSWORD
+              valueFrom:
                 secretKeyRef:
                   name: podbook-rebound
                   key: BASIC_AUTH_PASSWORD
+            - name: UUID_NAMESPACE
+              valueFrom:
                 secretKeyRef:
                   name: podbook-rebound
                   key: UUID_NAMESPACE
