@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: podbook-rebound
-          image: dartagan/podbook-rebound:v0.2.0 # {"$imagepolicy": "apps:podbook-rebound"}
+          image: dartagan/podbook-rebound:v0.2.1 # {"$imagepolicy": "apps:podbook-rebound"}
           env:
             - name: BOOKS_DIRECTORY
               value: "/books"
