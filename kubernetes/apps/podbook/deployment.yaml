@@ -23,6 +23,12 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: podbook-rebound
+                  key: BASIC_AUTH_USERNAME
+                secretKeyRef:
+                  name: podbook-rebound
+                  key: BASIC_AUTH_PASSWORD
+                secretKeyRef:
+                  name: podbook-rebound
                   key: UUID_NAMESPACE
           ports:
             - containerPort: 8000

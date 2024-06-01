@@ -4,7 +4,8 @@ metadata:
   name: podbook-rebound
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
-    traefik.ingress.kubernetes.io/router.middlewares: infrastructure-basic-auth@kubernetescrd
+    # Podbook provides its own basicauth (because it only works for the site and feeds, but can't be used on the media)
+    # traefik.ingress.kubernetes.io/router.middlewares: infrastructure-basic-auth@kubernetescrd
   labels:
     public: "true"
 spec:
