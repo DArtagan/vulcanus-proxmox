@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: homepage
+  labels:
+    app: homepage
+spec:
+  selector:
+    matchLabels:
+      app: homepage
+  template:
+    metadata:
+      labels:
+        app: homepage
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/gethomepage/homepage:v0.9.6 # {"$imagepolicy": "apps:homepage"}
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+            - mountPath: /app/config
+              name: config
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: homepage
