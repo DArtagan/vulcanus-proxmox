@@ -11,13 +11,13 @@ data:
   services.yaml: |
     - Services
       - Plex:
-        href: https://plex.immortalkeep.com/
-        description: Media server
-        icon: plex
-        siteMonitor: https://plex.immortalkeep.com/identity
-        widget:
-          type: plex
-          url: https://plex.immortalkeep.com/
+          href: https://plex.immortalkeep.com/
+          description: Media server
+          icon: plex
+          siteMonitor: https://plex.immortalkeep.com/identity
+          widget:
+            type: plex
+            url: https://plex.immortalkeep.com/
   settings.yaml: |
     title: Vulcanus
     logpath: /app/logs
