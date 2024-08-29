@@ -9,7 +9,7 @@ data:
   docker.yaml:
   kubernetes.yaml:
   services.yaml: |
-    - Services
+    - Services:
       - Plex:
           href: https://plex.immortalkeep.com/
           description: Media server
