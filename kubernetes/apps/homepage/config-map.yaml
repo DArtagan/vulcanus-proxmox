@@ -3,7 +3,13 @@ apiVersion: v1
 metadata:
   name: homepage
 data:
+  bookmarks.yaml:
+  custom.css:
+  custom.js:
+  docker.yaml:
+  kubernetes.yaml:
+  services.yaml:
   settings.yaml: |
     title: Vulcanus
     logpath: /app/logs
-
+  widgets.yaml:
