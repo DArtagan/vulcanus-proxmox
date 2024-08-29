@@ -5,4 +5,5 @@ metadata:
 data:
   settings.yaml: |
     title: Vulcanus
+    logpath: /app/logs
 
