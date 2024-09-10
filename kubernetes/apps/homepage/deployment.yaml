@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: app
-          image: ghcr.io/gethomepage/homepage:v0.9.8 # {"$imagepolicy": "apps:homepage"}
+          image: ghcr.io/gethomepage/homepage:v0.9.9 # {"$imagepolicy": "apps:homepage"}
           ports:
             - containerPort: 3000
           volumeMounts:
