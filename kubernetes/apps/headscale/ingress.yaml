@@ -4,13 +4,15 @@ metadata:
   name: headscale
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
+  labels:
+    public: "true"
 spec:
   tls:
     - hosts:
-        - headscale.immortalkeep.com
+        - tailscale.immortalkeep.com
       secretName: headscale-ingress-tls
   rules:
-  - host: headscale.immortalkeep.com
+  - host: tailscale.immortalkeep.com
     http:
       paths:
       - pathType: Prefix
