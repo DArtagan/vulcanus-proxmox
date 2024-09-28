@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: headscale
+  labels:
+    app: headscale
+spec:
+  selector:
+    matchLabels:
+      app: headscale
+  template:
+    metadata:
+      labels:
+        app: headscale
+    spec:
+      containers:
+        - name: headscale
+          image: headscale/headscale:v0.23.0 # {"$imagepolicy": "apps:headscale"}
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - mountPath: /etc/headscale
+              name: config
+              readOnly: true
+            - mountPath: /var/lib/headscale
+              name: data
+      volumes:
+        - name: config
+          configMap:
+            name: headscale
+        - name: data
+          persistentVolumeClaim:
+            claimName: headscale-data-pvc
