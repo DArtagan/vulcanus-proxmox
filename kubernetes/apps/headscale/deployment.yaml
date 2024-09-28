@@ -16,6 +16,7 @@ spec:
       containers:
         - name: headscale
           image: headscale/headscale:v0.23.0 # {"$imagepolicy": "apps:headscale"}
+          command: serve
           ports:
             - containerPort: 8080
           volumeMounts:
