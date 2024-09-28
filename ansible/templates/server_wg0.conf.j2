@@ -13,3 +13,7 @@ AllowedIPs = 10.0.1.8
 [Peer]
 PublicKey = {{ lookup('env', 'WIREGUARD_THE_GUIDE_PUBLIC_KEY') }}
 AllowedIPs = 10.0.1.9
+
+[Peer]
+PublicKey = {{ lookup('env', 'WIREGUARD_STEAM_DECK_PUBLIC_KEY') }}
+AllowedIPs = 10.0.1.10
