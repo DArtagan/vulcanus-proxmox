@@ -10,7 +10,7 @@ spec:
   tls:
     - hosts:
         - tailscale.immortalkeep.com
-      secretName: headscale-ingress-tls
+      secretName: tailscale-ingress-tls
   rules:
   - host: tailscale.immortalkeep.com
     http:
