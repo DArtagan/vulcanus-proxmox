@@ -9,10 +9,10 @@ metadata:
 spec:
   tls:
     - hosts:
-        - tailscale.immortalkeep.com
-      secretName: tailscale-ingress-tls
+        - headscale.immortalkeep.com
+      secretName: headscale-ingress-tls
   rules:
-  - host: tailscale.immortalkeep.com
+  - host: headscale.immortalkeep.com
     http:
       paths:
       - pathType: Prefix
