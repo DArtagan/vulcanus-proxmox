@@ -132,31 +132,11 @@ data:
         # Threshold for slow queries in milliseconds.
         slow_threshold: 1000
 
-      # SQLite config
       sqlite:
         path: /var/lib/headscale/db.sqlite
-
         # Enable WAL mode for SQLite. This is recommended for production environments.
         # https://www.sqlite.org/wal.html
         write_ahead_log: true
-
-      # # Postgres config
-      # Please note that using Postgres is highly discouraged as it is only supported for legacy reasons.
-      # See database.type for more information.
-      # postgres:
-      #   # If using a Unix socket to connect to Postgres, set the socket path in the 'host' field and leave 'port' blank.
-      #   host: localhost
-      #   port: 5432
-      #   name: headscale
-      #   user: foo
-      #   pass: bar
-      #   max_open_conns: 10
-      #   max_idle_conns: 10
-      #   conn_max_idle_time_secs: 3600
-
-      #   # If other 'sslmode' is required instead of 'require(true)' and 'disabled(false)', set the 'sslmode' you need
-      #   # in the 'ssl' field. Refers to https://www.postgresql.org/docs/current/libpq-ssl.html Table 34.1.
-      #   ssl: false
 
     ### TLS configuration
     #
@@ -244,6 +224,7 @@ data:
       # List of DNS servers to expose to clients.
       nameservers:
         global:
+          - 192.168.0.202
           - 1.1.1.1
           - 1.0.0.1
           - 2606:4700:4700::1111
