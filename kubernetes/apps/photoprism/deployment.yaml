@@ -25,7 +25,7 @@ spec:
             - name: PHOTOPRISM_SITE_URL
               value: https://photoprism.immortalkeep.com/
             - name: PHOTOPRISM_AUTO_IMPORT
-              value: 60
+              value: "60"
             - name: PHOTOPRISM_DATABASE_DRIVER
               value: mysql
             - name: PHOTOPRISM_DATABASE_SERVER
