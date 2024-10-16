@@ -11,16 +11,16 @@ spec:
     spec:
       template:
         spec:
-        initContainers:
-          - name: config-data
-            image: busybox:latest
-            command: ["cp", "/config/rclone.conf", "/data/rclone.conf"]
-            volumeMounts:
-              - name: config
-                mountPath: /config
-                readOnly: true
-              - mountPath: /data
-                name: config-data
+          initContainers:
+            - name: config-data
+              image: busybox:latest
+              command: ["cp", "/config/rclone.conf", "/data/rclone.conf"]
+              volumeMounts:
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+                - mountPath: /data
+                  name: config-data
           containers:
             - name: rclone
               image: rclone/rclone:1.68.1 # {"$imagepolicy": "apps:rclone"}
