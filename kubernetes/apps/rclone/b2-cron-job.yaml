@@ -18,7 +18,6 @@ spec:
                 - "copy"
                 - "/backups/"
                 - "$(B2_PATH)"
-                - "--progress"
                 - "--fast-list"
                 - "--bwlimit"
                 - "207k"
