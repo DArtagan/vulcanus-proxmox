@@ -1,0 +1,64 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: rclone-dropbox
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 1
+  successfulJobsHistoryLimit: 3
+  schedule: "0/15 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+        initContainers:
+          - name: config-data
+            image: busybox:latest
+            command: ["cp", "/config/rclone.conf", "/data/rclone.conf"]
+            volumeMounts:
+              - name: config
+                mountPath: /config
+                readOnly: true
+              - mountPath: /data
+                name: config-data
+          containers:
+            - name: rclone
+              image: rclone/rclone:1.68.1 # {"$imagepolicy": "apps:rclone"}
+              args:
+                - "bisync"
+                - "/dropbox/"
+                - "$(DROPBOX_PATH)"
+                - "-Mv"
+                - "--create-empty-src-dirs"
+                - "--progress"
+                - "--fix-case"
+                - "--compare size,modtime,checksum"
+                - "--slow-hash-sync-only"
+                - "--resync"
+                - "--resilient"
+                - "--dry-run"
+              env:
+                - name: DROPBOX_PATH
+                  valueFrom:
+                    secretKeyRef:
+                      name: rclone-config
+                      key: dropbox-path
+              volumeMounts:
+                - name: config-data
+                  mountPath: /config/rclone/
+                - name: syncthing
+                  mountPath: /dropbox
+                  subPath: dropbox/
+          restartPolicy: OnFailure
+          volumes:
+            - name: config
+              secret:
+                secretName: rclone-config
+                items:
+                  - key: conf
+                    path: rclone.conf
+            - name: config-data
+              emptyDir: {}
+            - name: syncthing
+              persistentVolumeClaim:
+                claimName: syncthing-pvc

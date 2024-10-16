@@ -1,6 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - cron-job.yaml
+  - b2-cron-job.yaml
+  - dropbox-cron-job.yaml
   - image.yaml
   - rclone-conf-secret.yaml
