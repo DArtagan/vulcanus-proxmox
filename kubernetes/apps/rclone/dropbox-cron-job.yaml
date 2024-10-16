@@ -6,7 +6,7 @@ spec:
   concurrencyPolicy: Forbid
   failedJobsHistoryLimit: 1
   successfulJobsHistoryLimit: 3
-  schedule: "0/15 * * * *"
+  schedule: "0 0 * * *"
   jobTemplate:
     spec:
       template:
@@ -34,9 +34,9 @@ spec:
                 - "--fix-case"
                 - "--compare=size,modtime,checksum"
                 - "--slow-hash-sync-only"
-                - "--resync"
                 - "--resilient"
-                - "--dry-run"
+                - "--resync"  # For the first real run, run it with "resync".  After that remove this flag.
+                #- "--dry-run"  # Initially run it with dry-run to check that things work.
               env:
                 - name: DROPBOX_PATH
                   valueFrom:
