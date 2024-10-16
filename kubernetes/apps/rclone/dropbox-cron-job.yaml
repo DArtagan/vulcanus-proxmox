@@ -32,7 +32,7 @@ spec:
                 - "--create-empty-src-dirs"
                 - "--progress"
                 - "--fix-case"
-                - "--compare size,modtime,checksum"
+                - "--compare=size,modtime,checksum"
                 - "--slow-hash-sync-only"
                 - "--resync"
                 - "--resilient"
