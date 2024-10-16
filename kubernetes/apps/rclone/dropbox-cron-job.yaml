@@ -7,9 +7,9 @@ spec:
   failedJobsHistoryLimit: 1
   successfulJobsHistoryLimit: 3
   schedule: "0/15 * * * *"
+  suspend: true
   jobTemplate:
     spec:
-      suspend: true
       template:
         spec:
           initContainers:
