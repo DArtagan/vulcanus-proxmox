@@ -6,9 +6,10 @@ spec:
   concurrencyPolicy: Forbid
   failedJobsHistoryLimit: 1
   successfulJobsHistoryLimit: 3
-  schedule: "0 0 * * *"
+  schedule: "0/15 * * * *"
   jobTemplate:
     spec:
+      suspend: true
       template:
         spec:
           initContainers:
