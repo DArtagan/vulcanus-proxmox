@@ -14,8 +14,12 @@ spec:
         spec:
           initContainers:
             - name: config-data
+              # Bootstrap the dropbox config/token the very first time, using a secret.
+              #
+              # On a local machine, log into dropbox using `rclone config`
+              # and then copy those config values to `rclone-conf-secret.yaml`.
               image: busybox:latest
-              command: ["cp", "/config/rclone.conf", "/data/rclone.conf"]
+              command: ["cp", "--no-clobber", "/config/rclone.conf", "/data/rclone.conf"]
               volumeMounts:
                 - name: config
                   mountPath: /config
@@ -59,7 +63,9 @@ spec:
                   - key: conf
                     path: rclone.conf
             - name: config-data
-              emptyDir: {}
+              # Dropbox needs the rclone config file to be writeable, so that it can refresh the access token
+              persistentVolumeClaim:
+                claimName: rclone-dropbox-config-pvc
             - name: syncthing
               persistentVolumeClaim:
                 claimName: syncthing-pvc

@@ -3,5 +3,6 @@ kind: Kustomization
 resources:
   - b2-cron-job.yaml
   - dropbox-cron-job.yaml
+  - dropbox-config-pvc.yaml
   - image.yaml
   - rclone-conf-secret.yaml
