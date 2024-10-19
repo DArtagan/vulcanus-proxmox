@@ -6,8 +6,8 @@ spec:
   concurrencyPolicy: Forbid
   failedJobsHistoryLimit: 1
   successfulJobsHistoryLimit: 3
-  schedule: "0/15 * * * *"
-  suspend: true
+  schedule: "0/30 * * * *"
+  suspend: false
   jobTemplate:
     spec:
       template:
@@ -18,6 +18,9 @@ spec:
               #
               # On a local machine, log into dropbox using `rclone config`
               # and then copy those config values to `rclone-conf-secret.yaml`.
+              #
+              # This does mean that if changes are made to the rclone.conf config,
+              # you'll need to drop the `rclone-dropbox-config` PV in Kubernetes.
               image: busybox:latest
               command: ["cp", "--no-clobber", "/config/rclone.conf", "/data/rclone.conf"]
               volumeMounts:
@@ -40,7 +43,7 @@ spec:
                 - "--compare=size,modtime,checksum"
                 - "--slow-hash-sync-only"
                 - "--resilient"
-                - "--resync"  # For the first real run, run it with "resync".  After that remove this flag.
+                #- "--resync"  # For the first real run, run it with "resync".  After that remove this flag.
                 #- "--dry-run"  # Initially run it with dry-run to check that things work.
               env:
                 - name: DROPBOX_PATH
