@@ -43,7 +43,7 @@ spec:
                 - "--compare=size,modtime,checksum"
                 - "--slow-hash-sync-only"
                 - "--resilient"
-                #- "--resync"  # For the first real run, run it with "resync". Creates a superset of both sides files, and a `.cache` directory. After that remove this flag.
+                - "--resync"  # For the first real run, run it with "resync". Creates a superset of both sides files, and a `.cache` directory. After that remove this flag.
                 #- "--dry-run"  # Initially run it with dry-run to check that things work.
               env:
                 - name: DROPBOX_PATH
@@ -52,6 +52,8 @@ spec:
                       name: rclone-config
                       key: dropbox-path
               volumeMounts:
+                - name: bisync-cache
+                  mountPath: /root/.cache/rclone/
                 - name: config-data
                   mountPath: /config/rclone/
                 - name: syncthing
@@ -65,6 +67,10 @@ spec:
                 items:
                   - key: conf
                     path: rclone.conf
+            - name: bisync-cache
+              # Rclone needs to keep track of the files on each side, using this persistent cache.
+              persistentVolumeClaim:
+                claimName: rclone-dropbox-bisync-cache-pvc
             - name: config-data
               # Dropbox needs the rclone config file to be writeable, so that it can refresh the access token
               persistentVolumeClaim:
