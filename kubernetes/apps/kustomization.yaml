@@ -28,7 +28,7 @@ resources:
   - rclone
   - rancher-key.yaml
   - salamander.yaml
-  - sftpgo
+  #- sftpgo  # Effectively replaced with rclone dropbox bisync
   - syncthing
   - syncthing-pvc.yaml
   #- tinyproxy
