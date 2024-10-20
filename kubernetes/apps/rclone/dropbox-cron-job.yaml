@@ -43,7 +43,7 @@ spec:
                 - "--compare=size,modtime,checksum"
                 - "--slow-hash-sync-only"
                 - "--resilient"
-                #- "--resync"  # For the first real run, run it with "resync".  After that remove this flag.
+                - "--resync"  # For the first real run, run it with "resync". Creates a superset of both sides files, and a `.cache` directory. After that remove this flag.
                 #- "--dry-run"  # Initially run it with dry-run to check that things work.
               env:
                 - name: DROPBOX_PATH
