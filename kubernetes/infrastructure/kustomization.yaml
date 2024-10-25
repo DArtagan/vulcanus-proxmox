@@ -4,7 +4,7 @@ namespace: infrastructure
 resources:
   - audio-pv.yaml
   - audio-rw-pv.yaml
-  - authentik.yaml
+  #- authentik.yaml
   - basic-auth.yaml
   - borg-backups-pv.yaml
   - cert-manager.yaml
