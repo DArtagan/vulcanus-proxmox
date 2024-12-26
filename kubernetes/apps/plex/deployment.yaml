@@ -28,6 +28,10 @@ spec:
               name: video
               subPath: movies
               readOnly: true
+            - mountPath: /data/audiobooks
+              name: audio
+              subPath: audiobooks
+              readOnly: true
             - mountPath: /data/music
               name: audio
               subPath: music
