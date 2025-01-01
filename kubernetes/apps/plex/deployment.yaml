@@ -24,7 +24,7 @@ spec:
           volumeMounts:
             - mountPath: /config
               name: config-directory
-            - mountPath: /config/Library/Application\ Support/Plex\ Media\ Server/Preferences.xml
+            - mountPath: "/config/Library/Application Support/Plex Media Server/Preferences.xml"
               name: config-map
               subPath: Preferences.xml
               readOnly: true
