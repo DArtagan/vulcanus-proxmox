@@ -23,7 +23,11 @@ spec:
             - containerPort: 32400
           volumeMounts:
             - mountPath: /config
-              name: config
+              name: config-directory
+            - mountPath: /config/Library/Application\ Support/Plex\ Media\ Server/Preferences.xml
+              name: config-map
+              subPath: Preferences.xml
+              readOnly: true
             - mountPath: /data/movies
               name: video
               subPath: movies
@@ -37,9 +41,15 @@ spec:
               subPath: shows
               readOnly: true
       volumes:
-        - name: config
+        - name: config-directory
           persistentVolumeClaim:
             claimName: plex-config-pvc
+        - name: config-map
+          secret:
+            secretName: plex-preferences
+            items:
+              - key: Preferences.xml
+                path: Preferences.xml
         - name: audio
           persistentVolumeClaim:
             claimName: audio-rw-pvc
