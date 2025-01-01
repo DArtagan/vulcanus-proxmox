@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: plex
-          image: plexinc/pms-docker:1.41.1.9057-af5eaea7a # {"$imagepolicy": "apps:plex"}
+          image: plexinc/pms-docker:1.41.3.9314-a0bfb8370 # {"$imagepolicy": "apps:plex"}
           env:
             - name: ADVERTISE_IP
               value: https://plex.immortalkeep.com/
@@ -31,6 +31,10 @@ spec:
             - mountPath: /data/movies
               name: video
               subPath: movies
+              readOnly: true
+            - mountPath: /data/audiobooks
+              name: audio
+              subPath: audiobooks
               readOnly: true
             - mountPath: /data/music
               name: audio

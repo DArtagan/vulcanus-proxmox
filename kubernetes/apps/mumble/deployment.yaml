@@ -22,7 +22,7 @@ spec:
               mountPath: /data
       containers:
         - name: mumble
-          image: mumblevoip/mumble-server:v1.5.634 # {"$imagepolicy": "apps:mumble"}
+          image: mumblevoip/mumble-server:v1.5.735 # {"$imagepolicy": "apps:mumble"}
           envFrom:
             - configMapRef:
                 name: mumble-config-map
