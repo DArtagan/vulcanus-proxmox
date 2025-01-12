@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: linkding
+  labels:
+    app: linkding
+spec:
+  selector:
+    matchLabels:
+      app: linkding
+  template:
+    metadata:
+      labels:
+        app: linkding
+    spec:
+      containers:
+        - name: linkding
+          image: sissbrueker/linkding:1.36.0-plus # {"$imagepolicy": "apps:linkding"}
+          ports:
+            - containerPort: 9090
+          volumeMounts:
+            - mountPath: /etc/linkding/data
+              name: data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: linkding-data-pvc
