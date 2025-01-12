@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: linkding
-          image: sissbrueker/linkding:1.36.0-plus # {"$imagepolicy": "apps:linkding"}
+          image: sissbruecker/linkding:1.36.0-plus # {"$imagepolicy": "apps:linkding"}
           ports:
             - containerPort: 9090
           volumeMounts:
