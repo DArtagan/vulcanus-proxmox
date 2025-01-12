@@ -5,4 +5,5 @@ resources:
   - deployment.yaml
   - image.yaml
   - ingress.yaml
+  - secrets.yaml
   - service.yaml

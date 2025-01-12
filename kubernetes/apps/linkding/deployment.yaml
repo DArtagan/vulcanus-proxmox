@@ -16,6 +16,17 @@ spec:
       containers:
         - name: linkding
           image: sissbruecker/linkding:1.36.0-plus # {"$imagepolicy": "apps:linkding"}
+          env:
+            - name: LD_SUPERUSER_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: linkding
+                  key: LD_SUPERUSER_NAME
+            - name: LD_SUPERUSER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: linkding
+                  key: LD_SUPERUSER_PASSWORD
           ports:
             - containerPort: 9090
           volumeMounts:
