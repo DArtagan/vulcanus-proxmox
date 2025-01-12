@@ -16,6 +16,7 @@ resources:
   - headscale
   - homepage
   - image-update-automation.yaml
+  - linkding
   - media-toolkit-webtop
   - media-pvc.yaml
   - mumble
