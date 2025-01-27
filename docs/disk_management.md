@@ -13,7 +13,7 @@ lsblk -o name,size,model,serial,uuid | grep sd
 3. SSH into the server, start a tmux session.
 4. In your tmux session, have three panes (two next to each other on top, one across the bottom)
     a. In the first pane run: `watch -n 1 zpool status`.  This will let you continuously monitor the health of your zfs pool during these operations.  Notice if any hard drives became unseated during removal of the server from the rack.
-    b. In the second pane run: `lsblk -o name,size,model,serial,uuid | grep sd`.  This is your reference sheet for hard drive names, sizes, IDs, etc.
+    b. In the second pane run: `watch "lsblk -o name,size,model,serial,uuid | grep sd"`.  This is your reference sheet for hard drive names, sizes, IDs, etc.
     c. In the third pane...
 5. Begin testing the new hard drive (here `/dev/sdf`) using:
   ```
