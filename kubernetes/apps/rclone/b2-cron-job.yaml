@@ -13,7 +13,7 @@ spec:
         spec:
           containers:
             - name: rclone
-              image: rclone/rclone:1.69.0 # {"$imagepolicy": "apps:rclone"}
+              image: rclone/rclone:1.69.1 # {"$imagepolicy": "apps:rclone"}
               args:
                 - "copy"
                 - "/backups/"
