@@ -24,6 +24,7 @@ data:
       - fromfilename
       - importadded
       - info
+      - inline
       - lastgenre
       - mbsync
       - mbsubmit
