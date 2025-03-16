@@ -1,0 +1,71 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: ingress-nginx
+spec:
+  interval: 24h
+  url: https://kubernetes.github.io/ingress-nginx
+
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: ingress-nginx-internal
+
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: ingress-nginx
+      # Don't upgrade both internal and external charts at the same time, unless you `flux suspend` one first
+      version: 4.11.3
+      sourceRef:
+        kind: HelmRepository
+        name: ingress-nginx
+      interval: 15m
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
+  values:
+    fullnameOverride: ingress-nginx-internal
+    controller:
+      ingressClassResource:
+        name: ingress-nginx-internal
+        default: true
+      ingressClass: ingress-nginx-internal
+      metrics:
+        enabled: true
+        serviceMonitor:
+          namespace: infrastructure
+      podAnnotations:
+        prometheus.io/scrape: true
+        prometheus.io/port: 10254
+      service:
+        loadBalancerIP: "192.168.0.203"
+
+#---
+#apiVersion: v1
+#kind: ConfigMap
+#metadata:
+#  name: tcp-services
+#  namespace: ingress-nginx
+#data:
+#  9000: "default/example-go:8080"
+#
+#---
+#apiVersion: v1
+#kind: ConfigMap
+#metadata:
+#  name: udp-services
+#  namespace: ingress-nginx
+#data:
+#  53: "kube-system/kube-dns:53"
+
+# TODO
+# service ports
+# basic auth rule: https://kubernetes.github.io/ingress-nginx/examples/auth/basic/
+# Dashboard equivalent, maybe using grafana?
+
+
