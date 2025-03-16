@@ -87,6 +87,12 @@ spec:
 
 Follow the guide at [docs/disk_management.md](docs/disk_management.md)
 
+## Networking notes
+
+* 192.168.0.202: IP address for CoreDNS.  Designed to be a DNS server for the whole internal network (including and beyond kubernetes).
+* 192.168.0.203: IP address for the internal kubernetes ingress controller.  CoreDNS (192.168.0.202) will fall through to this for any *.immortalkeep.com domains.
+
+
 ## Troubleshooting
 
 ### talos-worker VM doesn't start, sits on booting HDD screen
