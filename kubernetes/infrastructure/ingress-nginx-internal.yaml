@@ -32,9 +32,9 @@ spec:
     fullnameOverride: ingress-nginx-internal
     controller:
       ingressClassResource:
-        name: ingress-nginx-internal
+        name: ingress-nginx
         default: true
-      ingressClass: ingress-nginx-internal
+      ingressClass: ingress-nginx
       metrics:
         enabled: true
         serviceMonitor:

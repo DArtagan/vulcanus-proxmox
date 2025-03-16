@@ -7,7 +7,7 @@ metadata:
   labels:
     public: "true"
 spec:
-  ingressClassName: ingress-nginx-internal
+  ingressClassName: ingress-nginx
   tls:
     - hosts:
         - immortalkeep.com
