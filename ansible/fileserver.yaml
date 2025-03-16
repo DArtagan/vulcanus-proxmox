@@ -5,6 +5,8 @@
   hosts: fileserver
   vars:
     samba_groups:
+      - groupname: users
+        gid: 1100
       - groupname: fileshare
         gid: 1200
     samba_users:
