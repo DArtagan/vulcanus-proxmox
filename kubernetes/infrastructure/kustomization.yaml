@@ -14,6 +14,7 @@ resources:
   - games-pv.yaml
   - grafana-auth.yaml
   - image-update-automation.yaml
+  - ingress-nginx-internal.yaml
   - kubernetes-dashboard.yaml
   - loki.yaml
   - media-pv.yaml
@@ -27,5 +28,5 @@ resources:
   - smb-credentials.yaml
   - syncthing-pv.yaml
   - traefik-external.yaml
-  - traefik-internal.yaml
+  #- traefik-internal.yaml
   - video-pv.yaml
