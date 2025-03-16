@@ -4,6 +4,7 @@ hosts
 # Kubernetes
 .kubeconfig
 .talosconfig
+talos_secrets.tfs
 
 # Secrets
 *.agekey
