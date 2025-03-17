@@ -31,8 +31,10 @@ spec:
   values:
     fullnameOverride: ingress-nginx-internal
     controller:
+      electionID: ingress-nginx-internal
       ingressClassResource:
         name: ingress-nginx-internal
+        controllerValue: ingress-nginx-internal
         default: true
       ingressClass: ingress-nginx-internal
       metrics:
@@ -69,8 +71,10 @@ spec:
   values:
     fullnameOverride: ingress-nginx-external
     controller:
+      electionID: ingress-nginx-external
       ingressClassResource:
         name: ingress-nginx-external
+        controllerValue: ingress-nginx-external
       ingressClass: ingress-nginx-external
       metrics:
         enabled: true
