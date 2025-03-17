@@ -27,6 +27,4 @@ resources:
   - rancher-key.yaml
   - smb-credentials.yaml
   - syncthing-pv.yaml
-  #- traefik-external.yaml
-  #- traefik-internal.yaml
   - video-pv.yaml

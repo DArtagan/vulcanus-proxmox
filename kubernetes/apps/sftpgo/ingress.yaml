@@ -20,35 +20,3 @@ spec:
             name: sftpgo
             port:
               number: 8080
-
----
-apiVersion: traefik.containo.us/v1alpha1
-kind: IngressRouteTCP
-metadata:
-  name: sftpgo-sftp
-  labels:
-    public: "true"
-spec:
-  entryPoints:
-    - sftp
-  routes:
-    - match: HostSNI(`*`)
-      services:
-        - name: sftpgo
-          port: 2022
-
----
-apiVersion: traefik.containo.us/v1alpha1
-kind: IngressRouteTCP
-metadata:
-  name: sftpgo-webdav
-  labels:
-    public: "true"
-spec:
-  entryPoints:
-    - webdav
-  routes:
-    - match: HostSNI(`*`)
-      services:
-        - name: sftpgo
-          port: 10080

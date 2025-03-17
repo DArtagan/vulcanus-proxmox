@@ -31,7 +31,7 @@ spec:
     app:
       ingress:
         host: kubernetes.immortalkeep.com
-        ingressClassName: traefik-internal
+        ingressClassName: ingress-nginx-internal
         secretName: kubernetes-dashboard-ingress-tls
         issuer: letsencrypt
         paths:
