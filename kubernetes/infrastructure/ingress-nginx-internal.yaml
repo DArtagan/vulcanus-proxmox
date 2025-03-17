@@ -99,24 +99,24 @@ spec:
       "22000": "apps/syncthing:22000"
       "64738": "apps/mumble:64738"
 
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: tcp-services
-data:
-  "21027": "apps/syncthing:21027"
-  "22000": "apps/syncthing:22000"
-  "64738": "apps/mumble:64738"
-
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: udp-services
-data:
-  "22000": "apps/syncthing:22000"
-  "64738": "apps/mumble:64738"
+#---
+#apiVersion: v1
+#kind: ConfigMap
+#metadata:
+#  name: tcp-services
+#data:
+#  "21027": "apps/syncthing:21027"
+#  "22000": "apps/syncthing:22000"
+#  "64738": "apps/mumble:64738"
+#
+#---
+#apiVersion: v1
+#kind: ConfigMap
+#metadata:
+#  name: udp-services
+#data:
+#  "22000": "apps/syncthing:22000"
+#  "64738": "apps/mumble:64738"
 
 # TODO
 # service ports
