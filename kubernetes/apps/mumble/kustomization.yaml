@@ -5,6 +5,6 @@ resources:
   - data-pvc.yaml
   - deployment.yaml
   - image.yaml
-  - ingress.yaml
+  #- ingress.yaml
   - service.yaml
   - udp-ingress.yaml

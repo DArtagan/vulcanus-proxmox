@@ -21,7 +21,7 @@ resources:
   - metallb.yaml
   - namespace.yaml
   - openebs.yaml
-  - openvpn
+  #- openvpn
   - photos-pv.yaml
   - prometheus.yaml
   - rancher-key.yaml

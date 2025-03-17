@@ -5,6 +5,7 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
 spec:
+  ingressClassName: ingress-nginx-internal
   tls:
     - hosts:
         - syncthing.immortalkeep.com
@@ -22,45 +23,70 @@ spec:
               number: 8384
 
 ---
-apiVersion: traefik.containo.us/v1alpha1
-kind: IngressRouteTCP
+apiVersion: networking.k8s.io/v1
+kind: Ingress
 metadata:
-  name: syncthing-tcp
-  labels:
-    public: "true"
+  name: syncthing
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
 spec:
-  entryPoints:
-    - syncthing-tcp
-  routes:
-    - match: HostSNI(`*`)
-      services:
-        - name: syncthing
-          port: 22000
+  ingressClassName: ingress-nginx-external
+  tls:
+    - hosts:
+        - syncthing.immortalkeep.com
+      secretName: syncthing-ingress-tls
+  rules:
+  - host: syncthing.immortalkeep.com
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: syncthing
+            port:
+              number: 8384
 
----
-apiVersion: traefik.containo.us/v1alpha1
-kind: IngressRouteUDP
-metadata:
-  name: syncthing-udp
-  labels:
-    public: "true"
-spec:
-  entryPoints:
-    - syncthing-udp
-  routes:
-    - services:
-      - name: syncthing
-        port: 22000
-
----
-apiVersion: traefik.containo.us/v1alpha1
-kind: IngressRouteUDP
-metadata:
-  name: syncthing-lan
-spec:
-  entryPoints:
-    - syncthing-lan
-  routes:
-    - services:
-      - name: syncthing
-        port: 21027
+#---
+#apiVersion: traefik.containo.us/v1alpha1
+#kind: IngressRouteTCP
+#metadata:
+#  name: syncthing-tcp
+#  labels:
+#    public: "true"
+#spec:
+#  entryPoints:
+#    - syncthing-tcp
+#  routes:
+#    - match: HostSNI(`*`)
+#      services:
+#        - name: syncthing
+#          port: 22000
+#
+#---
+#apiVersion: traefik.containo.us/v1alpha1
+#kind: IngressRouteUDP
+#metadata:
+#  name: syncthing-udp
+#  labels:
+#    public: "true"
+#spec:
+#  entryPoints:
+#    - syncthing-udp
+#  routes:
+#    - services:
+#      - name: syncthing
+#        port: 22000
+#
+#---
+#apiVersion: traefik.containo.us/v1alpha1
+#kind: IngressRouteUDP
+#metadata:
+#  name: syncthing-lan
+#spec:
+#  entryPoints:
+#    - syncthing-lan
+#  routes:
+#    - services:
+#      - name: syncthing
+#        port: 21027
