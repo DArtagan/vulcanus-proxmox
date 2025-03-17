@@ -1,7 +1,7 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: demo
+  name: demo-internal
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
   labels:
@@ -39,7 +39,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: demo
+  name: demo-external
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
   labels:
