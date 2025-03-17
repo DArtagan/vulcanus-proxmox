@@ -1,36 +1,11 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: syncthing-internal
+  name: syncthing
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
 spec:
   ingressClassName: ingress-nginx-internal
-  tls:
-    - hosts:
-        - syncthing.immortalkeep.com
-      secretName: syncthing-ingress-tls
-  rules:
-  - host: syncthing.immortalkeep.com
-    http:
-      paths:
-      - pathType: Prefix
-        path: /
-        backend:
-          service:
-            name: syncthing
-            port:
-              number: 8384
-
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: syncthing-external
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt
-spec:
-  ingressClassName: ingress-nginx-external
   tls:
     - hosts:
         - syncthing.immortalkeep.com

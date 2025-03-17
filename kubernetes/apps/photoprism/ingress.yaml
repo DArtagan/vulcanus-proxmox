@@ -4,9 +4,8 @@ metadata:
   name: photoprism
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
-  labels:
-    public: "true"
 spec:
+  ingressClassName: ingress-nginx-internal
   tls:
     - hosts:
         - photoprism.immortalkeep.com

@@ -4,9 +4,33 @@ metadata:
   name: plex
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
-  labels:
-    public: "true"
 spec:
+  ingressClassName: ingress-nginx-internal
+  tls:
+    - hosts:
+        - plex.immortalkeep.com
+      secretName: plex-ingress-tls
+  rules:
+  - host: plex.immortalkeep.com
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: plex
+            port:
+              number: 32400
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: plex-external
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: ingress-nginx-external
   tls:
     - hosts:
         - plex.immortalkeep.com

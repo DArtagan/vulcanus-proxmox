@@ -5,6 +5,7 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
 spec:
+  ingressClassName: ingress-nginx-internal
   tls:
     - hosts:
         - homepage.immortalkeep.com

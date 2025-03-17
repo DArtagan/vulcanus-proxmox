@@ -4,9 +4,33 @@ metadata:
   name: headscale
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
-  labels:
-    public: "true"
 spec:
+  ingressClassName: ingress-nginx-internal
+  tls:
+    - hosts:
+        - headscale.immortalkeep.com
+      secretName: headscale-ingress-tls
+  rules:
+  - host: headscale.immortalkeep.com
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: headscale
+            port:
+              number: 8080
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: headscale-external
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: ingress-nginx-external
   tls:
     - hosts:
         - headscale.immortalkeep.com
