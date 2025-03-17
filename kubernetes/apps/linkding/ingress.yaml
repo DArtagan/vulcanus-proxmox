@@ -1,26 +1,26 @@
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: linkding
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt
-spec:
-  ingressClassName: ingress-nginx-internal
-  tls:
-    - hosts:
-        - linkding.immortalkeep.com
-      secretName: linkding-ingress-tls
-  rules:
-  - host: linkding.immortalkeep.com
-    http:
-      paths:
-      - pathType: Prefix
-        path: /
-        backend:
-          service:
-            name: linkding
-            port:
-              number: 9090
+#apiVersion: networking.k8s.io/v1
+#kind: Ingress
+#metadata:
+#  name: linkding
+#  annotations:
+#    cert-manager.io/cluster-issuer: letsencrypt
+#spec:
+#  ingressClassName: ingress-nginx-internal
+#  tls:
+#    - hosts:
+#        - linkding.immortalkeep.com
+#      secretName: linkding-ingress-tls
+#  rules:
+#  - host: linkding.immortalkeep.com
+#    http:
+#      paths:
+#      - pathType: Prefix
+#        path: /
+#        backend:
+#          service:
+#            name: linkding
+#            port:
+#              number: 9090
 
 ---
 apiVersion: networking.k8s.io/v1

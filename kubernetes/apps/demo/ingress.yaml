@@ -8,20 +8,20 @@ spec:
   ingressClassName: ingress-nginx-internal
   tls:
     - hosts:
-        - immortalkeep.com
+#        - immortalkeep.com
         - demo.immortalkeep.com
       secretName: demo-ingress-tls
   rules:
-  - host: immortalkeep.com
-    http:
-      paths:
-      - pathType: Prefix
-        path: /
-        backend:
-          service:
-            name: demo
-            port:
-              number: 8000
+#  - host: immortalkeep.com
+#    http:
+#      paths:
+#      - pathType: Prefix
+#        path: /
+#        backend:
+#          service:
+#            name: demo
+#            port:
+#              number: 8000
   - host: demo.immortalkeep.com
     http:
       paths:
@@ -45,7 +45,7 @@ spec:
   tls:
     - hosts:
         - immortalkeep.com
-        - demo.immortalkeep.com
+#        - demo.immortalkeep.com
       secretName: demo-ingress-tls
   rules:
   - host: immortalkeep.com
@@ -58,13 +58,13 @@ spec:
             name: demo
             port:
               number: 8000
-  - host: demo.immortalkeep.com
-    http:
-      paths:
-      - pathType: Prefix
-        path: /
-        backend:
-          service:
-            name: demo
-            port:
-              number: 8000
+#  - host: demo.immortalkeep.com
+#    http:
+#      paths:
+#      - pathType: Prefix
+#        path: /
+#        backend:
+#          service:
+#            name: demo
+#            port:
+#              number: 8000
