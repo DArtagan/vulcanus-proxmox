@@ -12,7 +12,6 @@ apiVersion: helm.toolkit.fluxcd.io/v2beta1
 kind: HelmRelease
 metadata:
   name: ingress-nginx-internal
-
 spec:
   interval: 15m
   chart:
@@ -31,8 +30,8 @@ spec:
   values:
     fullnameOverride: ingress-nginx-internal
     controller:
+      admissionWebhooks.enabled=false
       electionID: ingress-nginx-internal
-      ingressClassByName: true
       ingressClassResource:
         name: ingress-nginx-internal
         controllerValue: "k8s.io/ingress-nginx-internal"
@@ -53,7 +52,6 @@ apiVersion: helm.toolkit.fluxcd.io/v2beta1
 kind: HelmRelease
 metadata:
   name: ingress-nginx-external
-
 spec:
   interval: 15m
   chart:
@@ -72,8 +70,8 @@ spec:
   values:
     fullnameOverride: ingress-nginx-external
     controller:
+      admissionWebhooks.enabled=false
       electionID: ingress-nginx-external
-      ingressClassByName: true
       ingressClassResource:
         name: ingress-nginx-external
         controllerValue: "k8s.io/ingress-nginx-external"
