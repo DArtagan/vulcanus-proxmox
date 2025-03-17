@@ -22,22 +22,22 @@ spec:
             port:
               number: 8384
 
-#---
-#apiVersion: traefik.containo.us/v1alpha1
-#kind: IngressRouteTCP
-#metadata:
-#  name: syncthing-tcp
-#  labels:
-#    public: "true"
-#spec:
-#  entryPoints:
-#    - syncthing-tcp
-#  routes:
-#    - match: HostSNI(`*`)
-#      services:
-#        - name: syncthing
-#          port: 22000
-#
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: syncthing-tcp
+  labels:
+    public: "true"
+spec:
+  entryPoints:
+    - syncthing-tcp
+  routes:
+    - match: HostSNI(`*`)
+      services:
+        - name: syncthing
+          port: 22000
+
 #---
 #apiVersion: traefik.containo.us/v1alpha1
 #kind: IngressRouteUDP
