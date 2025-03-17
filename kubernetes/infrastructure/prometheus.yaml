@@ -62,6 +62,7 @@ spec:
         enabled: true
         annotations:
           cert-manager.io/cluster-issuer: letsencrypt
+        ingressClassName: ingress-nginx-internal
         hosts:
           - grafana.immortalkeep.com
         tls:
@@ -73,6 +74,7 @@ spec:
         enabled: true
         annotations:
           cert-manager.io/cluster-issuer: letsencrypt
+        ingressClassName: ingress-nginx-internal
         hosts:
           - prometheus.immortalkeep.com
         tls:
