@@ -7,51 +7,51 @@ spec:
   interval: 24h
   url: https://kubernetes.github.io/ingress-nginx
 
-#---
-#apiVersion: helm.toolkit.fluxcd.io/v2beta1
-#kind: HelmRelease
-#metadata:
-#  name: ingress-nginx-internal
-#spec:
-#  interval: 15m
-#  chart:
-#    spec:
-#      chart: ingress-nginx
-#      # Don't upgrade both internal and external charts at the same time, unless you `flux suspend` one first
-#      version: 4.12.0
-#      sourceRef:
-#        kind: HelmRepository
-#        name: ingress-nginx
-#      interval: 15m
-#  install:
-#    crds: CreateReplace
-#  upgrade:
-#    crds: CreateReplace
-#  values:
-#    fullnameOverride: ingress-nginx-internal
-#    controller:
-#      electionID: ingress-nginx-internal
-#      ingressClassResource:
-#        name: ingress-nginx-internal
-#        controllerValue: "k8s.io/ingress-nginx-internal"
-#        default: true
-#      ingressClass: ingress-nginx-internal
-#      metrics:
-#        enabled: true
-#        serviceMonitor:
-#          namespace: infrastructure
-#      podAnnotations:
-#        prometheus.io/scrape: true
-#        prometheus.io/port: 10254
-#      service:
-#        loadBalancerIP: "192.168.0.203"
-#    tcp:
-#      "64738": "apps/mumble:64738"
-#      "22000": "apps/syncthing:22000"
-#      "21027": "apps/syncthing:21027"
-#    udp:
-#      "64738": "apps/mumble:64738"
-#      "22000": "apps/syncthing:22000"
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: ingress-nginx-internal
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: ingress-nginx
+      # Don't upgrade both internal and external charts at the same time, unless you `flux suspend` one first
+      version: 4.12.0
+      sourceRef:
+        kind: HelmRepository
+        name: ingress-nginx
+      interval: 15m
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
+  values:
+    fullnameOverride: ingress-nginx-internal
+    controller:
+      electionID: ingress-nginx-internal
+      ingressClassResource:
+        name: ingress-nginx-internal
+        controllerValue: "k8s.io/ingress-nginx-internal"
+        default: true
+      ingressClass: ingress-nginx-internal
+      metrics:
+        enabled: true
+        serviceMonitor:
+          namespace: infrastructure
+      podAnnotations:
+        prometheus.io/scrape: true
+        prometheus.io/port: 10254
+      service:
+        loadBalancerIP: "192.168.0.203"
+    tcp:
+      "64738": "apps/mumble:64738"
+      "22000": "apps/syncthing:22000"
+      "21027": "apps/syncthing:21027"
+    udp:
+      "64738": "apps/mumble:64738"
+      "22000": "apps/syncthing:22000"
 
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2beta1
