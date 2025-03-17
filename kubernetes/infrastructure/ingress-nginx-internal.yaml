@@ -30,6 +30,10 @@ spec:
   values:
     fullnameOverride: ingress-nginx-internal
     controller:
+      admissionWebhooks:
+        objectSelector:
+          matchLabels:
+            ingress-class: ingress-nginx-internal
       electionID: ingress-nginx-internal
       ingressClassResource:
         name: ingress-nginx-internal
@@ -69,6 +73,10 @@ spec:
   values:
     fullnameOverride: ingress-nginx-external
     controller:
+      admissionWebhooks:
+        objectSelector:
+          matchLabels:
+            ingress-class: ingress-nginx-internal
       electionID: ingress-nginx-external
       ingressClassResource:
         name: ingress-nginx-external
