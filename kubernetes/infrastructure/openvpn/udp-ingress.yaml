@@ -2,8 +2,6 @@ apiVersion: traefik.containo.us/v1alpha1
 kind: IngressRouteUDP
 metadata:
   name: openvpn-udp
-  labels:
-    public: "true"
 
 spec:
   entryPoints:

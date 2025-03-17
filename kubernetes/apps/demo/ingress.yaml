@@ -4,8 +4,6 @@ metadata:
   name: demo
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
-  labels:
-    public: "true"
 spec:
   ingressClassName: ingress-nginx-internal
   tls:
@@ -42,8 +40,6 @@ metadata:
   name: demo-external
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
-  labels:
-    public: "true"
 spec:
   ingressClassName: ingress-nginx-external
   tls:

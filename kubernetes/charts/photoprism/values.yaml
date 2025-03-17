@@ -1,6 +1,6 @@
 name: "photoprism"
 cacheSize: "50Gi"
 databaseSize: "10Gi"
-originalsPath: "photoprism/originals"
 importPath: "photoprism/import"
-public: false
+ingressClassName: "ingress-nginx-internal"
+originalsPath: "photoprism/originals"
