@@ -45,6 +45,13 @@ spec:
 #        prometheus.io/port: 10254
 #      service:
 #        loadBalancerIP: "192.168.0.203"
+#    tcp:
+#      "64738": "apps/mumble:64738"
+#      "22000": "apps/syncthing:22000"
+#      "21027": "apps/syncthing:21027"
+#    udp:
+#      "64738": "apps/mumble:64738"
+#      "22000": "apps/syncthing:22000"
 
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2beta1
@@ -84,6 +91,13 @@ spec:
         prometheus.io/port: 10254
       service:
         loadBalancerIP: "192.168.0.201"
+    tcp:
+      "64738": "apps/mumble:64738"
+      "22000": "apps/syncthing:22000"
+      "21027": "apps/syncthing:21027"
+    udp:
+      "64738": "apps/mumble:64738"
+      "22000": "apps/syncthing:22000"
 
 ---
 apiVersion: v1
