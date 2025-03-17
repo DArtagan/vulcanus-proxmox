@@ -10,7 +10,7 @@ spec:
     - hosts:
 #        - immortalkeep.com
         - demo.immortalkeep.com
-      secretName: demo-ingress-tls
+      secretName: demo-ingress-tls-internal
   rules:
 #  - host: immortalkeep.com
 #    http:
@@ -46,7 +46,7 @@ spec:
     - hosts:
         - immortalkeep.com
 #        - demo.immortalkeep.com
-      secretName: demo-ingress-tls
+      secretName: demo-ingress-tls-external
   rules:
   - host: immortalkeep.com
     http:
