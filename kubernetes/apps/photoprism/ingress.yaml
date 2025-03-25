@@ -21,3 +21,28 @@ spec:
             name: photoprism
             port:
               number: 2342
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: photoprism-external
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: ingress-nginx-external
+  tls:
+    - hosts:
+        - photoprism.immortalkeep.com
+      secretName: photoprism-ingress-tls
+  rules:
+  - host: photoprism.immortalkeep.com
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: photoprism
+            port:
+              number: 2342
