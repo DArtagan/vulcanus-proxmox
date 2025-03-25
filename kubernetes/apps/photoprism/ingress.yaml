@@ -30,6 +30,7 @@ metadata:
   name: photoprism-external
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
 spec:
   ingressClassName: ingress-nginx-external
   tls:
