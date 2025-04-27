@@ -42,9 +42,10 @@ spec:
                 - "--fix-case"
                 - "--compare=size,modtime,checksum"
                 - "--slow-hash-sync-only"
+                - "--conflict-resolve=newer"
                 - "--resilient"
                 - "--recover"
-                - "--max-lock=6h"
+                - "--max-lock=1h"
                 #- "--resync"  # For the first real run, run it with "resync". Creates a superset of both sides files, and a `.cache` directory. After that remove this flag.
                 #- "--dry-run"  # Initially run it with dry-run to check that things work.
               env:
