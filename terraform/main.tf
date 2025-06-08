@@ -183,7 +183,7 @@ module "talos" {
   worker_node_cpus = 8
   worker_node_memory = 24576
   worker_boot_disk_size = "100G"
-  openebs_disk_size = "512G"
+  openebs_disk_size = "1024G"
   cluster_name = "piraeus"
   cluster_endpoint = "https://192.168.0.200:6443"
   control_plane_ip_start = "192.168.0.190"

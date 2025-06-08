@@ -115,6 +115,15 @@ fio --name=random-write --ioengine=posixaio --rw=randwrite --bs=1m --size=16g --
 me_based --end_fsync=1
 ```
 
+
+## Increase VM disk sizew
+
+1. SSH into the Proxmox host
+2. Run `qm resize 910 virtio1 +512G`. Where `910` is the VM ID, `virtio1` is the disk ID, and `+512G` is the number of Gigabytes to add.
+3. Back in this repo, edit `terraform/main.tf` and update the `openebs_disk_size` to match the new VM disk size.
+4. `tofu apply`
+
+
 ## Troubleshooting
 
 ### talos-worker VM doesn't start, sits on booting HDD screen
@@ -126,6 +135,9 @@ In the arguments for the talos-worker VM is a virtual SCSI that expects a cdrom 
 
 `kubectl exec` into the Plex container and see if the file `/config/Library/Application\ Support/Plex\ Media\ Server/Preferences.xml` is empty.  If so, delete it and then recreate the pod.  Then launching Plex in a browser might not work, because it hasn't been locally claimed.  To claim it locally do a `kubectl port-forward -n apps plex-blahblah-blah 32400:32400` (with the proper pod name) to forward its local port to your machine, and then visit `http://localhost:32400/web/index.html` in your browser (yes the full URL is important).
 
+### Mumble is failing to start, plex is kinda unreachable
+
+Especially if Mumble's logs say that it can't write to the dataabase, this is likely a sign that that the VM disk is full.  Increase its size.
 
 ## References
 * https://www.nathancurry.com/blog/14-ansible-deployment-with-proxmox/
