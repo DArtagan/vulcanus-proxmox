@@ -30,6 +30,15 @@ spec:
     loki:
       auth_enabled: false
       isDefault: false
+      schemaConfig:
+        configs:
+          - from: "2025-06-18"
+            index:
+              period: 24h
+              prefix: index_
+              object_store: filesystem
+              schema: v13
+              store: tsdb
       limits_config:
         retention_period: 30d
       commonConfig:
