@@ -26,6 +26,7 @@ spec:
   upgrade:
     crds: CreateReplace
   values:
+    deploymentMode: SingleBinary
     loki:
       auth_enabled: false
       isDefault: false
@@ -35,10 +36,10 @@ spec:
         replication_factor: 1
       storage:
         type: filesystem
-    #singleBinary:
-    #  replicas: 1
-    #  persistence:
-    #    storageClass: openebs-hostpath
+    singleBinary:
+      replicas: 1
+      persistence:
+        storageClass: openebs-hostpath
     compactor:
       #compaction_interval: 1h
       #retention_delete_delay: 2h
