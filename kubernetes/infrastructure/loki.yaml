@@ -35,10 +35,10 @@ spec:
         replication_factor: 1
       storage:
         type: filesystem
-    singleBinary:
-      replicas: 1
-      persistence:
-        storageClass: openebs-hostpath
+    #singleBinary:
+    #  replicas: 1
+    #  persistence:
+    #    storageClass: openebs-hostpath
     compactor:
       #compaction_interval: 1h
       #retention_delete_delay: 2h
