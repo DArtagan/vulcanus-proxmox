@@ -30,7 +30,7 @@ spec:
               name: config-data
       containers:
         - name: automatic-ripping-machine
-          image: automaticrippingmachine/automatic-ripping-machine:2.18.1 # {"$imagepolicy": "apps:automatic-ripping-machine"}
+          image: automaticrippingmachine/automatic-ripping-machine:2.18.2 # {"$imagepolicy": "apps:automatic-ripping-machine"}
           ports:
             - containerPort: 8080
           resources:
