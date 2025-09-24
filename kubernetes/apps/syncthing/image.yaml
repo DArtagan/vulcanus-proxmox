@@ -20,4 +20,4 @@ spec:
     extract: '$version'
   policy:
     semver:
-      range: '^1.0.0'
+      range: '^2.0.0'
