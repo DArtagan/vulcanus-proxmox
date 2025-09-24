@@ -13,15 +13,6 @@ spec:
       labels:
         app: syncthing
     spec:
-      initContainers:
-        - name: copy-old-config
-          image: busybox:latest
-          command: ["sh", "-c", "cp -a /sync/config/. /data/ && chown -R 1000:1000 /data"]
-          volumeMounts:
-            - name: data
-              mountPath: /data
-            - name: sync
-              mountPath: /sync
       containers:
         - name: app
           image: syncthing/syncthing:1.30.0 # {"$imagepolicy": "apps:syncthing"}
