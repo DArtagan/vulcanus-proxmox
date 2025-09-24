@@ -24,7 +24,7 @@ spec:
               mountPath: /sync
       containers:
         - name: app
-          image: syncthing/syncthing:1.30.0 # {"$imagepolicy": "apps:syncthing"}
+          image: syncthing/syncthing:2.0.10 # {"$imagepolicy": "apps:syncthing"}
           command: ["/bin/syncthing"]
           ports:
             - containerPort: 8384
