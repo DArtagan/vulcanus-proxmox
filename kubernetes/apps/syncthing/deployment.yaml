@@ -13,6 +13,15 @@ spec:
       labels:
         app: syncthing
     spec:
+      initContainers:
+        - name: copy-old-config
+          image: busybox:latest
+          command: ["sh", "-c", "cp -a /sync/config/. /data/ && chown -R 1000:1000 /data"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: sync
+              mountPath: /sync
       containers:
         - name: app
           image: syncthing/syncthing:2.0.10 # {"$imagepolicy": "apps:syncthing"}
@@ -27,9 +36,14 @@ spec:
             - containerPort: 21027
               protocol: UDP
           volumeMounts:
-            - mountPath: /var/syncthing
-              name: syncthing
+            - mountPath: /var/syncthing/config
+              name: data
+            - mountPath: /sync
+              name: sync
       volumes:
-        - name: syncthing
+        - name: data
+          persistentVolumeClaim:
+            claimName: syncthing-data-pvc
+        - name: sync
           persistentVolumeClaim:
             claimName: syncthing-pvc
