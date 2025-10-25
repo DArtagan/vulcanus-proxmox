@@ -3,11 +3,10 @@ terraform {
   required_providers {
     proxmox = {
       source = "telmate/proxmox"
-      version = "2.9.11"
+      version = ">=3.0.0"
     }
     talos = {
       source = "siderolabs/talos"
-      version = "0.3.4"
     }
   }
 }
@@ -15,7 +14,6 @@ terraform {
 resource "proxmox_vm_qemu" "control_plane_node" {
   count = var.control_plane_node_count
   name = "talos-control-plane-${count.index}"
-  iso = var.iso_image_location
   target_node = var.proxmox_host_node
   vmid = sum([900, count.index])
   qemu_os = "l26" # Linux kernel type
@@ -26,8 +24,7 @@ resource "proxmox_vm_qemu" "control_plane_node" {
   sockets = 1
   args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2"
   onboot = true
-  # TODO: maybe this can be set if switching to cloudinit provisioning, using router DHCP for now
-  #ipconfig0 = "[gw=192.168.0.1, ip=192.168.0.${ sum([190, count.index]) }/24]"
+  ipconfig0 = "[gw=192.168.0.1, ip=192.168.0.${ sum([190, count.index]) }/24]"
   network {
     model = "virtio"
     bridge = var.config_network_bridge
@@ -39,10 +36,23 @@ resource "proxmox_vm_qemu" "control_plane_node" {
   #  bridge = var.public_network_bridge
   #  tag = var.public_vlan
   #}
-  disk {
-    type = "virtio"
-    size = var.control_plane_boot_disk_size
-    storage = var.boot_disk_storage_pool
+  disks {
+    ide {
+      ide2 {
+        cdrom {
+          iso = var.iso_image_location
+        }
+      }
+    }
+    virtio {
+      virtio0 {
+        disk {
+          size = var.control_plane_boot_disk_size
+          storage = var.boot_disk_storage_pool
+          backup = true
+        }
+      }
+    }
   }
 }
 
@@ -50,7 +60,6 @@ resource "proxmox_vm_qemu" "control_plane_node" {
 resource "proxmox_vm_qemu" "worker_node" {
   count = var.worker_node_count
   name = "talos-worker-${count.index}"
-  iso = var.iso_image_location
   target_node = var.proxmox_host_node
   vmid = sum([910, count.index])
   qemu_os = "l26" # Linux kernel type
@@ -59,11 +68,13 @@ resource "proxmox_vm_qemu" "worker_node" {
   cpu = "kvm64"
   cores = var.worker_node_cpus
   sockets = 1
+  args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2"
   # CPU options are special for talos.  SCSI and drive options are to attach the CD drive to the worker VM.  `addr=0x6` because 6 was the first spare PCI address after doing guess-and-check.
-# The `/dev/sg` device number is very inconsistent, seems to need updating every restart.
-  args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2 -device virtio-scsi-pci,id=scsi0,bus=pci.0,addr=0x6 -drive file=/dev/sg4,if=none,format=raw,id=drive-hostdev0,readonly=on -device scsi-generic,bus=scsi0.0,channel=0,scsi-id=0,lun=0,drive=drive-hostdev0,id=hostdev0"
+  # The `/dev/sg` device number is very inconsistent, seems to need updating every restart.
+  # TODO: But then it started trying to "import pool 'rpool'", which means somehow the real hard drives... or maybe the raid card was getting passed through.  So I reverted to the simpler args set above
+  #args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2 -device virtio-scsi-pci,id=scsi0,bus=pci.0,addr=0x6 -drive file=/dev/sg4,if=none,format=raw,id=drive-hostdev0,readonly=on -device scsi-generic,bus=scsi0.0,channel=0,scsi-id=0,lun=0,drive=drive-hostdev0,id=hostdev0"
   onboot = true
-  # TODO: maybe this can be set if switching to cloudinit provisioning, using router DHCP for now
+  ipconfig0 = "[gw=192.168.0.1, ip=192.168.0.${ sum([195, count.index]) }/24]"
   network {
     model = "virtio"
     bridge = var.config_network_bridge
@@ -80,15 +91,30 @@ resource "proxmox_vm_qemu" "worker_node" {
   #  bridge = var.public_network_bridge
   #  tag = var.public_vlan
   #}
-  disk {
-    type = "virtio"
-    size = var.worker_boot_disk_size
-    storage = var.boot_disk_storage_pool
-  }
-  disk {
-    type = "virtio"
-    size = var.openebs_disk_size
-    storage = var.openebs_disk_storage_pool
+  disks {
+    ide {
+      ide2 {
+        cdrom {
+          iso = var.iso_image_location
+        }
+      }
+    }
+    virtio {
+      virtio0 {
+        disk {
+          size = var.worker_boot_disk_size
+          storage = var.boot_disk_storage_pool
+          backup = true
+        }
+      }
+      virtio1 {
+        disk {
+          size = var.openebs_disk_size
+          storage = var.openebs_disk_storage_pool
+          backup = true
+        }
+      }
+    }
   }
 }
 
@@ -171,7 +197,7 @@ resource "talos_machine_bootstrap" "bootstrap" {
   node = var.control_plane_ip_start
 }
 
-data "talos_cluster_kubeconfig" "main" {
+resource "talos_cluster_kubeconfig" "main" {
   client_configuration = talos_machine_secrets.main.client_configuration
   node = var.control_plane_ip_start
 }

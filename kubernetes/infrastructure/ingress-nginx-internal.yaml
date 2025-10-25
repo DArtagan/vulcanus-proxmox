@@ -1,0 +1,98 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: ingress-nginx
+spec:
+  interval: 24h
+  url: https://kubernetes.github.io/ingress-nginx
+
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: ingress-nginx-internal
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: ingress-nginx
+      version: 4.12.0
+      sourceRef:
+        kind: HelmRepository
+        name: ingress-nginx
+      interval: 15m
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
+  values:
+    fullnameOverride: ingress-nginx-internal
+    controller:
+      electionID: ingress-nginx-internal
+      ingressClassResource:
+        name: ingress-nginx-internal
+        controllerValue: "k8s.io/ingress-nginx-internal"
+        default: true
+      ingressClass: ingress-nginx-internal
+      metrics:
+        enabled: true
+        serviceMonitor:
+          namespace: infrastructure
+      podAnnotations:
+        prometheus.io/scrape: true
+        prometheus.io/port: 10254
+      service:
+        loadBalancerIP: "192.168.0.203"
+    tcp:
+      "64738": "apps/mumble:64738"
+      "22000": "apps/syncthing:22000"
+      "21027": "apps/syncthing:21027"
+    udp:
+      "64738": "apps/mumble:64738"
+      "22000": "apps/syncthing:22000"
+
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: ingress-nginx-external
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: ingress-nginx
+      version: 4.12.0
+      sourceRef:
+        kind: HelmRepository
+        name: ingress-nginx
+      interval: 15m
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
+  values:
+    fullnameOverride: ingress-nginx-external
+    controller:
+      electionID: ingress-nginx-external
+      ingressClassResource:
+        name: ingress-nginx-external
+        controllerValue: "k8s.io/ingress-nginx-external"
+        default: false
+      ingressClass: ingress-nginx-external
+      metrics:
+        enabled: true
+        serviceMonitor:
+          namespace: infrastructure
+      podAnnotations:
+        prometheus.io/scrape: true
+        prometheus.io/port: 10254
+      service:
+        loadBalancerIP: "192.168.0.201"
+    tcp:
+      "21027": "apps/syncthing:21027"
+      "22000": "apps/syncthing:22000"
+      "64738": "apps/mumble:64738"
+    udp:
+      "22000": "apps/syncthing:22000"
+      "64738": "apps/mumble:64738"

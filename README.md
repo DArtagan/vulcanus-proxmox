@@ -83,37 +83,15 @@ spec:
                 path: known_hosts
 ```
 
-## Listing all the hard drive details
+## Hard drive management & disk replacement
 
-```
-lsblk -o name,model,serial,uuid
-```
+Follow the guide at [docs/disk_management.md](docs/disk_management.md)
 
-## Hard drive testing and rebuild
+## Networking notes
 
-Testing a fresh or potentially bad drive
-```
-smartctl /dev/sdf -t long  # Run a long SMART test of the drive
-smartctl /dev/sdf -a  # SMART results
-badblocks -nsv -b 4096 /dev/sdf  # Non-destructive check of the disk for bad sectors, blocksize=4096.  Substitute `w` for `n` for a destructive test.
-```
+* 192.168.0.202: IP address for CoreDNS.  Designed to be a DNS server for the whole internal network (including and beyond kubernetes).
+* 192.168.0.203: IP address for the internal kubernetes ingress controller.  CoreDNS (192.168.0.202) will fall through to this for any *.immortalkeep.com domains.
 
-Initializing a fresh ZFS boot disk
-```
-sgdisk /dev/sda -R /dev/sdc  # Copy partition table from old drive to new one
-sgdisk -G /dev/sdc  # Initialize new guids for partitions on the new disk
-zpool replace rpool sda-part3 /dev/disk/by-id/sdc-part3  # Replace old disk with new one in the pool
-proxmox-boot-tool format /dev/sdc2
-proxmox-boot-tool init /dev/sdc2  # Make the new disk bootable
-proxmox-boot-tool refresh  # For good measure, refresh the boot partitions on all disks
-```
-
-
-## Hard drive performance test
-```
-fio --name=random-write --ioengine=posixaio --rw=randwrite --bs=1m --size=16g --numjobs=1 --iodepth=1 --runtime=60 --ti
-me_based --end_fsync=1
-```
 
 
 ## Increase VM disk sizew
@@ -139,6 +117,49 @@ In the arguments for the talos-worker VM is a virtual SCSI that expects a cdrom 
 
 Especially if Mumble's logs say that it can't write to the dataabase, this is likely a sign that that the VM disk is full.  Increase its size.
 
+### Proxmox Backup Manager (PBM) out of disk space
+
+1. SSH into the Proxmox host
+2. `qm resize 107 virtio1 +548G`
+3. SSH into the Proxmox Backup Manager host `ssh root@192.168.0.107`
+4. Confirm you're operating on the right disk: `lsblk`
+5. `sgdisk -e /dev/vdb`
+6. `sgdisk -d 1 /dev/vdb`
+7. `sgdisk -N 1 /dev/vdb`
+8. `partprobe /dev/vdb`
+9. `resize2fs /dev/vdb1`
+
+### Grow Talos volume
+1. Create debug namespace: `kubectl create ns debug`
+2. Allow pod in created namespace to mount the host: `kubectl label ns debug pod-security.kubernetes.io/enforce=privileged`
+3. Create the debug pod: `kubectl debug node/piraeus-worker -it --image ubuntu --profile=sysadmin -n debug`
+4. Now inside the debug pod: `apt-get update && apt-get install xfsprogs parted`
+5. `parted`
+6. Select the correct device: `select /dev/sdb`
+7. # parted should warn that not all the space is used, type "Fix" and enter: `Fix`
+8. Resize the partition: `resizepart 1 100%`
+9. Exit parted: `quit`
+10. `xfs_growfs -d /host/var/openebs`
+11. You're all in the pod: `exit`
+12. `kubectl delete ns/debug`
+
+The grow command should look like:
+```
+root@piraeus-worker-0:/# xfs_growfs -d /host/var/openebs
+meta-data=/dev/vdb1              isize=512    agcount=9, agsize=16777088 blks
+         =                       sectsz=512   attr=2, projid32bit=1
+         =                       crc=1        finobt=1, sparse=1, rmapbt=0
+         =                       reflink=1    bigtime=1 inobtcount=0 nrext64=0
+data     =                       bsize=4096   blocks=134217216, imaxpct=25
+         =                       sunit=0      swidth=0 blks
+naming   =version 2              bsize=4096   ascii-ci=0, ftype=1
+log      =internal log           bsize=4096   blocks=32767, version=2
+         =                       sectsz=512   sunit=0 blks, lazy-count=1
+realtime =none                   extsz=4096   blocks=0, rtextents=0
+data blocks changed from 134217216 to 268435195
+```
+
 ## References
 * https://www.nathancurry.com/blog/14-ansible-deployment-with-proxmox/
 * Replacing a ZFS Proxmox boot disk: http://r00t.dk/post/2022/05/02/proxmox-ve-7-replace-zfs-boot-disk/
+* Grow Talos volume: https://www.agos.one/resize-additional-disks-in-siderolabs-talos-linux/

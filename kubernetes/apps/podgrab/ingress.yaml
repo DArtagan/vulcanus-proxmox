@@ -4,10 +4,8 @@ metadata:
   name: podgrab
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
-    traefik.ingress.kubernetes.io/router.middlewares: infrastructure-basic-auth@kubernetescrd
-  labels:
-    public: "true"
 spec:
+  ingressClassName: ingress-nginx-internal
   tls:
     - hosts:
         - podgrab.immortalkeep.com

@@ -14,18 +14,17 @@ resources:
   - games-pv.yaml
   - grafana-auth.yaml
   - image-update-automation.yaml
+  - ingress-nginx-internal.yaml
   - kubernetes-dashboard.yaml
   - loki.yaml
   - media-pv.yaml
   - metallb.yaml
   - namespace.yaml
   - openebs.yaml
-  - openvpn
+  #- openvpn
   - photos-pv.yaml
   - prometheus.yaml
   - rancher-key.yaml
   - smb-credentials.yaml
   - syncthing-pv.yaml
-  - traefik-external.yaml
-  - traefik-internal.yaml
   - video-pv.yaml

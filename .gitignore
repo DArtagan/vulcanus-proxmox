@@ -4,6 +4,7 @@ hosts
 # Kubernetes
 .kubeconfig
 .talosconfig
+talos_secrets.tfs
 
 # Secrets
 *.agekey
@@ -173,3 +174,13 @@ override.tf.json
 .terraformrc
 terraform.rc
 
+
+# Devenv
+.devenv*
+devenv.local.nix
+
+# direnv
+.direnv
+
+# pre-commit
+.pre-commit-config.yaml

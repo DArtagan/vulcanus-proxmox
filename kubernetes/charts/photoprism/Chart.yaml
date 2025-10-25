@@ -1,5 +1,5 @@
 apiVersion: v2
 name: photoprism
-version: 1.6
-description: Packaging of photoprism app for multiple deployments on my server.  Presumes openebs, traefik, and a secret file called photoprism with `admin_password` and `database_password` values defined.
+version: 1.7
+description: Packaging of photoprism app for multiple deployments on my server.  Presumes openebs, ingress-nginx, and a secret file called photoprism with `admin_password` and `database_password` values defined.
 type: application

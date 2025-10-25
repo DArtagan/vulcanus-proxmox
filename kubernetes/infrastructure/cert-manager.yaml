@@ -48,8 +48,4 @@ spec:
     solvers:
       - http01:
           ingress:
-            ingressClassName: traefik
-            ingressTemplate:
-              metadata:
-                labels:
-                  public: "true"
+            ingressClassName: ingress-nginx-external

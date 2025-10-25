@@ -1,12 +1,24 @@
 terraform {
   required_providers {
+    flux = {
+      source = "fluxcd/flux"
+      version = "1.5.1"
+    }
     github = {
       source = "integrations/github"
-      version = "5.9.1"
+      version = "6.6.0"
     }
     proxmox = {
       source = "telmate/proxmox"
-      version = "2.9.11"
+      version = "3.0.1-rc4"
+    }
+    talos = {
+      source = "siderolabs/talos"
+      version = "0.7.1"
+    }
+    tls = {
+      source = "hashicorp/tls"
+      version = "4.0.6"
     }
   }
 }
@@ -167,7 +179,7 @@ module "proxmox_backup_server" {
   proxmox_api_token_secret = var.proxmox_api_token_secret
   iso_image_location = "local:iso/proxmox-backup-server_2.2-1.iso"
   backup_disk_storage_pool = "proxmox_backup_server"
-  backup_disk_size = "1000G"
+  backup_disk_size = "2T"
 }
 
 
@@ -183,7 +195,7 @@ module "talos" {
   worker_node_cpus = 8
   worker_node_memory = 24576
   worker_boot_disk_size = "100G"
-  openebs_disk_size = "1024G"
+  openebs_disk_size = "1T"
   cluster_name = "piraeus"
   cluster_endpoint = "https://192.168.0.200:6443"
   control_plane_ip_start = "192.168.0.190"

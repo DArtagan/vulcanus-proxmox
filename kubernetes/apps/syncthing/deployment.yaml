@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: app
-          image: syncthing/syncthing:1.28.1 # {"$imagepolicy": "apps:syncthing"}
+          image: syncthing/syncthing:2.0.10 # {"$imagepolicy": "apps:syncthing"}
           command: ["/bin/syncthing"]
           ports:
             - containerPort: 8384
@@ -27,9 +27,14 @@ spec:
             - containerPort: 21027
               protocol: UDP
           volumeMounts:
-            - mountPath: /var/syncthing
-              name: syncthing
+            - mountPath: /var/syncthing/config
+              name: data
+            - mountPath: /sync
+              name: sync
       volumes:
-        - name: syncthing
+        - name: data
+          persistentVolumeClaim:
+            claimName: syncthing-data-pvc
+        - name: sync
           persistentVolumeClaim:
             claimName: syncthing-pvc

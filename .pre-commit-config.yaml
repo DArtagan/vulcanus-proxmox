@@ -1,7 +1,7 @@
-repos:
-  - repo: https://github.com/stackrox/kube-linter
-    rev: 0.6.0 # kube-linter version 
-    hooks:
-      - id: kube-linter-docker
-        files: kubernetes/
-        entry: stackrox/kube-linter:0.6.0 lint
+repos: []
+  #- repo: https://github.com/stackrox/kube-linter
+  #  rev: 0.7.2 # kube-linter version 
+  #  hooks:
+  #    - id: kube-linter-docker
+  #      files: kubernetes/
+  #      entry: stackrox/kube-linter:0.7.2 lint

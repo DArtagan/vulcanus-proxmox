@@ -13,7 +13,7 @@ spec:
         spec:
           containers:
             - name: beets-import
-              image: linuxserver/beets:1.6.0 # {"$imagepolicy": "apps:beets"}
+              image: linuxserver/beets:2.5.1 # {"$imagepolicy": "apps:beets"}
               command: ["beet"]
               args:
                 - import
@@ -21,6 +21,11 @@ spec:
                 - -l
                 - /media/audio/import/import.log
                 - /media/audio/import
+              env:
+                - name: DOCKER_MODS
+                  value: linuxserver/mods:universal-package-install
+                  #- name: INSTALL_PIP_PACKAGES
+                  #  values: 
               volumeMounts:
                 - name: config-volume
                   mountPath: /config/

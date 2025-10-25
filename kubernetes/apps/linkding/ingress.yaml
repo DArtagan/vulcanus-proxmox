@@ -1,48 +1,48 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: headscale
+  name: linkding
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
 spec:
   ingressClassName: ingress-nginx-internal
   tls:
     - hosts:
-        - headscale.immortalkeep.com
-      secretName: headscale-ingress-tls
+        - linkding.immortalkeep.com
+      secretName: linkding-ingress-tls
   rules:
-  - host: headscale.immortalkeep.com
+  - host: linkding.immortalkeep.com
     http:
       paths:
       - pathType: Prefix
         path: /
         backend:
           service:
-            name: headscale
+            name: linkding
             port:
-              number: 8080
+              number: 9090
 
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: headscale-external
+  name: linkding-external
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
 spec:
   ingressClassName: ingress-nginx-external
   tls:
     - hosts:
-        - headscale.immortalkeep.com
-      secretName: headscale-ingress-tls
+        - linkding.immortalkeep.com
+      secretName: linkding-ingress-tls
   rules:
-  - host: headscale.immortalkeep.com
+  - host: linkding.immortalkeep.com
     http:
       paths:
       - pathType: Prefix
         path: /
         backend:
           service:
-            name: headscale
+            name: linkding
             port:
-              number: 8080
+              number: 9090

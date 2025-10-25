@@ -4,10 +4,8 @@ metadata:
   name: youtube-dl
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
-    traefik.ingress.kubernetes.io/router.middlewares: infrastructure-basic-auth@kubernetescrd
-  labels:
-    public: "true"
 spec:
+  ingressClassName: ingress-nginx-internal
   tls:
     - hosts:
         - youtube.immortalkeep.com

@@ -4,11 +4,8 @@ metadata:
   name: {{ .Values.name }}
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
-  {{ if .Values.public }}
-  labels:
-    public: "true"
-  {{ end }}
 spec:
+  ingressClassName: {{ .Values.ingressClassName }}
   tls:
     - hosts:
         - {{ .Values.name }}.immortalkeep.com
