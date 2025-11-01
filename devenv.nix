@@ -1,4 +1,7 @@
-{ pkgs, lib, config, inputs, ... }:
+{
+  pkgs,
+  ...
+}:
 
 {
   packages = [
@@ -6,6 +9,7 @@
   ];
 
   languages = {
+    ansible.enable = true;
     nix.enable = true;
     opentofu.enable = true;
   };
