@@ -62,8 +62,8 @@ spec:
         #patchesJson6902:
         #  - target:
         #      kind: Ingress
-        #      version: 
-        #      name: 
+        #      version:
+        #      name:
         #    patch:
         #      #- op: remove
         #      #path: /metadata/annotations/cert-manager.io~1issuer

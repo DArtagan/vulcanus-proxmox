@@ -49,4 +49,4 @@ spec:
 #    #!/bin/sh
 #    iscsid_pid=$(pgrep iscsid)
 #
-#    nsenter --mount="/proc/${iscsid_pid}/ns/mnt" --net="/proc/${iscsid_pid}/ns/net" -- /usr/local/sbin/iscsiadm "$@" 
+#    nsenter --mount="/proc/${iscsid_pid}/ns/mnt" --net="/proc/${iscsid_pid}/ns/net" -- /usr/local/sbin/iscsiadm "$@"
