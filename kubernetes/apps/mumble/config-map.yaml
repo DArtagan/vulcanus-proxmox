@@ -3,6 +3,7 @@ apiVersion: v1
 metadata:
   name: mumble-config-map
 data:
+  MUMBLE_CONFIG_BANDWIDTH: "558000"
   MUMBLE_CONFIG_AUTOBANATTEMPTS: "0"
   MUMBLE_CONFIG_LOGFILE: ""
   MUMBLE_CONFIG_SERVERPASSWORD: ""
