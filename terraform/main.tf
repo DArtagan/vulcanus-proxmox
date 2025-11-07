@@ -2,23 +2,23 @@ terraform {
   required_providers {
     flux = {
       source = "fluxcd/flux"
-      version = "1.5.1"
+      version = "1.7.4"
     }
     github = {
       source = "integrations/github"
-      version = "6.6.0"
+      version = "6.7.5"
     }
     proxmox = {
       source = "telmate/proxmox"
-      version = "3.0.1-rc4"
+      version = "3.0.2-rc05"
     }
     talos = {
       source = "siderolabs/talos"
-      version = "0.7.1"
+      version = "0.9.0"
     }
     tls = {
       source = "hashicorp/tls"
-      version = "4.0.6"
+      version = "4.1.0"
     }
   }
 }

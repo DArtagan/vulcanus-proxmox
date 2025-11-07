@@ -25,12 +25,15 @@ resource "proxmox_vm_qemu" "proxmox-backup-server" {
   qemu_os = "l26" # Linux kernel type
   scsihw = "virtio-scsi-pci"
   memory = var.memory
-  cpu = "kvm64"
-  cores = 2
-  sockets = 1
   onboot = true
   ipconfig0 = "[gw=192.168.0.1, ip=192.168.0.107/24]"
+  cpu {
+    type = "kvm64"
+    cores = 2
+    sockets = 1
+  }
   network {
+    id = 0
     model = "virtio"
     bridge = var.config_network_bridge
   }

@@ -1,11 +1,23 @@
 {
+  config,
   pkgs,
   ...
 }:
 
 {
-  packages = [
-    pkgs.git
+  env = {
+    # TODO: eliminate .env file, move contents to here and sops
+    KUBECONFIG = "${config.git.root}/.kubeconfig";
+    SOPS_AGE_KEY_FILE = "${config.git.root}/age.agekey"; # TODO: use SSH key for sops instead
+    TALOSCONFIG = "${config.git.root}/.talosconfig";
+  };
+
+  packages = with pkgs; [
+    fluxcd
+    git
+    k9s
+    kubectl
+    talosctl
   ];
 
   languages = {

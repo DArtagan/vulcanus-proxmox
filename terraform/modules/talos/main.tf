@@ -19,13 +19,16 @@ resource "proxmox_vm_qemu" "control_plane_node" {
   qemu_os = "l26" # Linux kernel type
   scsihw = "virtio-scsi-pci"
   memory = var.control_plane_node_memory
-  cpu = "kvm64"
-  cores = 2
-  sockets = 1
   args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2"
   onboot = true
   ipconfig0 = "[gw=192.168.0.1, ip=192.168.0.${ sum([190, count.index]) }/24]"
+  cpu {
+    type = "kvm64"
+    cores = 2
+    sockets = 1
+  }
   network {
+    id = 0
     model = "virtio"
     bridge = var.config_network_bridge
     #tag = var.config_vlan
@@ -65,9 +68,6 @@ resource "proxmox_vm_qemu" "worker_node" {
   qemu_os = "l26" # Linux kernel type
   scsihw = "virtio-scsi-pci"
   memory = var.worker_node_memory
-  cpu = "kvm64"
-  cores = var.worker_node_cpus
-  sockets = 1
   args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2"
   # CPU options are special for talos.  SCSI and drive options are to attach the CD drive to the worker VM.  `addr=0x6` because 6 was the first spare PCI address after doing guess-and-check.
   # The `/dev/sg` device number is very inconsistent, seems to need updating every restart.
@@ -75,7 +75,13 @@ resource "proxmox_vm_qemu" "worker_node" {
   #args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2 -device virtio-scsi-pci,id=scsi0,bus=pci.0,addr=0x6 -drive file=/dev/sg4,if=none,format=raw,id=drive-hostdev0,readonly=on -device scsi-generic,bus=scsi0.0,channel=0,scsi-id=0,lun=0,drive=drive-hostdev0,id=hostdev0"
   onboot = true
   ipconfig0 = "[gw=192.168.0.1, ip=192.168.0.${ sum([195, count.index]) }/24]"
+  cpu {
+    type = "kvm64"
+    cores = var.worker_node_cpus
+    sockets = 1
+  }
   network {
+    id = 0
     model = "virtio"
     bridge = var.config_network_bridge
     #tag = var.config_vlan
@@ -197,7 +203,7 @@ resource "talos_machine_bootstrap" "bootstrap" {
   node = var.control_plane_ip_start
 }
 
-resource "talos_cluster_kubeconfig" "main" {
+data "talos_cluster_kubeconfig" "main" {
   client_configuration = talos_machine_secrets.main.client_configuration
   node = var.control_plane_ip_start
 }

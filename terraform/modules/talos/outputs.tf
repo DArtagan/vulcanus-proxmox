@@ -22,6 +22,6 @@ output "talosconfig" {
 }
 
 output "kubeconfig" {
-  value = resource.talos_cluster_kubeconfig.main.kubeconfig_raw
+  value = data.talos_cluster_kubeconfig.main.kubeconfig_raw
   sensitive = true
 }
