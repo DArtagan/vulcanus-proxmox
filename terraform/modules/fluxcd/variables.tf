@@ -24,12 +24,6 @@ variable "kubeconfig_path" {
   description = "Filepath to the kubeconfig."
 }
 
-variable "github_token" {
-  type = string
-  sensitive = true
-  description = "Github Personal Access Token for flux to run using."
-}
-
 variable "commit_author" {
   type = string
   description = "Name of the person associated with that Github token."

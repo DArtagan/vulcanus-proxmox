@@ -221,7 +221,6 @@ module "fluxcd" {
   commit_author = var.commit_author
   commit_email = var.commit_email
   github_owner = "dartagan"
-  github_token = var.github_token
   kubeconfig_path = local_sensitive_file.kubeconfig.filename
   repository_name = data.github_repository.main.name
   target_path = "kubernetes/cluster"
