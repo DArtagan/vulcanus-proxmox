@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: app
-          image: syncthing/syncthing:2.0.10 # {"$imagepolicy": "apps:syncthing"}
+          image: syncthing/syncthing:2.0.11 # {"$imagepolicy": "apps:syncthing"}
           command: ["/bin/syncthing"]
           ports:
             - containerPort: 8384
