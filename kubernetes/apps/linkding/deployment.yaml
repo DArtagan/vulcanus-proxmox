@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: linkding
-          image: sissbruecker/linkding:1.44.1-plus # {"$imagepolicy": "apps:linkding"}
+          image: sissbruecker/linkding:1.44.2-plus # {"$imagepolicy": "apps:linkding"}
           env:
             - name: LD_SUPERUSER_NAME
               valueFrom:
