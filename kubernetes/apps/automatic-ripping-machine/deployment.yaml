@@ -35,7 +35,7 @@ spec:
             - containerPort: 8080
           resources:
             limits:
-              squat.ai/cdrom: 2
+              squat.ai/cdrom: 1
               cpu: 6000m
               memory: 12Gi
             requests:
