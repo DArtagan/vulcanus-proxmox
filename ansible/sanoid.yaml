@@ -10,7 +10,7 @@
       - lzop
       - mbuffer
       - build-essential
-    sanoid_repo: https://github.com/jimsalterjrs/sanoid.git 
+    sanoid_repo: https://github.com/jimsalterjrs/sanoid.git
 
   tasks:
     - name: 'install dependencies'
@@ -20,30 +20,30 @@
     - name: 'get latest version tag'
       shell: 'git -c "versionsort.suffix=v" ls-remote --exit-code --refs --sort="version:refname" --tags {{ sanoid_repo }} | grep "refs/tags/v" | tail -n 1 | cut --delimiter="/" --fields=3 | sed "s/^.//"'
       args:
-        chdir: "{{ ansible_env.HOME }}/sanoid"
+        chdir: "{{ ansible_facts['user_dir'] }}/sanoid"
       register: sanoid_latest_version
-    
+
     - name: 'clone repo'
       ansible.builtin.git:
         repo: "{{ sanoid_repo }}"
-        dest: "{{ ansible_env.HOME }}/sanoid"
+        dest: "{{ ansible_facts['user_dir'] }}/sanoid"
         version: "v{{ sanoid_latest_version.stdout }}"
 
     - name: 'create symlink to packages'
       ansible.builtin.file:
-        src: "{{ ansible_env.HOME }}/sanoid/packages/debian"
-        dest: "{{ ansible_env.HOME }}/sanoid/debian"
+        src: "{{ ansible_facts['user_dir'] }}/sanoid/packages/debian"
+        dest: "{{ ansible_facts['user_dir'] }}/sanoid/debian"
         state: link
-    
+
     - name: 'build the package'
       command: 'dpkg-buildpackage -uc -us'
       args:
-        chdir: "{{ ansible_env.HOME }}/sanoid"
-    
+        chdir: "{{ ansible_facts['user_dir'] }}/sanoid"
+
     - name: 'install sanoid'
       apt:
-        deb: "{{ ansible_env.HOME }}/sanoid_{{ sanoid_latest_version.stdout }}_all.deb"
-    
+        deb: "{{ ansible_facts['user_dir'] }}/sanoid_{{ sanoid_latest_version.stdout }}_all.deb"
+
     - name: 'sanoid config'
       template:
         dest: /etc/sanoid/sanoid.conf
@@ -57,4 +57,24 @@
         name: sanoid.timer
         enabled: yes
         state: started
-      
+
+    - name: create foreign-backups group
+      ansible.builtin.user:
+        name: "foreign-backups"
+        create_home: false
+
+    - name: create mini-nas user
+      ansible.builtin.user:
+        name: "mini-nas"
+        group: "foreign-backups"
+
+    - ansible.posix.authorized_key:
+        key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIARptJrgx9I0AFfD9l7rkztzhDZI6bSWhITJBGXQcvQ6 sanoid@mini-nas
+        user: mini-nas
+
+    - name: Grant `zfs hold,send` to user `mini-nas`
+      community.general.zfs_delegate_admin:
+        name: rpool
+        descendents: true
+        users: mini-nas
+        permissions: hold,send

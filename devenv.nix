@@ -35,6 +35,7 @@
     nixfmt-rfc-style.enable = true;
     shellcheck.enable = true;
     statix.enable = true;
+    tflint.enable = true;
     trim-trailing-whitespace.enable = true;
   };
 }
