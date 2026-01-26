@@ -159,6 +159,16 @@ realtime =none                   extsz=4096   blocks=0, rtextents=0
 data blocks changed from 134217216 to 268435195
 ```
 
+### Ansible connection fails with `Failed to connect to the host via ssh: ssh_askpass: exec(): No such file or directory
+`
+
+Ansible can't handle asking about SSH keys with passphrases, so we need to use an ssh-agent instead.  Made more difficult if running in `fish` shell:
+```
+eval (ssh-agent -c)
+ssh-add ~/.ssh/id_ed25519
+ansible-playbook wireguard.yaml
+```
+
 ## References
 * https://www.nathancurry.com/blog/14-ansible-deployment-with-proxmox/
 * Replacing a ZFS Proxmox boot disk: http://r00t.dk/post/2022/05/02/proxmox-ve-7-replace-zfs-boot-disk/
