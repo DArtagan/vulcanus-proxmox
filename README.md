@@ -7,7 +7,6 @@ DOMAIN=example.com
 PUBLIC_KEY=ssh-ed25519 asdfasdfasdfasdfasdf willam@example.com
 PROXMOX_API_USER=proxmox_api_user@pam
 PROXMOX_API_PASSWORD=password
-WIREGUARD_PEER_PUBLIC_KEY=ASDFSADFSADFASDFASDF
 
 
 ## Principles

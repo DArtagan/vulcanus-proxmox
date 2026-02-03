@@ -11,9 +11,9 @@ PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACC
 PublicKey = 6k0dNktsh+bdsGtXT0s8YIeCdg66ZbA9mAMcdoqueRU=
 AllowedIPs = 10.0.1.10
 
-# nix-steamdeck
+# steamdeck
 [Peer]
-PublicKey = {{ lookup('env', 'WIREGUARD_STEAM_DECK_PUBLIC_KEY') }}
+PublicKey = trgoegJeue2MtijqTtUieNFwDM7jDVNDChcTtTIm9Ug=
 AllowedIPs = 10.0.1.11
 
 # the-guide
