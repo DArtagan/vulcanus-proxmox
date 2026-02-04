@@ -7,7 +7,6 @@ DOMAIN=example.com
 PUBLIC_KEY=ssh-ed25519 asdfasdfasdfasdfasdf willam@example.com
 PROXMOX_API_USER=proxmox_api_user@pam
 PROXMOX_API_PASSWORD=password
-WIREGUARD_PEER_PUBLIC_KEY=ASDFSADFSADFASDFASDF
 
 
 ## Principles
@@ -115,7 +114,7 @@ In the arguments for the talos-worker VM is a virtual SCSI that expects a cdrom 
 
 ### Mumble is failing to start, plex is kinda unreachable
 
-Especially if Mumble's logs say that it can't write to the dataabase, this is likely a sign that that the VM disk is full.  Increase its size.
+Especially if Mumble's logs say that it can't write to the database, this is likely a sign that that the VM disk is full.  Increase its size.
 
 ### Proxmox Backup Manager (PBM) out of disk space
 
