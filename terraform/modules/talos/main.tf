@@ -21,6 +21,11 @@ resource "proxmox_vm_qemu" "control_plane_node" {
   memory = var.control_plane_node_memory
   args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2"
   start_at_node_boot = true
+  startup_shutdown {
+    order = -1
+    shutdown_timeout = -1
+    startup_delay = -1
+  }
   ipconfig0 = "[gw=192.168.0.1, ip=192.168.0.${ sum([190, count.index]) }/24]"
   cpu {
     type = "kvm64"
@@ -68,19 +73,21 @@ resource "proxmox_vm_qemu" "worker_node" {
   qemu_os = "l26" # Linux kernel type
   scsihw = "virtio-scsi-pci"
   memory = var.worker_node_memory
-  #args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2"
   # CPU options are special for talos.  SCSI and drive options are to attach the CD drive to the worker VM.  `addr=0x6` because 6 was the first spare PCI address after doing guess-and-check.
   # The `/dev/sg` device number is very inconsistent, seems to need updating every restart.
-  # TODO: But then it started trying to "import pool 'rpool'", which means somehow the real hard drives... or maybe the raid card was getting passed through.  So I reverted to the simpler args set above
+  # The `/dev/sg` device number can be found using `sg_map -sr` on the host.
   args = join(" ", [
     "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2",
-    ##"-device pcie-root-port,bus=pcie.1,id=rp1",
-    #"-device virtio-scsi-pci,id=scsi0,bus=pci.1",
-    #"-drive file=/dev/sg0,if=none,media=cdrom,format=raw,id=drive-hostdev0,readonly=on",
-    #"-device scsi-generic,bus=scsi0.0,channel=0,scsi-id=0,lun=0,drive=drive-hostdev0,id=hostdev0",
+    "-device virtio-scsi-pci,id=scsi1,bus=pci.0",
+    "-drive file=/dev/sg3,if=none,media=cdrom,format=raw,id=drive-hostdev0,readonly=on",
+    "-device scsi-generic,bus=scsi1.0,channel=0,scsi-id=0,lun=0,drive=drive-hostdev0,id=hostdev0",
   ])
-  #args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2 -device virtio-scsi-pci,id=scsi0,bus=pci.0,addr=0x6 -drive file=/dev/sg4,if=none,format=raw,id=drive-hostdev0,readonly=on -device scsi-generic,bus=scsi0.0,channel=0,scsi-id=0,lun=0,drive=drive-hostdev0,id=hostdev0"
   start_at_node_boot = true
+  startup_shutdown {
+    order = -1
+    shutdown_timeout = -1
+    startup_delay = -1
+  }
   ipconfig0 = "[gw=192.168.0.1, ip=192.168.0.${ sum([195, count.index]) }/24]"
   cpu {
     type = "kvm64"

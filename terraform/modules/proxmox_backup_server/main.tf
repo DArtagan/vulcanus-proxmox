@@ -27,6 +27,11 @@ resource "proxmox_vm_qemu" "proxmox-backup-server" {
   scsihw = "virtio-scsi-pci"
   memory = var.memory
   start_at_node_boot = true
+  startup_shutdown {
+    order = -1
+    shutdown_timeout = -1
+    startup_delay = -1
+  }
   ipconfig0 = "[gw=192.168.0.1, ip=192.168.0.107/24]"
   cpu {
     type = "kvm64"
