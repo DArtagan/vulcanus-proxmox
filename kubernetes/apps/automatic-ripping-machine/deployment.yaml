@@ -31,11 +31,6 @@ spec:
       containers:
         - name: automatic-ripping-machine
           image: automaticrippingmachine/automatic-ripping-machine:2.21.1 # {"$imagepolicy": "apps:automatic-ripping-machine"}
-          #env:
-          #  - name: ARM_UID
-          #    value: "0"
-          #  - name: ARM_GID
-          #    value: "0"
           env:
             - name: ARM_UID
               value: "0"
@@ -58,7 +53,7 @@ spec:
             # 'config-data` is the properly parsed source, also mount the plain `config` volume so that the pod restarts when it's updated
             - mountPath: /tmp/config
               name: config
-            #- mountPath: /lib/udev/rules.d/51-docker-arm.rules
+            - mountPath: /lib/udev/rules.d/51-docker-arm.rules
               name: init-scripts
               subPath: 51-docker-arm.rules
             - mountPath: /etc/service/armui/run
