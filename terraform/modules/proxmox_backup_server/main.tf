@@ -2,6 +2,7 @@
 # Then complete configuration at the web GUI at https://192.168.0.107:8007/
 
 terraform {
+  required_version = ">= 0.13"
   required_providers {
     proxmox = {
       source = "telmate/proxmox"
@@ -25,7 +26,7 @@ resource "proxmox_vm_qemu" "proxmox-backup-server" {
   qemu_os = "l26" # Linux kernel type
   scsihw = "virtio-scsi-pci"
   memory = var.memory
-  onboot = true
+  start_at_node_boot = true
   ipconfig0 = "[gw=192.168.0.1, ip=192.168.0.107/24]"
   cpu {
     type = "kvm64"

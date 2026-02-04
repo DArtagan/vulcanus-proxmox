@@ -2,19 +2,19 @@ terraform {
   required_providers {
     flux = {
       source = "fluxcd/flux"
-      version = "1.7.4"
+      version = "1.7.6"
     }
     github = {
       source = "integrations/github"
-      version = "6.7.5"
+      version = "6.10.1"
     }
     proxmox = {
       source = "telmate/proxmox"
-      version = "3.0.2-rc05"
+      version = "3.0.2-rc07"
     }
     talos = {
       source = "siderolabs/talos"
-      version = "0.9.0"
+      version = "0.10.0"
     }
     tls = {
       source = "hashicorp/tls"
@@ -202,7 +202,7 @@ module "talos" {
   worker_ip_start = "192.168.0.195"
 
   # ISO first used to create the cluster. From here on out, use `talosctl upgrade`.
-  iso_image_location = "local:iso/talos-1.2.6-amd64.iso"
+  iso_image_location = "local:iso/talos_1.12.1.iso"
 }
 
 resource "local_sensitive_file" "kubeconfig" {
@@ -224,4 +224,67 @@ module "fluxcd" {
   kubeconfig_path = local_sensitive_file.kubeconfig.filename
   repository_name = data.github_repository.main.name
   target_path = "kubernetes/cluster"
+}
+
+resource "proxmox_vm_qemu" "cdrom_test" {
+  count = 1
+  name = "cdrom-test"
+  target_node = "vulcanus"
+  vmid = 200
+  qemu_os = "l26" # Linux kernel type
+  bios = "ovmf"
+  scsihw = "virtio-scsi-pci"
+  memory = 4096
+  #args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2"
+  # CPU options are special for talos.  SCSI and drive options are to attach the CD drive to the worker VM.  `addr=0x6` because 6 was the first spare PCI address after doing guess-and-check.
+  # The `/dev/sg` device number is very inconsistent, seems to need updating every restart.
+  # TODO: But then it started trying to "import pool 'rpool'", which means somehow the real hard drives... or maybe the raid card was getting passed through.  So I reverted to the simpler args set above
+  args = join(" ", [
+    "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2",
+    #"-device pcie-root-port,bus=pcie.1,id=rp1",
+    "-device virtio-scsi-pci,id=scsi0,bus=pci.1",
+    "-drive file=/dev/sg0,if=none,media=cdrom,format=raw,id=drive-hostdev0,readonly=on",
+    "-device scsi-generic,bus=scsi0.0,channel=0,scsi-id=0,lun=0,drive=drive-hostdev0,id=hostdev0",
+  ])
+  #args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2 -device virtio-scsi-pci,id=scsi0,bus=pci.0,addr=0x6 -drive file=/dev/sg4,if=none,format=raw,id=drive-hostdev0,readonly=on -device scsi-generic,bus=scsi0.0,channel=0,scsi-id=0,lun=0,drive=drive-hostdev0,id=hostdev0"
+  #boot = "order=scsi1"
+  start_at_node_boot = false
+  startup_shutdown {
+    order = -1
+    shutdown_timeout = -1
+    startup_delay = -1
+  }
+  ipconfig0 = "[gw=192.168.0.1, ip=192.168.0.118/24]"
+  cpu {
+    type = "kvm64"
+    cores = 2
+    sockets = 1
+  }
+  network {
+    id = 0
+    model = "virtio"
+    bridge = "vmbr0"
+  }
+  efidisk {
+    efitype = "4m"
+    storage = "local-zfs"
+  }
+  disks {
+    #ide {
+    #  ide2 {
+    #    cdrom {
+    #      iso = "local:iso/debian-13.3.0-amd64-netinst.iso"
+    #    }
+    #  }
+    #}
+    virtio {
+      virtio0 {
+        disk {
+          size = "10G"
+          storage = "local-zfs"
+          backup = true
+        }
+      }
+    }
+  }
 }

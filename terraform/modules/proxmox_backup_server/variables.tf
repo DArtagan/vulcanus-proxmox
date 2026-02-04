@@ -20,7 +20,7 @@ variable "boot_disk_storage_pool" {
 variable "boot_disk_size" {
     description = "The size of the boot disks. A numeric string with G, M, or K appended ex: 512M or 32G."
     type = string
-    default = "10G"
+    default = "20G"
 }
 
 variable "backup_disk_storage_pool" {
