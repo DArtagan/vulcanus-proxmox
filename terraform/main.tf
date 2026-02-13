@@ -272,7 +272,8 @@ resource "proxmox_vm_qemu" "cdrom_test" {
     #ide {
     #  ide2 {
     #    cdrom {
-    #      iso = "local:iso/debian-13.3.0-amd64-netinst.iso"
+    #      #iso = "local:iso/debian-13.3.0-amd64-netinst.iso"
+    #      passthrough = true
     #    }
     #  }
     #}

@@ -7,6 +7,7 @@ terraform {
     }
     talos = {
       source = "siderolabs/talos"
+      version = ">=0.10.0"
     }
   }
 }
@@ -73,7 +74,7 @@ resource "proxmox_vm_qemu" "worker_node" {
   qemu_os = "l26" # Linux kernel type
   scsihw = "virtio-scsi-pci"
   memory = var.worker_node_memory
-  # CPU options are special for talos.  SCSI and drive options are to attach the CD drive to the worker VM.  `addr=0x6` because 6 was the first spare PCI address after doing guess-and-check.
+  # CPU options are special for talos.  SCSI and drive options are to attach the CD drive to the worker VM.
   # The `/dev/sg` device number is very inconsistent, seems to need updating every restart.
   # The `/dev/sg` device number can be found using `sg_map -sr` on the host.
   args = join(" ", [
