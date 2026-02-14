@@ -21,6 +21,7 @@ resource "proxmox_vm_qemu" "control_plane_node" {
   scsihw = "virtio-scsi-pci"
   memory = var.control_plane_node_memory
   args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2"
+  agent = 1
   start_at_node_boot = true
   startup_shutdown {
     order = -1
@@ -76,13 +77,14 @@ resource "proxmox_vm_qemu" "worker_node" {
   memory = var.worker_node_memory
   # CPU options are special for talos.  SCSI and drive options are to attach the CD drive to the worker VM.
   # The `/dev/sg` device number is very inconsistent, seems to need updating every restart.
-  # The `/dev/sg` device number can be found using `sg_map -sr` on the host.
+  # The `/dev/sg` device number can be found using `sg_map -sr` on the host (may also need `lsblk` to identify which sr to use).
   args = join(" ", [
     "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2",
     "-device virtio-scsi-pci,id=scsi1,bus=pci.0",
     "-drive file=/dev/sg3,if=none,media=cdrom,format=raw,id=drive-hostdev0,readonly=on",
     "-device scsi-generic,bus=scsi1.0,channel=0,scsi-id=0,lun=0,drive=drive-hostdev0,id=hostdev0",
   ])
+  agent = 1
   start_at_node_boot = true
   startup_shutdown {
     order = -1

@@ -103,11 +103,6 @@ Follow the guide at [docs/disk_management.md](docs/disk_management.md)
 
 ## Troubleshooting
 
-### talos-worker VM doesn't start, sits on booting HDD screen
-
-In the arguments for the talos-worker VM is a virtual SCSI that expects a cdrom drive to be connected to the host.  No cdrom drive, no launch.
-
-
 ### Plex is failing to start
 
 `kubectl exec` into the Plex container and see if the file `/config/Library/Application\ Support/Plex\ Media\ Server/Preferences.xml` is empty.  If so, delete it and then recreate the pod.  Then launching Plex in a browser might not work, because it hasn't been locally claimed.  To claim it locally do a `kubectl port-forward -n apps plex-blahblah-blah 32400:32400` (with the proper pod name) to forward its local port to your machine, and then visit `http://localhost:32400/web/index.html` in your browser (yes the full URL is important).
@@ -128,38 +123,7 @@ Especially if Mumble's logs say that it can't write to the database, this is lik
 8. `partprobe /dev/vdb`
 9. `resize2fs /dev/vdb1`
 
-### Grow Talos volume
-1. Create debug namespace: `kubectl create ns debug`
-2. Allow pod in created namespace to mount the host: `kubectl label ns debug pod-security.kubernetes.io/enforce=privileged`
-3. Create the debug pod: `kubectl debug node/piraeus-worker -it --image ubuntu --profile=sysadmin -n debug`
-4. Now inside the debug pod: `apt-get update && apt-get install xfsprogs parted`
-5. `parted`
-6. Select the correct device: `select /dev/sdb`
-7. # parted should warn that not all the space is used, type "Fix" and enter: `Fix`
-8. Resize the partition: `resizepart 1 100%`
-9. Exit parted: `quit`
-10. `xfs_growfs -d /host/var/openebs`
-11. You're all in the pod: `exit`
-12. `kubectl delete ns/debug`
-
-The grow command should look like:
-```
-root@piraeus-worker-0:/# xfs_growfs -d /host/var/openebs
-meta-data=/dev/vdb1              isize=512    agcount=9, agsize=16777088 blks
-         =                       sectsz=512   attr=2, projid32bit=1
-         =                       crc=1        finobt=1, sparse=1, rmapbt=0
-         =                       reflink=1    bigtime=1 inobtcount=0 nrext64=0
-data     =                       bsize=4096   blocks=134217216, imaxpct=25
-         =                       sunit=0      swidth=0 blks
-naming   =version 2              bsize=4096   ascii-ci=0, ftype=1
-log      =internal log           bsize=4096   blocks=32767, version=2
-         =                       sectsz=512   sunit=0 blks, lazy-count=1
-realtime =none                   extsz=4096   blocks=0, rtextents=0
-data blocks changed from 134217216 to 268435195
-```
-
 ### Ansible connection fails with `Failed to connect to the host via ssh: ssh_askpass: exec(): No such file or directory
-`
 
 Ansible can't handle asking about SSH keys with passphrases, so we need to use an ssh-agent instead.  Made more difficult if running in `fish` shell:
 ```
@@ -171,4 +135,3 @@ ansible-playbook wireguard.yaml
 ## References
 * https://www.nathancurry.com/blog/14-ansible-deployment-with-proxmox/
 * Replacing a ZFS Proxmox boot disk: http://r00t.dk/post/2022/05/02/proxmox-ve-7-replace-zfs-boot-disk/
-* Grow Talos volume: https://www.agos.one/resize-additional-disks-in-siderolabs-talos-linux/
