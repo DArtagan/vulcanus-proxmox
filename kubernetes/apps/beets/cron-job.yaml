@@ -13,7 +13,7 @@ spec:
         spec:
           containers:
             - name: beets-import
-              image: linuxserver/beets:2.6.1 # {"$imagepolicy": "apps:beets"}
+              image: linuxserver/beets:2.6.2 # {"$imagepolicy": "apps:beets"}
               command: ["beet"]
               args:
                 - import
