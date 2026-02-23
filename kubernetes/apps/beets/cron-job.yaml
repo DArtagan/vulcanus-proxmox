@@ -24,8 +24,8 @@ spec:
               env:
                 - name: DOCKER_MODS
                   value: linuxserver/mods:universal-package-install
-                  #- name: INSTALL_PIP_PACKAGES
-                  #  values: 
+                - name: INSTALL_PIP_PACKAGES
+                  values: librosa
               volumeMounts:
                 - name: config-volume
                   mountPath: /config/
