@@ -22,11 +22,10 @@ spec:
                 - /media/audio/import/import.log
                 - /media/audio/import
               env:
-                # Pip install doesn't seem to work, maybe because need --break-system-packages
-                #- name: DOCKER_MODS
-                #  value: linuxserver/mods:universal-package-install
-                #- name: INSTALL_PIP_PACKAGES
-                #  values: librosa
+                - name: DOCKER_MODS
+                  value: linuxserver/mods:universal-package-install
+                - name: INSTALL_PIP_PACKAGES
+                  value: librosa
               volumeMounts:
                 - name: config-volume
                   mountPath: /config/
