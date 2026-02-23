@@ -21,11 +21,11 @@ spec:
                 - -l
                 - /media/audio/import/import.log
                 - /media/audio/import
-              env:
-                - name: DOCKER_MODS
-                  value: linuxserver/mods:universal-package-install
-                - name: INSTALL_PIP_PACKAGES
-                  value: librosa
+              #env:
+              #  - name: DOCKER_MODS
+              #    value: linuxserver/mods:universal-package-install
+              #  - name: INSTALL_PIP_PACKAGES
+              #    value: librosa
               volumeMounts:
                 - name: config-volume
                   mountPath: /config/
