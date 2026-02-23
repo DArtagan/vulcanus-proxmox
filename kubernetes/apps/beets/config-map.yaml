@@ -19,7 +19,6 @@ data:
       move: yes
     clutter: ["*.cue", "*.log", "*.m3u", "cover.jpg"]
     plugins:
-      - autobpm
       - duplicates
       - fetchart
       - fromfilename
