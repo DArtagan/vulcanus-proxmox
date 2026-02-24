@@ -24,6 +24,9 @@ spec:
               readOnly: true
             - mountPath: /var/lib/headplane
               name: data
+            - mountPath: /secrets
+              name: secrets
+              readOnly: true
       volumes:
         - name: config
           configMap:
@@ -31,3 +34,6 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: headplane-data-pvc
+        - name: secrets
+          secret:
+            secretName: headplane-secrets
