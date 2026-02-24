@@ -20,7 +20,7 @@ spec:
           service:
             name: headscale
             port:
-              number: 8080
+              name: headscale
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -45,7 +45,7 @@ spec:
           service:
             name: headscale
             port:
-              number: 8080
+              name: headscale
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -70,4 +70,4 @@ spec:
           service:
             name: headscale
             port:
-              number: 3000
+              name: headplane
