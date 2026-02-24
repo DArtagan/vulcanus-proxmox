@@ -1,7 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - config-map.yaml
+  - headscale-config-map.yaml
+  - headplane-config-map.yaml
+  - headplane-secrets.yaml
   - data-pvc.yaml
   - deployment.yaml
   - image.yaml

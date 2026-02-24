@@ -6,5 +6,9 @@ spec:
   selector:
     app: headscale
   ports:
+    # Headscale
     - protocol: TCP
       port: 8080
+    # Headplane
+    - protocol: TCP
+      port: 3000

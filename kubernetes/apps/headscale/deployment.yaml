@@ -21,14 +21,36 @@ spec:
             - containerPort: 8080
           volumeMounts:
             - mountPath: /etc/headscale
-              name: config
+              name: headscale-config
               readOnly: true
             - mountPath: /var/lib/headscale
-              name: data
+              name: headscale-data
+        - name: headplane
+          image: ghcr.io/tale/headplane:0.6.1 # {"$imagepolicy": "apps:headplane"}
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+            - mountPath: /etc/headplane
+              name: headplane-config
+              readOnly: true
+            - mountPath: /var/lib/headplane
+              name: headplane-data
+            - mountPath: /secrets
+              name: headplane-secrets
+              readOnly: true
       volumes:
-        - name: config
+        - name: headscale-config
           configMap:
             name: headscale
-        - name: data
+        - name: headscale-data
           persistentVolumeClaim:
             claimName: headscale-data-pvc
+        - name: headplane-config
+          configMap:
+            name: headplane
+        - name: headplane-data
+          persistentVolumeClaim:
+            claimName: headplane-data-pvc
+        - name: headplane-secrets
+          secret:
+            secretName: headplane-secrets
