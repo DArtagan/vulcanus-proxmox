@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: headplane
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: ingress-nginx-internal
+  tls:
+    - hosts:
+        - headplane.immortalkeep.com
+      secretName: headplane-ingress-tls
+  rules:
+  - host: headplane.immortalkeep.com
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: headplane
+            port:
+              number: 3000

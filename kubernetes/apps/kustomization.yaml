@@ -13,6 +13,7 @@ resources:
   - dnsomatic
   - filebot
   - games-pvc.yaml
+  - headplane
   - headscale
   - homepage
   - image-update-automation.yaml

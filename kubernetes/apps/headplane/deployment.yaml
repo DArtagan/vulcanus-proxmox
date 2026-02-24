@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: headplane
+  labels:
+    app: headplane
+spec:
+  selector:
+    matchLabels:
+      app: headplane
+  template:
+    metadata:
+      labels:
+        app: headplane
+    spec:
+      containers:
+        - name: headplane
+          image: ghcr.io/tale/headplane:0.6.1 # {"$imagepolicy": "apps:headplane"}
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+            - mountPath: /etc/headplane
+              name: config
+              readOnly: true
+            - mountPath: /var/lib/headplane
+              name: data
+      volumes:
+        - name: config
+          configMap:
+            name: headplane
+        - name: data
+          persistentVolumeClaim:
+            claimName: headplane-data-pvc
