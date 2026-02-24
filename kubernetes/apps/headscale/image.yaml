@@ -46,4 +46,4 @@ spec:
     extract: '$version'
   policy:
     semver:
-      range: '^0.6.2'
+      range: '^0.6.1'

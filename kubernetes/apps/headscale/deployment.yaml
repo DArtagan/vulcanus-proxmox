@@ -28,7 +28,8 @@ spec:
             - mountPath: /var/lib/headscale
               name: headscale-data
         - name: headplane
-          image: ghcr.io/tale/headplane:0.6.1 # {"$imagepolicy": "apps:headplane"}
+          image: ghcr.io/tale/headplane:0.6.2-beta.5
+          #image: ghcr.io/tale/headplane:0.6.2 # {"$imagepolicy": "apps:headplane"}
           env:
             - name: HEADPLANE_LOAD_ENV_OVERRIDES
               value: "true"
