@@ -27,6 +27,13 @@ spec:
               name: headscale-data
         - name: headplane
           image: ghcr.io/tale/headplane:0.6.1 # {"$imagepolicy": "apps:headplane"}
+          env:
+            - name: HEADPLANE_LOAD_ENV_OVERRIDES
+              value: true
+            - name: HEADPLANE_INTEGRATION__KUBERNETES__POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           ports:
             - containerPort: 3000
           volumeMounts:
