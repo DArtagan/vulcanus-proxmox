@@ -22,4 +22,5 @@ roleRef:
     name: headplane-agent
 subjects:
 - kind: ServiceAccount
-  name: default # If you use a different service account, change this
+  name: default
+  namespace: apps

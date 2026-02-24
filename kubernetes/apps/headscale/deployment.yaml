@@ -38,6 +38,9 @@ spec:
             - mountPath: /secrets
               name: headplane-secrets
               readOnly: true
+            - mountPath: /etc/headscale
+              name: headscale-config
+              readOnly: true
       volumes:
         - name: headscale-config
           configMap:
