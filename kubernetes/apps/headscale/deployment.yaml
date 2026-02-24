@@ -13,6 +13,8 @@ spec:
       labels:
         app: headscale
     spec:
+      shareProcessNamespace: true
+      serviceAccountName: default
       containers:
         - name: headscale
           image: headscale/headscale:v0.28.0 # {"$imagepolicy": "apps:headscale"}
