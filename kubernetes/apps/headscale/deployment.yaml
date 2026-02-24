@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: headscale
-          image: headscale/headscale:v0.23.0 # {"$imagepolicy": "apps:headscale"}
+          image: headscale/headscale:v0.28.0 # {"$imagepolicy": "apps:headscale"}
           command: ["headscale", "serve"]
           ports:
             - containerPort: 8080
@@ -25,6 +25,9 @@ spec:
               readOnly: true
             - mountPath: /var/lib/headscale
               name: data
+            - mountPath: /secrets
+              name: secrets
+              readOnly: true
       volumes:
         - name: config
           configMap:
@@ -32,3 +35,6 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: headscale-data-pvc
+        - name: secrets
+          secret:
+            secretName: headplane-secrets
