@@ -1,0 +1,25 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: headplane-agent
+rules:
+- apiGroups: ['']
+  resources: ['pods']
+  verbs: ['get', 'list']
+- apiGroups: ['apps']
+  resources: ['deployments']
+  verbs: ['get', 'list']
+
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: headplane-agent
+roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: Role
+    name: headplane-agent
+subjects:
+- kind: ServiceAccount
+  name: default # If you use a different service account, change this

@@ -8,4 +8,5 @@ resources:
   - deployment.yaml
   - image.yaml
   - ingress.yaml
+  - rbac.yaml
   - service.yaml
