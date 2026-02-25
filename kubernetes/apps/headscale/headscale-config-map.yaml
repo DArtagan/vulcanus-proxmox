@@ -221,6 +221,8 @@ data:
       # `hostname.base_domain` (e.g., _myhost.example.com_).
       base_domain: forge.local
 
+      override_local_dns: true
+
       # List of DNS servers to expose to clients.
       nameservers:
         global:
