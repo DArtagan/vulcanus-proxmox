@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trello-randomizer
+  labels:
+    app: trello-randomizer
+spec:
+  selector:
+    matchLabels:
+      app: trello-randomizer
+  template:
+    metadata:
+      labels:
+        app: trello-randomizer
+    spec:
+      containers:
+        - name: trello-randomizer
+          image: ghcr.io/dartagan/trello-randomizer:20260329050389 # {"$imagepolicy": "apps:trello-randomizer"}
+          env:
+            - name: TRELLO_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: trello-randomizer
+                  key: TRELLO_API_KEY
+            - name: TRELLO_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: trello-randomizer
+                  key: TRELLO_TOKEN
+          ports:
+            - containerPort: 8080

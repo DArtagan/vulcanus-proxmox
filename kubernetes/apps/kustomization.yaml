@@ -33,5 +33,6 @@ resources:
   - syncthing
   - syncthing-pvc.yaml
   #- tinyproxy
+  - trello-randomizer
   - video-pvc.yaml
   - youtube-dl
