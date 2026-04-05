@@ -16,6 +16,9 @@ spec:
       containers:
         - name: dnsomatic
           image: ammmze/dns-o-matic
+          env:
+            - name: DELAY
+              value: "5m"
           envFrom:
             - secretRef:
                 name: dnsomatic-credentials
