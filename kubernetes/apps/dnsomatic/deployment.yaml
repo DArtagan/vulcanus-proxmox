@@ -19,6 +19,8 @@ spec:
           env:
             - name: DELAY
               value: "5m"
+            - name: IP_ADDR_PROVIDER
+              value: "https://api.ipify.org"
           envFrom:
             - secretRef:
                 name: dnsomatic-credentials
