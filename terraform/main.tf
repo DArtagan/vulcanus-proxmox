@@ -186,6 +186,7 @@ module "proxmox_backup_server" {
 module "talos_control_plane_0" {
   source = "./modules/proxmox_talos_vm"
   name = "talos-control-plane-0"
+  hostname = "piraeus-control-plane-0"
   vmid = 900
   target_node = var.proxmox_host_node
   memory = 3072
@@ -200,6 +201,7 @@ module "talos_control_plane_0" {
 module "talos_worker_0" {
   source = "./modules/proxmox_talos_vm"
   name = "talos-worker-0"
+  hostname = "piraeus-worker-0"
   vmid = 910
   target_node = var.proxmox_host_node
   memory = 24576

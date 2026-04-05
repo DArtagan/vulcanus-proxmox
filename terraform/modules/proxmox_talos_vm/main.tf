@@ -12,8 +12,14 @@ terraform {
 # --- Variables ---
 
 variable "name" {
-  description = "The name of the VM."
+  description = "The name of the VM in Proxmox."
   type = string
+}
+
+variable "hostname" {
+  description = "The Talos/Kubernetes hostname for this node. Defaults to the VM name if not set."
+  type = string
+  default = null
 }
 
 variable "vmid" {
@@ -120,6 +126,7 @@ variable "include_udev_workaround" {
 locals {
   talos_cpu_args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2"
   full_args = var.extra_args != "" ? "${local.talos_cpu_args} ${var.extra_args}" : local.talos_cpu_args
+  hostname = var.hostname != null ? var.hostname : var.name
 }
 
 resource "proxmox_vm_qemu" "main" {
@@ -187,7 +194,7 @@ resource "proxmox_vm_qemu" "main" {
 
 locals {
   base_patch = templatefile("${path.module}/templates/base-patch.yaml.tmpl", {
-    hostname = var.name
+    hostname = local.hostname
   })
 
   control_plane_patch = var.is_control_plane ? templatefile("${path.module}/templates/control-plane-patch.yaml.tmpl", {
