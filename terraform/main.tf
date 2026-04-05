@@ -183,26 +183,51 @@ module "proxmox_backup_server" {
 }
 
 
-module "talos" {
-  source = "./modules/talos"
-  proxmox_host_node = var.proxmox_host_node
-  #proxmox_api_url = var.proxmox_api_url
-  #proxmox_api_token_id = var.proxmox_api_token_id
-  #proxmox_api_token_secret = var.proxmox_api_token_secret
-  #proxmox_debug = true
-  control_plane_node_count = 1
-  worker_node_count = 1
-  worker_node_cpus = 8
-  worker_node_memory = 24576
-  worker_boot_disk_size = "100G"
-  openebs_disk_size = "1T"
-  cluster_name = "piraeus"
-  cluster_endpoint = "https://192.168.0.200:6443"
-  control_plane_ip_start = "192.168.0.190"
-  worker_ip_start = "192.168.0.195"
-
+module "talos_control_plane_0" {
+  source = "./modules/proxmox_talos_vm"
+  name = "talos-control-plane-0"
+  vmid = 900
+  target_node = var.proxmox_host_node
+  memory = 3072
+  cores = 2
+  ip_address = "192.168.0.190"
+  boot_disk_size = "10G"
+  is_control_plane = true
   # ISO first used to create the cluster. From here on out, use `talosctl upgrade`.
   iso_image_location = "local:iso/talos_1.12.1.iso"
+}
+
+module "talos_worker_0" {
+  source = "./modules/proxmox_talos_vm"
+  name = "talos-worker-0"
+  vmid = 910
+  target_node = var.proxmox_host_node
+  memory = 24576
+  cores = 8
+  ip_address = "192.168.0.195"
+  boot_disk_size = "100G"
+  include_udev_workaround = true
+  openebs_disk = {
+    size = "1T"
+  }
+}
+
+module "talos" {
+  source = "./modules/talos"
+  cluster_name = "piraeus"
+  cluster_endpoint = "https://192.168.0.200:6443"
+  control_plane_nodes = {
+    "piraeus-control-plane-0" = {
+      ip_address = module.talos_control_plane_0.ip_address
+      config_patches = module.talos_control_plane_0.config_patches
+    }
+  }
+  worker_nodes = {
+    "piraeus-worker-0" = {
+      ip_address = module.talos_worker_0.ip_address
+      config_patches = module.talos_worker_0.config_patches
+    }
+  }
 }
 
 resource "local_sensitive_file" "kubeconfig" {

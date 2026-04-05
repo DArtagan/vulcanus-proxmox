@@ -37,5 +37,20 @@
     statix.enable = true;
     tflint.enable = true;
     trim-trailing-whitespace.enable = true;
+    terraform-no-align-equals = {
+      enable = true;
+      name = "terraform-no-align-equals";
+      description = "Remove aligned equals signs from Terraform argument assignments";
+      entry = toString (
+        pkgs.writeShellScript "terraform-no-align-equals" ''
+          for file in "$@"; do
+            sed -i -E 's/^([[:space:]]+[a-zA-Z_][a-zA-Z0-9_-]*)[[:space:]]{2,}=[[:space:]]*/\1 = /g' "$file"
+          done
+        ''
+      );
+      files = "\\.tf$";
+      language = "system";
+      pass_filenames = true;
+    };
   };
 }

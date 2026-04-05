@@ -1,37 +1,5 @@
 machine:
-  install:
-    disk: /dev/vda
-  network:
-    hostname: ${hostname}
-  disks:
-    - device: /dev/vdb
-      partitions:
-        - mountpoint: /var/openebs
-
-  udev:
-    #rules:
-    #  - KERNEL=="sr0", ENV{UDISKS_IGNORE}=1
-    #  - KERNEL=="sr0", SYMLINK-="cdrom"
   files:
-    ## Clean
-    #- path: /lib/udev/rules.d/90-iocost.rules
-    #- path: /lib/udev/rules.d/60-block.rules
-    #- path: /lib/udev/rules.d/66-azure.rules
-    #
-    #- path: /usr/local/lib/modprobe.d/cdrom.conf
-    #  permissions: 0o644
-    #  op: create
-    #  content: |
-    #    install cdrom /bin/true
-    #- path: /lib/udev/rules.d/60-cdrom_id.rules
-    #  permissions: 0o644
-    #  op: create
-    #  content: |
-    #    ACTION=="remove", GOTO="cdrom_end"
-    #    SUBSYSTEM!="block", GOTO="cdrom_end"
-    #    KERNEL!="sr[0-9]*|vdisk*|xvd*", GOTO="cdrom_end"
-    #    ENV{DEVTYPE}!="disk", GOTO="cdrom_end"
-    #    LABEL="cdrom_end"
     - path: /lib/udev/rules.d/60-persistent-storage.rules
       permissions: 0o644
       op: overwrite
