@@ -131,6 +131,7 @@ resource "proxmox_vm_qemu" "main" {
   memory = var.memory
   args = local.full_args
   agent = 1
+  skip_ipv6 = true
   start_at_node_boot = var.start_at_node_boot
   startup_shutdown {
     order = -1
