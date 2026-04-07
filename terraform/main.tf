@@ -187,6 +187,7 @@ module "talos_control_plane_0" {
   source = "./modules/proxmox_talos_vm"
   name = "talos-control-plane-0"
   hostname = "piraeus-control-plane-0"
+  uefi = false
   vmid = 900
   target_node = var.proxmox_host_node
   memory = 3072
@@ -202,6 +203,7 @@ module "talos_worker_0" {
   source = "./modules/proxmox_talos_vm"
   name = "talos-worker-0"
   hostname = "piraeus-worker-0"
+  uefi = false
   vmid = 910
   target_node = var.proxmox_host_node
   memory = 24576
@@ -211,6 +213,23 @@ module "talos_worker_0" {
   include_udev_workaround = true
   openebs_disk = {
     size = "1T"
+  }
+}
+
+module "talos_worker_1" {
+  source = "./modules/proxmox_talos_vm"
+  name = "talos-worker-1"
+  hostname = "piraeus-worker-1"
+  vmid = 911
+  target_node = var.proxmox_host_node
+  memory = 8192
+  cores = 4
+  ip_address = "192.168.0.196"
+  boot_disk_size = "100G"
+  uefi = true
+  include_udev_workaround = true
+  openebs_disk = {
+    size = "100G"
   }
 }
 
@@ -228,6 +247,10 @@ module "talos" {
     "piraeus-worker-0" = {
       ip_address = module.talos_worker_0.ip_address
       config_patches = module.talos_worker_0.config_patches
+    }
+    "piraeus-worker-1" = {
+      ip_address = module.talos_worker_1.ip_address
+      config_patches = module.talos_worker_1.config_patches
     }
   }
 }

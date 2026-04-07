@@ -120,6 +120,12 @@ variable "include_udev_workaround" {
   default = false
 }
 
+variable "uefi" {
+  description = "Use OVMF UEFI BIOS instead of SeaBIOS. Adds an EFI disk using the boot disk storage pool."
+  type = bool
+  default = true
+}
+
 
 # --- VM Resource ---
 
@@ -134,6 +140,7 @@ resource "proxmox_vm_qemu" "main" {
   target_node = var.target_node
   vmid = var.vmid
   qemu_os = "l26"
+  bios = var.uefi ? "ovmf" : "seabios"
   scsihw = "virtio-scsi-pci"
   memory = var.memory
   args = local.full_args
@@ -155,6 +162,13 @@ resource "proxmox_vm_qemu" "main" {
     id = 0
     model = "virtio"
     bridge = var.network_bridge
+  }
+  dynamic "efidisk" {
+    for_each = var.uefi ? [1] : []
+    content {
+      efitype = "4m"
+      storage = var.boot_disk_storage_pool
+    }
   }
   disks {
     dynamic "ide" {

@@ -1,5 +1,14 @@
 # Talos
 
+## Adding a New Node
+
+1. In `terraform/main.tf`, add a new `module "talos_worker_N"` block and a corresponding entry in the `talos` module's `worker_nodes` map. Run `tofu apply` — this creates the VM in Proxmox.
+2. In your router's DNS/DHCP settings, assign a static IP to the MAC address of the new VM, matching the IP specified in the Terraform config.
+3. Generate a Talos ISO from https://factory.talos.dev (bare-metal, amd64, with the extensions listed under Upgrade Talos below) and upload it to the `local` ISO repository on the Proxmox host.
+4. Mount that ISO to the new VM and start it. It will boot into Talos, join the Kubernetes cluster, and install itself to disk per the applied configuration.
+5. The next `tofu apply` will detect that the ISO is no longer needed and unmount it — this is expected and fine.
+
+
 ## Maintenance
 
 ### Upgrade Talos
