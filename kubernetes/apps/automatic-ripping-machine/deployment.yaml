@@ -1,6 +1,3 @@
-# Note: the pod generally needs to be manually terminated, to free up the
-# available "cdrom" resources for the new pod to be scheduled.  There might
-# be a way to tell fluxcd to kill first then launch, but I haven't found it
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -8,6 +5,13 @@ metadata:
   labels:
     app: automatic-ripping-machine
 spec:
+  # The container claims `squat.ai/cdrom: 1`, a node-level device resource with
+  # a count of 1.  With the default RollingUpdate strategy, Kubernetes tries to
+  # start the new pod before terminating the old one, but the new pod can never
+  # schedule because the old pod still holds the cdrom device.  Recreate forces
+  # the old pod to terminate first so the device is freed for the replacement.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: automatic-ripping-machine
