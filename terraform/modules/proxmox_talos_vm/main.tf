@@ -114,12 +114,6 @@ variable "openebs_disk" {
   default = null
 }
 
-variable "include_udev_workaround" {
-  description = "Include the persistent-storage udev rules workaround."
-  type = bool
-  default = false
-}
-
 variable "uefi" {
   description = "Use OVMF UEFI BIOS instead of SeaBIOS. Adds an EFI disk using the boot disk storage pool."
   type = bool
@@ -236,14 +230,11 @@ locals {
 
   openebs_kubelet_patch = var.openebs_disk != null ? file("${path.module}/files/openebs-kubelet-patch.json") : null
 
-  udev_patch = var.include_udev_workaround ? file("${path.module}/files/udev-persistent-storage-patch.yaml") : null
-
   config_patches = compact([
     local.base_patch,
     local.control_plane_patch,
     local.openebs_disk_patch,
     local.openebs_kubelet_patch,
-    local.udev_patch,
   ])
 }
 

@@ -210,7 +210,6 @@ module "talos_worker_0" {
   cores = 8
   ip_address = "192.168.0.195"
   boot_disk_size = "100G"
-  include_udev_workaround = true
   openebs_disk = {
     size = "1T"
   }
@@ -227,7 +226,6 @@ module "talos_worker_1" {
   ip_address = "192.168.0.196"
   boot_disk_size = "100G"
   uefi = true
-  include_udev_workaround = true
   host_cdrom_passthrough = true
   openebs_disk = {
     size = "100G"
