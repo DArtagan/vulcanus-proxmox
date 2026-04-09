@@ -45,9 +45,12 @@ sops <file>        # Edit encrypted file
 
 1. **Proxmox hypervisor** — bare metal, runs all VMs. ZFS storage. Managed via Ansible (`ansible/`) and Terraform (`terraform/`).
 
-2. **Talos Linux Kubernetes cluster** — provisioned by `terraform/modules/talos/`. Two nodes:
-   - Control plane: `192.168.0.190`
-   - Worker: `192.168.0.195`
+2. **Talos Linux Kubernetes cluster** — provisioned by `terraform/modules/talos/`. Three nodes:
+   - Control plane: `192.168.0.190` (`piraeus-control-plane-0`)
+   - Worker 0: `192.168.0.195` (`piraeus-worker-0`) — primary workload node, 24 GiB RAM / 8 cores, 1 TB OpenEBS disk
+   - Worker 1: `192.168.0.196` (`piraeus-worker-1`) — secondary node, 8 GiB / 4 cores, 100 GB OpenEBS disk; hosts the physical optical-drive passthrough for `automatic-ripping-machine` (vmid 911 in Proxmox)
+
+   New nodes MUST be booted from a factory.talos.dev image that bundles the required extensions (see "Talos extensions required" below) — booting a new node from a stock ISO will leave it on a different Talos minor/patch version than the rest of the cluster, which can break Flannel VXLAN pod-to-pod traffic.
 
 3. **GitOps (Flux CD)** — reconciles this repo's `kubernetes/` directory to the cluster. Bootstrapped via `terraform/modules/fluxcd/`. Secrets are SOPS-encrypted with age keys (`.sops.yaml`).
 
@@ -82,7 +85,7 @@ sops kubernetes/apps/<app>/secret.yaml
 
 - **Increase VM disk:** `qm resize <vm-id> virtio1 +<size>G` on the Proxmox host, then update `openebs_disk_size` in `terraform/main.tf` and run `tofu apply`.
 - **Talos upgrades:** Upgrade one node at a time (controlplane first), incrementing minor versions. Use `talosctl --nodes <ip> upgrade --stage --image <factory-image>`.
-- **Talos extensions required:** `siderolabs/iscsi-tools`, `siderolabs/qemu-guest-agent`, `siderolabs/tailscale` — get images from https://factory.talos.dev.
+- **Talos extensions required:** `siderolabs/iscsi-tools`, `siderolabs/qemu-guest-agent` — get images from https://factory.talos.dev.
 - **talos-worker won't boot:** Check that a virtual SCSI/cdrom is attached in Proxmox VM config.
 
 ## Pre-commit Hooks
