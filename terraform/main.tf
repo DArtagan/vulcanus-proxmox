@@ -228,6 +228,7 @@ module "talos_worker_1" {
   boot_disk_size = "100G"
   uefi = true
   include_udev_workaround = true
+  host_cdrom_passthrough = true
   openebs_disk = {
     size = "100G"
   }

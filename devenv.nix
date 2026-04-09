@@ -13,6 +13,7 @@
 
   packages = with pkgs; [
     fluxcd
+    gh
     git
     k9s
     kubectl

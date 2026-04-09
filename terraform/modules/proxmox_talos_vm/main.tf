@@ -126,12 +126,26 @@ variable "uefi" {
   default = true
 }
 
+variable "host_cdrom_passthrough" {
+  description = "Pass through the Proxmox host's first physical optical drive to the VM. Cannot be done via the Proxmox API for SCSI slots, so this injects raw QEMU args that attach a scsi-cd device on the existing virtio-scsi-pci bus (virtioscsi0). The guest kernel attaches sr_mod (/dev/sr0) and sg (/dev/sg0) for full MMC command access including tray eject."
+  type = bool
+  default = false
+}
+
 
 # --- VM Resource ---
 
 locals {
   talos_cpu_args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2"
-  full_args = var.extra_args != "" ? "${local.talos_cpu_args} ${var.extra_args}" : local.talos_cpu_args
+  # Proxmox does not support SCSI CD-ROM host passthrough via its API (scsi0: cdrom,media=cdrom
+  # is rejected; scsi0: /dev/sr0 attaches as scsi-hd, not scsi-cd). Raw QEMU args bypass
+  # the API and attach a proper scsi-cd on the virtio-scsi-pci bus Proxmox already creates.
+  # The drive is opened read-only to handle pressed (read-only) optical media.
+  # Proxmox only instantiates the virtio-scsi-pci controller when at least one SCSI disk
+  # is assigned through the Proxmox API. Since no such disk exists here, we must create the
+  # controller ourselves so that scsi-cd has a bus to attach to.
+  cdrom_args = var.host_cdrom_passthrough ? "-device virtio-scsi-pci,id=scsihw0 -drive file=/dev/sr0,if=none,id=drive-cdrom0,format=raw,media=cdrom,readonly=on -device scsi-cd,drive=drive-cdrom0,bus=scsihw0.0,id=cdrom0" : ""
+  full_args = join(" ", compact([local.talos_cpu_args, var.extra_args, local.cdrom_args]))
   hostname = var.hostname != null ? var.hostname : var.name
 }
 
