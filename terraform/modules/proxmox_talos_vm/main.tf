@@ -121,7 +121,7 @@ variable "uefi" {
 }
 
 variable "host_cdrom_passthrough" {
-  description = "Pass through the Proxmox host's first physical optical drive to the VM. Cannot be done via the Proxmox API for SCSI slots, so this injects raw QEMU args that attach a scsi-cd device on the existing virtio-scsi-pci bus (virtioscsi0). The guest kernel attaches sr_mod (/dev/sr0) and sg (/dev/sg0) for full MMC command access including tray eject."
+  description = "Pass through the Proxmox host's physical optical drive to the VM via scsi-generic passthrough. Requires /dev/optical-drive-sg on the host (created by the udev rule in ansible/proxmoxer.yaml). The guest kernel attaches sr_mod (/dev/sr0) and sg (/dev/sg0) for full MMC command access including tray eject and CSS decryption."
   type = bool
   default = false
 }
@@ -131,14 +131,20 @@ variable "host_cdrom_passthrough" {
 
 locals {
   talos_cpu_args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2"
-  # Proxmox does not support SCSI CD-ROM host passthrough via its API (scsi0: cdrom,media=cdrom
-  # is rejected; scsi0: /dev/sr0 attaches as scsi-hd, not scsi-cd). Raw QEMU args bypass
-  # the API and attach a proper scsi-cd on the virtio-scsi-pci bus Proxmox already creates.
-  # The drive is opened read-only to handle pressed (read-only) optical media.
-  # Proxmox only instantiates the virtio-scsi-pci controller when at least one SCSI disk
-  # is assigned through the Proxmox API. Since no such disk exists here, we must create the
-  # controller ourselves so that scsi-cd has a bus to attach to.
-  cdrom_args = var.host_cdrom_passthrough ? "-device virtio-scsi-pci,id=scsihw0 -drive file=/dev/sr0,if=none,id=drive-cdrom0,format=raw,media=cdrom,readonly=on -device scsi-cd,drive=drive-cdrom0,bus=scsihw0.0,id=cdrom0" : ""
+  # Proxmox does not support SCSI CD-ROM host passthrough via its API. Raw QEMU args bypass
+  # the API and attach a scsi-generic device on a virtio-scsi-pci bus for full SCSI passthrough.
+  # scsi-generic is required (over scsi-cd) because scsi-cd emulation does not implement DVD-
+  # specific SCSI commands: GET CONFIGURATION, READ DVD STRUCTURE, and REPORT/SEND KEY for CSS
+  # key exchange. Without these, MakeMKV cannot detect the disc as DVD (reports dtype=0) and
+  # fails to open it. The guest kernel receives the real SCSI INQUIRY (type 5 = optical), loads
+  # sr_mod, and creates /dev/sr0 + /dev/sg0. CSS decryption requires write-direction SCSI
+  # transfers (SEND KEY), so readonly is omitted; the disc itself is still physically read-only.
+  # /dev/optical-drive-sg is a stable udev symlink for the optical drive's sg device, created
+  # by the rule in ansible/proxmoxer.yaml to avoid the sg device number changing on host reboot.
+  # Proxmox only instantiates the virtio-scsi-pci controller when at least one SCSI disk is
+  # assigned through the Proxmox API. Since no such disk exists here, we must create the
+  # controller ourselves so that scsi-generic has a bus to attach to.
+  cdrom_args = var.host_cdrom_passthrough ? "-device virtio-scsi-pci,id=scsihw0 -drive file=/dev/optical-drive-sg,if=none,id=drive-cdrom0,format=raw -device scsi-generic,bus=scsihw0.0,channel=0,scsi-id=0,lun=0,drive=drive-cdrom0,id=cdrom0" : ""
   full_args = join(" ", compact([local.talos_cpu_args, var.extra_args, local.cdrom_args]))
   hostname = var.hostname != null ? var.hostname : var.name
 }

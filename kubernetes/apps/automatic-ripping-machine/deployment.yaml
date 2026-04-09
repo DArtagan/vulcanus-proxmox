@@ -42,6 +42,8 @@ spec:
               value: "0"
           ports:
             - containerPort: 8080
+          securityContext:
+            privileged: true
           resources:
             limits:
               #devic.es/cdrom: 1

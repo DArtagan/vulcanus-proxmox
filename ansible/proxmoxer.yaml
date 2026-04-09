@@ -3,15 +3,17 @@
   hosts: proxmox
   vars:
     packages:
-      - python3-pip
       - python3-dev
+      - python3-proxmoxer
+      - python3-virtualenv
       - build-essential
 
   tasks:
-    - name: 'switch to community repos'
+    - name: 'remove enterprise repo'
       apt_repository:
         repo: 'deb https://enterprise.proxmox.com/debian/pve bullseye pve-enterprise'
         state: 'absent'
+    - name: 'switch to community repo'
       apt_repository:
         repo: 'deb http://download.proxmox.com/debian/pve bullseye pve-no-subscription'
         state: 'present'
@@ -21,17 +23,6 @@
     - name: 'Install pip packages'
       apt:
         name: "{{ packages }}"
-    - name: 'pip3 update pip'
-      pip:
-        name: 'pip'
-        state: 'latest'
-    - name: 'Install dependencies'
-      pip:
-        name: 'virtualenv'
-        state: 'latest'
-      pip:
-        name: 'proxmoxer'
-        state: 'latest'
 
     - name: load wireguard module on boot
       template:
@@ -42,6 +33,24 @@
         mode: '0644'
       notify: load wireguard module
 
+    - name: create stable udev symlink for optical drive SCSI generic device
+      copy:
+        dest: /etc/udev/rules.d/99-optical-drive-sg.rules
+        content: |
+          # Create a stable symlink /dev/optical-drive-sg for the physical optical drive's
+          # SCSI generic interface. Used by QEMU scsi-generic passthrough so that the VM
+          # always gets the correct device regardless of sg enumeration order at boot.
+          # Matched by model name (Pioneer BDR-212U) to exclude the USB-connected KVM
+          # virtual optical device (sr1/sg9) which would otherwise also match by type.
+          SUBSYSTEM=="scsi_generic", ATTRS{model}=="BD-RW   BDR-212U", SYMLINK+="optical-drive-sg"
+        owner: root
+        group: root
+        mode: '0644'
+      notify: reload udev rules
+
   handlers:
   - name: load wireguard module
     shell: modprobe wireguard
+
+  - name: reload udev rules
+    shell: udevadm control --reload-rules && udevadm trigger --subsystem-match=scsi_generic
