@@ -34,6 +34,7 @@ data:
 
     # abcde.conf is expected in /etc by the abcde installation
     cp --no-clobber /opt/arm/setup/.abcde.conf /etc/arm/config/abcde.conf
+    mkdir -p /etc/root/config/
     ln -sf /etc/arm/config/abcde.conf /etc/root/config/abcde.conf
 
   51-docker-arm.rules: |
