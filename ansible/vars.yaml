@@ -15,7 +15,7 @@ defaults:
     ct: 1024
     vm: 2048
   mounts: '{}'
-  nameserver: '192.168.0.104'
+  nameserver: '192.168.0.202'
   netif: '{"net0":"name=eth0,gw=192.168.0.1,bridge=vmbr0"}'
   onboot: true
   ostype: 'l26'

@@ -120,7 +120,7 @@ resource "proxmox_lxc" "fileserver" {
   unprivileged = false
   memory = 512
   swap = 0
-  nameserver = "192.168.0.104"
+  nameserver = "192.168.0.202"
   onboot = true
   start = true
 
