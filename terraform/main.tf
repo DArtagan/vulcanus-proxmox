@@ -1,4 +1,5 @@
 terraform {
+  required_version = ">= 1.11.5"
   required_providers {
     flux = {
       source = "fluxcd/flux"
@@ -7,6 +8,10 @@ terraform {
     github = {
       source = "integrations/github"
       version = "6.10.1"
+    }
+    local = {
+      source = "hashicorp/local"
+      version = "2.8.0"
     }
     proxmox = {
       source = "telmate/proxmox"
@@ -273,67 +278,4 @@ module "fluxcd" {
   kubeconfig_path = local_sensitive_file.kubeconfig.filename
   repository_name = data.github_repository.main.name
   target_path = "kubernetes/cluster"
-}
-
-resource "proxmox_vm_qemu" "cdrom_test" {
-  count = 1
-  name = "cdrom-test"
-  target_node = "vulcanus"
-  vmid = 200
-  qemu_os = "l26" # Linux kernel type
-  bios = "ovmf"
-  scsihw = "virtio-scsi-pci"
-  memory = 4096
-  # CPU options are special for talos.  SCSI and drive options are to attach the CD drive to the worker VM.  `addr=0x6` because 6 was the first spare PCI address after doing guess-and-check.
-  # The `/dev/sg` device number is very inconsistent, seems to need updating every restart.
-  # The `/dev/sg` device number can be found using `sg_map -sr` on the host.
-  # TODO: But then it started trying to "import pool 'rpool'", which means somehow the real hard drives... or maybe the raid card was getting passed through.  So I reverted to the simpler args set above
-  args = join(" ", [
-    "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2",
-    "-device virtio-scsi-pci,id=scsi1,bus=pci.0",
-    "-drive file=/dev/sg3,if=none,media=cdrom,format=raw,id=drive-hostdev0,readonly=on",
-    "-device scsi-generic,bus=scsi1.0,channel=0,scsi-id=0,lun=0,drive=drive-hostdev0,id=hostdev0",
-  ])
-  #args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2 -device virtio-scsi-pci,id=scsi0,bus=pci.0,addr=0x6 -drive file=/dev/sg4,if=none,format=raw,id=drive-hostdev0,readonly=on -device scsi-generic,bus=scsi0.0,channel=0,scsi-id=0,lun=0,drive=drive-hostdev0,id=hostdev0"
-  boot = "order=virtio0" # Add ide2 if connecting the ISO for first boot
-  start_at_node_boot = false
-  startup_shutdown {
-    order = -1
-    shutdown_timeout = -1
-    startup_delay = -1
-  }
-  ipconfig0 = "[gw=192.168.0.1, ip=192.168.0.118/24]"
-  cpu {
-    type = "kvm64"
-    cores = 2
-    sockets = 1
-  }
-  network {
-    id = 0
-    model = "virtio"
-    bridge = "vmbr0"
-  }
-  efidisk {
-    efitype = "4m"
-    storage = "local-zfs"
-  }
-  disks {
-    #ide {
-    #  ide2 {
-    #    cdrom {
-    #      #iso = "local:iso/debian-13.3.0-amd64-netinst.iso"
-    #      passthrough = true
-    #    }
-    #  }
-    #}
-    virtio {
-      virtio0 {
-        disk {
-          size = "10G"
-          storage = "local-zfs"
-          backup = true
-        }
-      }
-    }
-  }
 }
