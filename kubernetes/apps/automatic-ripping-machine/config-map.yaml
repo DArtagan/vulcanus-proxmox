@@ -105,13 +105,13 @@ data:
     # Auto-eject unidentified discs (blank etc)
     # May want to set this to false on certain (Pioneer slim) drives to prevent the immediate eject
     # issue (https://github.com/automatic-ripping-machine/automatic-ripping-machine/issues/779)
-    UNIDENTIFIED_EJECT: true
+    UNIDENTIFIED_EJECT: false
 
 
     # Auto-ejects disks
     # Auto-ejects disks when complete etc
     # Set to false to disable auto-ejection
-    AUTO_EJECT: true
+    AUTO_EJECT: false
 
 
     #####################
@@ -140,7 +140,7 @@ data:
     # For Plex see https://support.plex.tv/hc/en-us/articles/200220677
     EXTRAS_SUB: "extras"
 
-    # Path to installation of ARM 
+    # Path to installation of ARM
     INSTALLPATH: "/opt/arm/"
 
     # Path to directory to hold log files
@@ -186,8 +186,8 @@ data:
     CHMOD_VALUE: 777
 
     SET_MEDIA_OWNER: false
-    CHOWN_USER: 
-    CHOWN_GROUP: 
+    CHOWN_USER:
+    CHOWN_GROUP:
 
 
     ########################
@@ -242,9 +242,9 @@ data:
 
     # Have HandBrake transcode the main feature only.  BluRay discs must have RIPMETHOD="backup" for this to work.
     # If MAINFEATURE is true, blurays will be backed up to the HD and then HandBrake will go to work on the backed up
-    # files.  
+    # files.
     # This will require libdvdcss2 be installed.
-    # NOTE: For the most part, HandBrake correctly identifies the main feature on movie DVD's, although it is not perfect. 
+    # NOTE: For the most part, HandBrake correctly identifies the main feature on movie DVD's, although it is not perfect.
     # However, it does not handle tv shows well at all.  This setting is only used when the video is identified as a movie.
     MAINFEATURE: false
 
@@ -281,12 +281,12 @@ data:
     EMBY_USERID: ""
 
     # This is the SHA1 encrypted password for the username above.  You can generate the SHA1 hash of your password by executing the following at
-    # the command line: 
+    # the command line:
     # echo -n your-password | sha1sum | awk '{print $1}'
     # or using an online generator like the one located at https://www.sha1-online.com/
     EMBY_PASSWORD: ""
 
-    # Emby API key.  This can be found (generated) by going to Advanced/Security in the 
+    # Emby API key.  This can be found (generated) by going to Advanced/Security in the
     # Emby dashboard
     EMBY_API_KEY: ""
 
@@ -580,10 +580,10 @@ data:
     #LAMEOPTS=
     #GOGOOPTS=
     # Bladeenc still works with abcde in 2015, and the last release of bladeenc
-    # was in 2001! Settings that will produce a great encode are: '-br 192' 
+    # was in 2001! Settings that will produce a great encode are: '-br 192'
     #BLADEENCOPTS=
-    # L3enc still works with abcde in 2015, pretty amazing when you realise 
-    # that the last release of l3enc was in 1997! Settings that will produce 
+    # L3enc still works with abcde in 2015, pretty amazing when you realise
+    # that the last release of l3enc was in 1997! Settings that will produce
     # a great encode are: '-br 256000 -hq -crc'
     #L3ENCOPTS=
     #XINGMP3ENCOPTS=
@@ -598,7 +598,7 @@ data:
 
     # FLAC:
     # The flac option is a workaround for an error where flac fails
-    # to encode with error 'floating point exception'. This is flac 
+    # to encode with error 'floating point exception'. This is flac
     # error in get_console_width(), corrected in flac 1.3.1
     #FLACOPTS="--silent"
     # Options passed to MetaFlac for ReplayGain tags:
@@ -612,12 +612,12 @@ data:
     #MPCENCOPTS=
 
     # WavPack:
-    # Look at 'wavpack --help' for detailed options, consider using '-hx3' 
+    # Look at 'wavpack --help' for detailed options, consider using '-hx3'
     # for a good quality encode
     #WAVENCOPTS=
-    # For Wavpack replay gain we set both the default of 'track gain' 
+    # For Wavpack replay gain we set both the default of 'track gain'
     # as well as this option for 'album gain'. Better media players
-    # such as vlc can select either or neither.    
+    # such as vlc can select either or neither.
     #WVGAINOPTS='-a'
 
     # Monkey's Audio (ape)
@@ -628,16 +628,16 @@ data:
     #AIFF
     # These options needed by FFmpeg for tagging and selection of id3v2 version:
     #  1. '-write_id3v2 1' allows id3v2 tagging while '-write_id3v2 0' disables tagging
-    #  2. '-id3v2_version 4' gives version id3v2.4 while '3' gives id3v2.3 
+    #  2. '-id3v2_version 4' gives version id3v2.4 while '3' gives id3v2.3
     #AIFFENCOPTS="-write_id3v2 1 -id3v2_version 4"
 
     # M4A/AAC
     # There are now 6 AAC encoders available to abcde, the default being
     # fdkaacenc. Note that the old AACENCOPTS has been rendered obsolete by
     # the following options, new to abcde 2.7:
-    #  1. fdkaac: see 'fdkaac --help' and consider using 
+    #  1. fdkaac: see 'fdkaac --help' and consider using
     #     '--profile 2 --bitrate-mode 5 --afterburner 1'
-    #     for a good quality encode. 
+    #     for a good quality encode.
     #FDKAACENCOPTS='--bitrate 192k'
     #  2. FFmpeg: Use the following to use the FFmpeg native encoder, adding
     #     -strict -2 if you have an older FFmpeg:
@@ -812,7 +812,7 @@ data:
     #(some hardware players insist on CR-LF line-endings)
     #DOSPLAYLIST=n
 
-    # album art download options (see glyrc's help for details with more detailed 
+    # album art download options (see glyrc's help for details with more detailed
     # examples here: https://github.com/sahib/glyr/wiki/Commandline-arguments).
     # For example use '--formats jpg;jpeg' to only search for JPEG images
     # These options: '--from <provider>' and '--lang <langcode>' might also be useful
@@ -835,12 +835,12 @@ data:
     # 1. Delete any dots preceding the title (first sed command)
     # 2. Replace all spaces with an underscore (second sed command). Simply remove
     #   this if you prefer spaces.
-    # 3. Delete a grab bag of characters which variously Windows and Linux do not permit 
+    # 3. Delete a grab bag of characters which variously Windows and Linux do not permit
     #   (tr command). Remove any of these from the list if you wish to actually use them.
-    #   
+    #
     mungefilename ()
-    { 
-    echo "$@" | sed s,:,\ -,g | tr -d \?\[:cntrl:\] 
+    {
+    echo "$@" | sed s,:,\ -,g | tr -d \?\[:cntrl:\]
     }
     #mungefilename ()
     #{
