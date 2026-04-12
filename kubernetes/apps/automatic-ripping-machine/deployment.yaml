@@ -60,6 +60,9 @@ spec:
             - mountPath: /lib/udev/rules.d/51-docker-arm.rules
               name: init-scripts
               subPath: 51-docker-arm.rules
+            - mountPath: /usr/local/bin/arm-disc-wrapper.sh
+              name: init-scripts
+              subPath: arm-disc-wrapper.sh
             - mountPath: /etc/service/armui/run
               name: init-scripts
               subPath: armui.sh
@@ -96,6 +99,8 @@ spec:
                 path: arm_user_files_setup.sh
               - key: 51-docker-arm.rules
                 path: 51-docker-arm.rules
+              - key: arm-disc-wrapper.sh
+                path: arm-disc-wrapper.sh
               - key: armui.sh
                 path: armui.sh
         - name: data
