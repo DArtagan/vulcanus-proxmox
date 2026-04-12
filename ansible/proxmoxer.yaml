@@ -43,6 +43,15 @@
           # Matched by model name (Pioneer BDR-212U) to exclude the USB-connected KVM
           # virtual optical device (sr1/sg9) which would otherwise also match by type.
           SUBSYSTEM=="scsi_generic", ATTRS{model}=="BD-RW   BDR-212U", SYMLINK+="optical-drive-sg"
+
+          # Disable host kernel media-change polling for the Pioneer optical drive.
+          # The drive is passed through to a guest VM via scsi-generic. The guest kernel
+          # polls for media change events (events_poll_msecs=2000 set via Talos machine config).
+          # If the host kernel also polls, it consumes GET EVENT STATUS NOTIFICATION responses
+          # from the drive's event queue before the guest can read them, so disc insertion
+          # events never reach the guest. Setting events_poll_msecs=0 on the host stops it
+          # from polling, leaving events in the drive queue for the guest kernel to consume.
+          SUBSYSTEM=="block", ATTRS{model}=="BD-RW   BDR-212U", ATTR{events_poll_msecs}="0"
         owner: root
         group: root
         mode: '0644'
@@ -53,4 +62,4 @@
     shell: modprobe wireguard
 
   - name: reload udev rules
-    shell: udevadm control --reload-rules && udevadm trigger --subsystem-match=scsi_generic
+    shell: udevadm control --reload-rules && udevadm trigger --subsystem-match=scsi_generic && udevadm trigger --subsystem-match=block --action=add

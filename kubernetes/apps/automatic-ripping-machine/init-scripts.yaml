@@ -38,7 +38,7 @@ data:
     ln -sf /etc/arm/config/abcde.conf /etc/root/config/abcde.conf
 
   51-docker-arm.rules: |
-    ACTION=="change", SUBSYSTEM=="block", RUN+="/usr/local/bin/arm-disc-wrapper.sh %k"
+    ACTION=="change", SUBSYSTEM=="block", KERNEL=="sr[0-9]*", RUN+="/usr/local/bin/arm-disc-wrapper.sh %k"
 
   arm-disc-wrapper.sh: |
     #!/bin/bash

@@ -1,0 +1,9 @@
+machine:
+  udev:
+    rules:
+      # Enable kernel polling for optical drive media change events.
+      # With scsi-generic passthrough, the guest kernel defaults to events_poll_msecs=-1
+      # (relying on async GET EVENT STATUS NOTIFICATION), but those notifications don't
+      # propagate through the virtio-scsi layer. Without polling, disc insertion events
+      # never reach udevd in containers, breaking automatic disc detection.
+      - 'ACTION=="add", KERNEL=="sr[0-9]*", SUBSYSTEM=="block", ATTR{events_poll_msecs}="2000"'
