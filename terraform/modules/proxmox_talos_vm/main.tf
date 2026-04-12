@@ -236,11 +236,14 @@ locals {
 
   openebs_kubelet_patch = var.openebs_disk != null ? file("${path.module}/files/openebs-kubelet-patch.json") : null
 
+  cdrom_passthrough_patch = var.host_cdrom_passthrough ? file("${path.module}/files/cdrom-passthrough-patch.yaml") : null
+
   config_patches = compact([
     local.base_patch,
     local.control_plane_patch,
     local.openebs_disk_patch,
     local.openebs_kubelet_patch,
+    local.cdrom_passthrough_patch,
   ])
 }
 
