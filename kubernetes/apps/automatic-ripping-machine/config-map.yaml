@@ -33,7 +33,7 @@ data:
 
     # ARM dvd crc64 api key
     # This is only needed if you would like to send movies to the database
-    ARM_API_KEY: ""
+    ARM_API_KEY: "${ARM_API_KEY}"
 
     # Do you want to be forced to login to view/edit jobs
     # True will leave all of the pages open to be editable/viewable by anyone

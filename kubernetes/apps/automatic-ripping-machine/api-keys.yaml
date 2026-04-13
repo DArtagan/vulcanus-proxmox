@@ -4,8 +4,9 @@ metadata:
     name: automatic-ripping-machine-api-keys
     creationTimestamp: "2024-01-15T15:55:00Z"
 stringData:
-    OMDB_KEY: ENC[AES256_GCM,data:h4XVDAzzMQI=,iv:aUNWW5wmRwaYA1+u1/wtNI+aNIxdh9HPn32Miis2JCs=,tag:Jxpu47y5FIkbX/39AnJNrQ==,type:str]
+    OMDB_KEY: ENC[AES256_GCM,data:PvYggBrxpIM=,iv:NShdAIUZMbTQVEOxpxMNQXrHeQrVq6Z3RDZGAqshdLM=,tag:/kxT1hMRtHZ2p0MmsctuAQ==,type:str]
     MAKEMKV_KEY: ENC[AES256_GCM,data:tb3dzWVNuUwjWJCzK8s8pOFaFUvAPRRTdUOcfV6yR/lE6MZ7FD6oBOmgZEEH4BIctuaiVXMEfoIkOPXuWY3TIY+JBf0=,iv:8rbd1ZjtwRSHsHOZ8AJU2gor+CZxuL4enVOtXR0e8ZE=,tag:fDgx9f7iTLQKc0uxbnbkKA==,type:str]
+    ARM_API_KEY: ENC[AES256_GCM,data:1dOHccqXK2hy9Qj/Hfrh/EL6/jEKeUQ0zyW3Rj7w5TNTVpNYC2feiqV3QMgjmzrB1OYa6VGX62Y=,iv:+fnAKFp7Snx/rjraFLGOdjaK3vuywwSsbWCTQS6GSj8=,tag:R8xZKGGam1XeJCWxV/3omQ==,type:str]
 sops:
     age:
         - recipient: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKYSwODOrerKkBNuitwqjNioFXLDRBKqSJTayFoo1Ude
@@ -37,7 +38,7 @@ sops:
             VTh3Q0M3S0lTa0t2UGZzSytZRm5rZW8Kt9F91pX4UznhYf3kc2svkDSOfGXum1cJ
             F+QX/1Evjs2oDLnMSo8zlNmju/wQGpg+EtDvqLN/VyIPnfInXkpsaA==
             -----END AGE ENCRYPTED FILE-----
-    lastmodified: "2024-01-15T16:23:49Z"
-    mac: ENC[AES256_GCM,data:YMBu2kyJe9Xaf+kK7XuwCH5Bp7ueDg3c+F3+aCQph0zWBEAV13SEUDSEGN38eIY0A/g4omQABdNtr7zEHTy7hGb0MaraN01K0EX1oFHcWQE4pBeRlSxJT3n7JV8AuCmzKFuIL1aixoYXsqQdrI9olNODCeiKXCRiSFn1LCf3mPA=,iv:L6dLM0MMGn2e8p6naHij5HJ5UgjkbQh2t5SyRe2LdRQ=,tag:jBmDpQlf6cQ7QU3tnwnjMA==,type:str]
+    lastmodified: "2026-04-13T23:53:09Z"
+    mac: ENC[AES256_GCM,data:jokWCgnvlv208Xuj9d2quIafO9TTKnWiB1N945ZMcZtD/L5U716QVTCSYbtHsmGOMq+6Zde0ax0wA3l45WLXP0fB0p9b2tTJddm8Zn0fAYGYo2sJ+VvVsEl75mpR6+3gSyilTxdC1JuWYHRn++LJ4e6FzUTERfOXhGxC4Ex8st0=,iv:WVUDNuufrNtKzNs2pJfM+uEecTvEbAnyhFhDZYfTC+w=,tag:fTADWpyCP2MFksxRvFjmvw==,type:str]
     encrypted_regex: ^(data|stringData)$
-    version: 3.8.1
+    version: 3.12.2
