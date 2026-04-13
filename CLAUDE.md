@@ -88,6 +88,20 @@ sops kubernetes/apps/<app>/secret.yaml
 - **Talos extensions required:** `siderolabs/iscsi-tools`, `siderolabs/qemu-guest-agent` — get images from https://factory.talos.dev.
 - **talos-worker won't boot:** Check that a virtual SCSI/cdrom is attached in Proxmox VM config.
 
+## Security Policy
+
+This repository is public. It is intentionally shared to contribute to the community's body of knowledge. However, sensitive values must never be committed in plaintext.
+
+**Rules:**
+- **Clearly sensitive values** (passwords, API keys, tokens, private keys, secrets) must always be encrypted with SOPS before committing.
+- **Semi-sensitive values** (internal hostnames, IP addresses, usernames, email addresses, domain names, service URLs) should default to SOPS encryption. If you are unsure, raise it for the user's consideration before committing.
+- When adding any new value to a config file, stop and ask: could this help an attacker? If yes or maybe, use SOPS.
+
+SOPS-encrypted files are decrypted by Flux at apply time using the age key referenced in `.sops.yaml`. To create or edit an encrypted file:
+```bash
+sops kubernetes/apps/<app>/secret.yaml
+```
+
 ## Pre-commit Hooks
 
 Automatically run on `git commit` via devenv: `deadnix`, `flake-checker`, `nixfmt-rfc-style`, `shellcheck`, `statix`, `tflint`, `end-of-file-fixer`, `trim-trailing-whitespace`.

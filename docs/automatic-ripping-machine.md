@@ -180,6 +180,41 @@ To replicate this setup:
    ```
    You should see the drive identified as `BD-RE PIONEER BD-RW BDR-212U` with `Using LibreDrive mode` and a valid disc title.
 
+## Debugging Reference
+
+### Best external references
+
+- **MakeMKV forum** (`forum.makemkv.com`) — authoritative source for LibreDrive behaviour, drive-specific quirks, and `makemkvcon` settings. Search by drive model or error message. The LibreDrive overview thread is at `t=18856`.
+- **ARM GitHub** (`github.com/automatic-ripping-machine/automatic-ripping-machine`) — source for ARM's disc detection logic (`arm/models/job.py`), identify flow (`arm/ripper/identify.py`), and MakeMKV wrapper (`arm/ripper/makemkv.py`).
+
+### Useful commands for live diagnosis
+
+```bash
+# Find the running ARM pod
+kubectl get pods -n apps -l app=automatic-ripping-machine
+
+# Pod logs (startup, udev events, ARM process output)
+kubectl logs -n apps <pod>
+
+# Check for active rip processes — do this before running any manual makemkvcon command
+kubectl exec -n apps <pod> -- pgrep -af makemkv
+
+# Query the ARM job database directly
+kubectl exec -n apps <pod> -- python3 -c "
+import sqlite3; conn = sqlite3.connect('/root/db/arm.db'); conn.row_factory = sqlite3.Row
+c = conn.cursor(); c.execute('SELECT job_id,title,disctype,status,errors,logfile FROM job ORDER BY job_id DESC LIMIT 10')
+[print(dict(r)) for r in c.fetchall()]"
+
+# Read a specific job log (logs live in /root/logs/ inside the pod)
+kubectl exec -n apps <pod> -- tail -100 /root/logs/<logfile>
+
+# Check disc/drive state
+kubectl exec -n apps <pod> -- makemkvcon --robot info disc:0
+
+# Watch rip progress
+kubectl exec -n apps <pod> -- ls -lh /root/media/raw/<job-dir>/
+```
+
 ## Troubleshooting
 
 ### Drive has dropped off the ATA bus
