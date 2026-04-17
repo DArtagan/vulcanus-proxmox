@@ -2,16 +2,14 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: homepage
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt
 spec:
   ingressClassName: ingress-nginx-internal
   tls:
     - hosts:
-        - homepage.immortalkeep.com
-      secretName: homepage-ingress-tls
+        - immortalkeep.com
+      secretName: demo-ingress-tls
   rules:
-  - host: homepage.immortalkeep.com
+  - host: immortalkeep.com
     http:
       paths:
       - pathType: Prefix
