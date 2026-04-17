@@ -48,104 +48,103 @@ data:
           href: https://plex.immortalkeep.com
           description: Media server
           icon: plex
-          siteMonitor: https://plex.immortalkeep.com/identity
+          siteMonitor: http://plex.apps.svc.cluster.local:32400/identity
           widget:
             type: plex
-            url: https://plex.immortalkeep.com
+            url: http://plex.apps.svc.cluster.local:32400
             key: "{{HOMEPAGE_VAR_PLEX_KEY}}"
       - Photoprism:
           href: https://photoprism.immortalkeep.com
           description: Photo management
           icon: photoprism
-          siteMonitor: https://photoprism.immortalkeep.com
+          siteMonitor: http://photoprism.apps.svc.cluster.local:2342
           widget:
             type: photoprism
-            url: https://photoprism.immortalkeep.com
+            url: http://photoprism.apps.svc.cluster.local:2342
             key: "{{HOMEPAGE_VAR_PHOTOPRISM_KEY}}"
       - Podbook:
           href: https://podbook.immortalkeep.com
           description: Podcast reader
           icon: mdi-book-music
-          siteMonitor: https://podbook.immortalkeep.com
+          siteMonitor: http://podbook-rebound.apps.svc.cluster.local:8000
       - Botamusique:
           href: https://botamusique.immortalkeep.com
           description: Mumble music bot
           icon: mdi-music
-          siteMonitor: https://botamusique.immortalkeep.com
     - Ripping:
       - YouTube-dl:
           href: https://youtube.immortalkeep.com
           description: Video downloader
           icon: youtube
-          siteMonitor: https://youtube.immortalkeep.com
+          siteMonitor: http://youtube-dl.apps.svc.cluster.local:8080
       - Automatic Ripping Machine:
           href: https://arm.immortalkeep.com
           description: Disc ripping automation
           icon: si-openmediavault
-          siteMonitor: https://arm.immortalkeep.com
+          siteMonitor: http://automatic-ripping-machine.automatic-ripping-machine.svc.cluster.local:8080
       - Filebot:
           href: https://filebot.immortalkeep.com
           description: Media file organizer
           icon: filebot
-          siteMonitor: https://filebot.immortalkeep.com
+          siteMonitor: http://filebot.apps.svc.cluster.local:5452
       - Media Toolkit:
           href: https://media-toolkit.immortalkeep.com
           description: Web-based media desktop
           icon: webtop
-          siteMonitor: https://media-toolkit.immortalkeep.com
+          siteMonitor: http://media-toolkit-webtop.apps.svc.cluster.local:3000
       - Podgrab:
           href: https://podgrab.immortalkeep.com
           description: Podcast downloader
           icon: podgrab
-          siteMonitor: https://podgrab.immortalkeep.com
+          siteMonitor: http://podgrab.apps.svc.cluster.local:8080
     - Productivity:
       - Linkding:
           href: https://linkding.immortalkeep.com
           description: Bookmark manager
           icon: linkding
-          siteMonitor: https://linkding.immortalkeep.com
+          siteMonitor: http://linkding.apps.svc.cluster.local:9090
       - Syncthing:
           href: https://syncthing.immortalkeep.com
           description: File synchronization
           icon: syncthing
-          siteMonitor: https://syncthing.immortalkeep.com
+          siteMonitor: http://syncthing.apps.svc.cluster.local:8384
       - Trello Randomizer:
           href: https://trello-randomizer.immortalkeep.com
           description: Random card picker
           icon: trello
-          siteMonitor: https://trello-randomizer.immortalkeep.com
+          siteMonitor: http://trello-randomizer.apps.svc.cluster.local:8080
     - Network:
       - Headplane:
           href: https://headplane.immortalkeep.com
           description: VPN management
           icon: headscale
-          siteMonitor: https://headplane.immortalkeep.com
+          siteMonitor: http://headscale.apps.svc.cluster.local:3000
       - Cloudflare Gateway:
           href: https://dns.immortalkeep.com
           description: DNS filtering
           icon: cloudflare
-          siteMonitor: https://dns.immortalkeep.com
     - Cluster:
       - Grafana:
           href: https://grafana.immortalkeep.com
           description: Metrics dashboards
           icon: grafana
-          siteMonitor: https://grafana.immortalkeep.com
+          siteMonitor: http://kube-prometheus-grafana.infrastructure.svc.cluster.local:80
           widget:
             type: grafana
-            url: https://grafana.immortalkeep.com
+            version: 2
+            url: http://kube-prometheus-grafana.infrastructure.svc.cluster.local:80
             username: "{{HOMEPAGE_VAR_GRAFANA_USERNAME}}"
             password: "{{HOMEPAGE_VAR_GRAFANA_PASSWORD}}"
       - Prometheus:
           href: https://prometheus.immortalkeep.com
           description: Metrics database
           icon: prometheus
-          siteMonitor: https://prometheus.immortalkeep.com
+          siteMonitor: http://kube-prometheus-kube-prome-prometheus.infrastructure.svc.cluster.local:9090
           widget:
             type: prometheus
-            url: https://prometheus.immortalkeep.com
+            url: http://kube-prometheus-kube-prome-prometheus.infrastructure.svc.cluster.local:9090
       - Kubernetes:
           href: https://kubernetes.immortalkeep.com
           description: Cluster dashboard
           icon: kubernetes-dashboard
-          siteMonitor: https://kubernetes.immortalkeep.com
+          siteMonitor: https://kubernetes-dashboard-kong-proxy.infrastructure.svc.cluster.local:443
