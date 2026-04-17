@@ -15,7 +15,7 @@ resources:
   - games-pv.yaml
   - grafana-auth.yaml
   - image-update-automation.yaml
-  - ingress-nginx-internal.yaml
+  - ingress-nginx-reverse-proxy.yaml
   - kubernetes-dashboard.yaml
   - loki.yaml
   - media-pv.yaml
