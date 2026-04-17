@@ -14,23 +14,18 @@ data:
     theme: dark
     color: slate
     headerStyle: clean
-    statusStyle: dot
+    statusStyle: basic
     hideVersion: true
     layout:
       Media:
-        style: row
         columns: 4
       Ripping:
-        style: row
         columns: 3
       Productivity:
-        style: row
         columns: 3
       Network:
-        style: row
         columns: 2
       Cluster:
-        style: row
         columns: 3
   widgets.yaml: |
     - datetime:
