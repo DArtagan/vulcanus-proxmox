@@ -65,7 +65,7 @@ data:
     MANUAL_WAIT: true
 
     # Wait time for manual identification (in seconds)
-    MANUAL_WAIT_TIME: 60
+    MANUAL_WAIT_TIME: 31536000
 
     # Allows you to format the date/time to your own liking
     # This will be used throughout ARM and ARMui
