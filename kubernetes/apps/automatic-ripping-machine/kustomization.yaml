@@ -1,11 +1,15 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+namespace: automatic-ripping-machine
 resources:
   - api-keys.yaml
+  - audio-rw-arm-pvc.yaml
   - config-map.yaml
   - data-pvc.yaml
   - deployment.yaml
   - image.yaml
   - init-scripts.yaml
   - ingress.yaml
+  - namespace.yaml
   - service.yaml
+  - video-arm-pvc.yaml

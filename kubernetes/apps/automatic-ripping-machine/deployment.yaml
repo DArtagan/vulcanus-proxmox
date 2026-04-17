@@ -34,17 +34,20 @@ spec:
               name: config-data
       containers:
         - name: automatic-ripping-machine
-          image: automaticrippingmachine/automatic-ripping-machine:2.23.2 # {"$imagepolicy": "apps:automatic-ripping-machine"}
+          image: automaticrippingmachine/automatic-ripping-machine:2.23.2 # {"$imagepolicy": "automatic-ripping-machine:automatic-ripping-machine"}
           env:
             - name: ARM_UID
               value: "0"
             - name: ARM_GID
               value: "0"
+          securityContext:
+            capabilities:
+              add:
+                - SYS_ADMIN
           ports:
             - containerPort: 8080
           resources:
             limits:
-              #devic.es/cdrom: 1
               squat.ai/cdrom: 1
               cpu: 6000m
               memory: 12Gi
@@ -84,7 +87,7 @@ spec:
       volumes:
         - name: audio
           persistentVolumeClaim:
-            claimName: audio-rw-pvc
+            claimName: audio-rw-arm-pvc
         - name: config
           configMap:
             name: automatic-ripping-machine
@@ -108,4 +111,4 @@ spec:
             claimName: automatic-ripping-machine-pvc
         - name: video
           persistentVolumeClaim:
-            claimName: video-pvc
+            claimName: video-arm-pvc

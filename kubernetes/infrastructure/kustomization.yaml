@@ -3,6 +3,7 @@ kind: Kustomization
 namespace: infrastructure
 resources:
   - audio-pv.yaml
+  - audio-rw-arm-pv.yaml
   - audio-rw-pv.yaml
   #- authentik.yaml
   - basic-auth.yaml
@@ -27,4 +28,5 @@ resources:
   - rancher-key.yaml
   - smb-credentials.yaml
   - syncthing-pv.yaml
+  - video-arm-pv.yaml
   - video-pv.yaml
