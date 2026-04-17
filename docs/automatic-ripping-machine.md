@@ -142,6 +142,50 @@ Only `CDS_DISC_OK` proceeds to call `/opt/arm/scripts/docker/docker_arm_wrapper.
 
 This prevents the eject event (which the container does receive) from triggering a spurious rip attempt.
 
+## Rip and Transcode Pipeline
+
+Once ARM detects a disc and identifies it (via the manual identification gate or automatic metadata lookup), it runs through a two-stage pipeline: rip, then transcode.
+
+### Data flow
+
+```
+Disc inserted → udev event → ARM ripper
+  1. MakeMKV backup_dvd → /root/media/raw/<Title>/     (full decrypted disc structure)
+  2. HandBrake transcode → /root/media/completed/<Title>/*.mkv  (Plex-ready files)
+```
+
+Both directories live on the SMB share (`//192.168.0.105/media/video/import/automatic-ripping-machine/`).
+
+### Title identification gate
+
+`MANUAL_WAIT: true` with a long timeout (1 year) pauses the pipeline after ripping to allow manual title identification via the ARM web UI (`arm.immortalkeep.com`). Title metadata is resolved using OMDb (`METADATA_PROVIDER: "omdb"`) or alternatively via CRC64-based disc identification. The transcode step only proceeds after identification is confirmed.
+
+### Stage 1: Rip (MakeMKV)
+
+`RIPMETHOD: "backup_dvd"` tells MakeMKV to create a full decrypted backup of the disc structure — `VIDEO_TS/` for DVDs, `BDMV/` for Blu-rays. This preserves all original tracks, menus, extras, and chapter structure. The output goes to `RAW_PATH` (`/root/media/raw/<Title>/`).
+
+These raw backups are the **archival copy**. `DELRAWFILES: false` ensures they are never deleted after transcoding.
+
+### Stage 2: Transcode (HandBrake)
+
+HandBrake processes the raw backup and transcodes all tracks longer than `MINLENGTH` (420 seconds / 7 minutes) into standalone MKV files in `COMPLETED_PATH` (`/root/media/completed/<Title>/`).
+
+Key encoding settings (defined in the `vulcanus-handbrake-preset` custom preset):
+
+| Setting | Value | Notes |
+|---|---|---|
+| Video codec | SVT-AV1 10-bit | Royalty-free, ~30-50% smaller than H.264 at equivalent quality |
+| Quality | CRF 30 (constant quality) | Perceptually equivalent to x264 CRF 20 |
+| Encoder preset | 4 (SVT-AV1 scale: 0=slowest, 13=fastest) | Quality-focused; expect several hours per film on 6 CPU cores |
+| Audio | Opus stereo 192 kbps + Opus 5.1 320 kbps | TrueHD and DTS-HD MA passthrough when present on source |
+| Subtitles | All tracks (English + any) | Soft subs, not burned in |
+| Container | MKV | With chapter markers and metadata passthrough |
+| Deinterlace | Decomb (default) | Important for interlaced DVD content |
+
+`MAX_CONCURRENT_TRANSCODES: 1` limits to one transcode at a time — AV1 at preset 4 is CPU-intensive and the worker node has 6 allocated cores.
+
+`MAINFEATURE: false` means all tracks above the minimum length are transcoded, not just the longest. This is necessary for TV show discs where multiple episodes need to be extracted.
+
 ## ATA Link Stability
 
 The Pioneer drive has a known failure mode: if multiple processes issue conflicting SCSI commands to the drive simultaneously, the ATA link can destabilise and the drive drops off the bus entirely. Symptoms:
