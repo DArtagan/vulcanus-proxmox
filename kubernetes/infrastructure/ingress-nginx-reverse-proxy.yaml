@@ -35,13 +35,6 @@ spec:
         controllerValue: "k8s.io/ingress-nginx-internal"
         default: true
       ingressClass: ingress-nginx-internal
-      # See the external controller's admissionWebhooks comment for context.
-      # Exclude ingresses labeled skip-internal-webhook: "true" from validation.
-      admissionWebhooks:
-        objectSelector:
-          matchExpressions:
-            - key: skip-internal-webhook
-              operator: DoesNotExist
       metrics:
         enabled: true
         serviceMonitor:
@@ -87,16 +80,6 @@ spec:
         controllerValue: "k8s.io/ingress-nginx-external"
         default: false
       ingressClass: ingress-nginx-external
-      # The admission webhook validates host+path uniqueness across ALL
-      # Ingress resources, not just those matching its own ingressClass.
-      # This causes false conflicts when the internal and external controllers
-      # serve the same host+path (e.g. immortalkeep.com /) to different backends.
-      # Exclude ingresses labeled skip-external-webhook: "true" from validation.
-      admissionWebhooks:
-        objectSelector:
-          matchExpressions:
-            - key: skip-external-webhook
-              operator: DoesNotExist
       metrics:
         enabled: true
         serviceMonitor:
