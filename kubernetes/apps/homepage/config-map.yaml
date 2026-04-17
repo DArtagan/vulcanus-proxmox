@@ -8,17 +8,144 @@ data:
   custom.js:
   docker.yaml:
   kubernetes.yaml:
+  settings.yaml: |
+    title: Vulcanus
+    logpath: /app/logs
+    theme: dark
+    color: slate
+    headerStyle: clean
+    statusStyle: dot
+    hideVersion: true
+    layout:
+      Media:
+        style: row
+        columns: 4
+      Ripping:
+        style: row
+        columns: 3
+      Productivity:
+        style: row
+        columns: 3
+      Network:
+        style: row
+        columns: 2
+      Cluster:
+        style: row
+        columns: 3
+  widgets.yaml: |
+    - datetime:
+        text_size: l
+        format:
+          timeStyle: short
+          dateStyle: long
+          hour12: true
+    - search:
+        provider: google
+        target: _blank
   services.yaml: |
-    - Services:
+    - Media:
       - Plex:
-          href: https://plex.immortalkeep.com/
+          href: https://plex.immortalkeep.com
           description: Media server
           icon: plex
           siteMonitor: https://plex.immortalkeep.com/identity
           widget:
             type: plex
-            url: https://plex.immortalkeep.com/
-  settings.yaml: |
-    title: Vulcanus
-    logpath: /app/logs
-  widgets.yaml:
+            url: https://plex.immortalkeep.com
+            key: "{{HOMEPAGE_VAR_PLEX_KEY}}"
+      - Photoprism:
+          href: https://photoprism.immortalkeep.com
+          description: Photo management
+          icon: photoprism
+          siteMonitor: https://photoprism.immortalkeep.com
+          widget:
+            type: photoprism
+            url: https://photoprism.immortalkeep.com
+            key: "{{HOMEPAGE_VAR_PHOTOPRISM_KEY}}"
+      - Podbook:
+          href: https://podbook.immortalkeep.com
+          description: Podcast reader
+          icon: mdi-book-music
+          siteMonitor: https://podbook.immortalkeep.com
+      - Botamusique:
+          href: https://botamusique.immortalkeep.com
+          description: Mumble music bot
+          icon: mdi-music
+          siteMonitor: https://botamusique.immortalkeep.com
+    - Ripping:
+      - YouTube-dl:
+          href: https://youtube.immortalkeep.com
+          description: Video downloader
+          icon: youtube
+          siteMonitor: https://youtube.immortalkeep.com
+      - Automatic Ripping Machine:
+          href: https://arm.immortalkeep.com
+          description: Disc ripping automation
+          icon: si-openmediavault
+          siteMonitor: https://arm.immortalkeep.com
+      - Filebot:
+          href: https://filebot.immortalkeep.com
+          description: Media file organizer
+          icon: filebot
+          siteMonitor: https://filebot.immortalkeep.com
+      - Media Toolkit:
+          href: https://media-toolkit.immortalkeep.com
+          description: Web-based media desktop
+          icon: webtop
+          siteMonitor: https://media-toolkit.immortalkeep.com
+      - Podgrab:
+          href: https://podgrab.immortalkeep.com
+          description: Podcast downloader
+          icon: podgrab
+          siteMonitor: https://podgrab.immortalkeep.com
+    - Productivity:
+      - Linkding:
+          href: https://linkding.immortalkeep.com
+          description: Bookmark manager
+          icon: linkding
+          siteMonitor: https://linkding.immortalkeep.com
+      - Syncthing:
+          href: https://syncthing.immortalkeep.com
+          description: File synchronization
+          icon: syncthing
+          siteMonitor: https://syncthing.immortalkeep.com
+      - Trello Randomizer:
+          href: https://trello-randomizer.immortalkeep.com
+          description: Random card picker
+          icon: trello
+          siteMonitor: https://trello-randomizer.immortalkeep.com
+    - Network:
+      - Headplane:
+          href: https://headplane.immortalkeep.com
+          description: VPN management
+          icon: headscale
+          siteMonitor: https://headplane.immortalkeep.com
+      - Cloudflare Gateway:
+          href: https://dns.immortalkeep.com
+          description: DNS filtering
+          icon: cloudflare
+          siteMonitor: https://dns.immortalkeep.com
+    - Cluster:
+      - Grafana:
+          href: https://grafana.immortalkeep.com
+          description: Metrics dashboards
+          icon: grafana
+          siteMonitor: https://grafana.immortalkeep.com
+          widget:
+            type: grafana
+            url: https://grafana.immortalkeep.com
+            username: "{{HOMEPAGE_VAR_GRAFANA_USERNAME}}"
+            password: "{{HOMEPAGE_VAR_GRAFANA_PASSWORD}}"
+      - Prometheus:
+          href: https://prometheus.immortalkeep.com
+          description: Metrics database
+          icon: prometheus
+          siteMonitor: https://prometheus.immortalkeep.com
+          widget:
+            type: prometheus
+            url: https://prometheus.immortalkeep.com
+      - Kubernetes:
+          href: https://kubernetes.immortalkeep.com
+          description: Cluster dashboard
+          icon: kubernetes-dashboard
+          siteMonitor: https://kubernetes.immortalkeep.com

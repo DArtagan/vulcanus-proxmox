@@ -18,6 +18,9 @@ spec:
           image: ghcr.io/gethomepage/homepage:v0.9.13 # {"$imagepolicy": "apps:homepage"}
           ports:
             - containerPort: 3000
+          envFrom:
+            - secretRef:
+                name: homepage-secrets
           volumeMounts:
             - mountPath: /app/config
               name: config
