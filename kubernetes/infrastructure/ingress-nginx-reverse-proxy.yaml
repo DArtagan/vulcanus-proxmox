@@ -35,6 +35,13 @@ spec:
         controllerValue: "k8s.io/ingress-nginx-internal"
         default: true
       ingressClass: ingress-nginx-internal
+      # See the external controller's admissionWebhooks comment for context.
+      # Exclude ingresses labeled skip-internal-webhook: "true" from validation.
+      admissionWebhooks:
+        objectSelector:
+          matchExpressions:
+            - key: skip-internal-webhook
+              operator: DoesNotExist
       metrics:
         enabled: true
         serviceMonitor:
