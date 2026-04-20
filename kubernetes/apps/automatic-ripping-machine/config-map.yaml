@@ -249,10 +249,10 @@ data:
     MAINFEATURE: false
 
     # Additional HandBrake arguments for DVDs.
-    HB_ARGS_DVD: "--preset-import-file=/etc/arm/config/vulcanus-handbrake-preset.json"
+    HB_ARGS_DVD: "--preset-import-file /etc/arm/config/vulcanus-handbrake-preset.json"
 
     # Additional Handbrake arguments for Bluray Discs.
-    HB_ARGS_BD: "--preset-import-file=/etc/arm/config/vulcanus-handbrake-preset.json"
+    HB_ARGS_BD: "--preset-import-file /etc/arm/config/vulcanus-handbrake-preset.json"
 
 
     #####################
