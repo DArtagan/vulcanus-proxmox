@@ -118,6 +118,10 @@ data:
           href: https://dns.immortalkeep.com
           description: DNS filtering
           icon: cloudflare
+      - Uptime Robot:
+          href: https://status.immortalkeep.com/
+          description: External uptime monitoring
+          icon: uptimerobot
       - Speedtest Tracker:
           href: https://speedtest.immortalkeep.com
           description: Internet speed monitoring
@@ -157,7 +161,6 @@ data:
             url: https://192.168.0.107:8007
             username: "{{HOMEPAGE_VAR_PBS_TOKEN_ID}}"
             password: "{{HOMEPAGE_VAR_PBS_TOKEN_SECRET}}"
-            allowInsecure: true
       - Kubernetes:
           href: https://kubernetes.immortalkeep.com
           description: Cluster dashboard
