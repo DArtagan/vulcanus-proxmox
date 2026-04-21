@@ -78,7 +78,7 @@ spec:
             - mountPath: /root/logs
               name: data
               subPath: logs
-            - mountPath: /root/media
+            - mountPath: /root/video
               name: video
               subPath: import/automatic-ripping-machine
             - mountPath: /root/audio

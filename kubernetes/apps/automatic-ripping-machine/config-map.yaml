@@ -124,15 +124,15 @@ data:
 
     # Path to raw MakeMKV directory
     # Destination for MakeMKV and source for HandBrake
-    RAW_PATH: "/root/media/raw/"
+    RAW_PATH: "/root/video/raw/"
 
     # Intermediary directory for transcoding files
     # Destination for HandBrake
-    TRANSCODE_PATH: "/root/media/transcode/"
+    TRANSCODE_PATH: "/root/video/transcode/"
 
     # Final directory of transcoded files
     # Ripped and transcoded files end up here
-    COMPLETED_PATH: "/root/media/completed/"
+    COMPLETED_PATH: "/root/video/completed/"
 
     # Movie subdirectory name for "extras"
     # Valid names are dependent on your media server
