@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: speedtest-tracker
+  labels:
+    app: speedtest-tracker
+spec:
+  selector:
+    matchLabels:
+      app: speedtest-tracker
+  template:
+    metadata:
+      labels:
+        app: speedtest-tracker
+    spec:
+      containers:
+        - name: speedtest-tracker
+          image: alexjustesen/speedtest-tracker:v0.21.3 # {"$imagepolicy": "apps:speedtest-tracker"}
+          env:
+            - name: APP_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: speedtest-tracker
+                  key: APP_KEY
+            - name: DB_CONNECTION
+              value: sqlite
+            - name: APP_URL
+              value: https://speedtest.immortalkeep.com
+            - name: SPEEDTEST_SCHEDULE
+              value: "0 * * * *"
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - mountPath: /config
+              name: config
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: speedtest-tracker-pvc

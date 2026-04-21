@@ -14,8 +14,8 @@ data:
     theme: dark
     color: slate
     headerStyle: clean
-    statusStyle: basic
     hideVersion: true
+    disableUpdateCheck: true
     layout:
       Media:
         columns: 4
@@ -24,7 +24,7 @@ data:
       Productivity:
         columns: 3
       Network:
-        columns: 2
+        columns: 3
       Cluster:
         columns: 3
   widgets.yaml: |
@@ -118,6 +118,15 @@ data:
           href: https://dns.immortalkeep.com
           description: DNS filtering
           icon: cloudflare
+      - Speedtest Tracker:
+          href: https://speedtest.immortalkeep.com
+          description: Internet speed monitoring
+          icon: speedtest-tracker
+          siteMonitor: http://speedtest-tracker.apps.svc.cluster.local:80
+          widget:
+            type: speedtest
+            url: http://speedtest-tracker.apps.svc.cluster.local:80
+            fields: ["ping", "download", "upload"]
     - Cluster:
       - Grafana:
           href: https://grafana.immortalkeep.com
@@ -138,6 +147,17 @@ data:
           widget:
             type: prometheus
             url: http://kube-prometheus-kube-prome-prometheus.infrastructure.svc.cluster.local:9090
+      - Proxmox Backup Server:
+          href: https://192.168.0.107:8007
+          description: Backup server
+          icon: proxmox
+          siteMonitor: https://192.168.0.107:8007
+          widget:
+            type: proxmoxbackupserver
+            url: https://192.168.0.107:8007
+            username: "{{HOMEPAGE_VAR_PBS_TOKEN_ID}}"
+            password: "{{HOMEPAGE_VAR_PBS_TOKEN_SECRET}}"
+            allowInsecure: true
       - Kubernetes:
           href: https://kubernetes.immortalkeep.com
           description: Cluster dashboard
