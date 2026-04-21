@@ -28,6 +28,8 @@ spec:
               value: https://speedtest.immortalkeep.com
             - name: SPEEDTEST_SCHEDULE
               value: "0 * * * *"
+            - name: PUBLIC_DASHBOARD
+              value: "true"
           ports:
             - containerPort: 80
           volumeMounts:
