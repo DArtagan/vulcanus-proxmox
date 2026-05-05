@@ -194,9 +194,15 @@ The Pioneer drive has a known failure mode: if multiple processes issue conflict
 - `/dev/sr0` and `/dev/sg3` disappear
 - The drive is visible in the BIOS (SATA Port 10) but the OS cannot communicate with it
 
-Recovery requires a **full power cycle** — not just a reboot. A reboot does not power-cycle SATA devices on this system. Shut down with `systemctl poweroff`, wait 15–30 seconds, then power on.
+### Prevention
 
-To avoid this:
+The primary source of conflicting SCSI commands is `smartd`. Proxmox installs and enables `smartd` with `DEVICESCAN`, which periodically probes all SCSI/ATA devices including `/dev/sr0`. While QEMU holds `/dev/sg3` open for the guest VM, these probes create the command conflict that destabilises the ATA link. `ansible/proxmoxer.yaml` deploys a `/etc/smartd.conf` that excludes `/dev/sr0` via the `!` prefix:
+
+```
+DEVICESCAN -d removable -n standby -m root -M exec /usr/share/smartmontools/smartd-runner !/dev/sr0
+```
+
+Additional precautions:
 - Only one VM or process should ever have the drive open at a time
 - Do not create test VMs that also pass through `sg3` while the ARM VM is running (see: the `cdrom-test` VM incident)
 - The squat.ai/cdrom exclusive device resource enforces this at the Kubernetes level, but it does not prevent other QEMU VMs on the Proxmox host from also opening the sg device
@@ -205,6 +211,24 @@ To avoid this:
   kubectl exec -n apps <arm-pod> -- pgrep -af makemkv
   ```
   If anything is returned, do not proceed until it finishes.
+
+Note: SATA Aggressive Link Power Management (ALPM) was investigated as a potential cause but is already set to `max_performance` on all ports — it is not a factor.
+
+### Recovery
+
+If the drive disconnects, first try the software recovery script deployed to the host by `ansible/proxmoxer.yaml`:
+
+```bash
+/usr/local/bin/optical-drive-recovery.sh
+```
+
+This stops VM 911, attempts a SCSI bus rescan, then restarts the VM if the drive reappears. Note that the AHCI controller is shared with all ZFS disks (sda-sdh), so a controller reset is not attempted.
+
+If software recovery fails, a **full power cycle** is required — not just a reboot. A reboot does not power-cycle SATA devices on this system. Shut down with `systemctl poweroff`, wait 15–30 seconds, then power on.
+
+### Monitoring
+
+`ansible/proxmoxer.yaml` deploys an `optical-drive-ata-monitor` systemd service that watches the kernel log for ata4 link events. When a disconnect is detected, it captures a diagnostic snapshot to `/var/log/optical-drive-monitor/` including the trigger line, recent ata4 messages, device node state, and which processes held the drive open.
 
 ## Replication Guide
 

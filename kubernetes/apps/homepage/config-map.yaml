@@ -34,9 +34,6 @@ data:
           timeStyle: short
           dateStyle: long
           hour12: true
-    - search:
-        provider: google
-        target: _blank
   services.yaml: |
     - Media:
       - Plex:
@@ -59,7 +56,7 @@ data:
             key: "{{HOMEPAGE_VAR_PHOTOPRISM_KEY}}"
       - Podbook:
           href: https://podbook.immortalkeep.com
-          description: Podcast reader
+          description: Audiobooks as podcast feeds
           icon: mdi-book-music
           siteMonitor: http://podbook-rebound.apps.svc.cluster.local:8000
       - Botamusique:

@@ -57,9 +57,160 @@
         mode: '0644'
       notify: reload udev rules
 
+    - name: exclude optical drive from smartd monitoring
+      copy:
+        dest: /etc/smartd.conf
+        content: |
+          # Explicitly list SATA disks. The Pioneer BDR-212U optical drive (/dev/sr0)
+          # is intentionally excluded — it is passed through to a guest VM via scsi-generic
+          # (QEMU) and smartd SCSI probes conflict with the guest's exclusive access
+          # through /dev/sg3, causing ATA link failures (ata4: hardreset failed).
+          # DEVICESCAN is avoided so sr0 is never probed, even during discovery.
+          /dev/sda -d removable -n standby -m root -M exec /usr/share/smartmontools/smartd-runner
+          /dev/sdb -d removable -n standby -m root -M exec /usr/share/smartmontools/smartd-runner
+          /dev/sdc -d removable -n standby -m root -M exec /usr/share/smartmontools/smartd-runner
+          /dev/sdd -d removable -n standby -m root -M exec /usr/share/smartmontools/smartd-runner
+          /dev/sde -d removable -n standby -m root -M exec /usr/share/smartmontools/smartd-runner
+          /dev/sdf -d removable -n standby -m root -M exec /usr/share/smartmontools/smartd-runner
+          /dev/sdg -d removable -n standby -m root -M exec /usr/share/smartmontools/smartd-runner
+          /dev/sdh -d removable -n standby -m root -M exec /usr/share/smartmontools/smartd-runner
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart smartd
+
+    - name: deploy optical drive ATA link monitor script
+      copy:
+        dest: /usr/local/bin/optical-drive-ata-monitor.sh
+        content: |
+          #!/usr/bin/env bash
+          # Monitors the kernel log for ata4 link failures and captures a diagnostic
+          # snapshot to /var/log/optical-drive-monitor/ when a disconnect is detected.
+          set -euo pipefail
+
+          LOGDIR="/var/log/optical-drive-monitor"
+          mkdir -p "$LOGDIR"
+
+          journalctl -k -f --grep='ata4' | while IFS= read -r line; do
+              if echo "$line" | grep -qE 'link is slow|hardreset|softreset|reset failed|COMRESET failed'; then
+                  TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+                  LOGFILE="$LOGDIR/ata4-disconnect-${TIMESTAMP}.log"
+                  {
+                      echo "=== ATA4 disconnect detected at $(date -Iseconds) ==="
+                      echo ""
+                      echo "=== Trigger line ==="
+                      echo "$line"
+                      echo ""
+                      echo "=== dmesg context (last 100 ata4 lines) ==="
+                      dmesg | grep -i ata4 | tail -100
+                      echo ""
+                      echo "=== SATA link power management state ==="
+                      for h in /sys/class/scsi_host/host*/link_power_management_policy; do
+                          echo "$h: $(cat "$h")"
+                      done
+                      echo ""
+                      echo "=== sg device state ==="
+                      ls -la /dev/sg* /dev/sr* /dev/optical-drive-sg 2>/dev/null || echo "devices missing"
+                      echo ""
+                      echo "=== Processes with drive open ==="
+                      fuser -v /dev/sg3 /dev/sr0 2>&1 || echo "none"
+                      echo ""
+                      echo "=== Recent SCSI errors ==="
+                      dmesg | grep -iE 'scsi|sr ' | tail -50
+                  } > "$LOGFILE"
+                  echo "Disconnect captured to $LOGFILE"
+              fi
+          done
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: deploy optical drive ATA link monitor systemd service
+      copy:
+        dest: /etc/systemd/system/optical-drive-ata-monitor.service
+        content: |
+          [Unit]
+          Description=Monitor ATA4 optical drive link for disconnects
+          After=multi-user.target
+
+          [Service]
+          Type=simple
+          ExecStart=/usr/local/bin/optical-drive-ata-monitor.sh
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+        owner: root
+        group: root
+        mode: '0644'
+      notify: enable optical drive monitor
+
+    - name: deploy optical drive recovery script
+      copy:
+        dest: /usr/local/bin/optical-drive-recovery.sh
+        content: |
+          #!/usr/bin/env bash
+          # Attempt to recover the Pioneer BDR-212U after an ATA link failure
+          # without a full power cycle.
+          #
+          # NOTE: The AHCI controller is shared with all ZFS disks (sda-sdh),
+          # so a controller reset is not attempted here. If SCSI rescan fails,
+          # a full power cycle is required.
+          set -euo pipefail
+
+          # ata4 is host3 (0-indexed); verify with:
+          #   dmesg | grep 'ata4:.*SATA link'
+          ATA_HOST="host3"
+
+          echo "=== Optical drive recovery attempt at $(date -Iseconds) ==="
+
+          if [ -e /dev/optical-drive-sg ]; then
+              echo "Drive symlink /dev/optical-drive-sg exists — drive may not be disconnected."
+              ls -la /dev/sg* /dev/sr* 2>/dev/null
+              exit 0
+          fi
+
+          echo "Drive symlink missing. Attempting recovery..."
+
+          echo "Step 1: Stopping VM 911 (piraeus-worker-1) to release QEMU's fd on sg3..."
+          qm stop 911 --timeout 60 || echo "Warning: VM stop failed or timed out"
+          sleep 5
+
+          echo "Step 2: Rescanning SCSI bus on ${ATA_HOST}..."
+          echo "- - -" > "/sys/class/scsi_host/${ATA_HOST}/scan"
+          sleep 3
+
+          if [ -e /dev/optical-drive-sg ]; then
+              echo "SUCCESS: Drive recovered via SCSI rescan."
+              echo "Step 3: Restarting VM 911..."
+              qm start 911
+              exit 0
+          fi
+
+          echo "FAILED: Software recovery unsuccessful. A full power cycle is required."
+          echo "  systemctl poweroff"
+          echo "  Wait 30 seconds, then power on physically."
+          exit 1
+        owner: root
+        group: root
+        mode: '0755'
+
   handlers:
   - name: load wireguard module
     shell: modprobe wireguard
 
   - name: reload udev rules
     shell: udevadm control --reload-rules && udevadm trigger --subsystem-match=scsi_generic && udevadm trigger --subsystem-match=block --action=add
+
+  - name: restart smartd
+    systemd:
+      name: smartmontools
+      state: restarted
+
+  - name: enable optical drive monitor
+    systemd:
+      name: optical-drive-ata-monitor
+      daemon_reload: true
+      enabled: true
+      state: started
