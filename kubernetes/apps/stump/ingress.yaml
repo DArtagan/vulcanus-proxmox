@@ -1,0 +1,48 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: stump
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: ingress-nginx-internal
+  tls:
+    - hosts:
+        - stump.immortalkeep.com
+      secretName: stump-ingress-tls
+  rules:
+  - host: stump.immortalkeep.com
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: stump
+            port:
+              number: 10801
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: stump-external
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: ingress-nginx-external
+  tls:
+    - hosts:
+        - stump.immortalkeep.com
+      secretName: stump-ingress-tls
+  rules:
+  - host: stump.immortalkeep.com
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: stump
+            port:
+              number: 10801

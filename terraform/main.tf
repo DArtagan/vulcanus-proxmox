@@ -162,6 +162,15 @@ resource "proxmox_lxc" "fileserver" {
     size = "1M"
   }
 
+  mountpoint {
+    key = "4"
+    slot = 4
+    storage = "/rpool/storage/books"
+    volume = "/rpool/storage/books"
+    mp = "/mnt/storage/books"
+    size = "1M"
+  }
+
   network {
     name = "eth0"
     bridge = "vmbr0"

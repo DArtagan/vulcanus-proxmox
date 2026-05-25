@@ -5,6 +5,7 @@ resources:
   - audio-rw-pvc.yaml
   - audio-pvc.yaml
   - automatic-ripping-machine
+  - books-pvc.yaml
   - borg-backups-pvc.yaml
   - borgmatic
   #- botamusique
@@ -29,6 +30,7 @@ resources:
   - rclone
   - rancher-key.yaml
   - salamander.yaml
+  - stump
   #- sftpgo  # Effectively replaced with rclone dropbox bisync
   - syncthing
   - syncthing-pvc.yaml

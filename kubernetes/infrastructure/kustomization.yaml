@@ -6,6 +6,7 @@ resources:
   - audio-rw-pv.yaml
   #- authentik.yaml
   - basic-auth.yaml
+  - books-pv.yaml
   - borg-backups-pv.yaml
   - cert-manager.yaml
   - coredns.yaml
