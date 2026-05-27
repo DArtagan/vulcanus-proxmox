@@ -33,7 +33,7 @@ spec:
           volumeMounts:
             - mountPath: /config
               name: config
-            - mountPath: /data
+            - mountPath: /books
               name: books
       volumes:
         - name: config
