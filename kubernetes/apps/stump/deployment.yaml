@@ -26,6 +26,8 @@ spec:
               value: "1000"
             - name: PGID
               value: "1000"
+            - name: STUMP_PORT
+              value: "10801"
           ports:
             - containerPort: 10801
           volumeMounts:
