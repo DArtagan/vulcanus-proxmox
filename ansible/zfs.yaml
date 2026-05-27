@@ -48,19 +48,19 @@
 
   handlers:
     - name: 'add filesync dataset to proxmox'
-      shell: pvesm add dir storage_filesync --path /rpool/storage/filesync --is_mountpoint 1 --shared 0 --content rootdir
+      shell: pvesm add dir storage_filesync --path /rpool/storage/filesync --is_mountpoint 1 --shared 0 --content snippets
 
     - name: 'add media dataset to proxmox'
-      shell: pvesm add dir storage_media --path /rpool/storage/media --is_mountpoint 1 --shared 0 --content rootdir
+      shell: pvesm add dir storage_media --path /rpool/storage/media --is_mountpoint 1 --shared 0 --content snippets
 
     - name: 'add photos dataset to proxmox'
-      shell: pvesm add dir storage_photos --path /rpool/storage/photos --is_mountpoint 1 --shared 0 --content rootdir
+      shell: pvesm add dir storage_photos --path /rpool/storage/photos --is_mountpoint 1 --shared 0 --content snippets
 
     - name: 'add books dataset to proxmox'
-      shell: pvesm add dir storage_books --path /rpool/storage/books --is_mountpoint 1 --shared 0 --content rootdir
+      shell: pvesm add dir storage_books --path /rpool/storage/books --is_mountpoint 1 --shared 0 --content snippets
 
     - name: 'add backups/borg dataset to proxmox'
-      shell: pvesm add dir backups_borg --path /rpool/backups/borg --is_mountpoint 1 --shared 0 --content rootdir
+      shell: pvesm add dir backups_borg --path /rpool/backups/borg --is_mountpoint 1 --shared 0 --content snippets
 
     - name: 'add proxmox_backup_server dataset to the rpool'
-      shell: pvesm add dir proxmox_backup_server --path /rpool/proxmox_backup_server --is_mountpoint 1 --shared 0 --content rootdir
+      shell: pvesm add dir proxmox_backup_server --path /rpool/proxmox_backup_server --is_mountpoint 1 --shared 0 --content images
