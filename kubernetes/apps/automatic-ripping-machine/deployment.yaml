@@ -1,6 +1,3 @@
-# Note: the pod generally needs to be manually terminated, to free up the
-# available "cdrom" resources for the new pod to be scheduled.  There might
-# be a way to tell fluxcd to kill first then launch, but I haven't found it
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -8,6 +5,13 @@ metadata:
   labels:
     app: automatic-ripping-machine
 spec:
+  # The container claims `squat.ai/cdrom: 1`, a node-level device resource with
+  # a count of 1.  With the default RollingUpdate strategy, Kubernetes tries to
+  # start the new pod before terminating the old one, but the new pod can never
+  # schedule because the old pod still holds the cdrom device.  Recreate forces
+  # the old pod to terminate first so the device is freed for the replacement.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: automatic-ripping-machine
@@ -30,17 +34,20 @@ spec:
               name: config-data
       containers:
         - name: automatic-ripping-machine
-          image: automaticrippingmachine/automatic-ripping-machine:2.22.1 # {"$imagepolicy": "apps:automatic-ripping-machine"}
+          image: automaticrippingmachine/automatic-ripping-machine:2.23.2 # {"$imagepolicy": "automatic-ripping-machine:automatic-ripping-machine"}
           env:
             - name: ARM_UID
               value: "0"
             - name: ARM_GID
               value: "0"
+          securityContext:
+            capabilities:
+              add:
+                - SYS_ADMIN
           ports:
             - containerPort: 8080
           resources:
             limits:
-              #devic.es/cdrom: 1
               squat.ai/cdrom: 1
               cpu: 6000m
               memory: 12Gi
@@ -56,6 +63,9 @@ spec:
             - mountPath: /lib/udev/rules.d/51-docker-arm.rules
               name: init-scripts
               subPath: 51-docker-arm.rules
+            - mountPath: /usr/local/bin/arm-disc-wrapper.sh
+              name: init-scripts
+              subPath: arm-disc-wrapper.sh
             - mountPath: /etc/service/armui/run
               name: init-scripts
               subPath: armui.sh
@@ -68,7 +78,7 @@ spec:
             - mountPath: /root/logs
               name: data
               subPath: logs
-            - mountPath: /root/media
+            - mountPath: /root/video
               name: video
               subPath: import/automatic-ripping-machine
             - mountPath: /root/audio
@@ -77,13 +87,12 @@ spec:
       volumes:
         - name: audio
           persistentVolumeClaim:
-            claimName: audio-rw-pvc
+            claimName: audio-rw-arm-pvc
         - name: config
           configMap:
             name: automatic-ripping-machine
         - name: config-data
           emptyDir: {}
-        # TODO: temporarily disabling my custom init scripts, because it's been almost two years since I wrote them and I don't know if they're necessary anymore
         - name: init-scripts
           configMap:
             name: automatic-ripping-machine-init-scripts
@@ -93,6 +102,8 @@ spec:
                 path: arm_user_files_setup.sh
               - key: 51-docker-arm.rules
                 path: 51-docker-arm.rules
+              - key: arm-disc-wrapper.sh
+                path: arm-disc-wrapper.sh
               - key: armui.sh
                 path: armui.sh
         - name: data
@@ -100,4 +111,4 @@ spec:
             claimName: automatic-ripping-machine-pvc
         - name: video
           persistentVolumeClaim:
-            claimName: video-pvc
+            claimName: video-arm-pvc

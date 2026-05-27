@@ -32,8 +32,10 @@ resources:
   - salamander.yaml
   - stump
   #- sftpgo  # Effectively replaced with rclone dropbox bisync
+  - speedtest-tracker
   - syncthing
   - syncthing-pvc.yaml
   #- tinyproxy
+  - trello-randomizer
   - video-pvc.yaml
   - youtube-dl

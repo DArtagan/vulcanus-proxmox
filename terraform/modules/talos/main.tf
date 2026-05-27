@@ -1,10 +1,6 @@
 terraform {
   required_version = ">= 0.12"
   required_providers {
-    proxmox = {
-      source = "telmate/proxmox"
-      version = ">=3.0.0"
-    }
     talos = {
       source = "siderolabs/talos"
       version = ">=0.10.0"
@@ -12,159 +8,42 @@ terraform {
   }
 }
 
-resource "proxmox_vm_qemu" "control_plane_node" {
-  count = var.control_plane_node_count
-  name = "talos-control-plane-${count.index}"
-  target_node = var.proxmox_host_node
-  vmid = sum([900, count.index])
-  qemu_os = "l26" # Linux kernel type
-  scsihw = "virtio-scsi-pci"
-  memory = var.control_plane_node_memory
-  args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2"
-  agent = 1
-  start_at_node_boot = true
-  startup_shutdown {
-    order = -1
-    shutdown_timeout = -1
-    startup_delay = -1
-  }
-  ipconfig0 = "[gw=192.168.0.1, ip=192.168.0.${ sum([190, count.index]) }/24]"
-  cpu {
-    type = "kvm64"
-    cores = 2
-    sockets = 1
-  }
-  network {
-    id = 0
-    model = "virtio"
-    bridge = var.config_network_bridge
-    #tag = var.config_vlan
-  }
-  # TODO: why two bridges/vlans?
-  #network {
-  #  model = "virtio"
-  #  bridge = var.public_network_bridge
-  #  tag = var.public_vlan
-  #}
-  disks {
-    ide {
-      ide2 {
-        cdrom {
-          iso = var.iso_image_location
-        }
-      }
-    }
-    virtio {
-      virtio0 {
-        disk {
-          size = var.control_plane_boot_disk_size
-          storage = var.boot_disk_storage_pool
-          backup = true
-        }
-      }
-    }
-  }
+
+# --- Variables ---
+
+variable "cluster_name" {
+  description = "A name to provide for the Talos cluster."
+  type = string
+}
+
+variable "cluster_endpoint" {
+  description = "The endpoint for the Talos cluster."
+  type = string
+}
+
+variable "control_plane_nodes" {
+  description = "Map of control plane node name to its IP address and Talos config patches."
+  type = map(object({
+    ip_address = string
+    config_patches = list(string)
+  }))
+}
+
+variable "worker_nodes" {
+  description = "Map of worker node name to its IP address and Talos config patches."
+  type = map(object({
+    ip_address = string
+    config_patches = list(string)
+  }))
 }
 
 
-resource "proxmox_vm_qemu" "worker_node" {
-  count = var.worker_node_count
-  name = "talos-worker-${count.index}"
-  target_node = var.proxmox_host_node
-  vmid = sum([910, count.index])
-  qemu_os = "l26" # Linux kernel type
-  scsihw = "virtio-scsi-pci"
-  memory = var.worker_node_memory
-  # CPU options are special for talos.  SCSI and drive options are to attach the CD drive to the worker VM.
-  # The `/dev/sg` device number is very inconsistent, seems to need updating every restart.
-  # The `/dev/sg` device number can be found using `sg_map -sr` on the host (may also need `lsblk` to identify which sr to use).
-  args = join(" ", [
-    "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2",
-    #"-device virtio-scsi-pci,id=scsi1,bus=pci.0",
-    #"-drive file=/dev/sg3,if=none,media=cdrom,format=raw,id=drive-hostdev0,readonly=on",
-    #"-device scsi-generic,bus=scsi1.0,channel=0,scsi-id=0,lun=0,drive=drive-hostdev0,id=hostdev0",
-  ])
-  agent = 1
-  start_at_node_boot = true
-  startup_shutdown {
-    order = -1
-    shutdown_timeout = -1
-    startup_delay = -1
-  }
-  ipconfig0 = "[gw=192.168.0.1, ip=192.168.0.${ sum([195, count.index]) }/24]"
-  cpu {
-    type = "kvm64"
-    cores = var.worker_node_cpus
-    sockets = 1
-  }
-  network {
-    id = 0
-    model = "virtio"
-    bridge = var.config_network_bridge
-    #tag = var.config_vlan
-  }
-  #network {
-  #  model = "virtio"
-  #  tag = var.public_vlan
-  #  bridge = var.public_network_bridge
-  #}
-  # TODO: why two bridges/vlans?
-  #network {
-  #  model = "virtio"
-  #  bridge = var.public_network_bridge
-  #  tag = var.public_vlan
-  #}
-  disks {
-    # TODO: commenting this out out because we're past initial bootstrapping, and I need to keep things un-confused for the ripper.  Create an option that flips between having this attached or having the scsi drive attached above.
-    #ide {
-    #  ide2 {
-    #    cdrom {
-    #      iso = var.iso_image_location
-    #    }
-    #  }
-    #}
-    virtio {
-      virtio0 {
-        disk {
-          size = var.worker_boot_disk_size
-          storage = var.boot_disk_storage_pool
-          backup = true
-        }
-      }
-      virtio1 {
-        disk {
-          size = var.openebs_disk_size
-          storage = var.openebs_disk_storage_pool
-          backup = true
-        }
-      }
-    }
-  }
-}
-
+# --- Talos Configuration ---
 
 locals {
-  control_plane_ip_root = join(".", slice(split(".", var.control_plane_ip_start), 0, 3))
-  control_plane_ip_zero = split(".", var.control_plane_ip_start)[3]
-  control_plane_endpoints = [
-    for i in range(length(proxmox_vm_qemu.control_plane_node)):
-      join(".", [
-        local.control_plane_ip_root,
-        sum([local.control_plane_ip_zero, i])
-      ])
-  ]
-
-  worker_ip_root = join(".", slice(split(".", var.worker_ip_start), 0, 3))
-  worker_ip_zero = split(".", var.worker_ip_start)[3]
-  worker_endpoints = [
-    for i in range(length(proxmox_vm_qemu.worker_node)):
-      join(".", [
-        local.worker_ip_root,
-        sum([local.worker_ip_zero, i])
-      ])
-  ]
+  control_plane_ips = [for node in var.control_plane_nodes : node.ip_address]
+  first_control_plane_ip = local.control_plane_ips[0]
 }
-
 
 resource "talos_machine_secrets" "main" {}
 
@@ -187,41 +66,55 @@ data "talos_machine_configuration" "worker" {
 data "talos_client_configuration" "main" {
   cluster_name = var.cluster_name
   client_configuration = talos_machine_secrets.main.client_configuration
-  endpoints = local.control_plane_endpoints
+  endpoints = local.control_plane_ips
 }
 
-resource "talos_machine_configuration_apply" "control_plane_config_apply" {
+resource "talos_machine_configuration_apply" "control_plane" {
+  for_each = var.control_plane_nodes
   client_configuration = talos_machine_secrets.main.client_configuration
   machine_configuration_input = data.talos_machine_configuration.control_plane.machine_configuration
-  for_each = toset(local.control_plane_endpoints)
-  node = local.control_plane_endpoints[index(local.control_plane_endpoints, each.value)]
-  config_patches = [
-    templatefile("${path.module}/templates/control-plane-patch.yaml.tmpl", {
-      hostname = format("%s-control-plane-%s", var.cluster_name, index(local.control_plane_endpoints, each.value))
-    })
-  ]
+  node = each.value.ip_address
+  config_patches = each.value.config_patches
 }
 
-resource "talos_machine_configuration_apply" "worker_config_apply" {
+resource "talos_machine_configuration_apply" "worker" {
+  for_each = var.worker_nodes
   client_configuration = talos_machine_secrets.main.client_configuration
   machine_configuration_input = data.talos_machine_configuration.worker.machine_configuration
-  for_each = toset(local.worker_endpoints)
-  node = local.worker_endpoints[index(local.worker_endpoints, each.value)]
-  config_patches = [
-    templatefile("${path.module}/templates/worker-patch.yaml.tmpl", {
-      hostname = format("%s-worker-%s", var.cluster_name, index(local.worker_endpoints, each.value))
-    }),
-    file("${path.module}/files/worker-patch.json"),
-  ]
+  node = each.value.ip_address
+  config_patches = each.value.config_patches
 }
 
 resource "talos_machine_bootstrap" "bootstrap" {
   client_configuration = talos_machine_secrets.main.client_configuration
-  endpoint = var.control_plane_ip_start
-  node = var.control_plane_ip_start
+  endpoint = local.first_control_plane_ip
+  node = local.first_control_plane_ip
 }
 
 data "talos_cluster_kubeconfig" "main" {
   client_configuration = talos_machine_secrets.main.client_configuration
-  node = var.control_plane_ip_start
+  node = local.first_control_plane_ip
+}
+
+
+# --- Outputs ---
+
+output "machineconfig_controlplane" {
+  value = data.talos_machine_configuration.control_plane.machine_configuration
+  sensitive = true
+}
+
+output "machineconfig_worker" {
+  value = data.talos_machine_configuration.worker.machine_configuration
+  sensitive = true
+}
+
+output "talosconfig" {
+  value = data.talos_client_configuration.main.talos_config
+  sensitive = true
+}
+
+output "kubeconfig" {
+  value = data.talos_cluster_kubeconfig.main.kubeconfig_raw
+  sensitive = true
 }

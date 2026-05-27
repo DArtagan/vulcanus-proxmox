@@ -40,9 +40,11 @@ spec:
             configBlock: |-
               lameduck 5s
           - name: ready
-          # TODO: left out the kubernetes section deliberately, should it go in?
           - name: prometheus
             parameters: 0.0.0.0:9153
+          - name: any
+          - name: bufsize
+            parameters: 1232
           - name: cache
             parameters: 30
           - name: loop
@@ -53,13 +55,16 @@ spec:
             configBlock: |-
               tls_servername cloudflare-dns.com
               health_check 5s
-            # TODO: maybe rewrite all immortalkeep.com to immortalkeep.local for applications on the LAN, prevents hairpinning. https://coredns.io/2017/05/08/custom-dns-entries-for-kubernetes/
+            # Hairpinning is not a concern: tailnet devices resolve immortalkeep.com
+            # via Headscale split DNS → CoreDNS, infrastructure VMs use CoreDNS
+            # directly, and LAN devices use CoreDNS via router DHCP (primary) with
+            # Cloudflare (secondary) as fallback.
       - zones:
         - zone: immortalkeep.com
         port: 53
         plugins:
-          # TODO: how many of these plugins are worth keeping?
           - name: errors
+          - name: log
           - name: health
             configBlock: |-
               lameduck 5s
@@ -73,19 +78,41 @@ spec:
       - filename: db.immortalkeep.com
         domain: immortalkeep.com
         contents: |-
-          $ORIGIN immortalkeep.com.  ; designates the start of this zone file in the namespace
-          $TTL 1h               ; default expiration time of all resource records without their own TTL value
+          $ORIGIN immortalkeep.com.
+          $TTL 1h
 
-          ; =============================== Resource Records ==============================
+          ; --- SOA & NS ---
+          @                       IN  SOA  ns.immortalkeep.com. hostmaster.immortalkeep.com. (
+                                               2026041101 ; serial (YYYYMMDDNN)
+                                               86400      ; refresh (1d)
+                                               7200       ; retry (2h)
+                                               2419200    ; expire (4w)
+                                               3600 )     ; negative cache TTL (1h)
+          @                       IN  NS   ns.immortalkeep.com.
 
-          @                    IN  SOA     ns.immortalkeep.com. hostmaster.immortalkeep.com. (
-                                               2023012801        ; Serial
-                                               1d                ; Refresh
-                                               2h                ; Retry
-                                               4w                ; Expire
-                                               1h)               ; Minimum TTL
-          @                    IN  A       192.168.0.203         ; Local IPv4 address for immortalkeep.com.
-          @                    IN  NS      ns.immortalkeep.com.  ; Name server for immortalkeep.com.
-          ns                   IN  CNAME   @                     ; Alias for ns.immortalkeep.com
-          fileserver           IN  A       192.168.0.105
-          *.immortalkeep.com.  IN  A       192.168.0.203
+          ; --- Infrastructure hosts ---
+          vulcanus                IN  A    192.168.0.111
+          proxmox-backup-server   IN  A    192.168.0.107
+          fileserver              IN  A    192.168.0.105
+          ns                      IN  A    192.168.0.202  ; CoreDNS
+
+          ; --- Kubernetes nodes ---
+          piraeus-control-plane-0 IN  A    192.168.0.190
+          piraeus-worker-0        IN  A    192.168.0.195
+          piraeus-worker-1        IN  A    192.168.0.196
+          piraeus-api             IN  A    192.168.0.200  ; cluster VIP
+
+          ; --- Kubernetes services (via ingress) ---
+          ; Wildcard routes all subdomains to internal ingress controller.
+          ; Explicit records above take precedence over the wildcard.
+          @                       IN  A    192.168.0.203
+          *.immortalkeep.com.     IN  A    192.168.0.203
+
+          ; --- MetalLB service IPs (for reference) ---
+          ; 192.168.0.201 = ingress-nginx-external
+          ; 192.168.0.202 = CoreDNS (this service)
+          ; 192.168.0.203 = ingress-nginx-internal
+          ;
+          ; --- Router DHCP DNS settings ---
+          ; Primary: 192.168.0.202 (CoreDNS)
+          ; Secondary: 1.1.1.1 (Cloudflare, failover when CoreDNS/cluster is down)

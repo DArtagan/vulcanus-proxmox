@@ -226,7 +226,6 @@ data:
       # List of DNS servers to expose to clients.
       nameservers:
         global:
-          - 192.168.0.202
           - 1.1.1.1
           - 1.0.0.1
           - 2606:4700:4700::1111
@@ -238,13 +237,14 @@ data:
 
         # Split DNS (see https://tailscale.com/kb/1054/dns/),
         # a map of domains and which DNS server to use for each.
+        # Pin immortalkeep.com to CoreDNS so clients always get the
+        # internal ingress IP (192.168.0.203) rather than the public
+        # A record — otherwise Tailscale may pick a public resolver
+        # from the global pool and route to the external nginx, which
+        # has no rule for internal-only hosts like arm.immortalkeep.com.
         split:
-          {}
-          # foo.bar.com:
-          #   - 1.1.1.1
-          # darp.headscale.net:
-          #   - 1.1.1.1
-          #   - 8.8.8.8
+          immortalkeep.com:
+            - 192.168.0.202
 
       # Set custom DNS search domains. With MagicDNS enabled,
       # your tailnet base_domain is always the first search domain.

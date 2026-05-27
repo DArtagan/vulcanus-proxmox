@@ -23,8 +23,9 @@
       cpus: '{{ item.value.cpus | default(defaults.cpus) }}'
       memory: '{{ item.value.memory | default(defaults.memory.ct) }}'
       swap: '{{ item.value.swap | default([]) }}'
-      disk: '{{ item.value.disk | default(defaults.disk.ct) }}'
-      storage: '{{ item.value.storage | default(defaults.storage.ct) }}'
+      disk_volume:
+        storage: '{{ item.value.storage | default(defaults.storage.ct) }}'
+        size: '{{ item.value.disk | default(defaults.disk.ct) }}'
       onboot: '{{ item.value.onboot | default(defaults.onboot) }}'
       mounts: '{{ item.value.mounts | default(defaults.mounts) }}'
       pubkey: '{{ item.value.pubkey | default(defaults.pubkey) }}'
@@ -32,7 +33,7 @@
       searchdomain: '{{ item.value.searchdomain | default(defaults.searchdomain) }}'
       netif: '{{ item.value.netif | default(defaults.netif) }}'
       ostemplate: '{{ ostemplate }}'
-      proxmox_default_behavior: 'no_defaults'
+
       state: 'present'
     with_dict: "{{ cts }}"
     loop_control:
@@ -52,7 +53,7 @@
       api_host: "{{ inventory_hostname }}"
       node: "{{ item.item.value.node }}"
       hostname: "{{ item.item.key }}"
-      proxmox_default_behavior: 'no_defaults'
+
       state: 'started'
     with_items: "{{ created_cts_pve.results }}"
     notify:
@@ -60,4 +61,4 @@
     when: 'item.changed'
 
   - meta: 'flush_handlers'
-    when: 'created_vms_pve.changed'
+    when: 'created_cts_pve.changed'

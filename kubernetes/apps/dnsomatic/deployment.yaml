@@ -16,6 +16,11 @@ spec:
       containers:
         - name: dnsomatic
           image: ammmze/dns-o-matic
+          env:
+            - name: DELAY
+              value: "5m"
+            - name: IP_ADDR_PROVIDER
+              value: "https://api.ipify.org"
           envFrom:
             - secretRef:
                 name: dnsomatic-credentials

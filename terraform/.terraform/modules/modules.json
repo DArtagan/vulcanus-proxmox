@@ -1,1 +1,0 @@
-{"Modules":[{"Key":"","Source":"","Dir":"."},{"Key":"fluxcd","Source":"./modules/fluxcd","Dir":"modules/fluxcd"},{"Key":"proxmox_backup_server","Source":"./modules/proxmox_backup_server","Dir":"modules/proxmox_backup_server"},{"Key":"talos","Source":"./modules/talos","Dir":"modules/talos"}]}

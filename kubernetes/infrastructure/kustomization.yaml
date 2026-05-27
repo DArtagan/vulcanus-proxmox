@@ -3,6 +3,7 @@ kind: Kustomization
 namespace: infrastructure
 resources:
   - audio-pv.yaml
+  - audio-rw-arm-pv.yaml
   - audio-rw-pv.yaml
   #- authentik.yaml
   - basic-auth.yaml
@@ -15,7 +16,7 @@ resources:
   - games-pv.yaml
   - grafana-auth.yaml
   - image-update-automation.yaml
-  - ingress-nginx-internal.yaml
+  - ingress-nginx-reverse-proxy.yaml
   - kubernetes-dashboard.yaml
   - loki.yaml
   - media-pv.yaml
@@ -28,4 +29,5 @@ resources:
   - rancher-key.yaml
   - smb-credentials.yaml
   - syncthing-pv.yaml
+  - video-arm-pv.yaml
   - video-pv.yaml

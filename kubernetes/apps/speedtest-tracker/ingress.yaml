@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: speedtest-tracker
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: ingress-nginx-internal
+  tls:
+    - hosts:
+        - speedtest.immortalkeep.com
+      secretName: speedtest-tracker-ingress-tls
+  rules:
+    - host: speedtest.immortalkeep.com
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: speedtest-tracker
+                port:
+                  number: 80

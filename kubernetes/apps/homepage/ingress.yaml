@@ -8,10 +8,10 @@ spec:
   ingressClassName: ingress-nginx-internal
   tls:
     - hosts:
-        - homepage.immortalkeep.com
+        - immortalkeep.com
       secretName: homepage-ingress-tls
   rules:
-  - host: homepage.immortalkeep.com
+  - host: immortalkeep.com
     http:
       paths:
       - pathType: Prefix

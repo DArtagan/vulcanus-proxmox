@@ -21,7 +21,7 @@ data:
     ln -s /root/logs/arm.log /home/arm/logs/arm.log
 
     # setup needed/expected dirs if not found
-    SUBDIRS="media/completed media/raw media/movies media/transcode logs/progress .MakeMKV"
+    SUBDIRS="video/completed video/raw video/transcode logs/progress .MakeMKV"
     for dir in $SUBDIRS ; do
         thisDir="$ARM_HOME/$dir"
         if [[ ! -d "$thisDir" ]] ; then
@@ -34,13 +34,39 @@ data:
 
     # abcde.conf is expected in /etc by the abcde installation
     cp --no-clobber /opt/arm/setup/.abcde.conf /etc/arm/config/abcde.conf
-    ln -sf /etc/arm/config/abcde.conf /etc/abcde.conf
+    mkdir -p /etc/root/config/
+    ln -sf /etc/arm/config/abcde.conf /etc/root/config/abcde.conf
 
   51-docker-arm.rules: |
-    # ID_CDROM_MEDIA_BD = Bluray
-    # ID_CDROM_MEDIA_DVD = DVD
-    # ID_CDROM_MEDIA_CD = CD
-    ACTION=="change", SUBSYSTEM=="block", RUN+="/opt/arm/scripts/docker/docker_arm_wrapper.sh %k"
+    ACTION=="change", SUBSYSTEM=="block", KERNEL=="sr[0-9]*", RUN+="/usr/local/bin/arm-disc-wrapper.sh %k"
+
+  arm-disc-wrapper.sh: |
+    #!/bin/bash
+    # Gatekeeper called by udev on any block device change event.
+    # Checks that a disc is actually present before invoking ARM, so that
+    # eject events (tray open, no disc) don't trigger spurious rip attempts.
+    DEVNAME="$1"
+    DEV="/dev/${DEVNAME}"
+    ARMLOG="/home/arm/logs/arm.log"
+
+    STATUS=$(python3 -c "
+    import fcntl, os
+    try:
+        fd = os.open('${DEV}', os.O_RDONLY | os.O_NONBLOCK)
+        s = fcntl.ioctl(fd, 0x5326, 0)  # CDROM_DRIVE_STATUS
+        os.close(fd)
+        print(s)
+    except Exception as e:
+        print(0)
+    " 2>/dev/null)
+
+    # CDS_DISC_OK=4: disc present and tray closed. Anything else, skip.
+    if [ "${STATUS}" != "4" ]; then
+        echo "$(date) [ARM] disc-wrapper: no disc in ${DEV} (status=${STATUS}), skipping" >> "${ARMLOG}"
+        exit 0
+    fi
+
+    exec /opt/arm/scripts/docker/docker_arm_wrapper.sh "${DEVNAME}"
 
   armui.sh: |
     #!/bin/bash

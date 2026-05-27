@@ -9,7 +9,7 @@ spec:
   #url: oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack:latest # {"$imagepolicy": "infrastructure:kube-prometheus"}
 
 #---
-#apiVersion: image.toolkit.fluxcd.io/v1beta2
+#apiVersion: image.toolkit.fluxcd.io/v1
 #kind: ImageRepository
 #metadata:
 #  name: kube-prometheus
@@ -18,7 +18,7 @@ spec:
 #  interval: 15m0s
 #
 #---
-#apiVersion: image.toolkit.fluxcd.io/v1beta2
+#apiVersion: image.toolkit.fluxcd.io/v1
 #kind: ImagePolicy
 #metadata:
 #  name: kube-prometheus
