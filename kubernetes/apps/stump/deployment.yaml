@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: stump
-          image: aaronleopold/stump:0.1.4 # {"$imagepolicy": "apps:stump"}
+          image: aaronleopold/stump:0.1.5 # {"$imagepolicy": "apps:stump"}
           env:
             - name: STUMP_TRUST_PROXY_HEADERS
               value: "true"
