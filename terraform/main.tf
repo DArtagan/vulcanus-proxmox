@@ -65,6 +65,7 @@ variable "proxmox_debug" {
 variable "public_key" {
   description = "The public key to be put recognized by containers/vms for remote connection."
   type = string
+  default = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIyPkfTI0io9dZsJstcf29tddyrsHr9bnM8UXKtaVJwm"
 }
 
 variable "github_token" {

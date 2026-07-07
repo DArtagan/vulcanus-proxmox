@@ -59,6 +59,11 @@ data:
           description: Audiobooks as podcast feeds
           icon: mdi-book-music
           siteMonitor: http://podbook-rebound.apps.svc.cluster.local:8000
+      - Stump:
+          href: https://stump.immortalkeep.com
+          description: Book server
+          icon: stump
+          siteMonitor: http://stump.apps.svc.cluster.local:10801
       - Botamusique:
           href: https://botamusique.immortalkeep.com
           description: Mumble music bot

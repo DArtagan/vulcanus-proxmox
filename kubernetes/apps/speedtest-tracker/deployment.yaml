@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: speedtest-tracker
-          image: lscr.io/linuxserver/speedtest-tracker:1.14.3 # {"$imagepolicy": "apps:speedtest-tracker"}
+          image: lscr.io/linuxserver/speedtest-tracker:1.14.5 # {"$imagepolicy": "apps:speedtest-tracker"}
           env:
             - name: APP_KEY
               valueFrom:
