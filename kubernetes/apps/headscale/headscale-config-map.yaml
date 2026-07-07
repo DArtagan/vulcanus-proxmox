@@ -245,6 +245,13 @@ data:
         split:
           immortalkeep.com:
             - 192.168.0.202
+          # Pin the control server's own hostname to public DNS (longest-
+          # suffix match wins over the immortalkeep.com split above). This
+          # must resolve without the tailnet -- otherwise clients need the
+          # tailnet to reach the control server that brings up the tailnet.
+          headscale.immortalkeep.com:
+            - 1.1.1.1
+            - 1.0.0.1
 
       # Set custom DNS search domains. With MagicDNS enabled,
       # your tailnet base_domain is always the first search domain.
