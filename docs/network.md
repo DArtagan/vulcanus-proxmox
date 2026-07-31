@@ -27,7 +27,8 @@
 | 192.168.0.201 | ingress-nginx-external |
 | 192.168.0.202 | CoreDNS |
 | 192.168.0.203 | ingress-nginx-internal (default ingress class) |
-| 192.168.0.204–210 | Available |
+| 192.168.0.204 | RustDesk (hbbs + hbbr) |
+| 192.168.0.205–210 | Available |
 
 ## DNS Architecture
 
@@ -130,6 +131,20 @@ internet (external).
 | 22000 | TCP + UDP | Syncthing (sync protocol) |
 | 21027 | UDP | Syncthing (discovery) |
 
+### Non-HTTP Services (dedicated LoadBalancer IP)
+
+RustDesk is the one service that does not go through either ingress controller.
+It has its own MetalLB IP, 192.168.0.204, with `externalTrafficPolicy: Local`.
+
+| Port | Protocol | Service |
+|------|----------|---------|
+| 21115 | TCP | RustDesk hbbs (NAT type test) |
+| 21116 | TCP + UDP | RustDesk hbbs (rendezvous, ID registration, hole punching) |
+| 21117 | TCP | RustDesk hbbr (relay) |
+
+These four ports are also forwarded at the router to 192.168.0.204, so clients
+that cannot join the tailnet can still reach the server.
+
 ### No Ingress
 
 | Service | Notes |
@@ -155,6 +170,19 @@ hairpinning. This was rejected because all client types already resolve through
 CoreDNS (directly or via Headscale split DNS), so hairpinning doesn't occur.
 The rewrite would have introduced a second domain that all apps would need to
 know about, adding complexity for no gain.
+
+**RustDesk bypasses ingress-nginx:** Every other non-HTTP service is exposed
+through the ingress controllers' `tcp:`/`udp:` port maps. RustDesk is not,
+for two reasons. First, ingress-nginx renders `proxy_responses 1` for every UDP
+stream, which closes the UDP session after a single reply — but RustDesk's
+UDP 21116 is a long-lived channel over which `hbbs` *pushes* punch-hole
+requests to the controlled machine, so inbound sessions would never start.
+Second, `hbbs` hands the source address it observes to the other peer as the
+hole-punch target; behind nginx that is the controller pod IP, which is
+unroutable, so every session would silently fall back to the relay. A dedicated
+MetalLB IP with `externalTrafficPolicy: Local` avoids both. Raising
+`proxy-stream-responses` globally would have fixed only the first problem, at
+the cost of changing mumble's and syncthing's UDP behaviour.
 
 **forge.local for Headscale MagicDNS:** The `.local` TLD is technically reserved
 for mDNS (RFC 6762), but this works in practice because Tailscale clients use

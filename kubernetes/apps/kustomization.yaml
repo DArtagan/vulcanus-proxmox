@@ -28,6 +28,7 @@ resources:
   - photos-pvc.yaml
   - rclone
   - rancher-key.yaml
+  - rustdesk
   - salamander.yaml
   - stump
   #- sftpgo  # Effectively replaced with rclone dropbox bisync

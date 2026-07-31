@@ -120,6 +120,11 @@ data:
           href: https://dns.immortalkeep.com
           description: DNS filtering
           icon: cloudflare
+      - RustDesk:
+          # No siteMonitor: the open-source server speaks its own protocol on
+          # 21115-21117 and exposes no HTTP endpoint to probe.
+          description: Remote desktop — ID server 192.168.0.204
+          icon: rustdesk
       - Uptime Robot:
           href: https://status.immortalkeep.com/
           description: External uptime monitoring

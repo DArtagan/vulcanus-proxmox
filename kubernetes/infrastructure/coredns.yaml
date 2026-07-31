@@ -83,7 +83,7 @@ spec:
 
           ; --- SOA & NS ---
           @                       IN  SOA  ns.immortalkeep.com. hostmaster.immortalkeep.com. (
-                                               2026041101 ; serial (YYYYMMDDNN)
+                                               2026073001 ; serial (YYYYMMDDNN)
                                                86400      ; refresh (1d)
                                                7200       ; retry (2h)
                                                2419200    ; expire (4w)
@@ -102,6 +102,11 @@ spec:
           piraeus-worker-1        IN  A    192.168.0.196
           piraeus-api             IN  A    192.168.0.200  ; cluster VIP
 
+          ; --- Services with their own LoadBalancer IP ---
+          ; Must be listed explicitly, otherwise the wildcard below sends them
+          ; to the internal ingress, which does not serve their ports.
+          rustdesk                IN  A    192.168.0.204
+
           ; --- Kubernetes services (via ingress) ---
           ; Wildcard routes all subdomains to internal ingress controller.
           ; Explicit records above take precedence over the wildcard.
@@ -112,6 +117,7 @@ spec:
           ; 192.168.0.201 = ingress-nginx-external
           ; 192.168.0.202 = CoreDNS (this service)
           ; 192.168.0.203 = ingress-nginx-internal
+          ; 192.168.0.204 = rustdesk (hbbs + hbbr)
           ;
           ; --- Router DHCP DNS settings ---
           ; Primary: 192.168.0.202 (CoreDNS)
