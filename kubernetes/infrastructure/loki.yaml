@@ -21,10 +21,17 @@ spec:
         kind: HelmRepository
         name: grafana
       interval: 60m
+  # The default 5m Helm timeout is not enough for the singleBinary StatefulSet
+  # to roll its PVC, which left this release Stalled with RetriesExceeded.
+  timeout: 15m
   install:
     crds: CreateReplace
+    remediation:
+      retries: 3
   upgrade:
     crds: CreateReplace
+    remediation:
+      retries: 3
   values:
     deploymentMode: SingleBinary<->SimpleScalable
     loki:
