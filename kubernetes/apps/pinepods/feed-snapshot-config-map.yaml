@@ -31,6 +31,14 @@ data:
       | grep 'xmlUrl="' \
       > /tmp/outlines.txt
 
+    # An unreadable feed list must not look like a clean run of zero feeds.
+    # Without this the loop's redirect fails, nothing is checked, and the job
+    # still reports success — silence indistinguishable from a healthy run.
+    if [ ! -f /tmp/outlines.txt ]; then
+      echo "ERROR: feed list was never written"
+      exit 1
+    fi
+
     checked=0
     written=0
     failed=0
@@ -83,7 +91,7 @@ data:
       mv "$tmp" "${dir}/$(date -u +%Y-%m-%dT%H-%M-%SZ).xml"
       written=$((written + 1))
       echo "snapshot: ${slug}"
-    done < /tmp/feeds.txt
+    done < /tmp/outlines.txt
 
     echo "checked ${checked} feeds, wrote ${written} snapshots, ${failed} failures"
 
