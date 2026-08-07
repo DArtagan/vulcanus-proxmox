@@ -17,5 +17,7 @@ spec:
       retries: 3
   values:
     name: salamander
+    image: photoprism/photoprism:260728 # {"$imagepolicy": "apps:salamander"}
+    mariadbImage: mariadb:10.11.18 # {"$imagepolicy": "apps:salamander-mariadb"}
     originalsPath: salamander/originals
     importPath: salamander/import

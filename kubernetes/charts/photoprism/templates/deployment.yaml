@@ -15,7 +15,10 @@ spec:
     spec:
       containers:
         - name: app
-          image: photoprism/photoprism:230607 # {"$imagepolicy": "apps:{{ .Values.name }}"}
+          # Tag is set per release in the HelmRelease values, where Flux image
+          # automation can resolve the $imagepolicy marker; a marker here would
+          # name the policy with a Helm expression that automation cannot read.
+          image: {{ .Values.image }}
           env:
             - name: PHOTOPRISM_ADMIN_PASSWORD
               valueFrom:
@@ -54,9 +57,9 @@ spec:
               name: photos
               subPath: {{ .Values.originalsPath }}
         - name: database
-          image: mariadb # {"$imagepolicy": "apps:{{ .Values.name }}-mariadb"}
+          image: {{ .Values.mariadbImage }}
           args:
-            - "--innodb-buffer-pool-size=128M" 
+            - "--innodb-buffer-pool-size=128M"
             - "--transaction-isolation=READ-COMMITTED"
             - "--character-set-server=utf8mb4"
             - "--collation-server=utf8mb4_unicode_ci"
