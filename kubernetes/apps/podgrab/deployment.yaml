@@ -5,6 +5,12 @@ metadata:
   labels:
     app: podgrab
 spec:
+  # Superseded by pinepods. Scaled to zero rather than deleted so the manifests
+  # and its 15.5 MB SQLite database stay available while the replacement proves
+  # itself. Its database still references the pre-migration /assets paths, so
+  # scaling it back up after the podcasts/ tree was relocated would make it
+  # re-download all 8 feeds — retire it rather than restarting it.
+  replicas: 0
   selector:
     matchLabels:
       app: podgrab
