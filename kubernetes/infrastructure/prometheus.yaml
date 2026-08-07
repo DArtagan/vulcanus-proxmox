@@ -1,36 +1,43 @@
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
+kind: OCIRepository
 metadata:
-  name: prometheus-community
+  name: kube-prometheus
 spec:
-  interval: 15m  # 24h
-  url: https://prometheus-community.github.io/helm-charts
-  #type: oci
-  #url: oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack:latest # {"$imagepolicy": "infrastructure:kube-prometheus"}
+  interval: 1h
+  url: oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    tag: 75.0.0  # {"$imagepolicy": "infrastructure:kube-prometheus:tag"}
 
-#---
-#apiVersion: image.toolkit.fluxcd.io/v1
-#kind: ImageRepository
-#metadata:
-#  name: kube-prometheus
-#spec:
-#  image: ghcr.io/prometheus-community/charts/kube-prometheus-stack
-#  interval: 15m0s
-#
-#---
-#apiVersion: image.toolkit.fluxcd.io/v1
-#kind: ImagePolicy
-#metadata:
-#  name: kube-prometheus
-#spec:
-#  imageRepositoryRef:
-#    name: kube-prometheus
-#  filterTags:
-#    pattern: '^(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$'
-#    extract: '$version'
-#  policy:
-#    semver:
-#      range: '>=47.0.0'
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: kube-prometheus
+spec:
+  image: ghcr.io/prometheus-community/charts/kube-prometheus-stack
+  # This repository carries over 1100 tags, so scan it hourly rather than at the
+  # 15m used for application images.
+  interval: 1h
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: kube-prometheus
+spec:
+  imageRepositoryRef:
+    name: kube-prometheus
+  filterTags:
+    pattern: '^(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$'
+    extract: '$version'
+  policy:
+    semver:
+      # Held to the current major until the stepped upgrade to 88.x is verified,
+      # then widened to '>=88.1.5 <89.0.0'.
+      range: '>=75.0.0 <76.0.0'
 
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
@@ -39,16 +46,9 @@ metadata:
   name: kube-prometheus
 spec:
   interval: 5m
-  chart:
-    spec:
-      chart: kube-prometheus-stack
-      version: 75.0.0
-      sourceRef:
-        kind: HelmRepository
-        name: prometheus-community
-      #verify:
-      #  provider: cosign
-      interval: 60m
+  chartRef:
+    kind: OCIRepository
+    name: kube-prometheus
   install:
     crds: CreateReplace
   upgrade:

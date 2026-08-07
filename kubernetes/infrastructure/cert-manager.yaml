@@ -1,11 +1,46 @@
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
+kind: OCIRepository
 metadata:
-  name: jetstack
+  name: cert-manager
 spec:
-  interval: 24h
-  url: https://charts.jetstack.io
+  interval: 1h
+  url: oci://quay.io/jetstack/charts/cert-manager
+  # The chart is published alongside a provenance artifact, so the layer has to
+  # be selected explicitly rather than taken as the only one.
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    tag: v1.12.2  # {"$imagepolicy": "infrastructure:cert-manager:tag"}
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: cert-manager
+spec:
+  image: quay.io/jetstack/charts/cert-manager
+  interval: 1h
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: cert-manager
+spec:
+  imageRepositoryRef:
+    name: cert-manager
+  # Recent releases are tagged both with and without a leading v; only the
+  # v-prefixed form goes all the way back, so match that one consistently.
+  filterTags:
+    pattern: '^v(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$'
+    extract: '$version'
+  policy:
+    semver:
+      # Held to the current minor until the upgrade to 1.21.x is verified, then
+      # widened to '>=1.21.1 <2.0.0'.
+      range: '>=1.12.2 <1.13.0'
 
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
@@ -14,18 +49,9 @@ metadata:
   name: cert-manager
 spec:
   interval: 15m
-  chart:
-    spec:
-      chart: cert-manager
-      version: 1.12.2
-      sourceRef:
-        kind: HelmRepository
-        name: jetstack
-      interval: 15m
-        #  install:
-        #    crds: CreateReplace
-        #  upgrade:
-        #    crds: CreateReplace
+  chartRef:
+    kind: OCIRepository
+    name: cert-manager
   values:
     installCRDs: true
     promtetheus:

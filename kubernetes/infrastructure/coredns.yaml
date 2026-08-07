@@ -1,10 +1,43 @@
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
+kind: OCIRepository
 metadata:
   name: coredns
 spec:
-  interval: 24h
-  url: https://coredns.github.io/helm
+  interval: 1h
+  url: oci://ghcr.io/coredns/charts/coredns
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    tag: 1.45.0  # {"$imagepolicy": "infrastructure:coredns:tag"}
+
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: coredns
+spec:
+  image: ghcr.io/coredns/charts/coredns
+  interval: 1h
+
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: coredns
+spec:
+  imageRepositoryRef:
+    name: coredns
+  filterTags:
+    pattern: '^(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$'
+    extract: '$version'
+  policy:
+    semver:
+      # Held to the current minor until the upgrade to 1.47.x is verified, then
+      # widened to '>=1.47.0 <2.0.0'.
+      range: '>=1.45.0 <1.46.0'
 
 
 ---
@@ -14,14 +47,9 @@ metadata:
   name: coredns
 spec:
   interval: 5m
-  chart:
-    spec:
-      chart: coredns
-      version: 1.45.0
-      sourceRef:
-        kind: HelmRepository
-        name: coredns
-      interval: 5m
+  chartRef:
+    kind: OCIRepository
+    name: coredns
   values:
     isClusterService: false
     prometheus:
