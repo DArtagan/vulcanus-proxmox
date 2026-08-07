@@ -1,0 +1,98 @@
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: pinepods
+spec:
+  image: madeofpendletonwool/pinepods
+  interval: 15m0s
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: pinepods
+spec:
+  imageRepositoryRef:
+    name: pinepods
+  # Anchoring on $ excludes the -amd64 / -arm64 per-architecture tags.
+  filterTags:
+    pattern: '^(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$'
+    extract: '$version'
+  policy:
+    semver:
+      range: '>=0.9.0'
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: pinepods-postgres
+spec:
+  image: postgres
+  interval: 15m0s
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: pinepods-postgres
+spec:
+  imageRepositoryRef:
+    name: pinepods-postgres
+  # Postgres publishes two-component tags (18.4); the anchor keeps out the
+  # -trixie / -bookworm variants and the beta tags.
+  filterTags:
+    pattern: '^(?P<version>[0-9]+\.[0-9]+)$'
+    extract: '$version'
+  policy:
+    semver:
+      range: '^18.0'
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: pinepods-valkey
+spec:
+  image: valkey/valkey
+  interval: 15m0s
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: pinepods-valkey
+spec:
+  imageRepositoryRef:
+    name: pinepods-valkey
+  filterTags:
+    pattern: '^(?P<version>[0-9]+\.[0-9]+\.[0-9]+)-alpine$'
+    extract: '$version'
+  policy:
+    semver:
+      range: '^8.0.0'
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: pinepods-curl
+spec:
+  image: curlimages/curl
+  interval: 15m0s
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: pinepods-curl
+spec:
+  imageRepositoryRef:
+    name: pinepods-curl
+  # Excludes the cosign .sig tags, which are not versions.
+  filterTags:
+    pattern: '^(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$'
+    extract: '$version'
+  policy:
+    semver:
+      range: '^8.0.0'

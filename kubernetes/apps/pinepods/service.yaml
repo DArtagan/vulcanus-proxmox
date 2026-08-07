@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: pinepods
+spec:
+  selector:
+    app: pinepods
+  ports:
+    - protocol: TCP
+      port: 8040

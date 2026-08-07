@@ -23,6 +23,7 @@ resources:
   - namespace.yaml
   - plex
   - photoprism
+  - pinepods
   - podbook
   - podgrab
   - photos-pvc.yaml

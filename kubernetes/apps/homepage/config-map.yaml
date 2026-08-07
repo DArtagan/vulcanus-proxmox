@@ -54,6 +54,11 @@ data:
             type: photoprism
             url: http://photoprism.apps.svc.cluster.local:2342
             key: "{{HOMEPAGE_VAR_PHOTOPRISM_KEY}}"
+      - Pinepods:
+          href: https://pinepods.immortalkeep.com
+          description: Podcast archive and player
+          icon: mdi-podcast
+          siteMonitor: http://pinepods.apps.svc.cluster.local:8040
       - Podbook:
           href: https://podbook.immortalkeep.com
           description: Audiobooks as podcast feeds

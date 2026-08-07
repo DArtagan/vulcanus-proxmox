@@ -117,7 +117,8 @@ internet (external).
 | kubernetes.immortalkeep.com | Kubernetes Dashboard | Cluster UI |
 | syncthing.immortalkeep.com | Syncthing | File sync |
 | filebot.immortalkeep.com | Filebot | Media organizer |
-| podgrab.immortalkeep.com | Podgrab | Podcast downloader |
+| pinepods.immortalkeep.com | Pinepods | Podcast archive and player |
+| podgrab.immortalkeep.com | Podgrab | Podcast downloader (scaled to zero, superseded by Pinepods) |
 | youtube.immortalkeep.com | youtube-dl | Video downloader |
 | media-toolkit.immortalkeep.com | Media Toolkit Webtop | Desktop environment |
 | arm.immortalkeep.com | Automatic Ripping Machine | DVD ripper |
