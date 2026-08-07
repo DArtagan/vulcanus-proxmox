@@ -33,6 +33,12 @@ spec:
     remediation:
       retries: 3
   values:
+    feature:
+      # Defaults to true from 1.20.x, which appends Ephemeral to the CSIDriver's
+      # volumeLifecycleModes. That field is immutable and the live object is
+      # ["Persistent"], so leaving it on fails the upgrade. Nothing here uses
+      # inline volumes; every SMB share is mounted through a static PV.
+      enableInlineVolume: false
     # Defaults to true from 1.20.x, which would add a csi-smb-node-win DaemonSet
     # that schedules nothing on a Linux-only Talos cluster.
     windows:
