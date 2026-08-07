@@ -63,6 +63,14 @@ spec:
         controllerValue: "k8s.io/ingress-nginx-internal"
         default: true
       ingressClass: ingress-nginx-internal
+      config:
+        # nginx defaults proxy_responses to 1, meaning a UDP stream is torn down
+        # after a single datagram comes back. That suits request/response
+        # protocols and nothing else: Syncthing's QUIC and Mumble's voice are
+        # both continuous and bidirectional, which is why every Syncthing
+        # connection currently reports tcp-server and none report QUIC.
+        # Raising it lets the session live until proxy_timeout instead.
+        proxy-stream-responses: "10000"
       metrics:
         enabled: true
         serviceMonitor:
@@ -110,6 +118,14 @@ spec:
         controllerValue: "k8s.io/ingress-nginx-external"
         default: false
       ingressClass: ingress-nginx-external
+      config:
+        # nginx defaults proxy_responses to 1, meaning a UDP stream is torn down
+        # after a single datagram comes back. That suits request/response
+        # protocols and nothing else: Syncthing's QUIC and Mumble's voice are
+        # both continuous and bidirectional, which is why every Syncthing
+        # connection currently reports tcp-server and none report QUIC.
+        # Raising it lets the session live until proxy_timeout instead.
+        proxy-stream-responses: "10000"
       metrics:
         enabled: true
         serviceMonitor:
