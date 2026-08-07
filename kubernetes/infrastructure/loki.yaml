@@ -87,16 +87,18 @@ spec:
         replication_factor: 1
       storage:
         type: filesystem
+      # Must live under loki: — this block is Loki's own configuration. The
+      # top-level compactor: key is the Kubernetes component used in scalable
+      # mode and has no retention settings at all, so keeping these there meant
+      # retention_period was never enforced and nothing was ever deleted.
+      compactor:
+        delete_request_store: filesystem
+        retention_enabled: true
+        working_directory: /var/loki/compactor
     singleBinary:
       replicas: 1
       persistence:
         storageClass: openebs-hostpath
-    compactor:
-      #compaction_interval: 1h
-      #retention_delete_delay: 2h
-      delete_request_store: filesystem
-      retention_enabled: true
-      working_directory: /var/loki/compactor
 
 
 ---
