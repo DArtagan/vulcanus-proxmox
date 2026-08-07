@@ -3,6 +3,15 @@ kind: Service
 metadata:
   name: mumble
 spec:
+  # Voice is UDP and continuous, which an HTTP ingress proxies badly: nginx
+  # closes a UDP stream after a single response datagram, which is why clients
+  # had to be told to force TCP. A LoadBalancer puts the pod directly behind an
+  # address with no proxy in the path.
+  type: LoadBalancer
+  loadBalancerIP: "192.168.0.205"
+  # Preserves the client address rather than SNATing it to a node IP. With
+  # MetalLB in L2 mode this also means only the node running the pod announces.
+  externalTrafficPolicy: Local
   selector:
     app: mumble
   ports:

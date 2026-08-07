@@ -114,7 +114,7 @@ spec:
 
           ; --- SOA & NS ---
           @                       IN  SOA  ns.immortalkeep.com. hostmaster.immortalkeep.com. (
-                                               2026073001 ; serial (YYYYMMDDNN)
+                                               2026080701 ; serial (YYYYMMDDNN)
                                                86400      ; refresh (1d)
                                                7200       ; retry (2h)
                                                2419200    ; expire (4w)
@@ -137,6 +137,10 @@ spec:
           ; Must be listed explicitly, otherwise the wildcard below sends them
           ; to the internal ingress, which does not serve their ports.
           rustdesk                IN  A    192.168.0.204
+          mumble                  IN  A    192.168.0.205
+          ; Sync traffic only. syncthing.immortalkeep.com is intentionally left
+          ; to the wildcard so the web UI keeps reaching the ingress over TLS.
+          syncthing-sync          IN  A    192.168.0.206
 
           ; --- Kubernetes services (via ingress) ---
           ; Wildcard routes all subdomains to internal ingress controller.
@@ -149,6 +153,10 @@ spec:
           ; 192.168.0.202 = CoreDNS (this service)
           ; 192.168.0.203 = ingress-nginx-internal
           ; 192.168.0.204 = rustdesk (hbbs + hbbr)
+          ; 192.168.0.205 = mumble (64738 tcp+udp)
+          ; 192.168.0.206 = syncthing sync (22000 tcp+udp)
+          ; Pool is 192.168.0.201-210, so 207-210 remain. Check the router's
+          ; DHCP range before widening it.
           ;
           ; --- Router DHCP DNS settings ---
           ; Primary: 192.168.0.202 (CoreDNS)
