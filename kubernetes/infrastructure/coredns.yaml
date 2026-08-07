@@ -33,6 +33,10 @@ spec:
     servers:
       - zones:
         - zone: .
+          # Without this the chart renders a UDP port only. The live Service has
+          # carried both udp-53 and tcp-53 since chart 1.29.0, and resolvers fall
+          # back to TCP for responses that do not fit in a UDP datagram.
+          use_tcp: true
         port: 53
         plugins:
           - name: errors
@@ -61,6 +65,7 @@ spec:
             # Cloudflare (secondary) as fallback.
       - zones:
         - zone: immortalkeep.com
+          use_tcp: true
         port: 53
         plugins:
           - name: errors
