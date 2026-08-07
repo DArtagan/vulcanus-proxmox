@@ -24,28 +24,41 @@ data:
       -H "Content-Type: application/json" \
       -d "{\"user_id\": ${ARCHIVE_USER_ID}}")
 
+    # One outline element per line, so title and xmlUrl can be read together
+    # regardless of the order the attributes appear in.
     printf '%s' "$opml" \
       | tr '>' '\n' \
-      | sed -n 's/.*xmlUrl="\([^"]*\)".*/\1/p' \
-      > /tmp/feeds.txt
+      | grep 'xmlUrl="' \
+      > /tmp/outlines.txt
 
     checked=0
     written=0
     failed=0
 
-    while IFS= read -r url; do
+    while IFS= read -r outline; do
+      url=$(printf '%s' "$outline" | sed -n 's/.*xmlUrl="\([^"]*\)".*/\1/p')
       [ -n "$url" ] || continue
+      title=$(printf '%s' "$outline" | sed -n 's/.*title="\([^"]*\)".*/\1/p')
       checked=$((checked + 1))
 
-      # Slug from host and path only. The query string is dropped because it
-      # carries access tokens that must not become directory names on a share.
-      slug=$(printf '%s' "$url" \
-        | sed -e 's|^[a-zA-Z][a-zA-Z0-9+.-]*://||' -e 's|?.*$||' \
-        | tr -c 'A-Za-z0-9._-' '_' \
-        | sed -e 's/__*/_/g' -e 's/_$//')
+      # Directory name is the host plus a hash of the whole URL. Credentials and
+      # tokens turn up in the path as often as the query string — a private feed
+      # can be .../show/614946/<base64 user:pass>/ — so no part of the path is
+      # safe to reuse verbatim on a shared volume that also goes into backups.
+      # The hash keeps one directory per feed without revealing any of it.
+      host=$(printf '%s' "$url" \
+        | sed -e 's|^[a-zA-Z][a-zA-Z0-9+.-]*://||' -e 's|[/?].*$||' \
+        | tr -c 'A-Za-z0-9.-' '_')
+      hash=$(printf '%s' "$url" | sha256sum | cut -c1-12)
+      slug="${host}_${hash}"
 
       dir="${SNAPSHOT_DIR}/${slug}"
       mkdir -p "$dir"
+
+      # The show title is public and makes the archive navigable, unlike the URL.
+      if [ -n "$title" ] && [ ! -f "${dir}/title.txt" ]; then
+        printf '%s\n' "$title" > "${dir}/title.txt"
+      fi
 
       tmp=$(mktemp)
       if ! curl -fsSL --max-time 120 -o "$tmp" "$url"; then
