@@ -50,8 +50,12 @@ spec:
     name: ingress-nginx
   install:
     crds: CreateReplace
+    remediation:
+      retries: 3
   upgrade:
     crds: CreateReplace
+    remediation:
+      retries: 3
   values:
     fullnameOverride: ingress-nginx-internal
     controller:
@@ -90,8 +94,12 @@ spec:
     name: ingress-nginx
   install:
     crds: CreateReplace
+    remediation:
+      retries: 3
   upgrade:
     crds: CreateReplace
+    remediation:
+      retries: 3
   values:
     fullnameOverride: ingress-nginx-external
     controller:

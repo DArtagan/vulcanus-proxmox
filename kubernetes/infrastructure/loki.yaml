@@ -116,8 +116,12 @@ spec:
       interval: 60m
   install:
     crds: CreateReplace
+    remediation:
+      retries: 3
   upgrade:
     crds: CreateReplace
+    remediation:
+      retries: 3
   values:
     serviceMonitor:
       enabled: true

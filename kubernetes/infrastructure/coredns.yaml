@@ -44,6 +44,12 @@ spec:
   chartRef:
     kind: OCIRepository
     name: coredns
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
   values:
     isClusterService: false
     prometheus:
