@@ -82,7 +82,7 @@ spec:
               period: 24h
               prefix: index_
       limits_config:
-        retention_period: 30d
+        retention_period: 90d
       commonConfig:
         replication_factor: 1
       storage:
