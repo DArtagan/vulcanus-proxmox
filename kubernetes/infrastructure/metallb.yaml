@@ -35,10 +35,10 @@ spec:
     extract: '$version'
   policy:
     semver:
-      # Held to the minor rather than the major used elsewhere: metallb is still
-      # 0.x, where the minor is the breaking-change boundary, and this controls
-      # every LoadBalancer address in the cluster.
-      range: '>=0.16.1 <0.17.0'
+      # Note that metallb is still 0.x, so a minor here carries what a major
+      # would elsewhere — 0.15 moved the CRDs into a subchart and 0.16 switched
+      # the default FRR backend. Read the release notes when this crosses one.
+      range: '>=0.16.1 <1.0.0'
 
 
 ---
