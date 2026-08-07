@@ -72,10 +72,13 @@ spec:
         prometheus.io/port: 10254
       service:
         loadBalancerIP: "192.168.0.203"
+    # Syncthing's 21027 is deliberately absent: it is LAN discovery, UDP-only on
+    # the Service, and broadcast-based, so it cannot be proxied through a
+    # LoadBalancer. Mapping it as TCP pointed at a port the Service does not
+    # expose, which nginx logged as a missing endpoint every few seconds.
     tcp:
       "64738": "apps/mumble:64738"
       "22000": "apps/syncthing:22000"
-      "21027": "apps/syncthing:21027"
     udp:
       "64738": "apps/mumble:64738"
       "22000": "apps/syncthing:22000"
@@ -116,8 +119,9 @@ spec:
         prometheus.io/port: 10254
       service:
         loadBalancerIP: "192.168.0.201"
+    # See the note on the internal controller: 21027 is LAN discovery and
+    # cannot work through an ingress, least of all over TCP.
     tcp:
-      "21027": "apps/syncthing:21027"
       "22000": "apps/syncthing:22000"
       "64738": "apps/mumble:64738"
     udp:
