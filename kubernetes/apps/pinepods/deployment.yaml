@@ -71,13 +71,14 @@ spec:
             - mountPath: /opt/pinepods/local-media
               name: audio
               subPath: podcasts-legacy/
-            # pg_dump output. Nothing backs up the openebs volumes, and an openebs
-            # PVC would be ReadWriteOnce and node-local, so it could not also be
-            # read by another pod. The borg share is ReadWriteMany and rclone-b2
-            # already copies it to Backblaze, so dumps get offsite for free.
+            # pg_dump output. Intended for the borg share so rclone-b2 would carry
+            # it offsite, but that share is not writable by the SMB credentials and
+            # borgmatic's own repositories are currently missing, so its backups are
+            # failing. Parked on a local volume until that is sorted out: this
+            # survives pod restarts and guards against a bad migration, but it is
+            # node-local and not offsite.
             - mountPath: /opt/pinepods/backups
               name: backups
-              subPath: pinepods/
         - name: database
           image: postgres:18.4 # {"$imagepolicy": "apps:pinepods-postgres"}
           env:
@@ -123,4 +124,4 @@ spec:
             claimName: audio-rw-pvc
         - name: backups
           persistentVolumeClaim:
-            claimName: borg-backups-pvc
+            claimName: pinepods-backups-pvc
