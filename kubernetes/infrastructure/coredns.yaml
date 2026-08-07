@@ -9,9 +9,7 @@ spec:
     mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
     operation: copy
   ref:
-    tag: 1.45.0  # {"$imagepolicy": "infrastructure:coredns:tag"}
-
-
+    tag: 1.45.2 # {"$imagepolicy": "infrastructure:coredns:tag"}
 ---
 apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImageRepository
@@ -20,8 +18,6 @@ metadata:
 spec:
   image: ghcr.io/coredns/charts/coredns
   interval: 1h
-
-
 ---
 apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImagePolicy
@@ -38,8 +34,6 @@ spec:
       # Held to the current minor until the upgrade to 1.47.x is verified, then
       # widened to '>=1.47.0 <2.0.0'.
       range: '>=1.45.0 <1.46.0'
-
-
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -60,11 +54,11 @@ spec:
     serviceType: LoadBalancer
     servers:
       - zones:
-        - zone: .
-          # Without this the chart renders a UDP port only. The live Service has
-          # carried both udp-53 and tcp-53 since chart 1.29.0, and resolvers fall
-          # back to TCP for responses that do not fit in a UDP datagram.
-          use_tcp: true
+          - zone: .
+            # Without this the chart renders a UDP port only. The live Service has
+            # carried both udp-53 and tcp-53 since chart 1.29.0, and resolvers fall
+            # back to TCP for responses that do not fit in a UDP datagram.
+            use_tcp: true
         port: 53
         plugins:
           - name: errors
@@ -92,8 +86,8 @@ spec:
             # directly, and LAN devices use CoreDNS via router DHCP (primary) with
             # Cloudflare (secondary) as fallback.
       - zones:
-        - zone: immortalkeep.com
-          use_tcp: true
+          - zone: immortalkeep.com
+            use_tcp: true
         port: 53
         plugins:
           - name: errors

@@ -9,8 +9,7 @@ spec:
     mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
     operation: copy
   ref:
-    tag: 75.0.0  # {"$imagepolicy": "infrastructure:kube-prometheus:tag"}
-
+    tag: 75.18.1 # {"$imagepolicy": "infrastructure:kube-prometheus:tag"}
 ---
 apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImageRepository
@@ -21,7 +20,6 @@ spec:
   # This repository carries over 1100 tags, so scan it hourly rather than at the
   # 15m used for application images.
   interval: 1h
-
 ---
 apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImagePolicy
@@ -38,7 +36,6 @@ spec:
       # Held to the current major until the stepped upgrade to 88.x is verified,
       # then widened to '>=88.1.5 <89.0.0'.
       range: '>=75.0.0 <76.0.0'
-
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -108,7 +105,6 @@ spec:
               resources:
                 requests:
                   storage: 100Gi
-
 ---
 apiVersion: notification.toolkit.fluxcd.io/v1beta3
 kind: Alert
@@ -122,7 +118,6 @@ spec:
     - kind: GitRepository
       name: '*'
       namespace: flux-system
-
 ---
 apiVersion: notification.toolkit.fluxcd.io/v1beta3
 kind: Provider
