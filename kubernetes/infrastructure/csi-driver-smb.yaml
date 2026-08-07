@@ -4,7 +4,9 @@ metadata:
   name: csi-driver-smb
 spec:
   interval: 24h
-  url: https://kubernetes-csi.github.io/csi-driver-smb
+  # The kubernetes-csi.github.io Pages repository only publishes 1.20.x, so it
+  # cannot serve the pinned 1.14.0. This raw branch URL carries the full history.
+  url: https://raw.githubusercontent.com/kubernetes-csi/csi-driver-smb/master/charts
 
 
 ---
