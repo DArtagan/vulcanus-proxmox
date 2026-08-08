@@ -172,6 +172,28 @@ spec:
         existingSecret: grafana-admin
         userKey: admin-user
         passwordKey: admin-password
+      # /var/lib/grafana was an emptyDir, so every restart discarded the SQLite
+      # database: the admin password reverted to the secret, UI-created
+      # dashboards and users vanished, and the annotations the Flux Provider
+      # posts on each reconcile went with them. Dashboards are provisioned from
+      # config maps and survived, which is what made the rest easy to miss.
+      #
+      # Note this inverts how the password behaves. Grafana only honours
+      # GF_SECURITY_ADMIN_PASSWORD when creating the admin on a fresh database,
+      # so from here the secret no longer updates it — changing it means the UI,
+      # or deleting the PVC. Enabled now precisely because the database is
+      # currently fresh and was built from the secret, so the right credential
+      # is the one being captured.
+      #
+      # storageClassName is explicit because no StorageClass is marked default
+      # in this cluster; without it the claim would never bind.
+      persistence:
+        enabled: true
+        type: pvc
+        storageClassName: openebs-hostpath
+        accessModes:
+          - ReadWriteOnce
+        size: 10Gi
       ingress:
         enabled: true
         annotations:
