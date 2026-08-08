@@ -114,12 +114,23 @@ spec:
             - matchers:
                 - severity = "info"
               receiver: "null"
+            # A meta-alert the chart fires purely to drive its own inhibit
+            # rules. It carries severity "none", so the info route misses it
+            # and it would otherwise page.
+            - matchers:
+                - alertname = "InfoInhibitor"
+              receiver: "null"
         inhibit_rules:
           # When something is critical, the matching warning adds nothing.
           - source_matchers:
               - severity = "critical"
             target_matchers:
+              - severity =~ "warning|info"
+            equal: ["alertname", "namespace"]
+          - source_matchers:
               - severity = "warning"
+            target_matchers:
+              - severity = "info"
             equal: ["alertname", "namespace"]
         receivers:
           - name: "null"
