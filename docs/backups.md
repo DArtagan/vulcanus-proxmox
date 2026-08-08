@@ -1,13 +1,17 @@
 # Backups
 
 Findings from an audit on 2026-08-06, done incidentally while deploying Pinepods.
-Nothing here has been fixed — this is the starting point for that work.
+This is the starting point for that work.
+
+Since then, two of the prerequisites have been met. Alerting now exists —
+Alertmanager routes to Pushover, so a failing CronJob is visible rather than
+silent — and `rclone-b2` has been removed. Borgmatic is still unrepaired.
 
 ## Summary
 
 **The Kubernetes-side backup stack is not functioning.** Borgmatic fails on every
-run, `rclone-b2` targets a service no longer in use, and no `openebs-hostpath`
-volume is covered by anything at the cluster level. What is actually protecting
+run, and no `openebs-hostpath` volume is covered by anything at the cluster
+level. What is actually protecting
 data today is ZFS replication to an offsite server, plus a whole-blob backup of
 the Proxmox worker VM.
 
@@ -59,12 +63,16 @@ Reproduce with:
 kubectl exec -n apps deploy/borgmatic -- sh -c 'touch /mnt/repositories/.wtest'
 ```
 
-### rclone-b2 targets a retired service
+### rclone-b2 targeted a retired service — removed 2026-08-07
 
-`kubernetes/apps/rclone/b2-cron-job.yaml` copies the borg share to Backblaze B2
-daily. B2 is no longer used; the last run failed. Since it read from the borg
+`kubernetes/apps/rclone/b2-cron-job.yaml` copied the borg share to Backblaze B2
+daily. B2 is no longer used and the last run failed. Since it read from the borg
 share, whose repositories are stale, it was carrying old data offsite even when
 it did work.
+
+Deleted. The `rclone-config` Secret still carries a `b2-path` key and a b2 remote
+inside `conf`; both are inert now, and can be dropped next time that file is
+edited with `sops`.
 
 ### Borgmatic config uses deprecated syntax
 
@@ -126,8 +134,9 @@ Two ways to close it, roughly in increasing order of effort:
    history rather than notifications.
 
 These are worth doing together with, not after, the backup repair — an alert on
-CronJob failure is only useful once borgmatic and `rclone-b2` stop failing
-constantly (see Cleanup candidates), and the backup work is otherwise unverifiable.
+CronJob failure is only useful once the things that fail constantly are dealt
+with, or it trains everyone to ignore it. `rclone-b2` has since been removed;
+borgmatic remains (see Cleanup candidates).
 
 ### Two failure shapes to design for
 
@@ -161,10 +170,9 @@ Both were observed directly and neither produces a symptom on its own:
 
 ## Cleanup candidates
 
-Both fail daily against infrastructure that no longer exists:
-
-- `kubernetes/apps/rclone/b2-cron-job.yaml` — B2 retired
-- `kubernetes/apps/borgmatic/` — repositories missing, share unwritable
-
-Removing or fixing them is a prerequisite for meaningful alerting; until then any
-alert on CronJob failure fires constantly and trains everyone to ignore it.
+- `kubernetes/apps/rclone/b2-cron-job.yaml` — B2 retired. **Removed 2026-08-07.**
+- `kubernetes/apps/borgmatic/` — repositories missing, share unwritable.
+  Still outstanding, and now noisier: borgmatic gained a native `pushover` hook
+  on 2026-08-07, so each failed run notifies. That is correct behaviour rather
+  than a regression, but it means the repair is no longer something that can be
+  quietly deferred.
