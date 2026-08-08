@@ -105,6 +105,29 @@ spec:
           - name: prometheus
             parameters: 0.0.0.0:9153
           - name: reload
+      # status.immortalkeep.com is a Cloudflare DNS entry that redirects to
+      # the Uptime Robot status page — it is not served by the internal
+      # ingress. This zone is more specific than immortalkeep.com above, so
+      # CoreDNS answers it via public DNS instead of falling through to the
+      # wildcard record, which would otherwise point it at the internal
+      # ingress (no rule there for this host). Covers LAN clients (CoreDNS
+      # via router DHCP) and tailnet clients (CoreDNS via Headscale split
+      # DNS) with one change.
+      - zones:
+          - zone: status.immortalkeep.com
+            use_tcp: true
+        port: 53
+        plugins:
+          - name: errors
+          - name: health
+            configBlock: |-
+              lameduck 5s
+          - name: ready
+          - name: forward
+            parameters: . tls://1.1.1.1
+            configBlock: |-
+              tls_servername cloudflare-dns.com
+              health_check 5s
     zoneFiles:
       - filename: db.immortalkeep.com
         domain: immortalkeep.com
