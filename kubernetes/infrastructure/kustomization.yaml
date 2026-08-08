@@ -22,6 +22,7 @@ resources:
   - media-pv.yaml
   - metallb.yaml
   - namespace.yaml
+  - notification-secrets.yaml
   - openebs.yaml
   #- openvpn
   - photos-pv.yaml
