@@ -28,7 +28,11 @@
 | 192.168.0.202 | CoreDNS |
 | 192.168.0.203 | ingress-nginx-internal (default ingress class) |
 | 192.168.0.204 | RustDesk (hbbs + hbbr) |
-| 192.168.0.205–210 | Available |
+| 192.168.0.205 | Mumble (voice chat) |
+| 192.168.0.206 | Syncthing (sync protocol) |
+| 192.168.0.207–210 | Available |
+
+Check the router's DHCP range before widening the pool past .210.
 
 ## DNS Architecture
 
@@ -124,27 +128,62 @@ internet (external).
 | arm.immortalkeep.com | Automatic Ripping Machine | DVD ripper |
 | botamusique.immortalkeep.com | Botamusique | Music bot (disabled) |
 
-### Non-HTTP Services (TCP/UDP passthrough via both ingress controllers)
-
-| Port | Protocol | Service |
-|------|----------|---------|
-| 64738 | TCP + UDP | Mumble (voice chat) |
-| 22000 | TCP + UDP | Syncthing (sync protocol) |
-| 21027 | UDP | Syncthing (discovery) |
-
 ### Non-HTTP Services (dedicated LoadBalancer IP)
 
-RustDesk is the one service that does not go through either ingress controller.
-It has its own MetalLB IP, 192.168.0.204, with `externalTrafficPolicy: Local`.
+No service uses the ingress controllers for TCP/UDP any more. Each L4 service
+has its own MetalLB address with `externalTrafficPolicy: Local`, which preserves
+the client address and puts the pod directly behind the address with no proxy in
+the path.
 
-| Port | Protocol | Service |
-|------|----------|---------|
-| 21115 | TCP | RustDesk hbbs (NAT type test) |
-| 21116 | TCP + UDP | RustDesk hbbs (rendezvous, ID registration, hole punching) |
-| 21117 | TCP | RustDesk hbbr (relay) |
+| IP | Port | Protocol | Service |
+|----|------|----------|---------|
+| 192.168.0.204 | 21115 | TCP | RustDesk hbbs (NAT type test) |
+| 192.168.0.204 | 21116 | TCP + UDP | RustDesk hbbs (rendezvous, ID registration, hole punching) |
+| 192.168.0.204 | 21117 | TCP | RustDesk hbbr (relay) |
+| 192.168.0.205 | 64738 | TCP + UDP | Mumble (voice chat) |
+| 192.168.0.206 | 22000 | TCP + UDP | Syncthing (sync protocol) |
 
-These four ports are also forwarded at the router to 192.168.0.204, so clients
-that cannot join the tailnet can still reach the server.
+Mumble and Syncthing moved here on 2026-08-07. They had been going through
+ingress-nginx's `tcp:`/`udp:` ConfigMap keys, which are not part of the Ingress
+API but an nginx `stream` block bolted onto an HTTP controller. nginx closes a
+UDP stream after one response datagram, so Mumble clients had to tick "force
+TCP" to be heard at all and Syncthing never negotiated QUIC — every connection
+reported `tcp-server`.
+
+Syncthing's 21027 was dropped rather than moved. It is LAN discovery, which
+works by broadcast within a subnet; the pod's broadcast domain is the cluster
+network, so announcements cannot cross in either direction no matter how it is
+exposed. It had also been mapped as TCP against a UDP-only Service port, so it
+had never worked.
+
+Syncthing keeps its ClusterIP Service for the web UI, which stays behind the
+ingress with TLS. `syncthing.immortalkeep.com` therefore still resolves to the
+internal ingress via the wildcard; sync traffic uses `syncthing-sync`.
+
+### Router Port Forwarding
+
+| Service | External port | Internal IP | Internal port | Protocol |
+|---------|---------------|-------------|---------------|----------|
+| HTTP (redirect to HTTPS) | 80 | 192.168.0.201 | 80 | TCP |
+| HTTPS (external ingress) | 443 | 192.168.0.201 | 443 | TCP |
+| RustDesk hbbs NAT test | 21115 | 192.168.0.204 | 21115 | TCP |
+| RustDesk hbbs rendezvous | 21116 | 192.168.0.204 | 21116 | TCP |
+| RustDesk hbbs hole punching | 21116 | 192.168.0.204 | 21116 | UDP |
+| RustDesk hbbr relay | 21117 | 192.168.0.204 | 21117 | TCP |
+| Mumble | 64738 | 192.168.0.205 | 64738 | TCP |
+| Mumble | 64738 | 192.168.0.205 | 64738 | UDP |
+| Syncthing sync | 22000 | 192.168.0.206 | 22000 | TCP |
+| Syncthing QUIC | 22000 | 192.168.0.206 | 22000 | UDP |
+
+Mumble and Syncthing previously forwarded to **192.168.0.201**; those rules need
+repointing to .205 and .206. Any rule forwarding **21027** should be deleted.
+
+**Never forward:**
+
+| IP | Why |
+|----|-----|
+| 192.168.0.202 | CoreDNS. Exposing it publishes an open resolver, which will be abused for DNS amplification. |
+| 192.168.0.203 | Internal ingress. It serves the same hostnames without the external class's intent, bypassing the internal/external split. |
 
 ### No Ingress
 
