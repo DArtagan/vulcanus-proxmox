@@ -27,6 +27,13 @@ kubectl debug -n apps -it --copy-to=<debug-pod-name> --container=<container> <po
 kubectl port-forward -n <ns> <pod> <local>:<remote>  # Port forwarding
 ```
 
+**Distroless containers:** Loki, Prometheus and node-exporter ship distroless
+images and contain no shell, so `kubectl exec … -- sh`, `wget` and `df` all fail
+with `executable file not found in $PATH`. Reach their HTTP APIs from a pod that
+does have a shell (the Alertmanager pod works), read disk usage from Prometheus'
+`node_filesystem_avail_bytes` rather than `df`, or attach a busybox with
+`kubectl debug`.
+
 **Ansible (run from `ansible/` dir):**
 ```bash
 # If using fish shell, use ssh-agent first:
