@@ -21,6 +21,7 @@ resources:
   - loki.yaml
   - media-pv.yaml
   - metallb.yaml
+  - metrics-server.yaml
   - namespace.yaml
   - notification-secrets.yaml
   - openebs.yaml

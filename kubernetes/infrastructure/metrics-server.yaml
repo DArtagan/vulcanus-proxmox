@@ -1,0 +1,59 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: metrics-server
+spec:
+  interval: 24h
+  url: https://kubernetes-sigs.github.io/metrics-server
+
+
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: metrics-server
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: metrics-server
+      # No OCI chart is published, so this is bumped by hand rather than by the
+      # image automation the OCI-backed charts use.
+      version: 3.13.1
+      sourceRef:
+        kind: HelmRepository
+        name: metrics-server
+      interval: 15m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    # What this is for, so it does not get mistaken for part of the monitoring
+    # stack: it exists solely so `kubectl top` works. That is a convenience
+    # interface, nothing more.
+    #
+    # Upstream is explicit that metrics-server is "meant only for autoscaling
+    # purposes" and should not be a source of monitoring metrics. That is
+    # honoured here. There are no HorizontalPodAutoscalers, so its intended
+    # purpose is unused, and Prometheus never reads from it — it scrapes the
+    # kubelet directly on /metrics, /metrics/cadvisor and /metrics/probes, which
+    # is where container_memory_working_set_bytes and friends actually come
+    # from. Deleting this release would cost `kubectl top` and nothing else.
+    #
+    # It arrived as a kubernetes-dashboard subchart and outlived it, because it
+    # was the only thing serving v1beta1.metrics.k8s.io.
+    args:
+      # Talos does not issue kubelet serving certificates that metrics-server
+      # trusts by default, and nodes are addressed by InternalIP. Both flags
+      # were carried over from the dashboard's subchart values; without them
+      # metrics-server starts but every scrape fails.
+      - --kubelet-insecure-tls
+      - --kubelet-preferred-address-types=InternalIP
+    # Prometheus is already running, so scrape metrics-server's own metrics too.
+    metrics:
+      enabled: true
+    serviceMonitor:
+      enabled: true
