@@ -3,7 +3,6 @@ kind: Kustomization
 namespace: infrastructure
 resources:
   - audio-pv.yaml
-  - alertmanager-pushover.yaml
   - audio-rw-arm-pv.yaml
   - audio-rw-pv.yaml
   #- authentik.yaml

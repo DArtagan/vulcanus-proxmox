@@ -78,7 +78,7 @@ spec:
         # Mounted at /etc/alertmanager/secrets/<name>/<key>, so credentials are
         # referenced by path below rather than inlined into this file.
         secrets:
-          - alertmanager-pushover
+          - notification-secrets
         storage:
           volumeClaimTemplate:
             spec:
@@ -124,8 +124,8 @@ spec:
           - name: "null"
           - name: pushover
             pushover_configs:
-              - user_key_file: /etc/alertmanager/secrets/alertmanager-pushover/pushover-user-key
-                token_file: /etc/alertmanager/secrets/alertmanager-pushover/pushover-token
+              - user_key_file: /etc/alertmanager/secrets/notification-secrets/pushover-user-key
+                token_file: /etc/alertmanager/secrets/notification-secrets/pushover-token
                 # The default priority template is 2 — Pushover's "emergency",
                 # which retries until acknowledged. Explicitly avoided: 1 raises
                 # a critical above quiet hours, everything else stays normal.
@@ -138,7 +138,7 @@ spec:
                 send_resolved: true
           - name: uptimerobot-heartbeat
             webhook_configs:
-              - url_file: /etc/alertmanager/secrets/alertmanager-pushover/uptimerobot-heartbeat-url
+              - url_file: /etc/alertmanager/secrets/notification-secrets/uptimerobot-heartbeat-url
                 send_resolved: false
     # Talos binds these three components' metrics to localhost, so Prometheus
     # cannot scrape them and they alert as permanently Down — six of today's
