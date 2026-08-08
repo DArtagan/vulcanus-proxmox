@@ -101,12 +101,13 @@ spec:
           repeat_interval: 12h
           receiver: pushover
           routes:
-            # Watchdog fires forever by design. Pointing it at an Uptime Robot
-            # heartbeat inverts it: Uptime Robot complains when the pings stop,
-            # which is how monitoring failing gets noticed.
+            # Watchdog fires forever by design, so the useful signal is its
+            # absence. Pinging a dead-man's switch inverts it: the far end
+            # complains when the pings stop, which is how monitoring failing
+            # gets noticed rather than being silently dead.
             - matchers:
                 - alertname = "Watchdog"
-              receiver: uptimerobot-heartbeat
+              receiver: deadmans-switch
               group_wait: 0s
               group_interval: 5m
               repeat_interval: 5m
@@ -136,9 +137,9 @@ spec:
                   {{ if .Annotations.description }}{{ .Annotations.description }}
                   {{ end }}{{ end }}
                 send_resolved: true
-          - name: uptimerobot-heartbeat
+          - name: deadmans-switch
             webhook_configs:
-              - url_file: /etc/alertmanager/secrets/notification-secrets/uptimerobot-heartbeat-url
+              - url_file: /etc/alertmanager/secrets/notification-secrets/deadmans-switch-url
                 send_resolved: false
     # Talos binds these three components' metrics to localhost, so Prometheus
     # cannot scrape them and they alert as permanently Down — six of today's
