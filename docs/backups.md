@@ -11,7 +11,13 @@ silent — and `rclone-b2` has been removed. Borgmatic is still unrepaired.
 
 **The Kubernetes-side backup stack is not functioning.** Borgmatic fails on every
 run, and no `openebs-hostpath` volume is covered by anything at the cluster
-level. What is actually protecting
+level.
+
+Note on capacity, since covering those volumes needs somewhere to put them: the
+1 TB `openebs-hostpath` disk on `piraeus-worker-0` was 69% full on 2026-08-07,
+with 607 GB of it Loki chunks that retention had never deleted. That was fixed
+and 452 GB reclaimed, so the disk now sits at 25% with roughly 770 GB free.
+Capacity is no longer the constraint it would have been. What is actually protecting
 data today is ZFS replication to an offsite server, plus a whole-blob backup of
 the Proxmox worker VM.
 
@@ -99,10 +105,34 @@ strings. Any repair work should modernise the config rather than patch it.
   This is not a matter of nobody having written the rule — see below, the metrics
   it would need do not exist.
 
-## Nothing can alert on this yet
+## Alerting: CronJobs covered, Flux objects still not
 
-Investigated on 2026-08-07, after a broken `ImagePolicy` went unnoticed for
-sixteen hours and surfaced only because someone happened to look.
+Updated 2026-08-08. Two separate gaps were conflated here originally.
+
+**CronJob failure alerting now works.** Alertmanager was enabled on 2026-08-07
+and routes to Pushover. `KubeJobFailed` fires off kube-state-metrics and needs
+no per-job wiring, so `beets-import`, `podcast-feed-snapshot` and
+`rclone-dropbox` are covered for free. It proved itself immediately by
+surfacing two failed jobs nobody knew about.
+
+Two caveats that matter for designing the backup work:
+
+- **`KubeJobFailed` tracks the existence of a failed Job object, not current
+  health.** With `failedJobsHistoryLimit: 1`, a single transient failure keeps
+  alerting until either another failure replaces it or the Job is deleted by
+  hand. Observed directly: `rclone-dropbox` failed on 2026-07-31, the next three
+  runs succeeded, and the alert persisted for seven days regardless.
+  `ttlSecondsAfterFinished` on the job templates would make failed Jobs
+  self-clean, at the cost of losing the manual-acknowledgement property.
+- **Borgmatic is not covered by it at all.** It runs its own cron inside a
+  Deployment rather than as a Kubernetes CronJob, so no Job object is ever
+  created and `KubeJobFailed` can never see it. It was given borgmatic's native
+  `pushover` hook on 2026-08-07 to compensate.
+
+**Flux object Ready state still has no metric.** That gap is unchanged, and the
+rest of this section describes it. Investigated on 2026-08-07, after a broken
+`ImagePolicy` went unnoticed for sixteen hours and surfaced only because someone
+happened to look.
 
 Scraping itself is healthy. The `flux-system` PodMonitor covers all six
 controllers and every target is up. The problem is which metrics they emit:
@@ -137,6 +167,24 @@ These are worth doing together with, not after, the backup repair — an alert o
 CronJob failure is only useful once the things that fail constantly are dealt
 with, or it trains everyone to ignore it. `rclone-b2` has since been removed;
 borgmatic remains (see Cleanup candidates).
+
+### Borgmatic's own monitoring hooks
+
+Worth knowing before designing this, since borgmatic can report on itself and
+needs no Kubernetes-side plumbing. Version 1.9.14 ships hooks for:
+
+`apprise`, `cronhub`, `cronitor`, `healthchecks`, `loki`, `ntfy`, `pagerduty`,
+`pushover`, `sentry`, `uptime_kuma`, `zabbix`
+
+`pushover` is already wired for failures. **`healthchecks` is the one to reach
+for next**: a healthchecks.io account is already in use for the Alertmanager
+dead-man's switch, and the free tier covers 20 checks against the one currently
+used. Pointing borgmatic at a second check turns "the backup did not run at all"
+into an alert, which is the failure that `on_error` cannot catch — a cron that
+never fires produces no error to hook.
+
+That distinction is the whole reason the backups were invisible: something that
+stops happening emits nothing.
 
 ### Two failure shapes to design for
 
