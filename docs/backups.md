@@ -88,6 +88,61 @@ strings. Any repair work should modernise the config rather than patch it.
   that nobody noticed.
 - **No alerting.** Borgmatic has failed every run for an unknown period without
   surfacing anywhere, despite Prometheus, Grafana, and Loki all running in-cluster.
+  This is not a matter of nobody having written the rule — see below, the metrics
+  it would need do not exist.
+
+## Nothing can alert on this yet
+
+Investigated on 2026-08-07, after a broken `ImagePolicy` went unnoticed for
+sixteen hours and surfaced only because someone happened to look.
+
+Scraping itself is healthy. The `flux-system` PodMonitor covers all six
+controllers and every target is up. The problem is which metrics they emit:
+
+| Metric | Present |
+|---|---|
+| `gotk_reconcile_duration_seconds_*` | yes |
+| `gotk_event_http_*`, `gotk_receiver_http_*` | yes |
+| `gotk_reconcile_condition` | **no** |
+| `kube_customresource_*` | **no** |
+
+`gotk_reconcile_condition` was the gauge that exposed each Flux object's Ready
+state, and it has been removed from current Flux. Upstream's replacement is
+kube-state-metrics' `customResourceState` feature, which this cluster's
+kube-prometheus install does not configure.
+
+**The consequence: no metric in Prometheus can express "a Flux object is not
+Ready."** Not for `ImagePolicy`, not for `Kustomization`, not for `HelmRelease`.
+A Grafana alert on GitOps health cannot currently be written at all.
+
+Two ways to close it, roughly in increasing order of effort:
+
+1. **notification-controller `Provider` + `Alert`.** Flux-native, event-driven
+   rather than metric-derived, and the controller is already running. Alerts can
+   be scoped to specific kinds and severities. Least work.
+2. **kube-state-metrics `customResourceState`.** Restores queryable per-object
+   Ready gauges, which is what Grafana dashboards and `for:`-style flapping
+   suppression actually want. More setup, but it is the only option that gives
+   history rather than notifications.
+
+These are worth doing together with, not after, the backup repair — an alert on
+CronJob failure is only useful once borgmatic and `rclone-b2` stop failing
+constantly (see Cleanup candidates), and the backup work is otherwise unverifiable.
+
+### Two failure shapes to design for
+
+Both were observed directly and neither produces a symptom on its own:
+
+- **Fails open.** A broken `ImagePolicy` breaks nothing — the Deployment keeps
+  running whatever tag is committed. It simply stops updating, indefinitely.
+  Structurally identical to borgmatic failing every run while everything appears
+  to work.
+- **Green but wrong.** During diagnosis, a policy with range `>=0.0.0` against
+  `postgres` resolved to **9.6.24** and reported `Ready=True`, because the 9.x
+  line was the only one still publishing three-component tags. A satisfied policy
+  pointed at a nine-year-old release is indistinguishable from a healthy one in
+  `kubectl get imagepolicy`. Any check must assert the resolved value, not just
+  the condition.
 
 ## Questions to settle before rebuilding
 

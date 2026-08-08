@@ -41,12 +41,24 @@ spec:
     name: pinepods-postgres
   # Postgres publishes two-component tags (18.4); the anchor keeps out the
   # -trixie / -bookworm variants and the beta tags.
+  #
+  # The trailing `.0` is load-bearing. Flux parses semver candidates strictly,
+  # so "18.4" is not a version at all and the whole list evaluates to empty
+  # ("unable to determine latest version from provided list"). Appending a
+  # patch component makes it parse; Flux maps the winner back to the real tag,
+  # so the deployment still gets postgres:18.4.
+  #
+  # This works only because postgres has published exclusively two-component
+  # tags since v10. A repository that mixes 1.2 and 1.2.3 would have both
+  # extract to 1.2.0 and collide.
   filterTags:
     pattern: '^(?P<version>[0-9]+\.[0-9]+)$'
-    extract: '$version'
+    extract: '$version.0'
   policy:
     semver:
-      range: '^18.0'
+      # Minor-only on purpose: a Postgres major bump needs pg_upgrade, not a
+      # new image tag. Moving to 19 is a deliberate, manual exercise.
+      range: '^18.0.0'
 
 ---
 apiVersion: image.toolkit.fluxcd.io/v1
