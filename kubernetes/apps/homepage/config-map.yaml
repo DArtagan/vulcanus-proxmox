@@ -131,7 +131,7 @@ data:
           description: Remote desktop — ID server 192.168.0.204
           icon: rustdesk
       - Uptime Robot:
-          href: https://status.immortalkeep.com/
+          href: https://stats.uptimerobot.com/oUP5bfftDr
           description: External uptime monitoring
           icon: uptimerobot
       - Speedtest Tracker:
