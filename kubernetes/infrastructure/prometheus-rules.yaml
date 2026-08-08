@@ -1,0 +1,50 @@
+# Custom alert rules, as opposed to the ones kube-prometheus-stack ships.
+# The HelmRelease sets ruleSelector to {} with ruleSelectorNilUsesHelmValues
+# false, so Prometheus picks these up without needing a matching label.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: version-skew
+spec:
+  groups:
+    - name: version-skew
+      rules:
+        # kube-proxy ran v1.27.7 against a v1.35.0 control plane for roughly
+        # three years, unnoticed. Talos applies kube-proxy, CoreDNS and flannel
+        # as bootstrap manifests, which are refreshed only by upgrade-k8s, while
+        # the static pods and kubelet move with the OS upgrade — so the two
+        # drift apart silently. Nothing reported it because Prometheus had no
+        # Alertmanager to report to.
+        #
+        # Deliberately built on kube_pod_container_info rather than
+        # kubernetes_build_info: that comes from kube-state-metrics, so it works
+        # for components that expose no scrapeable metrics of their own. On
+        # Talos those bind to localhost, which is exactly why their own scrapes
+        # are disabled in prometheus.yaml. kube_node_info is no use either — its
+        # kubeproxy_version label now reads literally "deprecated".
+        - alert: KubernetesComponentVersionSkew
+          expr: |
+            count(
+              count by (minor_version) (
+                label_replace(
+                  kube_pod_container_info{namespace="kube-system", container=~"kube-apiserver|kube-controller-manager|kube-scheduler|kube-proxy"},
+                  "minor_version", "$1", "image_spec", ".*:v([0-9]+\\.[0-9]+)\\..*"
+                )
+              )
+            ) > 1
+          # Long enough to sit out a rolling upgrade, which legitimately leaves
+          # components on different versions while it sequences through them.
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: Kubernetes control plane components are on different minor versions.
+            description: >-
+              {{ $value }} distinct minor versions are running across
+              kube-apiserver, kube-controller-manager, kube-scheduler and
+              kube-proxy. Kubernetes supports one minor of skew. Compare them
+              with:
+              kubectl get pods -n kube-system -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\n"}{end}'
+              and resync with:
+              talosctl --nodes <control-plane> upgrade-k8s --from <current> --to <target>
+              See docs/talos-terraform-migration-prompt.md.

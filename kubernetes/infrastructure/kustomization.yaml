@@ -26,6 +26,7 @@ resources:
   - openebs.yaml
   #- openvpn
   - photos-pv.yaml
+  - prometheus-rules.yaml
   - prometheus.yaml
   - rancher-key.yaml
   - smb-credentials.yaml
