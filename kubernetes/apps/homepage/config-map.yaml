@@ -181,8 +181,3 @@ data:
             url: https://192.168.0.107:8007
             username: "{{HOMEPAGE_VAR_PBS_TOKEN_ID}}"
             password: "{{HOMEPAGE_VAR_PBS_TOKEN_SECRET}}"
-      - Kubernetes:
-          href: https://kubernetes.immortalkeep.com
-          description: Cluster dashboard
-          icon: kubernetes-dashboard
-          siteMonitor: https://kubernetes-dashboard-kong-proxy.infrastructure.svc.cluster.local:443

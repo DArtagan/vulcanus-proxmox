@@ -18,7 +18,6 @@ resources:
   - grafana-auth.yaml
   - image-update-automation.yaml
   - ingress-nginx-reverse-proxy.yaml
-  - kubernetes-dashboard.yaml
   - loki.yaml
   - media-pv.yaml
   - metallb.yaml

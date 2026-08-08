@@ -118,7 +118,6 @@ internet (external).
 | homepage.immortalkeep.com | Homepage | Dashboard |
 | grafana.immortalkeep.com | Grafana | Monitoring dashboards |
 | prometheus.immortalkeep.com | Prometheus | Metrics |
-| kubernetes.immortalkeep.com | Kubernetes Dashboard | Cluster UI |
 | syncthing.immortalkeep.com | Syncthing | File sync |
 | filebot.immortalkeep.com | Filebot | Media organizer |
 | pinepods.immortalkeep.com | Pinepods | Podcast archive and player |
