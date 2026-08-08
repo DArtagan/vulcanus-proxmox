@@ -164,6 +164,14 @@ spec:
     kubeProxy:
       enabled: false
     grafana:
+      # Without this the password is the chart default, "prom-operator", which
+      # is published in the chart's own values.yaml. Chart 79.x also drops that
+      # default in favour of a random one, so pinning it here keeps the
+      # credential stable across the upgrade as well as making it not public.
+      admin:
+        existingSecret: grafana-admin
+        userKey: admin-user
+        passwordKey: admin-password
       ingress:
         enabled: true
         annotations:

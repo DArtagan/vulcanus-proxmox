@@ -14,6 +14,7 @@ resources:
   - csi-driver-smb.yaml
   - devices.yaml
   - games-pv.yaml
+  - grafana-admin-secret.yaml
   - grafana-auth.yaml
   - image-update-automation.yaml
   - ingress-nginx-reverse-proxy.yaml
