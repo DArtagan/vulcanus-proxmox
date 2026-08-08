@@ -6,3 +6,4 @@ resources:
   - data-pvc.yaml
   - deployment.yaml
   - image.yaml
+  - pushover-secret.yaml

@@ -22,6 +22,19 @@ spec:
                 secretKeyRef:
                   name: borg
                   key: password
+            # Interpolated into the pushover hook in the config map. Secrets are
+            # namespaced, so these live alongside the apps rather than sharing
+            # the Alertmanager copy in infrastructure.
+            - name: PUSHOVER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: borgmatic-pushover
+                  key: pushover-token
+            - name: PUSHOVER_USER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: borgmatic-pushover
+                  key: pushover-user-key
           volumeMounts:
             - mountPath: /etc/borgmatic.d
               name: config

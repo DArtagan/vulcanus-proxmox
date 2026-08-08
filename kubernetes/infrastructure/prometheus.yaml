@@ -56,7 +56,100 @@ spec:
       retries: 3
   # https://github.com/prometheus-community/helm-charts/blob/main/charts/kube-prometheus-stack/values.yaml
   values:
+    # Rules had been evaluating into the void: without an Alertmanager, twelve
+    # alerts were firing and reaching nobody — including two genuinely failed
+    # rclone backup jobs, and PrometheusNotConnectedToAlertmanagers itself.
     alertmanager:
+      enabled: true
+      ingress:
+        enabled: true
+        annotations:
+          cert-manager.io/cluster-issuer: letsencrypt
+        ingressClassName: ingress-nginx-internal
+        hosts:
+          - alertmanager.immortalkeep.com
+        paths:
+          - /
+        tls:
+          - hosts:
+              - alertmanager.immortalkeep.com
+            secretName: alertmanager-ingress-tls
+      alertmanagerSpec:
+        # Mounted at /etc/alertmanager/secrets/<name>/<key>, so credentials are
+        # referenced by path below rather than inlined into this file.
+        secrets:
+          - alertmanager-pushover
+        storage:
+          volumeClaimTemplate:
+            spec:
+              storageClassName: openebs-hostpath
+              accessModes:
+                - ReadWriteOnce
+              resources:
+                requests:
+                  storage: 2Gi
+      config:
+        global:
+          resolve_timeout: 5m
+        route:
+          # Grouping is the whole point: one node problem should be one
+          # notification, not forty. Six of the twelve alerts firing today
+          # shared a single root cause.
+          group_by: ["alertname", "namespace"]
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 12h
+          receiver: pushover
+          routes:
+            # Watchdog fires forever by design. Pointing it at an Uptime Robot
+            # heartbeat inverts it: Uptime Robot complains when the pings stop,
+            # which is how monitoring failing gets noticed.
+            - matchers:
+                - alertname = "Watchdog"
+              receiver: uptimerobot-heartbeat
+              group_wait: 0s
+              group_interval: 5m
+              repeat_interval: 5m
+            - matchers:
+                - severity = "info"
+              receiver: "null"
+        inhibit_rules:
+          # When something is critical, the matching warning adds nothing.
+          - source_matchers:
+              - severity = "critical"
+            target_matchers:
+              - severity = "warning"
+            equal: ["alertname", "namespace"]
+        receivers:
+          - name: "null"
+          - name: pushover
+            pushover_configs:
+              - user_key_file: /etc/alertmanager/secrets/alertmanager-pushover/pushover-user-key
+                token_file: /etc/alertmanager/secrets/alertmanager-pushover/pushover-token
+                # The default priority template is 2 — Pushover's "emergency",
+                # which retries until acknowledged. Explicitly avoided: 1 raises
+                # a critical above quiet hours, everything else stays normal.
+                priority: '{{ if eq .CommonLabels.severity "critical" }}1{{ else }}0{{ end }}'
+                title: '{{ .Status | toUpper }}: {{ .CommonLabels.alertname }}'
+                message: |-
+                  {{ range .Alerts }}{{ .Annotations.summary }}
+                  {{ if .Annotations.description }}{{ .Annotations.description }}
+                  {{ end }}{{ end }}
+                send_resolved: true
+          - name: uptimerobot-heartbeat
+            webhook_configs:
+              - url_file: /etc/alertmanager/secrets/alertmanager-pushover/uptimerobot-heartbeat-url
+                send_resolved: false
+    # Talos binds these three components' metrics to localhost, so Prometheus
+    # cannot scrape them and they alert as permanently Down — six of today's
+    # twelve alerts, three of them critical. Disabling the scrapes stops the
+    # noise; making them genuinely scrapable needs a machine config change and
+    # is written up in docs/talos-terraform-migration-prompt.md.
+    kubeScheduler:
+      enabled: false
+    kubeControllerManager:
+      enabled: false
+    kubeProxy:
       enabled: false
     grafana:
       ingress:

@@ -144,6 +144,14 @@ data:
             url: http://speedtest-tracker.apps.svc.cluster.local:80
             fields: ["ping", "download", "upload"]
     - Cluster:
+      - Alertmanager:
+          href: https://alertmanager.immortalkeep.com
+          description: Alert routing and silences
+          icon: alertmanager
+          siteMonitor: http://kube-prometheus-kube-prome-alertmanager.infrastructure.svc.cluster.local:9093
+          widget:
+            type: alertmanager
+            url: http://kube-prometheus-kube-prome-alertmanager.infrastructure.svc.cluster.local:9093
       - Grafana:
           href: https://grafana.immortalkeep.com
           description: Metrics dashboards
