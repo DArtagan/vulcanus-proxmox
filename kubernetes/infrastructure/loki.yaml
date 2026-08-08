@@ -18,7 +18,7 @@ spec:
     mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
     operation: copy
   ref:
-    tag: 6.30.1  # {"$imagepolicy": "infrastructure:loki:tag"}
+    tag: 7.2.0  # {"$imagepolicy": "infrastructure:loki:tag"}
 
 ---
 apiVersion: image.toolkit.fluxcd.io/v1
@@ -42,9 +42,7 @@ spec:
     extract: '$version'
   policy:
     semver:
-      # Held to the current minor until the upgrade to 7.x is verified, then
-      # widened to '>=7.2.0 <8.0.0'.
-      range: '>=6.30.1 <6.31.0'
+      range: '>=7.2.0 <8.0.0'
 
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
