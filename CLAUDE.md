@@ -95,6 +95,38 @@ sops kubernetes/apps/<app>/secret.yaml
 - **Talos extensions required:** `siderolabs/iscsi-tools`, `siderolabs/qemu-guest-agent` — get images from https://factory.talos.dev.
 - **talos-worker won't boot:** Check that a virtual SCSI/cdrom is attached in Proxmox VM config.
 
+## Documentation Protocol
+
+Two directories, deliberately separated by tense.
+
+**`docs/` — the present system.** How things work as they stand. Descriptive,
+not aspirational: if something in `docs/` is not true of the running cluster,
+that is a bug in the docs. See `docs/README.md`.
+
+**`todos/` — work not yet done.** Self-contained specs, each with enough
+verified context to start a session cold plus a prompt to open with. A file
+existing in `todos/` means that work is outstanding. See `todos/README.md`, which
+also holds the ordered priority list and guidance on writing a good spec.
+
+**The lifecycle:**
+
+1. Work is identified and written as a spec in `todos/`, capturing what was
+   verified, when, and why the approach was chosen.
+2. The work is carried out, usually in its own session opened with that spec.
+3. Whatever the work leaves behind that is *permanently true* is written into
+   `docs/` — the resulting architecture, conventions, operational notes.
+4. The spec in `todos/` is deleted. It was scaffolding.
+
+The point of the split is that the two ages differently. Documentation of the
+present system should be corrected whenever reality moves. A work spec is a
+point-in-time artefact whose value is highest the day it is written and which
+becomes misleading once acted on, so it is removed rather than left to rot.
+
+When writing either, record **why** and not only **what**. Decisions the user has
+already made should be captured verbatim so they are not relitigated, and wrong
+turns should be recorded honestly — inheriting mistaken reasoning is worse than
+inheriting none.
+
 ## Security Policy
 
 This repository is public. It is intentionally shared to contribute to the community's body of knowledge. However, sensitive values must never be committed in plaintext.

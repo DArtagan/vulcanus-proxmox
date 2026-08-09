@@ -61,7 +61,7 @@ here; worth a look only if the manual pinning proves annoying.
 ## The prompt
 
 > I want to replace promtail with Grafana Alloy in the vulcanus-proxmox repo.
-> Read `docs/promtail-to-alloy-prompt.md` first — it has the verified state as
+> Read `todos/promtail-to-alloy-prompt.md` first — it has the verified state as
 > of 2026-08-08 and explains why this is not urgent.
 >
 > Start by planning, not editing. Work out:

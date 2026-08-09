@@ -105,7 +105,7 @@ Candidates worth evaluating:
 ## The prompt
 
 > I want to migrate off ingress-nginx in the vulcanus-proxmox repo. Read
-> `docs/ingress-nginx-migration-prompt.md` first — it has the verified state as
+> `todos/ingress-nginx-migration-prompt.md` first — it has the verified state as
 > of 2026-08-07 and the constraints.
 >
 > Start by planning, not editing. I want to decide between Envoy Gateway and

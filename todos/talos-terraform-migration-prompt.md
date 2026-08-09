@@ -119,7 +119,7 @@ Also useful: `data.talos_cluster_health` for gating dependent resources, and
 ## The prompt
 
 > I want to bring Talos and Kubernetes version management under Terraform in the
-> vulcanus-proxmox repo. Read `docs/talos-terraform-migration-prompt.md` first —
+> vulcanus-proxmox repo. Read `todos/talos-terraform-migration-prompt.md` first —
 > it explains how the cluster drifted and what the newer provider offers, all
 > verified 2026-08-07.
 >

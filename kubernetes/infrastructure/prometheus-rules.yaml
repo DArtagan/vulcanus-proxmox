@@ -47,4 +47,4 @@ spec:
               kubectl get pods -n kube-system -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\n"}{end}'
               and resync with:
               talosctl --nodes <control-plane> upgrade-k8s --from <current> --to <target>
-              See docs/talos-terraform-migration-prompt.md.
+              See todos/talos-terraform-migration-prompt.md.

@@ -87,7 +87,7 @@ delete them as cleanup — that also shrinks the migration surface by four.
 ## The prompt
 
 > I want to migrate OpenEBS from 3.10.0 to 4.x in the vulcanus-proxmox repo.
-> Read `docs/openebs-4x-migration-prompt.md` first — it has the full inventory and
+> Read `todos/openebs-4x-migration-prompt.md` first — it has the full inventory and
 > the physical layout, verified 2026-08-07.
 >
 > Start by planning, not editing. Specifically work out:
@@ -106,7 +106,7 @@ delete them as cleanup — that also shrinks the migration surface by four.
 >    so dropping NDM entirely is probably fine — confirm it.
 > 4. A restore path. Before anything is applied I want to know how each of the 26
 >    volumes gets back. Borgmatic already backs up some of this — check
->    `kubernetes/apps/borgmatic/` and `docs/backups.md` for what is actually
+>    `kubernetes/apps/borgmatic/` and `todos/backups.md` for what is actually
 >    covered, and say plainly which PVCs have no backup.
 >
 > Propose an order that does Loki and Prometheus last, since they are the largest

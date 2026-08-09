@@ -1,7 +1,7 @@
 # Podcast archive — context and next steps
 
 Working notes from the 2026-08-06 session that replaced Podgrab with Pinepods.
-Intended as the starting context for a follow-up session. **Not committed.**
+Intended as the starting context for a follow-up session.
 
 ## Why this exists
 
@@ -37,7 +37,7 @@ which Pinepods does not store.
 
 `pg_dump` output goes to `pinepods-backups-pvc` on `openebs-hostpath`. It was
 meant for the borg share so it would reach offsite storage, but that share is not
-writable from Kubernetes — see `docs/backups.md`.
+writable from Kubernetes — see `todos/backups.md`.
 
 ## Why Pinepods
 

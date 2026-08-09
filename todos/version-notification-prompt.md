@@ -92,7 +92,7 @@ every metric name matching `image_`, `imagepolicy`, `imagerepo` or `gotk`
 returns only `gotk_event_http_*` and `gotk_receiver_http_*` — HTTP server
 plumbing. No tags, no policies, no repositories.
 
-This is the same root cause `docs/backups.md` records for Flux object Ready
+This is the same root cause `todos/backups.md` records for Flux object Ready
 state: Flux removed `gotk_reconcile_condition`, and upstream's replacement is
 kube-state-metrics' `customResourceState`, which this cluster does not configure.
 
@@ -153,7 +153,7 @@ further work.
 ### The bonus
 
 The same `customResourceState` configuration closes the other gap in
-`docs/backups.md`: no metric can currently express "a Flux object is not Ready",
+`todos/backups.md`: no metric can currently express "a Flux object is not Ready",
 for `ImagePolicy`, `Kustomization` or `HelmRelease`. That gap let a broken
 `ImagePolicy` sit unnoticed for sixteen hours. Defining Ready-state gauges
 alongside the version metrics is mostly incremental once the mechanism is in
@@ -162,7 +162,7 @@ place, and arguably the larger prize.
 ## The prompt
 
 > I want alerting for when a Flux ImagePolicy has stopped tracking upstream
-> because its range caps out. Read `docs/version-notification-prompt.md` first —
+> because its range caps out. Read `todos/version-notification-prompt.md` first —
 > it has the verified state as of 2026-08-08, the full policy inventory, and why
 > Prometheus cannot answer this today.
 >
@@ -187,7 +187,7 @@ place, and arguably the larger prize.
 > 4. Signal 2 (an unattended major landed) — build it or not, and if so at what
 >    severity. See the note above; it is explicitly optional.
 > 5. Whether to fold in Flux object Ready-state metrics at the same time, which
->    closes the gap in `docs/backups.md`. Probably yes, since the mechanism is
+>    closes the gap in `todos/backups.md`. Probably yes, since the mechanism is
 >    the same, but scope it deliberately.
 >
 > Verify any rule in both directions before committing it — silent when healthy

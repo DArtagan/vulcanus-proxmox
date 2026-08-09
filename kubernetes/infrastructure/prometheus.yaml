@@ -158,7 +158,7 @@ spec:
     # cannot scrape them and they alert as permanently Down — six of today's
     # twelve alerts, three of them critical. Disabling the scrapes stops the
     # noise; making them genuinely scrapable needs a machine config change and
-    # is written up in docs/talos-terraform-migration-prompt.md.
+    # is written up in todos/talos-terraform-migration-prompt.md.
     kubeScheduler:
       enabled: false
     kubeControllerManager:
