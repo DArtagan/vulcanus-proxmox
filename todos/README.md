@@ -38,12 +38,7 @@ the documented upgrade path here never ran. Fixed by hand on 2026-08-07; this is
 about making it not recur. Newer provider versions also make the factory image
 schematic declarative.
 
-**5. [promtail-to-alloy-prompt.md](promtail-to-alloy-prompt.md) — replace promtail**
-promtail is deprecated upstream and this deployment runs a June 2023 build.
-Deliberately low in the order: nothing is broken. The log-spam that once made it
-look urgent was a Loki bug, fixed by the 6→7 upgrade.
-
-**6. [openebs-4x-migration-prompt.md](openebs-4x-migration-prompt.md) — OpenEBS 3.10 to 4.x**
+**5. [openebs-4x-migration-prompt.md](openebs-4x-migration-prompt.md) — OpenEBS 3.10 to 4.x**
 The chart repository in use was abandoned in December 2023, so the unpinned
 version silently meant "3.10.0 forever". 4.x is an architectural change touching
 every PVC in the cluster. Last not because it matters least but because it
@@ -71,6 +66,10 @@ What makes these useful when opened cold, months later:
 - **Note decisions already made, and by whom.** Where the user has expressed a
   preference — accepting unattended major upgrades, say — record it verbatim so
   it is not relitigated.
-- **Be honest about wrong turns.** `promtail-to-alloy-prompt.md` records that its
-  original justification turned out to be mistaken. Inheriting bad reasoning is
-  worse than inheriting no reasoning.
+- **Be honest about wrong turns.** Inheriting bad reasoning is worse than
+  inheriting no reasoning. The promtail-to-alloy spec was the worked example
+  until it was retired on 2026-08-10: it recorded that its own original
+  justification — log-spam blamed on promtail — had turned out to be a Loki bug,
+  and the session that acted on it went further still, discarding the spec's
+  central assumption that promtail's label set had to be preserved. Neither
+  correction would have been possible if the spec had only stated conclusions.

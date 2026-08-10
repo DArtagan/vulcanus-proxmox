@@ -67,7 +67,7 @@ unaffected by any of this.
 
 **infrastructure**
 - `prometheus-...-prometheus-0` — **100Gi**, the big one
-- `storage-loki-0` — 10Gi
+- `server-volume-victoria-logs-0` — 50Gi (replaced `storage-loki-0` on 2026-08-10)
 - `traefik`, `traefik-external`, `traefik-internal`, `traefik-internal2` — 128Mi each
 
 **apps** — `beets-library` 256Mi, `borgmatic-data` 10Gi, `filebot` 1Gi,
@@ -109,7 +109,7 @@ delete them as cleanup — that also shrinks the migration surface by four.
 >    `kubernetes/apps/borgmatic/` and `todos/backups.md` for what is actually
 >    covered, and say plainly which PVCs have no backup.
 >
-> Propose an order that does Loki and Prometheus last, since they are the largest
+> Propose an order that does VictoriaLogs and Prometheus last, since they are the largest
 > and the least painful to lose. Don't apply cluster changes without checking with
 > me first.
 >

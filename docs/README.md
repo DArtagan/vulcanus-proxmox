@@ -10,6 +10,7 @@ Work that has not been done yet lives in [`todos/`](../todos/), not here.
 | [network.md](network.md) | IP inventory, DNS architecture, service exposure, router port forwarding |
 | [talos.md](talos.md) | Talos cluster operations and upgrades |
 | [disk_management.md](disk_management.md) | Storage layout and resizing |
+| [logging.md](logging.md) | Alloy → OTLP → VictoriaLogs pipeline, field model, retention |
 | [automatic-ripping-machine.md](automatic-ripping-machine.md) | ARM setup and disc handling |
 
 ## Conventions the cluster follows
@@ -22,7 +23,7 @@ several were arrived at by getting them wrong first.
   `$imagepolicy` marker on `ref.tag`, so Flux Bot commits version bumps to git
   and git keeps describing what is deployed. See
   `kubernetes/infrastructure/cert-manager.yaml` for the pattern. Charts with no
-  OCI artifact — `csi-driver-smb`, `metrics-server` — stay pinned and are bumped
+  OCI artifact — `csi-driver-smb`, `metrics-server`, `alloy` — stay pinned and are bumped
   by hand.
 - **Ranges are major-pinned.** Minors and patches flow automatically; crossing a
   major is a deliberate edit. The consequence is that a chart silently stops

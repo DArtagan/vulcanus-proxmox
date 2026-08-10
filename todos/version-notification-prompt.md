@@ -61,11 +61,15 @@ exactly as hard as an explicit `<` bound, and on a `0.x` version caret pins the
 | infrastructure/coredns | `>=1.47.0 <2.0.0` | major | 1.47.0 |
 | infrastructure/ingress-nginx | `>=4.15.1 <5.0.0` | major | v4.15.1 |
 | infrastructure/kube-prometheus | `>=88.1.5 <89.0.0` | major | 88.2.0 |
-| infrastructure/loki | `>=6.30.1 <6.31.0` | **minor** | 6.30.1 |
+| infrastructure/victoria-logs | `>=0.13.9 <0.14.0` | **minor** | 0.13.9 |
 | infrastructure/metallb | `>=0.16.1 <1.0.0` | major | 0.16.1 |
 
-`infrastructure/loki` is deliberately clamped to the current minor pending its
-6→7 upgrade; it should widen to `<8.0.0` once that is done.
+`infrastructure/victoria-logs` is clamped to the current minor because the chart
+is pre-1.0, where a minor bump is the breaking-change boundary. It replaced
+`infrastructure/loki` on 2026-08-10 and will go quiet at 0.14.0 in exactly the
+way this document exists to make visible. Note the collector alongside it,
+`alloy`, has no ImagePolicy at all — no OCI chart is published — so it is one of
+the hand-pinned charts that this audit cannot see.
 
 **Uncapped — majors land unattended (7).** `apps/linkding`,
 `apps/media-toolkit-webtop`, `apps/pinepods`, `apps/podbook-rebound`,
