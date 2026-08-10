@@ -154,6 +154,21 @@ spec:
           }
 
     controller:
+      # The Alloy chart ships no tolerations, but the promtail chart it replaces
+      # defaulted to tolerating the control-plane taint. Without this the
+      # DaemonSet quietly runs on the two workers only, and every control-plane
+      # log — kube-apiserver, kube-controller-manager, kube-scheduler, etcd —
+      # stops being collected with nothing failing to indicate it. Caught by
+      # counting Alloy pods (2) against nodes (3) after the first rollout.
+      #
+      # Only the control-plane key is listed: promtail also carried the legacy
+      # node-role.kubernetes.io/master taint, which this cluster's Kubernetes no
+      # longer sets.
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+
       volumes:
         extra:
           - name: alloy-storage
