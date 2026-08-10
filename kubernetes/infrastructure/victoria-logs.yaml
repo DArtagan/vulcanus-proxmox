@@ -1,0 +1,91 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: victoria-logs
+spec:
+  interval: 1h
+  url: oci://ghcr.io/victoriametrics/helm-charts/victoria-logs-single
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    tag: 0.13.9  # {"$imagepolicy": "infrastructure:victoria-logs:tag"}
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: victoria-logs
+spec:
+  image: ghcr.io/victoriametrics/helm-charts/victoria-logs-single
+  interval: 1h
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: victoria-logs
+spec:
+  imageRepositoryRef:
+    name: victoria-logs
+  filterTags:
+    pattern: '^(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$'
+    extract: '$version'
+  policy:
+    semver:
+      # The chart is pre-1.0, so a minor bump is its breaking-change boundary
+      # and this range deliberately stops at 0.14.0. That means it *will* go
+      # quiet rather than fail when 0.14.0 appears — the same silent-stall
+      # problem todos/version-notification-prompt.md exists to solve.
+      range: '>=0.13.9 <0.14.0'
+
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: victoria-logs
+spec:
+  interval: 5m
+  chartRef:
+    kind: OCIRepository
+    name: victoria-logs
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    server:
+      # Pins the Service name that Alloy's OTLP exporter targets. Without it the
+      # name is derived from the release and chart names and is easy to break by
+      # renaming either.
+      fullnameOverride: victoria-logs
+
+      # Matches the retention Loki was configured for. The chart fails to render
+      # unless one of the three retention settings is present.
+      #
+      # retentionDiskSpaceUsage is deliberately NOT set. It would silently
+      # delete data once the disk filled past a threshold, and the preference
+      # here is to be told the disk is filling rather than to quietly lose logs.
+      # That is safe because kube-prometheus-stack's NodeFilesystemAlmostOutOfSpace
+      # already covers /var/openebs on both workers — its selector excludes no
+      # fstype or mountpoint — and pages Pushover at <5% free, which at the
+      # measured ~2 GiB/day of logs leaves roughly three weeks to act.
+      retentionPeriod: 90d
+
+      persistentVolume:
+        enabled: true
+        # No StorageClass is marked default in this cluster, so without this the
+        # claim would never bind. Same reason it is explicit for Grafana.
+        storageClassName: openebs-hostpath
+        # Sized from measurement, not habit: promtail was shipping ~2 GiB/day of
+        # log content, so 90 days is ~186 GiB raw and perhaps 20-40 GiB stored.
+        # Note this is intent rather than a cap — openebs-hostpath is a directory
+        # on the node's 1 TB disk and never enforces the requested size, which is
+        # how Loki sat on a "10Gi" claim for three years.
+        size: 50Gi
+
+      # Prometheus is already running, so scrape VictoriaLogs' own metrics too.
+      serviceMonitor:
+        enabled: true
