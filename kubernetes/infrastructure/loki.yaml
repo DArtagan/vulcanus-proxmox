@@ -3,9 +3,8 @@ kind: HelmRepository
 metadata:
   name: grafana
 spec:
-  interval: 15m  # 24h
+  interval: 15m # 24h
   url: https://grafana.github.io/helm-charts
-
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
@@ -18,8 +17,7 @@ spec:
     mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
     operation: copy
   ref:
-    tag: 7.2.0  # {"$imagepolicy": "infrastructure:loki:tag"}
-
+    tag: 7.3.0 # {"$imagepolicy": "infrastructure:loki:tag"}
 ---
 apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImageRepository
@@ -28,7 +26,6 @@ metadata:
 spec:
   image: ghcr.io/grafana/helm-charts/loki
   interval: 1h
-
 ---
 apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImagePolicy
@@ -43,7 +40,6 @@ spec:
   policy:
     semver:
       range: '>=7.2.0 <8.0.0'
-
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -97,8 +93,6 @@ spec:
       replicas: 1
       persistence:
         storageClass: openebs-hostpath
-
-
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
