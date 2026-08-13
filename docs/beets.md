@@ -108,6 +108,65 @@ kubectl create job -n apps rg-now --from=cronjob/beets-replaygain
 kubectl logs -n apps -f job/rg-now
 ```
 
+## Recovering a stuck import session
+
+An import that dies part-way — a worker restart, a timeout, an undo that cannot
+apply — leaves its session in a state beets-flask cannot itself clear. **There is
+no way out through the UI**, and the buttons that look like they should help
+report contradictory things: undo says *"Cannot undo if never imported"* while
+redo says *"Cannot redo imports. Try undo and/or retag!"*.
+
+The cause is an upstream schema cycle. `task.chosen_candidate_id` references
+`candidate.id` and `candidate.task_id` references `task.id`, so SQLAlchemy
+cannot order the deletes and anything that needs to clear a session fails with:
+
+```
+sqlalchemy.exc.CircularDependencyError: Circular dependency detected.
+  (DeleteState(<TaskStateInDb …>), DeleteState(<CandidateStateInDb …>))
+```
+
+That defeats `DELETE /api_v1/session/id/<id>`, re-enqueuing a preview (what the
+retag button does — it is accepted, then the worker dies on it), and undo alike.
+
+### The repair
+
+Work on the session record directly, and **update rather than delete** — the
+redundant rows are harmless, the unreachable *state* is the problem, and updates
+avoid the cycle entirely. Set the session to whatever is actually true on disk
+and in the beets library, and clear the stored exception.
+
+`/config` is `ReadWriteOnce`, so beets-flask has to be scaled down to reach it:
+
+```bash
+kubectl scale -n apps deploy/beets-flask --replicas=0
+kubectl wait -n apps --for=delete pod -l app=beets-flask --timeout=120s
+# start a pod mounting beets-flask-config-pvc, then:
+#   1. snapshot the DB with sqlite3's backup API and copy it out
+#   2. update session.progress / task.progress, set session.exc = NULL
+kubectl scale -n apps deploy/beets-flask --replicas=1
+```
+
+Back it up first. That database holds every fetched candidate — 518 sessions as
+of 2026-08-13 — and re-fetching them means hours of MusicBrainz lookups.
+
+Which state to choose:
+
+| Situation | Set progress to |
+|---|---|
+| Files are in the library where they belong | `IMPORT_COMPLETED` |
+| Never imported, or you want to import it afresh | `PREVIEW_COMPLETED` |
+
+`PREVIEW_COMPLETED` is the safe landing point — `importer/progress.py` marks it a
+dummy state with no stage behind it, and it is where the large majority of
+healthy sessions sit. Candidates already fetched are preserved either way.
+
+Two things not to be alarmed by. `pragma foreign_key_check` reports
+`foreign key mismatch - "session" referencing "folder"` — that is pre-existing in
+beets-flask's schema, present in an untouched backup, and not a sign of damage;
+use `pragma integrity_check` instead. And more than one session per folder is
+possible: a failed undo can create a second one, which is what produces the
+contradictory buttons.
+
 ## Imports are copies, not moves
 
 beets-flask supports `copy` only — it types `move` as `Literal[False]`, so

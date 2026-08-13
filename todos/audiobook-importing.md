@@ -119,6 +119,49 @@ Remember `beet move -a genres:audiobook` (or the albumtypes equivalent) to
 re-file anything already misplaced. It is hundreds of GB over SMB — run it from
 `beets-shell` inside tmux.
 
+## Upstream bugs that will shape this work
+
+Found while importing the first handful on 2026-08-13. All are in
+beets-flask v2.0.0-rc5 and none are reported upstream yet — worth doing, since
+the first two will be hit repeatedly while working through the backlog.
+
+- **A session that dies mid-import can only be repaired by hand.** A schema cycle
+  (`task.chosen_candidate_id` ↔ `candidate.task_id`) means SQLAlchemy cannot
+  order the deletes, so the delete endpoint, retag and undo all fail with
+  `CircularDependencyError`. Recovery procedure is in
+  [`docs/beets.md`](../docs/beets.md). A failed undo can also leave a *second*
+  session for the same folder, which is what makes the UI offer contradictory
+  advice.
+- **The rq job timeout is hardcoded at 600 s** in
+  `backend/beets_flask/redis.py`, with no configuration for it. This is why
+  ReplayGain had to move out of the import path; anything else slow enough will
+  hit the same wall, and the failure looks like a stuck session rather than a
+  timeout.
+- **The documented `requirements.txt` plugin mechanism does not work.**
+  `entrypoint_user_scripts.sh` installs with bare `pip`, which in v2 is
+  `/usr/local/bin/pip` writing to the system site-packages rather than the
+  application's `/venv`. It reports success and changes nothing. Use
+  `startup.sh` with an explicit `uv pip install`, as the polars workaround does.
+- **`docs/plugins.md` upstream still says the image is Alpine** and tells you to
+  use `apk`. v2 is `python:3.12-slim`.
+
+## Duplicate copies in the inbox
+
+Two of the first albums imported turned out to have a second, unrelated copy
+sitting elsewhere in `/audio/import`:
+
+```
+Dawnshard   Cosmere/Rosharan/Dawnshard, The Stormlight Archive # [B0B75NY8F2]   imported
+            Brandon Sanderson/Dawnshard - Stormlight Archive                    untouched
+Arcanum     Cosmere/Arcanum Unbounded [B01K5Q6VWO]                              imported
+            Arcanum Unbounded - The Cosmere Collection                          untouched
+```
+
+Two out of the first handful suggests there are more. Worth enumerating them
+before working through the backlog rather than discovering each one as a
+duplicate prompt mid-import — `import.duplicate_action: ask` will stop and ask
+every time.
+
 ## 4. A workflow for the inbox backlog
 
 The hard part, and the one with no good tooling.
