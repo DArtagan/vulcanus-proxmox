@@ -122,6 +122,53 @@ data:
             autotag: "auto"
             # null means defer to match.strong_rec_thresh in the beets config.
             auto_threshold: null
+  # Workaround for this cluster's VMs presenting a "Common KVM processor"
+  # (terraform/modules/proxmox_talos_vm/main.tf sets cpu type kvm64), which
+  # exposes nothing above SSE4.2.
+  #
+  # beets-flask v2 depends on polars, whose default runtime — polars-runtime-32
+  # — is compiled for AVX2 and dies with SIGILL the moment it is imported. The
+  # uvicorn workers therefore crashed on startup and respawned about eleven
+  # times a second, while the container itself stayed up and the log claimed
+  # the server was running. polars ships a baseline-compatible runtime for
+  # exactly this case.
+  #
+  # This is a stopgap. The real fix is to stop presenting a 2008-era CPU to the
+  # VMs; see todos/proxmox-cpu-type.md. Delete this key, its seeding in
+  # deployment.yaml, and this comment once that lands.
+  #
+  # Not a requirements.txt, which is the documented mechanism: the entrypoint
+  # installs those with bare `pip`, which in v2 is /usr/local/bin/pip writing
+  # to the system site-packages rather than the application's /venv. It would
+  # report success and change nothing.
+  beets-flask-startup.sh: |
+    #!/bin/sh
+    # Runs as root from entrypoint_user_scripts.sh, before the app drops to the
+    # beetle user, so it can write to /venv.
+    set -eu
+
+    # Probe rather than assume. This exits non-zero on SIGILL, and cleanly once
+    # the compat runtime is installed — or once the VMs get a CPU type that can
+    # run the stock one, at which point this whole script becomes a no-op.
+    if /venv/bin/python -c 'import polars' >/dev/null 2>&1; then
+      echo "[startup] polars imports cleanly, nothing to do"
+      exit 0
+    fi
+
+    # Version-matched deliberately: polars pins its runtime to an exact version
+    # (polars-runtime-32==<same>), so a hardcoded version here would silently
+    # go stale the next time Flux bumps the image.
+    POLARS_VERSION="$(/venv/bin/python -c 'import importlib.metadata as m; print(m.version("polars"))')"
+    echo "[startup] polars ${POLARS_VERSION} cannot run on this CPU, installing compat runtime"
+    VIRTUAL_ENV=/venv uv pip install "polars-runtime-compat==${POLARS_VERSION}"
+
+    if /venv/bin/python -c 'import polars' >/dev/null 2>&1; then
+      echo "[startup] polars imports cleanly now"
+    else
+      echo "[startup] polars STILL cannot be imported; the pod will not serve"
+      exit 1
+    fi
+
   genre_whitelist.txt: |
     2 tone
     2-step garage
