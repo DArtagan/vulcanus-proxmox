@@ -257,6 +257,20 @@ someone other than the author first (an illustrator, as on the Tanya the Evil
 light novels) is taken at its word, and a co-authored book files under its first
 author only.
 
+Three overrides are in force as of 2026-08-13. They are listed here because they
+live only in `library.blb`, which [is not backed up](#neither-database-is-backed-up)
+— losing it loses them silently, and this is the only record:
+
+```sh
+beet modify 'album:The Saga of Tanya the Evil, Vol. 1' author='Carlo Zen'
+beet modify 'albumartist::추공'                        author='Chugong'
+beet modify 'album:Abundance'                          author='Ezra Klein & Derek Thompson'
+```
+
+Respectively: an illustrator credited ahead of the author; a Korean pen name
+that `asciify_paths` renders `cugong`; and a genuinely co-authored book that
+should keep both names.
+
 Three mechanics are worth knowing before changing it:
 
 - It must be an **item** field. Only `item_fields` reach `Item._getters()`,
