@@ -73,6 +73,14 @@ spec:
                     path: config.yaml
                   - key: genre_whitelist.txt
                     path: genre_whitelist.txt
+                  # The config declares `pluginpath: /config/beetsplug` and
+                  # loads audiobook_genre from it. Without this projection
+                  # every `beet` run here prints "** error loading plugin
+                  # audiobook_genre" — harmless, but it is noise on a fallback
+                  # path that only ever gets used when something has already
+                  # gone wrong.
+                  - key: beets-flask-plugin-audiobook-genre.py
+                    path: beetsplug/audiobook_genre.py
             - name: library-volume
               persistentVolumeClaim:
                 claimName: beets-library-pvc

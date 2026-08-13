@@ -92,6 +92,10 @@
                 path: config.yaml
               - key: genre_whitelist.txt
                 path: genre_whitelist.txt
+              # The config sets `pluginpath: /config/beetsplug`; without this
+              # every beet command prints an error about audiobook_genre.
+              - key: beets-flask-plugin-audiobook-genre.py
+                path: beetsplug/audiobook_genre.py
         - name: library
           persistentVolumeClaim:
             claimName: beets-library-pvc
