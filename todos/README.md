@@ -38,7 +38,16 @@ the documented upgrade path here never ran. Fixed by hand on 2026-08-07; this is
 about making it not recur. Newer provider versions also make the factory image
 schematic declarative.
 
-**5. [openebs-4x-migration-prompt.md](openebs-4x-migration-prompt.md) — OpenEBS 3.10 to 4.x**
+**5. [proxmox-cpu-type.md](proxmox-cpu-type.md) — stop presenting a 2008-era CPU to the VMs**
+Every VM runs `cpu type = "kvm64"`, which masks AVX, AVX2, FMA and BMI. This
+blocked the beets-flask v2 deployment outright on 2026-08-13 — its polars
+dependency SIGILLs on import — and silently costs performance everywhere else.
+A workaround is in place, so nothing is broken today; the fix is one line of
+Terraform plus a rolling power cycle. Here rather than higher because it is
+contained and reversible, and here rather than lower because every new image
+increasingly assumes these instructions exist.
+
+**6. [openebs-4x-migration-prompt.md](openebs-4x-migration-prompt.md) — OpenEBS 3.10 to 4.x**
 The chart repository in use was abandoned in December 2023, so the unpinned
 version silently meant "3.10.0 forever". 4.x is an architectural change touching
 every PVC in the cluster. Last not because it matters least but because it
