@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: beets-flask
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    # beets-flask accepts drag-and-drop uploads of whole albums, including
+    # archives. nginx's 1m default would reject them.
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+spec:
+  ingressClassName: ingress-nginx-internal
+  tls:
+    - hosts:
+        - beets.immortalkeep.com
+      secretName: beets-flask-ingress-tls
+  rules:
+  - host: beets.immortalkeep.com
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: beets-flask
+            port:
+              number: 5001

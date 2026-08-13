@@ -1,0 +1,50 @@
+# A second mount of //192.168.0.105/audio-rw, with client-side uid mapping.
+#
+# Every other workload that writes to an SMB share here runs as root, because
+# the server applies no uid mapping and the CIFS client presents every file as
+# root:root. See pinepods and filebot, which set PUID/PGID to "0" for exactly
+# this reason.
+#
+# beets-flask cannot do that. Its image ENTRYPOINT runs as root only long
+# enough to run entrypoint_fix_permissions.sh, then unconditionally
+# `su beetle -c /repo/entrypoint.sh`. There is no switch to keep it as root,
+# and setting GROUP_ID=0 does not work either: that script runs
+# `groupmod -g 0 beetle`, which fails because gid 0 already belongs to `root`.
+# The application therefore always runs as uid/gid 1000 and needs a mount it
+# can write to as uid 1000.
+#
+# uid= and gid= only change what the CIFS client reports locally and which uid
+# it lets past its own permission check. Nothing on the server changes, and
+# authorisation there still uses the same smb-credentials identity as every
+# other mount.
+#
+# volumeHandle must be unique per PersistentVolume for the SMB CSI driver: two
+# PVs sharing a handle are treated as the same volume and the second's
+# mountOptions are silently dropped. audio-rw-arm-pv is precedent for a second
+# PV against this share.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: audio-rw-beets-pv
+spec:
+  accessModes:
+    - ReadWriteMany
+  capacity:
+    storage: 1Ti
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: smb.csi.k8s.io
+    readOnly: false
+    volumeHandle: audio-rw-beets-pv
+    volumeAttributes:
+      source: "//192.168.0.105/audio-rw"
+    nodeStageSecretRef:
+      name: smb-credentials
+      namespace: infrastructure
+  mountOptions:
+    - rw
+    - uid=1000
+    - gid=1000
+    - file_mode=0644
+    - dir_mode=0755
+  volumeMode: Filesystem

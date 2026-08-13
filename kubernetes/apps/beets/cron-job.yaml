@@ -3,6 +3,18 @@ kind: CronJob
 metadata:
   name: beets-import
 spec:
+  # Superseded by the beets-flask Deployment, which imports from the same inbox
+  # into the same library with a UI in front of it. Kept rather than deleted
+  # because it is a known-working fallback that can be run on demand with:
+  #
+  #   kubectl create job -n apps beets-manual --from=cronjob/beets-import
+  #
+  # Do NOT unsuspend it. It and beets-flask both write /library/library.blb,
+  # which is SQLite with no coordination between processes — concurrent writes
+  # hit `database is locked` and can leave an operation half-applied. The
+  # `beets-shell` devenv script scales beets-flask down before running an
+  # ad-hoc job for this reason.
+  suspend: true
   concurrencyPolicy: Forbid
   failedJobsHistoryLimit: 1
   successfulJobsHistoryLimit: 3
@@ -41,6 +53,14 @@ spec:
             - name: config-volume
               configMap:
                 name: beets-config-map
+                # beets expects to find its configuration at config.yaml. The
+                # ConfigMap key is named config-beets.yaml to distinguish it
+                # from beets-flask's GUI config, so project it back here.
+                items:
+                  - key: config-beets.yaml
+                    path: config.yaml
+                  - key: genre_whitelist.txt
+                    path: genre_whitelist.txt
             - name: library-volume
               persistentVolumeClaim:
                 claimName: beets-library-pvc

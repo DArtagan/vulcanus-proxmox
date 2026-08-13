@@ -3,10 +3,26 @@ apiVersion: v1
 metadata:
   name: beets-config-map
 data:
-  config.yaml: |
+  # The one beets configuration, shared by both consumers:
+  #
+  #   * the beets-flask Deployment, which seeds it to /config/beets/config.yaml
+  #     via the config-seed initContainer in deployment.yaml
+  #   * the suspended beets-import CronJob, which projects it back to
+  #     /config/config.yaml via `items:` on its ConfigMap volume
+  #
+  # Named config-beets.yaml rather than config.yaml only to distinguish it from
+  # beets-flask-gui.yaml below; beets itself still sees it as config.yaml in
+  # both cases.
+  #
+  # Several settings below exist because beets-flask is stricter than the CLI.
+  # They are all harmless to the CronJob, so there is one file to maintain
+  # rather than two that can drift.
+  config-beets.yaml: |
     directory: /audio/
     library: /library/library.blb
-    statefile: /library/state.pickle
+    # No statefile: that is the CLI importer's resume state. beets-flask keeps
+    # its own per-folder session state in its database, and sharing a pickle
+    # between the two would only let them confuse each other.
     asciify_paths: yes
     paths:
       default: music/$albumartist/$album%aunique{}/$track $title
@@ -16,8 +32,28 @@ data:
       genre:podcast: podcasts/$albumartist/$album%aunique{}/$track $title
       genre:christmas: christmas/$albumartist/$album%aunique{}/$track $title
     import:
-      move: yes
+      # beets-flask supports copy only — it types `move` as Literal[False], so
+      # the `move: yes` this file used to carry is a hard validation error, not
+      # a setting it quietly ignores. Consequence: imports no longer drain the
+      # inbox. beets-flask has a `delete_imported_folders` action for that; if
+      # the CronJob is ever unsuspended, it will leave the inbox in place too.
+      move: no
+      copy: yes
+      # beets-flask's config schema defaults this to `remove`, which deletes
+      # duplicates unattended. beets' own default is to ask. Set explicitly so
+      # neither consumer can surprise us.
+      duplicate_action: ask
+    match:
+      # The bar an unattended import must clear. Named explicitly because the
+      # beets-flask inbox runs with autotag "auto" and auto_threshold null,
+      # which falls back to this. 0.04 is the beets default, so it is the same
+      # bar `beet import -q` was applying.
+      strong_rec_thresh: 0.04
     clutter: ["*.cue", "*.log", "*.m3u", "cover.jpg"]
+    # Also drives the beets-flask inbox listing, whose gui.inbox.ignore falls
+    # back to this list. *.log is here because the CronJob left import.log and
+    # friends sitting in the inbox root.
+    ignore: [".*", "*~", "System Volume Information", "lost+found", "*.log"]
     plugins:
       #- autobpm  # Can't figure out how to install librosa
       - duplicates
@@ -31,17 +67,61 @@ data:
       - mbsubmit
       - missing
       - musicbrainz
-      - permissions
       - replaygain
-    permissions:
-      file: 755
-      dir: 755
+    # The `permissions` plugin is deliberately absent. Both consumers reach the
+    # audio library over CIFS, which fixes file and directory modes as mount
+    # options — so its chmod is a no-op at best and an EPERM per imported file
+    # at worst.
     replaygain:
-      backend: gstreamer
+      # NOT gstreamer. The beets-flask image is python:3.12-slim carrying a
+      # static ffmpeg and no GStreamer or PyGObject at all, so the gstreamer
+      # backend aborts beets at startup. linuxserver/beets installs both
+      # ffmpeg and gstreamer, so ffmpeg is equally fine for the CronJob.
+      backend: ffmpeg
     lastgenre:
       force: no
+      # Seeded to this same absolute path in both containers, so one config
+      # works for both.
       whitelist: /config/genre_whitelist.txt
       prefer_specific: true
+
+  # beets-flask's own settings — the web UI and container behaviour, not beets
+  # itself. Seeded to /config/beets-flask/config.yaml. Read only at startup;
+  # edits made through the web UI land on the PVC and are overwritten at the
+  # next restart, so anything worth keeping belongs here, in git.
+  beets-flask-gui.yaml: |
+    gui:
+      num_preview_workers: 4
+
+      library:
+        artist_separators: [",", ";", "&"]
+
+      terminal:
+        start_path: "/audio/import"
+
+      inbox:
+        # Seconds of filesystem quiet before autotagging fires, so an album
+        # still being copied in is not tagged half-written.
+        debounce_before_autotag: 30
+        folders:
+          Import:
+            name: "Import"
+            # The same directory the CronJob read as /media/audio/import: the
+            # `media` share is /mnt/storage/media and `audio-rw` is
+            # /mnt/storage/media/audio, so those two paths were always one
+            # directory. beets-flask needs only the audio mount.
+            #
+            # This path must exist at startup — beets-flask fails config
+            # validation and refuses to serve otherwise, which is how a failed
+            # SMB mount will present.
+            path: "/audio/import"
+            # Fetch candidates and import anything clearing
+            # match.strong_rec_thresh, reproducing what the nightly CronJob
+            # did. Anything below the bar parks in the UI with its candidates
+            # already fetched, instead of being dropped with a log line.
+            autotag: "auto"
+            # null means defer to match.strong_rec_thresh in the beets config.
+            auto_threshold: null
   genre_whitelist.txt: |
     2 tone
     2-step garage

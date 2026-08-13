@@ -1,0 +1,16 @@
+# Holds beets-flask's /config. Beyond the seeded config files, this is where
+# it keeps its own database at /config/beets-flask/beets-flask-sqlite.db, which
+# carries the state of every inbox folder and every import session — including
+# fetched candidates awaiting a decision. It must survive restarts, or a
+# restart silently discards work in progress.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: beets-flask-config-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: openebs-hostpath

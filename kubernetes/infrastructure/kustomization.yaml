@@ -5,6 +5,7 @@ resources:
   - alloy.yaml
   - audio-pv.yaml
   - audio-rw-arm-pv.yaml
+  - audio-rw-beets-pv.yaml
   - audio-rw-pv.yaml
   #- authentik.yaml
   - basic-auth.yaml

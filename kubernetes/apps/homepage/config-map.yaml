@@ -84,6 +84,11 @@ data:
           description: Disc ripping automation
           icon: si-openmediavault
           siteMonitor: http://automatic-ripping-machine.automatic-ripping-machine.svc.cluster.local:8080
+      - Beets:
+          href: https://beets.immortalkeep.com
+          description: Music library tagger and importer
+          icon: beets
+          siteMonitor: http://beets-flask.apps.svc.cluster.local:5001
       - Filebot:
           href: https://filebot.immortalkeep.com
           description: Media file organizer
