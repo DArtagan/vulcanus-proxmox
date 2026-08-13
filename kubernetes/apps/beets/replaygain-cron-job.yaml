@@ -1,0 +1,79 @@
+# ReplayGain analysis, moved out of the import path.
+#
+# beets-flask runs imports as rq jobs with a 600 second timeout hardcoded in
+# backend/beets_flask/redis.py. ffmpeg analyses at roughly 100x realtime, so an
+# audiobook past about fifteen hours exceeds it and fails the whole import
+# (measured 2026-08-13: 14.9 h fine, 22.5 h raised JobTimeoutException). There
+# is also only one import worker, so a long book would hold it for ten minutes
+# or more — across the ~445 files still in the inbox that is the difference
+# between an evening and a week.
+#
+# So `replaygain.auto` is off in the beets config and the analysis happens
+# here, where nothing imposes a timeout.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: beets-replaygain
+spec:
+  # 04:00 America/Denver. Late enough that an evening import session has
+  # finished, early enough to be done before morning.
+  schedule: "0 10 * * *"
+  # Forbid rather than Replace: a long first run over the backlog should finish
+  # rather than be killed and restarted from scratch each night.
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 1
+  successfulJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          # Matches beets-flask and the beets-import CronJob so all three write
+          # library.blb as the uid that owns it. See cron-job.yaml.
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+          containers:
+            - name: beets-replaygain
+              image: linuxserver/beets:2.13.1 # {"$imagepolicy": "apps:beets"}
+              command: ["beet"]
+              # No -f: items that already carry rg_track_gain are skipped, so a
+              # nightly run is a cheap scan except when new content has landed.
+              # This makes the job idempotent and safe to re-run — which
+              # matters, because a collision with beets-flask writing the
+              # library surfaces as "database is locked" and aborts the run.
+              # Whatever was analysed before that point is already stored.
+              args:
+                - replaygain
+                - -a
+              # ffmpeg is CPU-hungry and this node also runs the media stack.
+              # Memory only, per the convention elsewhere in this repo; a CPU
+              # limit would just make a long analysis longer.
+              resources:
+                limits:
+                  memory: "2Gi"
+              volumeMounts:
+                - name: config-volume
+                  mountPath: /config/
+                  readOnly: true
+                - name: audio-volume
+                  mountPath: /audio/
+                - name: library-volume
+                  mountPath: /library/
+          restartPolicy: OnFailure
+          volumes:
+            - name: config-volume
+              configMap:
+                name: beets-config-map
+                items:
+                  - key: config-beets.yaml
+                    path: config.yaml
+                  - key: genre_whitelist.txt
+                    path: genre_whitelist.txt
+                  - key: beets-flask-plugin-audiobook-genre.py
+                    path: beetsplug/audiobook_genre.py
+            - name: library-volume
+              persistentVolumeClaim:
+                claimName: beets-library-pvc
+            - name: audio-volume
+              persistentVolumeClaim:
+                claimName: audio-rw-beets-pvc

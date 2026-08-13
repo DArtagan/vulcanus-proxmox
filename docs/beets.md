@@ -12,6 +12,7 @@ Everything is in `kubernetes/apps/beets/`.
 |---|---|---|
 | `beets-flask` Deployment | Running | Web UI at `beets.immortalkeep.com` (internal only). The primary interface. |
 | `beets-import` CronJob | **Suspended** | The former nightly `beet import -q`. Retained as a known-working fallback. |
+| `beets-replaygain` CronJob | 04:00 daily | ReplayGain analysis, which cannot run during import. See below. |
 
 ### Why the CronJob is suspended
 
@@ -71,6 +72,40 @@ kubectl exec -n apps <pod> -- python3 -c \
   "import sqlite3; s=sqlite3.connect('/library/library.blb'); \
    d=sqlite3.connect('/tmp/library.blb'); s.backup(d); d.close(); s.close()"
 kubectl cp apps/<pod>:/tmp/library.blb ~/backups/beets/library-$(date +%F).blb
+```
+
+## ReplayGain runs on a schedule, not on import
+
+`replaygain.auto` is **off**, and the `beets-replaygain` CronJob does the
+analysis nightly at 04:00 instead.
+
+It cannot run during import. beets-flask executes imports as rq jobs with a
+600-second timeout hardcoded in `backend/beets_flask/redis.py`, and ffmpeg
+analyses at roughly 100× realtime — so an audiobook longer than about fifteen
+hours exceeds it and takes the whole import down with it. Measured 2026-08-13:
+
+| Audiobook | Length | Import |
+|---|---|---|
+| Dawnshard | 7.1 h | fine |
+| Teresa: Everybody Loves Large Chests (Vol.5) | 14.9 h | fine |
+| Arcanum Unbounded | 22.5 h | `JobTimeoutException` mid-import |
+
+This never bit the old CronJob because a CronJob has no equivalent timeout. The
+second reason is throughput: there is one import worker, and a long book would
+occupy it for ten minutes or more.
+
+The job runs without `-f`, so items that already carry `rg_track_gain` are
+skipped and a nightly run is a cheap scan unless new content has landed. That
+also makes it idempotent — which matters, because it writes `library.blb` and
+so contends with beets-flask under the rule below. A collision surfaces as
+`database is locked` and aborts the run; whatever was analysed up to that point
+is already stored, and the next night continues. Nothing needs repairing.
+
+To run it by hand — after a big import session, say, rather than waiting:
+
+```bash
+kubectl create job -n apps rg-now --from=cronjob/beets-replaygain
+kubectl logs -n apps -f job/rg-now
 ```
 
 ## Imports are copies, not moves

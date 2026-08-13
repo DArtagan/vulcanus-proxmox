@@ -9,4 +9,5 @@ resources:
   - image.yaml
   - ingress.yaml
   - library-pvc.yaml
+  - replaygain-cron-job.yaml
   - service.yaml

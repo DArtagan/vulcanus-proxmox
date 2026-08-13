@@ -122,6 +122,22 @@ data:
       # backend aborts beets at startup. linuxserver/beets installs both
       # ffmpeg and gstreamer, so ffmpeg is equally fine for the CronJob.
       backend: ffmpeg
+      # Analysis does not run during import. The beets-replaygain CronJob does
+      # it instead; see replaygain-cron-job.yaml and docs/beets.md.
+      #
+      # beets-flask runs imports as rq jobs with a 600 second timeout
+      # hardcoded in backend/beets_flask/redis.py, and ffmpeg analyses at
+      # roughly 100x realtime. Any audiobook past about fifteen hours
+      # therefore exceeds it and takes the entire import down with it.
+      # Measured 2026-08-13: 14.9 h succeeded, 22.5 h raised
+      # JobTimeoutException mid-import. The old CronJob never hit this because
+      # a CronJob has no equivalent timeout.
+      #
+      # Throughput is the second reason. There is one import worker, so a long
+      # audiobook would hold it for ten minutes or more; across the ~445 files
+      # still in the inbox that is the difference between an evening and a
+      # week.
+      auto: no
     lastgenre:
       force: no
       # Seeded to this same absolute path in both containers, so one config
