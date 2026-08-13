@@ -152,7 +152,47 @@ this case and installing it is sufficient — no code changes needed.
 
 ---
 
-## 5. `GET /api_v1/session/id/<id>` returns 500
+## 5. "Delete imported folders" aborts the whole batch on the first failure
+
+**Severity: medium.** Presents as the button working intermittently, and can
+leave a folder half-deleted.
+
+`backend/beets_flask/server/routes/inbox.py`, in the `/delete` route:
+
+```python
+for f in folders:
+    if isinstance(f, Archive):
+        os.remove(f.full_path)
+    elif isinstance(f, Folder):
+        shutil.rmtree(f.full_path)
+```
+
+No `try`/`except`, and `shutil.rmtree` is called without `onerror`. One
+unremovable folder raises, the request 500s, and every folder after it in the
+batch is skipped — including ones that would have deleted without trouble. Since
+the list is sorted longest-path-first, which folder trips it bears no relation to
+what the user sees at the top of the confirmation dialog, so the button looks
+arbitrary: six folders listed, one error, none of the other five touched.
+
+`rmtree` aborting part-way is the worse half. Observed here on a folder that lost
+its 644 MB `.m4b` and kept three smaller files, leaving an inbox entry that looks
+imported but is not what was imported.
+
+Reproduced with a folder Samba refuses to remove because Windows had set the DOS
+read-only attribute on it (any folder with a custom icon, i.e. one containing
+`desktop.ini`). The error reaching Python is a plain
+`PermissionError: [Errno 13]` on the directory.
+
+**Suggested fix.** Collect per-folder results instead of raising: wrap each
+deletion, accumulate successes and failures, and return both. The response
+already has a `deleted` list; a `failed` list alongside it would let the UI say
+which folders could not be removed and why, rather than showing a generic 500.
+`shutil.rmtree(..., onerror=...)` would likewise stop a single unremovable file
+from stranding the rest of a folder.
+
+---
+
+## 6. `GET /api_v1/session/id/<id>` returns 500
 
 **Severity: low.** Reproduced on a session that had failed mid-import; likely the
 same cycle as bug 1 surfacing during serialization. Worth checking whether it
@@ -160,7 +200,7 @@ also affects healthy sessions before filing — that was not tested here.
 
 ---
 
-## 6. The watchdog's initial scan is wiped by `FLUSHALL`
+## 7. The watchdog's initial scan is wiped by `FLUSHALL`
 
 **Severity: low.** Inferred rather than proven, so verify before filing.
 
@@ -180,7 +220,7 @@ close the race.
 
 ---
 
-## 7. `docs/plugins.md` describes the wrong base image
+## 8. `docs/plugins.md` describes the wrong base image
 
 **Severity: trivial**, but actively misleading. The page tells users to install
 plugin build dependencies with `apk` and says "the container is based on alpine".
@@ -189,7 +229,7 @@ records the base image change; the plugin docs were not updated with it.
 
 ---
 
-## 8. `pragma foreign_key_check` fails on the schema
+## 9. `pragma foreign_key_check` fails on the schema
 
 **Severity: trivial**, noted so it is not mistaken for corruption.
 

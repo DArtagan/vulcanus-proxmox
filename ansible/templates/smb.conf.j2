@@ -16,6 +16,35 @@
    printcap name = /dev/null
    disable spoolss = yes
 
+   # Ignore DOS attributes entirely; do not let Windows clients express them
+   # through the filesystem.
+   #
+   # Windows sets the DOS read-only attribute on any folder carrying a custom
+   # icon — which is every folder holding a desktop.ini and Icon.ico. Samba
+   # honours that attribute and refuses to remove the directory, so the folder
+   # becomes undeletable by anything: a CIFS client sees it as dr-xr-xr-x
+   # regardless of the mount's dir_mode. On 2026-08-13 this silently blocked
+   # beets-flask from clearing imported folders out of the audio inbox, and the
+   # failure surfaced only as `PermissionError: [Errno 13]` against a directory
+   # whose permissions looked fine everywhere else.
+   #
+   # `store dos attributes = no` stops Samba keeping these in the
+   # user.DOSATTRIB extended attribute. The four `map` settings must accompany
+   # it: with DOS attributes unstored, Samba falls back to expressing them
+   # through UNIX permission bits, and `map archive` in particular defaults to
+   # yes and would set the owner-execute bit on every file written. Turning all
+   # of them off is what makes this "ignore" rather than "express differently".
+   #
+   # The cost is that read-only, hidden, system and archive flags set from
+   # Windows no longer persist, and custom folder icons stop working. That is
+   # the intent: this is a media fileserver, and those flags have only ever
+   # caused trouble here.
+   store dos attributes = no
+   map readonly = no
+   map archive = no
+   map system = no
+   map hidden = no
+
 [media]
    # For use by guests, to be read-write but only for pubic files
    # Share should be `chown -R nobody:fileshare` and `chmod -R 777`
