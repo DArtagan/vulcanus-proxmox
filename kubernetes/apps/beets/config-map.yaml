@@ -141,9 +141,7 @@ data:
     Registered on import_task_apply, which beets sends from the apply_choices
     stage — before manipulate_files. The genre is therefore already set when
     the destination path is computed, so an audiobook is written straight into
-    audiobooks/ rather than landing in music/ and needing a second move. That
-    distinction matters here: an audiobook is often a single 400 MB m4b on an
-    SMB share, and re-filing it afterwards means copying it twice.
+    audiobooks/ rather than landing in music/ and needing a second move.
 
     MusicBrainz supplies albumtypes. AlbumMatch.apply_metadata() copies
     album-level fields onto every item before this event fires, so the value is
@@ -164,11 +162,17 @@ data:
         but an unset field arrives as None, and an empty albumtypes serialises
         to the literal "[]", which is the stored value on several thousand
         items in this library.
+
+        The string branch is defensive; a parsed field should already be a
+        list. It splits on both delimiters because the two fields do not share
+        one: albumtypes stores "; " while genres stores "\␀", beets reserving
+        "; " for template formatting since the backslash form breaks on
+        Windows.
         """
         if not raw:
             return []
         if isinstance(raw, str):
-            raw = raw.split(";")
+            raw = raw.replace("\␀", ";").split(";")
         return [v for v in (str(x).strip() for x in raw) if v and v != "[]"]
 
 
