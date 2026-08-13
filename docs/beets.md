@@ -199,6 +199,82 @@ The practical consequences:
   CronJob imported is not in its database — but the CronJob used `move`, so
   those folders already left the inbox.
 
+## Where files land
+
+`directory` is `/audio/`, and `paths:` sorts everything below it by genre:
+
+| Query | Destination |
+|---|---|
+| `genres:audiobook` | `audiobooks/$author/$album%aunique{}/$track $title` |
+| `genres:podcast` | `podcasts/$albumartist/…` |
+| `genres:christmas` | `christmas/$albumartist/…` |
+| `comp` | `music/Various Artists/…` |
+| `singleton` | `music/$artist/singles/$title` |
+| `default` | `music/$albumartist/…` |
+
+beets takes the **first** query that matches, and `default` matches everything,
+so it has to come last. It was listed first until 2026-08-13, which made every
+rule below it unreachable.
+
+The queries say `genres`, not `genre`. Only the plural is in `Album.item_keys`,
+and these queries are evaluated against items — so `beet modify -a … genre=…`
+sets an album field that never reaches an item and routes nothing.
+
+Genre is the single field that decides placement. The local `audiobook_genre`
+plugin keeps it that way without hand-tagging everything MusicBrainz already
+knows: on `import_task_apply` — which fires before `manipulate_files`, so the
+destination is computed with the genre already set — it prepends `audiobook` to
+`genres` whenever `albumtypes` contains it. There is deliberately no
+`albumtypes:audiobook` path rule; two fields deciding one thing is worse than
+one field doing it well. To find audiobooks MusicBrainz knows about that we have
+not tagged:
+
+```sh
+beet ls -a 'albumtypes:audiobook ^genres:audiobook'
+```
+
+### Audiobooks file under the author, not the artist credit
+
+For an audiobook, `albumartist` is the whole MusicBrainz artist credit — author
+*and* narrator — so one author scatters across a folder per narration. Brandon
+Sanderson had seven, and 88 albums occupied 50 top-level folders. `$author` is
+an `inline` computed field that collapses them to 35, leaving the tags alone so
+`mbsync` keeps working and Plex still shows the full credit.
+
+It resolves in this order:
+
+1. An explicit `author` flexible field, the manual override:
+   `beet modify 'album:Tanya' author='Carlo Zen'`. Note it lives only in
+   `library.blb`, which is not backed up, and is never written to file tags.
+2. `albumartists[0]`. MusicBrainz splits the credit into an ordered list with
+   the author first.
+3. `albumartist` split on ` read by ` / ` narrated by ` / ` performed by ` / `/`,
+   for albums tagged from their filenames, where `albumartists` is empty.
+4. The credit string unchanged.
+
+Two things it gets wrong, both fixable with the override: a credit that lists
+someone other than the author first (an illustrator, as on the Tanya the Evil
+light novels) is taken at its word, and a co-authored book files under its first
+author only.
+
+Two mechanics are worth knowing before changing it:
+
+- It must be an **item** field. Only `item_fields` reach `Item._getters()`,
+  which is what `Item.destination()` formats a path against. An `album_fields`
+  entry evaluates fine in `beet ls -a` and routes nothing — the same trap as
+  `genre` vs `genres`.
+- `%aunique{}` stays on its default `albumartist album` keys. `aunique` builds a
+  SQL query through `Album.duplicates_query`, which cannot see computed fields,
+  so `%aunique{author album}` would silently disambiguate nothing. The gap that
+  leaves is two different narrations of the same title by the same author, which
+  now share a directory.
+
+Re-filing the existing tree after a `paths:` change is `beet move -a
+genres:audiobook` from `beets-shell`. Source and destination are on the same
+CIFS mount and `beets.util.move` tries `os.replace` first, so it runs as
+server-side renames rather than copies — minutes for the whole library, not
+hours. `Item.move` prunes the vacated directories on the way.
+
 ## Configuration
 
 One beets config, `config-beets.yaml` in `beets-config-map`, shared by both

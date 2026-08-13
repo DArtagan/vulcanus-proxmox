@@ -45,13 +45,74 @@ data:
     # fields deciding one thing is worse than one field doing it well. To find
     # audiobooks MusicBrainz knows about that we have not tagged:
     #     beet ls -a 'albumtypes:audiobook ^genres:audiobook'
+    #
+    # Audiobooks file under $author, not $albumartist. For an audiobook the
+    # album artist is the whole MusicBrainz artist credit — author *and*
+    # narrator — so one author scatters across a folder per narration. Brandon
+    # Sanderson had seven. See item_fields below.
+    #
+    # $author is deliberately NOT used by %aunique. `aunique` builds a SQL
+    # query through Album.duplicates_query, which cannot see computed fields,
+    # so %aunique{author album} would silently disambiguate nothing. Left on
+    # the default `albumartist album` keys, which still catches the common
+    # case. The gap it leaves is two different narrations of the same title by
+    # the same author: those now share one directory. There are none today.
     paths:
-      genres:audiobook: audiobooks/$albumartist/$album%aunique{}/$track $title
+      genres:audiobook: audiobooks/$author/$album%aunique{}/$track $title
       genres:podcast: podcasts/$albumartist/$album%aunique{}/$track $title
       genres:christmas: christmas/$albumartist/$album%aunique{}/$track $title
       comp: music/Various Artists/$album%aunique{}/$track $title
       singleton: music/$artist/singles/$title
       default: music/$albumartist/$album%aunique{}/$track $title
+    # Computed fields for the `inline` plugin. Top level, not nested under
+    # `inline:` — the plugin reads config["item_fields"] from the root.
+    #
+    # `item_fields`, not `album_fields`: only item fields reach
+    # Item._getters(), which is what Item.destination() formats a path
+    # against. An album field would evaluate fine in `beet ls -a` and route
+    # nothing, the same trap as `genre` vs `genres` above.
+    #
+    # Multi-line bodies are supported: inline tries to compile the text as an
+    # expression first, fails, and falls back to a function body taking
+    # `db_obj`.
+    item_fields:
+      # The author of an audiobook, in the order it can be trusted:
+      #
+      #   1. An explicit `author` flexible field, the manual escape hatch:
+      #        beet modify 'album:Tanya' author='Carlo Zen'
+      #      Read out of _values_flex directly because computed getters take
+      #      precedence over flexible fields in Model._get, so `db_obj.author`
+      #      would recurse into this function rather than find the override.
+      #      Note it lives only in library.blb, which is not backed up, and is
+      #      never written to file tags.
+      #   2. albumartists[0]. MusicBrainz splits the credit into an ordered
+      #      list with the author first. Populated for every MusicBrainz-
+      #      matched album; the raw value is sometimes the literal string
+      #      "[]", which is normalised here the same way audiobook_genre.py
+      #      normalises albumtypes.
+      #   3. albumartist split on the narrator separators, for the ~20 albums
+      #      tagged from their filenames, where albumartists is empty.
+      #   4. The credit string unchanged.
+      #
+      # Known limits, both pre-existing and both fixable with (1): a credit
+      # that lists someone other than the author first (an illustrator, as on
+      # the Tanya the Evil light novels) is taken at its word, and a
+      # co-authored book files under its first author only.
+      author: |
+        import re
+        override = db_obj._values_flex.get("author")
+        if override:
+            return override
+        names = db_obj._get("albumartists") or []
+        if isinstance(names, str):
+            names = [] if names in ("", "[]") else [names]
+        if names:
+            return names[0]
+        credited = db_obj._get("albumartist") or ""
+        return re.split(
+            r"\s*(?:,?\s*(?:read|narrated|performed)\s+by\s+|/)\s*",
+            credited, maxsplit=1, flags=re.IGNORECASE,
+        )[0].strip() or credited
     import:
       # beets-flask supports copy only — it types `move` as Literal[False], so
       # the `move: yes` this file used to carry is a hard validation error, not

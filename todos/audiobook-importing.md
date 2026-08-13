@@ -116,8 +116,15 @@ discard and become raw material worth mining, and `lastgenre.count: 3` plus
 `musicbrainz.genres: yes` become safe to enable.
 
 Remember `beet move -a genres:audiobook` (or the albumtypes equivalent) to
-re-file anything already misplaced. It is hundreds of GB over SMB — run it from
-`beets-shell` inside tmux.
+re-file anything already misplaced. Run it from `beets-shell`. It is cheaper
+than it looks: source and destination sit on the same CIFS mount and
+`beets.util.move` tries `os.replace` first, so anything already under `/audio/`
+relocates as a server-side rename rather than a copy. Only files crossing in
+from elsewhere move bytes.
+
+Both rules must point at `audiobooks/$author/$album%aunique{}/$track $title` —
+`$author` is an `inline` computed field, not `$albumartist`. See
+[`docs/beets.md`](../docs/beets.md).
 
 ## Upstream bugs that will shape this work
 
