@@ -89,8 +89,17 @@ data:
     # *.log is here because the CronJob left import.log in the inbox root.
     ignore: [".*", "*~", "System Volume Information", "lost+found", "*.log",
              "desktop.ini", "Icon.ico", "Thumbs.db"]
+    # Where audiobook_genre below is loaded from. Seeded by the config-seed
+    # initContainer in deployment.yaml, same as the config files.
+    pluginpath:
+      - /config/beetsplug
     plugins:
       #- autobpm  # Can't figure out how to install librosa
+      # Local plugin: sets genres=audiobook from MusicBrainz's albumtypes at
+      # import time, so genre-based path routing does the rest. Keeps `genres`
+      # the single field that decides placement while sparing us from tagging
+      # by hand anything MusicBrainz already knows is an audiobook.
+      - audiobook_genre
       - duplicates
       - fetchart
       - fromfilename
@@ -119,6 +128,66 @@ data:
       # works for both.
       whitelist: /config/genre_whitelist.txt
       prefer_specific: true
+
+  # A local beets plugin, seeded to /config/beetsplug/audiobook_genre.py and
+  # picked up via the `pluginpath` setting above.
+  #
+  # Kept as a ConfigMap key rather than a file in the repo so that everything
+  # the container reads at startup arrives by the same route, and so this stays
+  # next to the config whose behaviour it completes.
+  beets-flask-plugin-audiobook-genre.py: |
+    """Prepend the audiobook genre when the release types say it is one.
+
+    Registered on import_task_apply, which beets sends from the apply_choices
+    stage — before manipulate_files. The genre is therefore already set when
+    the destination path is computed, so an audiobook is written straight into
+    audiobooks/ rather than landing in music/ and needing a second move. That
+    distinction matters here: an audiobook is often a single 400 MB m4b on an
+    SMB share, and re-filing it afterwards means copying it twice.
+
+    MusicBrainz supplies albumtypes. AlbumMatch.apply_metadata() copies
+    album-level fields onto every item before this event fires, so the value is
+    available by the time we look.
+
+    Existing genres are preserved: audiobook is prepended, never substituted.
+    """
+
+    from beets.plugins import BeetsPlugin
+
+    GENRE = "audiobook"
+
+
+    def values(raw):
+        """Normalise a beets multi-valued field to a list of non-empty strings.
+
+        These are DelimitedString fields, so beets normally hands back a list —
+        but an unset field arrives as None, and an empty albumtypes serialises
+        to the literal "[]", which is the stored value on several thousand
+        items in this library.
+        """
+        if not raw:
+            return []
+        if isinstance(raw, str):
+            raw = raw.split(";")
+        return [v for v in (str(x).strip() for x in raw) if v and v != "[]"]
+
+
+    class AudiobookGenrePlugin(BeetsPlugin):
+        def __init__(self):
+            super().__init__()
+            self.register_listener("import_task_apply", self.prepend_genre)
+
+        def prepend_genre(self, session, task):
+            for item in task.imported_items():
+                if GENRE not in values(item.get("albumtypes")):
+                    continue
+
+                genres = values(item.get("genres"))
+                if GENRE in genres:
+                    continue
+
+                item.genres = [GENRE] + genres
+                self._log.info("prepended {0} genre: {1}", GENRE, item)
 
   # beets-flask's own settings — the web UI and container behaviour, not beets
   # itself. Seeded to /config/beets-flask/config.yaml. Read only at startup;

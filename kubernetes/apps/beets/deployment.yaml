@@ -41,6 +41,10 @@ spec:
               # lacking AVX2. See the comment on the key in config-map.yaml.
               cp /config-map/beets-flask-startup.sh /config/beets-flask/startup.sh
               chmod +x /config/beets-flask/startup.sh
+              # Local beets plugin, loaded via the `pluginpath` setting in the
+              # beets config.
+              mkdir -p /config/beetsplug
+              cp /config-map/beets-flask-plugin-audiobook-genre.py /config/beetsplug/audiobook_genre.py
               # Mandatory, not cosmetic: the application's entrypoint drops to
               # the beetle user and then runs `mkdir -p /config/beets`, which
               # fails outright on a root-owned volume.
