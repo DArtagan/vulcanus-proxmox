@@ -97,17 +97,15 @@ sops kubernetes/apps/<app>/secret.yaml
 
 ### Practices that exist because they were learned the hard way
 
-- **Swapping one chart for another: diff the *rendered* manifests, not the values files.** `helm template` each chart with its real values and diff the resulting pod specs. Comparing values only shows what you are *setting*, which is structurally blind to what the chart *defaults* — and defaults are where this bites. Replacing promtail with Alloy on 2026-08-10 shipped two defects that a rendered diff would have caught in one step: Alloy's chart ships `tolerations: []` where promtail's tolerated the control-plane taint, and Loki's chart set `whenDeleted: Delete` where Kubernetes defaults to `Retain`.
-- **Establish what actually depends on a thing before designing for compatibility with it.** Ask what reads this, and check. The same migration was first planned around reproducing promtail's exact label set, until listing Grafana's datasources showed there had never been a Loki datasource at all — nothing had queried those logs in three years. One command, and it invalidated the whole design premise. Do that check before building for compatibility, not after.
-- **Before removing a stateful workload, inventory what dies with it.** For each PVC it owns, check three things: the StorageClass `reclaimPolicy`, the StatefulSet's `persistentVolumeClaimRetentionPolicy`, and whether Flux will prune it. Both `openebs-hostpath` and `openebs-device` are `reclaimPolicy: Delete`, so a deleted PVC takes its data with it via an OpenEBS cleanup job. Deleting the Loki release removed ~131 GiB this way, on the mistaken assumption that the Kubernetes `Retain` default applied.
+- **Establish what actually depends on a thing before designing for compatibility with it.** Ask what reads this, and check. The promtail-to-Alloy migration was first planned around reproducing promtail's exact label set, until listing Grafana's datasources showed there had never been a Loki datasource at all — nothing had queried those logs in three years. One command, and it invalidated the whole design premise. Do that check before building for compatibility, not after.
 
-  ```bash
-  kubectl get pvc -n <ns>                                        # what exists
-  kubectl get sc -o custom-columns='NAME:.metadata.name,RECLAIM:.reclaimPolicy'
-  kubectl get sts <name> -n <ns> -o jsonpath='{.spec.persistentVolumeClaimRetentionPolicy}'
-  ```
+The Kubernetes-specific ones live in [`docs/kubernetes.md`](docs/kubernetes.md), which is worth reading before changing a workload. In brief:
 
-- **DaemonSet health is a trap: `desiredNumberScheduled` is computed from schedulable nodes,** so one that cannot tolerate a node's taint reports full readiness while silently covering fewer nodes. After any DaemonSet change, check desired equals your node count rather than trusting `READY`.
+- **"Applied" is not "in effect."** A ConfigMap-only change updates the object and leaves running pods on their old config, while Flux correctly reports healthy. It has silently misbehaved twice.
+- **Probes are the only thing separating a running container from a serving app.** Default to readiness; be wary of liveness on anything that does long synchronous work.
+- **Diff *rendered* manifests, not values files,** when swapping charts. Defaults are where the surprises live.
+- **DaemonSet `READY` is computed from schedulable nodes,** so a missing toleration reports full health while covering fewer nodes.
+- **Before deleting a stateful workload, inventory what dies with it** — reclaim policy, PVC retention policy, and Flux pruning. This cost ~131 GiB once.
 
 ## Documentation Protocol
 
