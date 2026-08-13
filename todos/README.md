@@ -47,7 +47,16 @@ Terraform plus a rolling power cycle. Here rather than higher because it is
 contained and reversible, and here rather than lower because every new image
 increasingly assumes these instructions exist.
 
-**6. [openebs-4x-migration-prompt.md](openebs-4x-migration-prompt.md) — OpenEBS 3.10 to 4.x**
+**6. [config-change-rollouts.md](config-change-rollouts.md) — make a ConfigMap change reach the running process**
+Flux applies an updated ConfigMap without restarting the workload that reads it,
+so the cluster can run configuration that no longer matches the repo with
+nothing to indicate it — `flux get kustomizations` reports healthy, correctly,
+because the desired state *was* applied. It caused two silent misbehaviours in
+the beets stack on 2026-08-13 and eight Deployments are exposed. Here because
+the failure mode is invisible rather than loud, which is the same reason the
+alerting work sits where it does.
+
+**7. [openebs-4x-migration-prompt.md](openebs-4x-migration-prompt.md) — OpenEBS 3.10 to 4.x**
 The chart repository in use was abandoned in December 2023, so the unpinned
 version silently meant "3.10.0 forever". 4.x is an architectural change touching
 every PVC in the cluster. Last not because it matters least but because it
