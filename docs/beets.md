@@ -257,12 +257,15 @@ someone other than the author first (an illustrator, as on the Tanya the Evil
 light novels) is taken at its word, and a co-authored book files under its first
 author only.
 
-Two mechanics are worth knowing before changing it:
+Three mechanics are worth knowing before changing it:
 
 - It must be an **item** field. Only `item_fields` reach `Item._getters()`,
   which is what `Item.destination()` formats a path against. An `album_fields`
   entry evaluates fine in `beet ls -a` and routes nothing — the same trap as
   `genre` vs `genres`.
+- The corollary, which looks like a bug the first time: `beet ls -a -f '$author'`
+  prints the literal string `$author`, because `-a` formats against the Album and
+  `Album._getters()` has no such field. Inspect it with `beet ls`, no `-a`.
 - `%aunique{}` stays on its default `albumartist album` keys. `aunique` builds a
   SQL query through `Album.duplicates_query`, which cannot see computed fields,
   so `%aunique{author album}` would silently disambiguate nothing. The gap that
@@ -270,10 +273,27 @@ Two mechanics are worth knowing before changing it:
   now share a directory.
 
 Re-filing the existing tree after a `paths:` change is `beet move -a
-genres:audiobook` from `beets-shell`. Source and destination are on the same
-CIFS mount and `beets.util.move` tries `os.replace` first, so it runs as
-server-side renames rather than copies — minutes for the whole library, not
-hours. `Item.move` prunes the vacated directories on the way.
+genres:audiobook` from `beets-shell`, plus `beet move 'genres:audiobook'
+singleton:true` — `-a` matches albums, so singletons are invisible to it and
+stay wherever they were. That is how four Bartimaeus books sat in
+`music/Jonathan Stroud/singles/` until 2026-08-13.
+
+Source and destination are on the same CIFS mount and `beets.util.move` tries
+`os.replace` first, so it runs as server-side renames rather than copies —
+minutes for the whole library, not hours. `Item.move` prunes the vacated
+directories on the way, but only the one an item just left: a directory emptied
+by some earlier rename is not on that path and survives. Sweep with
+`find /audio/audiobooks -mindepth 1 -type d -empty` afterwards.
+
+An album whose library paths do not match what is on disk is skipped silently —
+`beet move` finds no file to move and says nothing. Check for those before
+concluding a re-file worked:
+
+```sh
+beet ls -f '$path' 'genres:audiobook' | while read -r p; do
+  [ -e "$p" ] || echo "MISSING: $p"
+done
+```
 
 ## Configuration
 
