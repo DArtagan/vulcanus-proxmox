@@ -24,13 +24,34 @@ data:
     # its own per-folder session state in its database, and sharing a pickle
     # between the two would only let them confuse each other.
     asciify_paths: yes
+    # ORDER MATTERS. beets walks these in order and takes the first query that
+    # matches, and `default` matches everything — so it has to come last.
+    #
+    # It was listed first until 2026-08-13, which made every rule below it
+    # unreachable. No file has ever been routed by genre: the audiobooks
+    # already under /audio/audiobooks/ were filed by an earlier config or by
+    # hand, and newly imported audiobooks were landing in music/ no matter how
+    # they were tagged.
+    #
+    # `genres`, not `genre`: the singular is deprecated in beets 2.11 and goes
+    # away in 3.0, but more importantly only `genres` is in Album.item_keys.
+    # `beet modify -a … genre=audiobook` sets an album field that never reaches
+    # the items, and these queries are evaluated against items — so it would
+    # appear to work and route nothing.
+    #
+    # Deliberately no `albumtypes:audiobook` rule. MusicBrainz's release-group
+    # secondary type is a decent signal (35 albums) but a poorer one than our
+    # own tagging (66 albums, of which MusicBrainz flags only 33), and two
+    # fields deciding one thing is worse than one field doing it well. To find
+    # audiobooks MusicBrainz knows about that we have not tagged:
+    #     beet ls -a 'albumtypes:audiobook ^genres:audiobook'
     paths:
-      default: music/$albumartist/$album%aunique{}/$track $title
+      genres:audiobook: audiobooks/$albumartist/$album%aunique{}/$track $title
+      genres:podcast: podcasts/$albumartist/$album%aunique{}/$track $title
+      genres:christmas: christmas/$albumartist/$album%aunique{}/$track $title
       comp: music/Various Artists/$album%aunique{}/$track $title
       singleton: music/$artist/singles/$title
-      genre:audiobook: audiobooks/$albumartist/$album%aunique{}/$track $title
-      genre:podcast: podcasts/$albumartist/$album%aunique{}/$track $title
-      genre:christmas: christmas/$albumartist/$album%aunique{}/$track $title
+      default: music/$albumartist/$album%aunique{}/$track $title
     import:
       # beets-flask supports copy only — it types `move` as Literal[False], so
       # the `move: yes` this file used to carry is a hard validation error, not
@@ -49,11 +70,25 @@ data:
       # which falls back to this. 0.04 is the beets default, so it is the same
       # bar `beet import -q` was applying.
       strong_rec_thresh: 0.04
-    clutter: ["*.cue", "*.log", "*.m3u", "cover.jpg"]
-    # Also drives the beets-flask inbox listing, whose gui.inbox.ignore falls
-    # back to this list. *.log is here because the CronJob left import.log and
-    # friends sitting in the inbox root.
-    ignore: [".*", "*~", "System Volume Information", "lost+found", "*.log"]
+    # `clutter` and `ignore` do different jobs and are deliberately not the
+    # same list.
+    #
+    # clutter: files that do not stop a *source* directory from counting as
+    # empty, so it can be removed after a move. Inert while imports are copies,
+    # since sources are never removed — it only matters if `move` returns.
+    # cover.jpg belongs here and must NOT be in `ignore`: a leftover cover
+    # should not block cleanup, but beets does need to see album art at import.
+    # The first four entries replaced beets' own defaults rather than extending
+    # them, so Thumbs.DB and .DS_Store are restored here.
+    clutter: ["*.cue", "*.log", "*.m3u", "cover.jpg",
+              "desktop.ini", "Icon.ico", "Thumbs.db", ".DS_Store"]
+    # ignore: files beets skips when scanning the import directory. Also drives
+    # the beets-flask inbox listing, whose gui.inbox.ignore falls back to this
+    # list — desktop.ini and Icon.ico account for ~900 of the ~3,755 files the
+    # inbox reports, being neither dotfiles nor matched by anything else.
+    # *.log is here because the CronJob left import.log in the inbox root.
+    ignore: [".*", "*~", "System Volume Information", "lost+found", "*.log",
+             "desktop.ini", "Icon.ico", "Thumbs.db"]
     plugins:
       #- autobpm  # Can't figure out how to install librosa
       - duplicates
