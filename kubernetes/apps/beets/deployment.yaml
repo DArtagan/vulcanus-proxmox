@@ -45,12 +45,20 @@ spec:
               # the beetle user and then runs `mkdir -p /config/beets`, which
               # fails outright on a root-owned volume.
               chown -R 1000:1000 /config
+              # library.blb was created by the CronJob running as root, mode
+              # 0644, so beetle could read but not write it — every import
+              # failed with "attempt to write a readonly database". The
+              # directory being 0777 is not enough: SQLite needs write on the
+              # file itself, not just permission to create its journal.
+              chown -R 1000:1000 /library
           volumeMounts:
             - name: config-map
               mountPath: /config-map
               readOnly: true
             - name: config
               mountPath: /config
+            - name: library
+              mountPath: /library
       containers:
         - name: beets-flask
           image: pspitzner/beets-flask:v2.0.0-rc5 # {"$imagepolicy": "apps:beets-flask"}
