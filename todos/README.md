@@ -59,6 +59,7 @@ Separate track; these do not compete with the infrastructure ordering.
 
 | Spec | What it is |
 |---|---|
+| [audiobook-importing.md](audiobook-importing.md) | Getting ~440 GiB of audiobooks out of the inbox and into MusicBrainz, and moving path routing off `genres` onto `albumtypes` |
 | [book-import-spec.md](book-import-spec.md) | Design for a CLI tool to be the single entry point into the Stump library |
 | [podcast-archive-context.md](podcast-archive-context.md) | Follow-up context from replacing Podgrab with Pinepods, including the feed snapshot job |
 
