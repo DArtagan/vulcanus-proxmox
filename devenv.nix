@@ -63,6 +63,11 @@
       namespace: apps
     spec:
       restartPolicy: Never
+      # Matches beets-flask and the CronJob, so anything done from this shell
+      # writes library.blb as the uid that owns it. See cron-job.yaml.
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
       containers:
         - name: beets
           image: linuxserver/beets:2.13.1
@@ -90,11 +95,9 @@
         - name: library
           persistentVolumeClaim:
             claimName: beets-library-pvc
-        # audio-rw-pvc, not audio-rw-beets-pvc: this image runs as root, which
-        # is what the unmapped mount expects.
         - name: audio
           persistentVolumeClaim:
-            claimName: audio-rw-pvc
+            claimName: audio-rw-beets-pvc
     EOF
     kubectl wait -n apps --for=condition=Ready pod/beets-manual --timeout=180s
 

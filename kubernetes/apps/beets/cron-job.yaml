@@ -23,6 +23,20 @@ spec:
     spec:
       template:
         spec:
+          # Runs as beetle's uid, matching beets-flask, so both write
+          # library.blb as the same user. Without this the two disagree: the
+          # library is owned by 1000, and a root-run import would leave any
+          # SQLite journal it creates owned by root, which beets-flask then
+          # cannot clean up.
+          #
+          # Safe despite the linuxserver image normally wanting root: the
+          # `command` override below bypasses its s6 init entirely (which is
+          # also why PUID/PGID would do nothing here), and its BEETSDIR and
+          # HOME both point at /config, which is a read-only ConfigMap mount
+          # for every uid alike.
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
           containers:
             - name: beets-import
               image: linuxserver/beets:2.13.1 # {"$imagepolicy": "apps:beets"}
@@ -31,8 +45,8 @@ spec:
                 - import
                 - -q
                 - -l
-                - /media/audio/import/import.log
-                - /media/audio/import
+                - /audio/import/import.log
+                - /audio/import
               #env:
               #  - name: DOCKER_MODS
               #    value: linuxserver/mods:universal-package-install
@@ -44,8 +58,6 @@ spec:
                   readOnly: true
                 - name: audio-volume
                   mountPath: /audio/
-                - name: media-volume
-                  mountPath: /media/
                 - name: library-volume
                   mountPath: /library/
           restartPolicy: OnFailure
@@ -64,9 +76,14 @@ spec:
             - name: library-volume
               persistentVolumeClaim:
                 claimName: beets-library-pvc
-            - name: media-volume
-              persistentVolumeClaim:
-                claimName: media-pvc
+            # The uid-mapped view of the audio share, as beets-flask uses.
+            # audio-rw-pvc presents everything as root:root and would be
+            # unwritable now that this runs as uid 1000.
+            #
+            # media-pvc is gone with it: the inbox used to be reached as
+            # /media/audio/import, but the `media` share is /mnt/storage/media
+            # and `audio-rw` is /mnt/storage/media/audio, so that was always
+            # the same directory as /audio/import.
             - name: audio-volume
               persistentVolumeClaim:
-                claimName: audio-rw-pvc
+                claimName: audio-rw-beets-pvc
