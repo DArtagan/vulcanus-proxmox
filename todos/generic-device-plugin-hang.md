@@ -78,6 +78,33 @@ In `kubernetes/infrastructure/devices.yaml`, shipped 2026-08-14:
   uncapturable. One more cycle of alerts is the accepted cost of a real upstream
   fix.
 
+**All of the above is verified working as of 2026-08-14** — ARM was restarted so
+it took a fresh allocation, and both `/dev/sr0` and `/dev/sg0` inside the
+container report `PIONEER / BD-RW   BDR-212U`. Only worker-1 advertises the
+device; the control plane and worker-0 report 0. All three scrape targets are
+`up` and no `TargetDown` is firing. **Nothing in Phase 1 remains to be done or
+checked** — what follows is the outstanding work.
+
+### The image bump had a side effect worth knowing about
+
+Bumping the digest also changed the resource **domain**. Upstream's default moved
+from `squat.ai` to `devic.es`, and `devices.yaml` had never set `--domain`, so it
+silently inherited the new one. That renamed the resource and dropped
+`squat.ai/cdrom` — still requested by ARM at that moment — to `allocatable: 0` on
+every node. ARM kept running on its existing allocation, so nothing looked
+broken, but it would have gone `Pending` forever on its next restart.
+
+Caught by a pre-flight check before restarting ARM. Resolved by moving both sides
+to `devic.es/cdrom` (the user chose to match upstream's default rather than pin
+`--domain`, accepting that a future upstream default change would recur this).
+`docs/automatic-ripping-machine.md` records the symptom and the two commands that
+diagnose it.
+
+The general lesson, which is why this is written down: **the manifest was relying
+on an upstream default for a value that is half of a contract with another
+workload.** A "hygiene" image bump is enough to break that, invisibly, with the
+failure deferred to an unrelated restart weeks later.
+
 ## Step 1 — Capture the dump on the next wedge
 
 **The existing Pushover `TargetDown` alert is the trigger.** It fires after 10
@@ -175,70 +202,28 @@ advertise:
 kubectl get nodes -o custom-columns='NODE:.metadata.name,CDROM:.status.allocatable.devic\.es/cdrom'
 ```
 
-### Verifying the by-id passthrough needs an ARM restart
+### The by-id passthrough is already verified
 
-**A check against the currently-running ARM pod is a false pass.** Rolling the
-DaemonSet does not restart ARM, and its container keeps the device nodes it was
-already granted — so `/dev/sr0` and `/dev/sg0` will look correct regardless of
-whether the new path shape works.
+Done 2026-08-14 and **does not need repeating**: ARM was restarted so it took a
+fresh allocation, and both `/dev/sr0` and `/dev/sg0` inside the container report
+`PIONEER / BD-RW   BDR-212U`. containerd 2.1.6 resolves the by-id symlink
+correctly, so the documented fallback config was not needed.
 
-The device ID is a sha1 over the matched *host* paths (`deviceplugin/path.go`),
-so changing `/dev/sr0` to `/dev/disk/by-id/ata-PIONEER_BD-RW_*` changes the ID.
-The new shape is only exercised when ARM is allocated a device afresh. To
-actually test it, restart ARM while it is idle:
+The procedure and the known-good baseline now live in
+`docs/automatic-ripping-machine.md` under "Verifying the passthrough" — including
+why checking a *running* ARM pod is a false pass. Re-run it only if the device
+config, the plugin image, or the container runtime changes.
 
-```bash
-kubectl delete pod -n automatic-ripping-machine -l app=automatic-ripping-machine
-kubectl rollout status -n automatic-ripping-machine deploy/automatic-ripping-machine
-```
-
-then run the identity check and require an exact match against the baseline
-captured 2026-08-12 while working:
-
-```
-sr0 vendor/model/rev : PIONEER / BD-RW   BDR-212U / 1.01     maj=11 min=0  (block)
-sg0 vendor/model     : PIONEER / BD-RW   BDR-212U            maj=21 min=0  (char)
-```
-
-```bash
-kubectl exec -n automatic-ripping-machine deploy/automatic-ripping-machine -- sh -c '
-for f in vendor model rev; do printf "sr0 %s: " "$f"; cat /sys/block/sr0/device/$f; done
-for f in vendor model; do printf "sg0 %s: " "$f"; cat /sys/class/scsi_generic/sg0/device/$f; done
-stat -c "%n %F maj=%t min=%T" /dev/sr0 /dev/sg0
-eject -n /dev/sr0'
-```
-
-**`sr0` and `sg0` must report the same vendor/model** — that is what proves both
-resolve to the same underlying SCSI device. `/dev/sg0` carries the SCSI commands
-that control the drive, and this passthrough has historically been fragile, so a
-mismatch here matters more than anything else in this spec.
-
-If the pod fails to start or the devices are wrong, the plugin passes the
-*unresolved* symlink as `HostPath` and the container runtime failed to resolve
-it. Fall back to keeping the real device nodes as the mounted paths, with the
-by-id entry as a pure predicate:
-
-```yaml
-  groups:
-    - paths:
-        - path: /dev/sr0
-        - path: /dev/sg0
-        - path: /dev/disk/by-id/ata-PIONEER_BD-RW_*
-          mountPath: /dev/cdrom-discriminator
-```
-
-Note `makemkvcon` is **not** usable as a functional test — as of 2026-08-12 it
-reports "This application version is too old" (v1.18.3), which is a separate
-problem worth its own session.
 
 ## The prompt to open with
 
 > The generic-device-plugin `/metrics` endpoint wedges permanently on nodes with
-> an optical drive, and only an OOMKill recovers it. Phase 1 (device selection by
-> `/dev/disk/by-id`, `GOTRACEBACK=all`, digest pin) has already shipped. Read
-> `todos/generic-device-plugin-hang.md`. A `TargetDown` alert has just fired for
-> `infrastructure/generic-device-plugin` — capture the goroutine dump from the
-> wedged pod before it OOMKills, then finish the bug report draft for me to file.
+> an optical drive, and only an OOMKill recovers it. Phase 1 — device selection by
+> `/dev/disk/by-id`, `GOTRACEBACK=all`, digest pin — shipped and was verified on
+> 2026-08-14; do not redo it. Read `todos/generic-device-plugin-hang.md`. A
+> `TargetDown` alert has just fired for `infrastructure/generic-device-plugin`:
+> capture the goroutine dump from the wedged pod before it OOMKills, then finish
+> the bug report draft for me to file.
 
 ---
 

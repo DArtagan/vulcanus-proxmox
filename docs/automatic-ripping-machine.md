@@ -111,10 +111,58 @@ Two consequences worth knowing:
 - **Other hardware extends the same way.** A GPU would be another `--device`
   group; the DaemonSet stays on every node and self-selects by what is present.
 
-Note the plugin passes the *unresolved* symlink as the device's `HostPath` and
-relies on the container runtime to resolve it. If a runtime change ever breaks
-passthrough, the fallback is to list `/dev/sr0` and `/dev/sg0` as the mounted
-paths and keep the by-id entry purely as a match predicate.
+Note the plugin passes the *unresolved* symlink as the device's `HostPath`
+(`deviceplugin/path.go` does not call `EvalSymlinks`) and relies on the
+container runtime to resolve it. containerd 2.1.6 does so correctly — verified
+2026-08-14 by restarting ARM so it took a fresh allocation, then confirming
+both `/dev/sr0` and `/dev/sg0` inside the container report
+`PIONEER / BD-RW   BDR-212U`.
+
+If a future runtime change ever breaks this, the fallback is to list
+`/dev/sr0` and `/dev/sg0` as the mounted paths and keep the by-id entry purely
+as a match predicate:
+
+```yaml
+groups:
+  - paths:
+      - path: /dev/sr0
+      - path: /dev/sg0
+      - path: /dev/disk/by-id/ata-PIONEER_BD-RW_*
+        mountPath: /dev/cdrom-discriminator
+```
+
+### Verifying the passthrough
+
+Checking a *running* ARM pod proves nothing — a device already granted to a
+live container is never withdrawn, so it will look correct even if the config
+is broken. The device ID is a sha1 over the matched host paths, so a fresh
+allocation is what exercises the current config. Restart ARM while it is idle,
+then compare against this known-good baseline:
+
+```
+sr0 vendor/model/rev : PIONEER / BD-RW   BDR-212U / 1.01   maj=11 min=0  (block)
+sg0 vendor/model     : PIONEER / BD-RW   BDR-212U          maj=21 min=0  (char)
+```
+
+```bash
+kubectl exec -n automatic-ripping-machine deploy/automatic-ripping-machine -- sh -c '
+for f in vendor model rev; do printf "sr0 %s: " "$f"; cat /sys/block/sr0/device/$f; done
+for f in vendor model; do printf "sg0 %s: " "$f"; cat /sys/class/scsi_generic/sg0/device/$f; done
+stat -c "%n %F maj=%t min=%T" /dev/sr0 /dev/sg0'
+```
+
+**`sr0` and `sg0` must report the same vendor/model.** That is what proves both
+resolve to the same underlying SCSI device; `/dev/sg0` carries the SCSI commands
+that control the drive, so a mismatch matters more than anything else here.
+`udevadm info` on either device also shows a shared `DEVPATH` parent
+(`.../target2:0:0/2:0:0:0/...`), which confirms the same thing independently.
+
+Note `makemkvcon` is **not** usable as a check — as of 2026-08-12 it reports
+"This application version is too old" (v1.18.3). ARM's own drive listing shows
+an empty maker/model for the same underlying reason it always has: udev's
+`ata_id`/`cdrom_id` helpers run in the host's udevd, not in the container, so
+`ID_MODEL`/`ID_VENDOR` are never populated there. Read identity from sysfs
+instead, as above.
 
 ### The resource domain, and how it can break
 

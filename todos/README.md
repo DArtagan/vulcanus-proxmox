@@ -72,8 +72,9 @@ drive, and only an OOMKill recovers it hours later. The fix that stops the
 recurring Pushover alerts is a liveness probe, but shipping it first would
 restart a wedged pod within ~45s and make the defect impossible to capture — so
 the probe deliberately waits until a goroutine dump has been taken from a live
-wedge. The `TargetDown` alert is the cue to act. Device selection and the digest
-pin already shipped on 2026-08-14.
+wedge. The `TargetDown` alert is the cue to act. Device selection, the domain
+move and the digest pin shipped and were verified on 2026-08-14; only the
+capture, the upstream report and the probe remain.
 
 ## Applications
 
