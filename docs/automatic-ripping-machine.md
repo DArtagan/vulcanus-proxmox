@@ -116,6 +116,20 @@ relies on the container runtime to resolve it. If a runtime change ever breaks
 passthrough, the fallback is to list `/dev/sr0` and `/dev/sg0` as the mounted
 paths and keep the by-id entry purely as a match predicate.
 
+### The resource domain is pinned on purpose
+
+`devices.yaml` passes `--domain squat.ai` explicitly. The domain forms half of
+the resource name, and **upstream's default changed from `squat.ai` to
+`devic.es` between image versions**. Because the flag had never been set, the
+manifest silently inherited whatever the image happened to default to.
+
+Bumping the image on 2026-08-14 renamed the resource to `devic.es/cdrom`, which
+dropped `squat.ai/cdrom` to `allocatable: 0` on every node. ARM kept running —
+a device already granted to a live container is not withdrawn — so nothing
+appeared broken, but the pod would have gone `Pending` forever on its next
+restart. Do not remove the flag; if the domain is ever changed, ARM's
+`resources.limits` must change with it.
+
 The ARM deployment claims this resource:
 
 ```yaml

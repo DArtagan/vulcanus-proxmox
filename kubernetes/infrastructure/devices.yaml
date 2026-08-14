@@ -27,6 +27,16 @@ spec:
       # This digest was `latest` on 2026-08-14.  See todos/version-notification-prompt.md.
       - image: ghcr.io/squat/generic-device-plugin@sha256:dc192e164c69b03f156765793a1be62ca437709ae477b27ca7d8f3dcf5021576
         args:
+        # Pin the resource domain explicitly.  This is not cosmetic: the domain
+        # forms half of the resource name that automatic-ripping-machine
+        # requests (`squat.ai/cdrom`), and upstream's default changed from
+        # squat.ai to devic.es between image versions.  Leaving it implicit
+        # meant a routine image bump silently renamed the resource, dropping
+        # `squat.ai/cdrom` allocatable to 0 on every node — ARM kept running on
+        # its existing allocation but would have gone Pending forever on its
+        # next restart.
+        - --domain
+        - squat.ai
         - --device
         # The by-id path is what distinguishes the real Pioneer burner from the
         # QEMU virtual DVD-ROM that every Talos VM exposes at /dev/sr0 for its
