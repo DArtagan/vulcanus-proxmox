@@ -18,9 +18,10 @@ Proxmox host (vulcanus)
         ▼
 Talos VM: piraeus-worker-1 (192.168.0.196, vmid 911)
   /dev/sr0, /dev/sg0  — optical drive as seen by guest kernel
+  /dev/disk/by-id/ata-PIONEER_BD-RW_BDR-212U → sr0  — how the plugin identifies it
         │ squat.ai/cdrom device plugin
         ▼
-ARM pod (apps namespace)
+ARM pod (automatic-ripping-machine namespace)
   /dev/sr0, /dev/sg0  — device plugin injects these into the container
 ```
 
@@ -69,12 +70,51 @@ Inside the guest, the Talos kernel recognises the device as SCSI type 5 (optical
 
 ## Kubernetes: Device Plugin and Security Policy
 
-ARM runs in the `apps` namespace, which enforces **PodSecurity Admission (PSA) `baseline`**. This blocks `privileged: true` containers. ARM does not need it:
+ARM runs in its own `automatic-ripping-machine` namespace, labelled
+`pod-security.kubernetes.io/enforce: privileged`
+(`kubernetes/apps/automatic-ripping-machine/namespace.yaml`). The container is
+not itself `privileged: true` — it adds only the `SYS_ADMIN` capability:
 
 - **SG_IO** (raw SCSI ioctls used by MakeMKV) works without privileges. It is just an `ioctl` call on a device file. Default seccomp does not block it.
 - **udev events** reach the container's udevd without privileges (explained below).
 
 The **squat.ai generic device plugin** (`kubernetes/infrastructure/devices.yaml`) runs as a privileged DaemonSet in the `infrastructure` namespace. It exposes `/dev/sr0` and `/dev/sg0` on the node as an allocatable Kubernetes resource called `squat.ai/cdrom`.
+
+### How the plugin picks the *real* drive
+
+The plugin does not match on `/dev/sr0`. Every Talos VM exposes a QEMU virtual
+DVD-ROM at `/dev/sr0` for its install ISO, so matching the bare path made the
+control plane advertise a phantom `squat.ai/cdrom` backed by the install ISO.
+Because ARM has no `nodeSelector` and schedules purely on that resource, it could
+be placed on the control plane and bound to the ISO instead of the burner.
+
+The device group therefore matches on hardware identity instead:
+
+```yaml
+groups:
+  - paths:
+      - path: /dev/disk/by-id/ata-PIONEER_BD-RW_*
+        mountPath: /dev/sr0
+      - path: /dev/sg0
+```
+
+`/dev/disk/by-id/` distinguishes them — `ata-PIONEER_BD-RW_BDR-212U` on worker-1
+versus `ata-QEMU_DVD-ROM_QM00003` on the control plane. A group is only
+advertised when **all** of its non-optional paths match, so a node without the
+Pioneer advertises nothing.
+
+Two consequences worth knowing:
+
+- **Nothing is pinned to a node.** Move the drive to another VM in
+  `terraform/main.tf` and the resource follows it, with ARM following the
+  resource. There is no hostname to keep in sync on either side.
+- **Other hardware extends the same way.** A GPU would be another `--device`
+  group; the DaemonSet stays on every node and self-selects by what is present.
+
+Note the plugin passes the *unresolved* symlink as the device's `HostPath` and
+relies on the container runtime to resolve it. If a runtime change ever breaks
+passthrough, the fallback is to list `/dev/sr0` and `/dev/sg0` as the mounted
+paths and keep the by-id entry purely as a match predicate.
 
 The ARM deployment claims this resource:
 

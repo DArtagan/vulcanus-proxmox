@@ -22,16 +22,49 @@ spec:
       - operator: "Exists"
         effect: "NoSchedule"
       containers:
-      - image: ghcr.io/squat/generic-device-plugin:854e0c1
+      # Pinned by digest: upstream publishes only git-SHA tags plus `latest`, with
+      # no semver anywhere, so there is nothing for a Flux ImagePolicy to order on.
+      # This digest was `latest` on 2026-08-14.  See todos/version-notification-prompt.md.
+      - image: ghcr.io/squat/generic-device-plugin@sha256:dc192e164c69b03f156765793a1be62ca437709ae477b27ca7d8f3dcf5021576
         args:
         - --device
+        # The by-id path is what distinguishes the real Pioneer burner from the
+        # QEMU virtual DVD-ROM that every Talos VM exposes at /dev/sr0 for its
+        # install ISO.  Both look identical as bare /dev/sr0, so matching on the
+        # bare path made the control plane advertise a phantom drive that
+        # automatic-ripping-machine could be scheduled onto.
+        #
+        # A group is only advertised when all of its non-optional paths match
+        # something — a path with no matches drives the group's length to zero.
+        # Matching the drive *model* therefore means only the node physically
+        # holding that drive advertises `squat.ai/cdrom`.  ARM schedules purely
+        # on that resource, so it follows the drive wherever Terraform attaches
+        # it: no nodeSelector on either side, and nothing to keep in sync.
+        #
+        # Adding other hardware (a GPU, say) is another `--device` group; the
+        # DaemonSet stays on every node and self-selects by what is present.
         - |
           name: cdrom
           groups:
             - paths:
-                - path: /dev/sr0
+                - path: /dev/disk/by-id/ata-PIONEER_BD-RW_*
+                  mountPath: /dev/sr0
                 - path: /dev/sg0
         name: generic-device-plugin
+        env:
+        # Makes SIGQUIT dump *all* goroutines rather than only the running one.
+        # The /metrics endpoint wedges permanently on nodes that have an optical
+        # device — the process stays healthy and still answers /health and 404s
+        # instantly, but every scrape then leaks a handler goroutine until the
+        # 20Mi limit OOMKills it hours later, which is the only thing that
+        # recovers it.  This is here so the next occurrence can be captured for
+        # an upstream bug report.  Remove once that is filed and fixed.
+        - name: GOTRACEBACK
+          value: all
+        # Upstream's defaults, kept deliberately.  A healthy pod sits flat at
+        # ~10.3Mi and only grows when wedged, so raising the limit would not
+        # prevent anything — it would just lengthen each outage.  Until the
+        # upstream hang is fixed the OOMKill is the backstop that recovers it.
         resources:
           requests:
             cpu: 50m

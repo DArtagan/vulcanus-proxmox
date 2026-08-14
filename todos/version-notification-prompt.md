@@ -81,6 +81,29 @@ date tags), `apps/trello-randomizer` (`alphabetical`), `apps/youtube-dl-server`
 they cannot go stale — but they have no major to reason about and are out of
 scope for everything below.
 
+**Outside image automation entirely (1).** `infrastructure/generic-device-plugin`
+has no `ImageRepository` or `ImagePolicy` at all — it is pinned by digest in
+`kubernetes/infrastructure/devices.yaml` and moves only when someone edits it by
+hand. Added 2026-08-14, when a bump found it four months stale.
+
+It cannot be brought under image automation as upstream publishes today, and both
+reasons were verified:
+
+- The image carries **only git-SHA tags plus `latest`** — no semver among the 100
+  tags returned. `semver`, `numerical` and `alphabetical` orderings are all
+  meaningless over commit SHAs, and Flux has no "newest by push time" policy.
+- The upstream **Helm chart is properly versioned** (chart 0.1.2 / appVersion
+  0.2.0) but its DaemonSet template *hardcodes* the `--device` arguments for
+  serial/video/fuse/audio/capture with no values hook, so it cannot express the
+  cdrom device group. The HelmRelease + semver `ImagePolicy` route used for
+  metallb/cert-manager/coredns/victoria-logs is therefore closed.
+
+This is the purest case for notification-rather-than-automation in the repo:
+there is no policy to cap, so *nothing at all* will ever say the pin has moved.
+Whatever this work produces should cover digest-pinned images too, not only
+`ImagePolicy` objects. An upstream request for tagged releases is drafted in the
+generic-device-plugin bug report.
+
 ## Why Prometheus cannot answer this today
 
 Both plausible routes were checked directly.

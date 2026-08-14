@@ -62,6 +62,19 @@ version silently meant "3.10.0 forever". 4.x is an architectural change touching
 every PVC in the cluster. Last not because it matters least but because it
 carries the most risk and needs a verified restore path first — which is item 1.
 
+## Waiting on a trigger
+
+Unranked because it cannot be scheduled — it needs a live failure to act on.
+
+**[generic-device-plugin-hang.md](generic-device-plugin-hang.md) — capture a hang, report it upstream, then probe for it**
+The plugin's `/metrics` endpoint wedges permanently on nodes with an optical
+drive, and only an OOMKill recovers it hours later. The fix that stops the
+recurring Pushover alerts is a liveness probe, but shipping it first would
+restart a wedged pod within ~45s and make the defect impossible to capture — so
+the probe deliberately waits until a goroutine dump has been taken from a live
+wedge. The `TargetDown` alert is the cue to act. Device selection and the digest
+pin already shipped on 2026-08-14.
+
 ## Applications
 
 Separate track; these do not compete with the infrastructure ordering.
