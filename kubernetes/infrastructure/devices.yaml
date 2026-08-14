@@ -27,16 +27,17 @@ spec:
       # This digest was `latest` on 2026-08-14.  See todos/version-notification-prompt.md.
       - image: ghcr.io/squat/generic-device-plugin@sha256:dc192e164c69b03f156765793a1be62ca437709ae477b27ca7d8f3dcf5021576
         args:
-        # Pin the resource domain explicitly.  This is not cosmetic: the domain
-        # forms half of the resource name that automatic-ripping-machine
-        # requests (`squat.ai/cdrom`), and upstream's default changed from
-        # squat.ai to devic.es between image versions.  Leaving it implicit
-        # meant a routine image bump silently renamed the resource, dropping
-        # `squat.ai/cdrom` allocatable to 0 on every node — ARM kept running on
-        # its existing allocation but would have gone Pending forever on its
-        # next restart.
-        - --domain
-        - squat.ai
+        # The resource domain is left implicit, taking upstream's default of
+        # `devic.es`.  The devices are therefore advertised as `devic.es/cdrom`,
+        # which is what automatic-ripping-machine requests.
+        #
+        # The domain forms half of that resource name, and upstream has changed
+        # the default before — it was `squat.ai` in the image pinned here until
+        # 2026-08-14.  If a future image bump changes it again, ARM will keep
+        # running on its existing allocation and then go Pending on its next
+        # restart, with nothing to indicate why.  Should that happen, compare
+        # `kubectl get nodes -o custom-columns=...:.status.allocatable.devic\.es/cdrom`
+        # against ARM's `resources.limits`, and pin `--domain devic.es` here.
         - --device
         # The by-id path is what distinguishes the real Pioneer burner from the
         # QEMU virtual DVD-ROM that every Talos VM exposes at /dev/sr0 for its
@@ -47,7 +48,7 @@ spec:
         # A group is only advertised when all of its non-optional paths match
         # something — a path with no matches drives the group's length to zero.
         # Matching the drive *model* therefore means only the node physically
-        # holding that drive advertises `squat.ai/cdrom`.  ARM schedules purely
+        # holding that drive advertises `devic.es/cdrom`.  ARM schedules purely
         # on that resource, so it follows the drive wherever Terraform attaches
         # it: no nodeSelector on either side, and nothing to keep in sync.
         #

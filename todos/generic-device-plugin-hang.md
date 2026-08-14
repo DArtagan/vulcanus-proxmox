@@ -172,7 +172,7 @@ Also confirm the Phase 1 device selection still holds — only worker-1 should
 advertise:
 
 ```bash
-kubectl get nodes -o custom-columns='NODE:.metadata.name,CDROM:.status.capacity.squat\.ai/cdrom'
+kubectl get nodes -o custom-columns='NODE:.metadata.name,CDROM:.status.allocatable.devic\.es/cdrom'
 ```
 
 ### Verifying the by-id passthrough needs an ARM restart
