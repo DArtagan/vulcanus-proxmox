@@ -69,6 +69,15 @@ data:
           description: Book server
           icon: stump
           siteMonitor: http://stump.apps.svc.cluster.local:10801
+      - Mumble:
+          # No siteMonitor, and no href: Mumble speaks its own protocol on
+          # 64738 and serves no HTTP endpoint, the same situation as RustDesk
+          # under Network. The hostname is the whole point of the entry —
+          # mumble.immortalkeep.com is the only supported name, and the bare
+          # immortalkeep.com deliberately does not answer on 64738 for clients
+          # resolving through CoreDNS. See the note in coredns.yaml.
+          description: Voice chat — mumble.immortalkeep.com:64738
+          icon: mumble
       - Botamusique:
           href: https://botamusique.immortalkeep.com
           description: Mumble music bot
