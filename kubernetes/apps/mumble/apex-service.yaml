@@ -1,0 +1,45 @@
+# A second address for the same pods, so that immortalkeep.com:64738 works
+# from inside the LAN as well as mumble.immortalkeep.com:64738.
+#
+# Why this is needed at all: DNS resolves a name to an address, not to an
+# address and port, so the apex has to answer on one IP that serves both the
+# website (443) and Mumble (64738). Inside the LAN the apex resolves to
+# 192.168.0.203, the internal ingress. Until the L4 services moved to their own
+# LoadBalancer addresses, the ingress carried 64738 through an nginx stream
+# block, so the apex happened to work; removing that block broke every LAN
+# client that had connected by the bare domain. Off-LAN clients never noticed,
+# because there the apex is the WAN address and the router forwards 64738
+# straight to Mumble.
+#
+# Sharing the ingress address rather than moving Mumble onto it: the router
+# forwards 64738 to 192.168.0.205, so the primary Service keeps that address
+# and the external path is untouched by this file.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mumble-apex
+  annotations:
+    # Both spellings deliberately. MetalLB is mid-migration from the
+    # metallb.universe.tf domain to metallb.io and writes its own annotations
+    # under both; which one it reads is not worth depending on.
+    metallb.io/allow-shared-ip: "ingress-nginx-internal"
+    metallb.universe.tf/allow-shared-ip: "ingress-nginx-internal"
+spec:
+  type: LoadBalancer
+  loadBalancerIP: "192.168.0.203"
+  # Cluster, not Local, and not by preference: MetalLB only colocates services
+  # that either both use Cluster or point at an identical set of pods, and the
+  # ingress controller uses Cluster. The cost is that connections arriving on
+  # this address are SNATed to a node IP, so Mumble logs them as the node
+  # rather than the client. Connections via mumble.immortalkeep.com still land
+  # on the primary Service, which keeps Local and keeps the real client address.
+  externalTrafficPolicy: Cluster
+  selector:
+    app: mumble
+  ports:
+    - name: mumble-tcp
+      protocol: TCP
+      port: 64738
+    - name: mumble-udp
+      protocol: UDP
+      port: 64738

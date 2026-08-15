@@ -72,10 +72,21 @@ spec:
         prometheus.io/port: 10254
       service:
         loadBalancerIP: "192.168.0.203"
+        annotations:
+          # Lets apps/mumble-apex share this address for 64738. LAN clients
+          # resolve the bare immortalkeep.com to this IP, and some of them
+          # connect to Mumble by that name rather than mumble.immortalkeep.com.
+          # Sharing the address is what serves both from one A record; see
+          # kubernetes/apps/mumble/apex-service.yaml. MetalLB requires the
+          # value to match on every Service sharing the IP.
+          metallb.io/allow-shared-ip: "ingress-nginx-internal"
+          metallb.universe.tf/allow-shared-ip: "ingress-nginx-internal"
     # No tcp:/udp: blocks. Mumble and Syncthing now have their own LoadBalancer
     # addresses, so nothing needs the stream proxy — which never suited them
     # anyway. These keys are not part of the Ingress API; they configure an
-    # nginx stream block bolted onto an HTTP controller.
+    # nginx stream block bolted onto an HTTP controller. Mumble's presence on
+    # this address is a shared LoadBalancer, not a stream proxy: nginx is not
+    # in that path.
 
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2

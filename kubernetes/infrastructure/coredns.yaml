@@ -168,13 +168,21 @@ spec:
           ; --- Kubernetes services (via ingress) ---
           ; Wildcard routes all subdomains to internal ingress controller.
           ; Explicit records above take precedence over the wildcard.
+          ;
+          ; The apex is also how some LAN clients reach Mumble — by
+          ; immortalkeep.com:64738 rather than mumble.immortalkeep.com. A name
+          ; resolves to an address, not an address and port, so 192.168.0.203
+          ; has to serve both the website and 64738. It does: mumble-apex is a
+          ; second Service sharing this address via MetalLB. Do not point the
+          ; apex at 192.168.0.205 to "fix" Mumble — that breaks the website.
           @                       IN  A    192.168.0.203
           *.immortalkeep.com.     IN  A    192.168.0.203
 
           ; --- MetalLB service IPs (for reference) ---
           ; 192.168.0.201 = ingress-nginx-external
           ; 192.168.0.202 = CoreDNS (this service)
-          ; 192.168.0.203 = ingress-nginx-internal
+          ; 192.168.0.203 = ingress-nginx-internal, + mumble 64738 tcp+udp
+          ;                 (shared LoadBalancer, for the apex path above)
           ; 192.168.0.204 = rustdesk (hbbs + hbbr)
           ; 192.168.0.205 = mumble (64738 tcp+udp)
           ; 192.168.0.206 = syncthing sync (22000 tcp+udp)
