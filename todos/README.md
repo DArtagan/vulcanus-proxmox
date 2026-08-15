@@ -83,9 +83,15 @@ Separate track; these do not compete with the infrastructure ordering.
 | Spec | What it is |
 |---|---|
 | [audiobook-importing.md](audiobook-importing.md) | Getting ~440 GiB of audiobooks out of the inbox and into MusicBrainz, and moving path routing off `genres` onto `albumtypes` |
-| [beets-flask-upstream-bugs.md](beets-flask-upstream-bugs.md) | Nine bugs found in beets-flask v2.0.0-rc5, written up for reporting upstream |
 | [book-import-spec.md](book-import-spec.md) | Design for a CLI tool to be the single entry point into the Stump library |
 | [podcast-archive-context.md](podcast-archive-context.md) | Follow-up context from replacing Podgrab with Pinepods, including the feed snapshot job |
+
+The nine beets-flask v2.0.0-rc5 bugs that used to sit here moved to
+`~/repositories/beets-flask/todos/` on 2026-08-14, decomposed one spec per bug.
+That fork is set up to contribute back to `pSpitzner/beets-flask`, so the work of
+reporting and fixing them belongs next to the code. Note that
+[proxmox-cpu-type.md](proxmox-cpu-type.md) is the host-side half of one of them —
+the polars AVX2 failure — and stays here.
 
 ## Writing a spec
 
