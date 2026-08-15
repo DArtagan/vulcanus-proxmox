@@ -169,20 +169,32 @@ spec:
           ; Wildcard routes all subdomains to internal ingress controller.
           ; Explicit records above take precedence over the wildcard.
           ;
-          ; The apex is also how some LAN clients reach Mumble — by
-          ; immortalkeep.com:64738 rather than mumble.immortalkeep.com. A name
-          ; resolves to an address, not an address and port, so 192.168.0.203
-          ; has to serve both the website and 64738. It does: mumble-apex is a
-          ; second Service sharing this address via MetalLB. Do not point the
-          ; apex at 192.168.0.205 to "fix" Mumble — that breaks the website.
+          ; The apex serves the website and nothing else. Mumble in particular
+          ; is not on it: the one supported name is mumble.immortalkeep.com.
+          ; This matters because a resolver answers with an address, not an
+          ; address and port, so the apex cannot point at Mumble without taking
+          ; the website with it — and only clients using CoreDNS see this at
+          ; all. Anyone on public DNS gets the WAN address for either name and
+          ; is forwarded to 192.168.0.205 regardless.
+          ;
+          ; It was briefly done the other way, in Aug 2026: a second Service
+          ; sharing 192.168.0.203 with the ingress via MetalLB, so that both
+          ; names worked for LAN clients. Reverted deliberately. Sharing an
+          ; address forces the Cluster external traffic policy, which SNATs
+          ; every client arriving on the apex to a single pod-network address —
+          ; they stop being distinguishable in the Mumble log — and it drops
+          ; the guarantee that voice lands on the node running the pod, so a
+          ; reschedule silently adds a hop. It also coupled the ingress address
+          ; to Mumble's config, which put every internal HTTPS service in the
+          ; blast radius of a Mumble mistake. One canonical name is less to
+          ; maintain and none of that is true of it.
           @                       IN  A    192.168.0.203
           *.immortalkeep.com.     IN  A    192.168.0.203
 
           ; --- MetalLB service IPs (for reference) ---
           ; 192.168.0.201 = ingress-nginx-external
           ; 192.168.0.202 = CoreDNS (this service)
-          ; 192.168.0.203 = ingress-nginx-internal, + mumble 64738 tcp+udp
-          ;                 (shared LoadBalancer, for the apex path above)
+          ; 192.168.0.203 = ingress-nginx-internal
           ; 192.168.0.204 = rustdesk (hbbs + hbbr)
           ; 192.168.0.205 = mumble (64738 tcp+udp)
           ; 192.168.0.206 = syncthing sync (22000 tcp+udp)
