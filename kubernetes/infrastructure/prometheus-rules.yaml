@@ -147,3 +147,94 @@ spec:
               run on record, so it has failed every time since it was created.
               Check that its image, secrets and volume mounts resolve:
               kubectl get jobs -n {{ $labels.namespace }} | grep {{ $labels.cronjob }}
+---
+# Two blind spots in the chart's own rules. A control plane that is OOM-killed
+# and restarts cleanly satisfies every threshold the chart ships, so neither
+# failure reaches an alert without these.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: control-plane-health
+spec:
+  groups:
+    - name: control-plane-health
+      rules:
+        # Deliberately reads the kill rather than predicting it from a
+        # utilisation percentage. MemAvailable counts reclaimable page cache, so
+        # a node reads healthy right up until the kernel cannot allocate — the
+        # control-plane node peaks at 80% against NodeMemoryHighUtilization's
+        # 90% threshold while being OOM-killed on it.
+        #
+        # It also covers what no restart metric can: etcd and kubelet are Talos
+        # host services rather than pods, so they have no
+        # kube_pod_container_status_restarts_total series at all, and an
+        # OOM-killed etcd is visible only here.
+        #
+        # Scoped to control-plane nodes because an OOM kill means something
+        # different on each. The control-plane static pods carry no memory
+        # limits, so a kill there is the node itself running out; on the workers
+        # it is a container hitting its own cgroup limit, which is routine and
+        # runs at several a day. Scoped by role rather than by naming a node, so
+        # a second control-plane node is covered the day it joins. The join goes
+        # through kube_node_info because node-exporter series carry no node
+        # label, only instance.
+        - alert: NodeOOMKill
+          expr: |
+            (
+              max by (instance) (increase(node_vmstat_oom_kill[1h])) > 0
+            )
+            * on (instance) group_left(node)
+            label_replace(
+              kube_node_info * on (node) group_left() kube_node_role{role="control-plane"},
+              "instance", "$1:9100", "internal_ip", "(.+)"
+            )
+          for: 5m
+          labels:
+            # Warning rather than critical: the control plane degrades but keeps
+            # serving, and critical maps to a Pushover priority that overrides
+            # quiet hours. This needs attention in the morning, not at 03:00.
+            severity: warning
+          annotations:
+            summary: The kernel OOM killer fired on control-plane node {{ $labels.node }}.
+            description: >-
+              {{ $value | printf "%.0f" }} process(es) killed in the last hour.
+              Control-plane components carry no memory limits, so this is the
+              node running out, and the kernel picks the largest process — which
+              is kube-apiserver. Check headroom with:
+              kubectl top node {{ $labels.node }}
+              and size the VM against the apiserver's peak, not its average —
+              see docs/talos.md.
+
+        # KubePodCrashLooping keys on the CrashLoopBackOff waiting reason, which
+        # a static pod restarting every few hours never reaches: it restarts
+        # cleanly and the backoff resets between times. Restart count is the
+        # only measure that sees it.
+        #
+        # An event rate rather than a state, so this resolves by itself after an
+        # hour of stability and cannot outlive the problem — the same reason
+        # CronJobNotSucceeding above is written as it is. `> 0` means a Talos or
+        # Kubernetes upgrade pages once, which is worth keeping: it is also how
+        # you confirm the upgrade landed.
+        - alert: ControlPlaneContainerRestarting
+          expr: |
+            sum by (namespace, pod, container) (
+              increase(kube_pod_container_status_restarts_total{
+                namespace="kube-system",
+                container=~"kube-apiserver|kube-controller-manager|kube-scheduler"
+              }[1h])
+            ) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Control-plane container {{ $labels.container }} has restarted.
+            description: >-
+              {{ $value | printf "%.0f" }} restart(s) in the last hour. These do
+              not restart in normal operation, so unless an upgrade is in
+              progress something is killing them. kube-apiserver exiting takes
+              controller-manager and scheduler with it when their
+              leader-election leases go, so treat the apiserver as the cause and
+              the other two as consequence. Read the exit code with:
+              kubectl get pod -n kube-system {{ $labels.pod }}
+              -o jsonpath='{.status.containerStatuses[*].lastState.terminated.exitCode}'
+              — 137 is an OOM kill.
