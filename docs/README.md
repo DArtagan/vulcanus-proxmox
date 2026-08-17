@@ -43,8 +43,14 @@ not specific to it.
   quiet on its own and cannot outlive the problem.
 - **Verify alert rules in both directions.** A rule that never fires looks
   exactly like a healthy one. Prove it silent when healthy *and* firing when
-  not. This repo has produced that class of bug four times: a `promtetheus`
+  not. This repo has produced that class of bug five times: a `promtetheus`
   typo that disabled a ServiceMonitor for three years, a `compactor` block at
   the wrong nesting level that meant Loki never deleted anything, a missing
-  kustomization entry that silently omitted a Secret, and a `use_tcp` omission
-  that would have dropped DNS over TCP.
+  kustomization entry that silently omitted a Secret, a `use_tcp` omission
+  that would have dropped DNS over TCP, and kube-prometheus' etcd Service
+  selecting pods that do not exist on Talos.
+- **A target that is never created cannot alert as down.** `TargetDown` matches
+  on `up`, so a Service whose selector matches nothing yields no endpoints, no
+  target and no `up` series — the gap hides itself, and every dashboard stays
+  green. Sharper than a rule that is merely wrong. When a scrape matters, check
+  that its target exists rather than that nothing is alerting about it.
