@@ -150,18 +150,16 @@ the path.
 | 192.168.0.205 | 64738 | TCP + UDP | Mumble (voice chat) |
 | 192.168.0.206 | 22000 | TCP + UDP | Syncthing (sync protocol) |
 
-Mumble and Syncthing moved here on 2026-08-07. They had been going through
-ingress-nginx's `tcp:`/`udp:` ConfigMap keys, which are not part of the Ingress
-API but an nginx `stream` block bolted onto an HTTP controller. nginx closes a
-UDP stream after one response datagram, so Mumble clients had to tick "force
-TCP" to be heard at all and Syncthing never negotiated QUIC — every connection
-reported `tcp-server`.
+**Do not route UDP through ingress-nginx.** Its `tcp:`/`udp:` ConfigMap keys are
+not part of the Ingress API — they render an nginx `stream` block bolted onto an
+HTTP controller, and nginx closes a UDP stream after a single response datagram.
+Behind it, Mumble clients need "force TCP" to be heard at all and Syncthing
+never negotiates QUIC, reporting `tcp-server` on every connection. A dedicated
+MetalLB address with `externalTrafficPolicy: Local` is the way to expose L4.
 
-Syncthing's 21027 was dropped rather than moved. It is LAN discovery, which
-works by broadcast within a subnet; the pod's broadcast domain is the cluster
-network, so announcements cannot cross in either direction no matter how it is
-exposed. It had also been mapped as TCP against a UDP-only Service port, so it
-had never worked.
+Syncthing's 21027 is not exposed anywhere. It is LAN discovery, which works by
+broadcast within a subnet; the pod's broadcast domain is the cluster network, so
+announcements cannot cross in either direction no matter how it is exposed.
 
 Syncthing keeps its ClusterIP Service for the web UI, which stays behind the
 ingress with TLS. `syncthing.immortalkeep.com` therefore still resolves to the
@@ -181,9 +179,6 @@ internal ingress via the wildcard; sync traffic uses `syncthing-sync`.
 | Mumble | 64738 | 192.168.0.205 | 64738 | UDP |
 | Syncthing sync | 22000 | 192.168.0.206 | 22000 | TCP |
 | Syncthing QUIC | 22000 | 192.168.0.206 | 22000 | UDP |
-
-Mumble and Syncthing previously forwarded to **192.168.0.201**; those rules need
-repointing to .205 and .206. Any rule forwarding **21027** should be deleted.
 
 **Never forward:**
 
