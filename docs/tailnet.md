@@ -62,6 +62,7 @@ narrow:
 | `will@` | `tag:vulcanus-subnet:22,8006` | SSH and the Proxmox web UI on the hypervisor |
 | `will@` | `192.168.0.105:22` | SSH to the fileserver LXC. Shell only — its NFS and SMB exports stay LAN-side |
 | `will@` | `192.168.0.200:6443` | Kubernetes API, so `kubectl` and `k9s` work while roaming |
+| `will@` | `192.168.0.190:50000` | Talos API, so `talosctl` works while roaming — the tool needed when the cluster is the thing that is broken |
 | `will@` | `192.168.0.202:53` | CoreDNS, or no internal name resolves |
 | `will@` | `192.168.0.203:80,443` | Internal ingress — one door to every HTTP service |
 
@@ -71,6 +72,18 @@ sync keep using their public port forwards rather than the tailnet.
 It is narrow on purpose. Opening a policy up and tightening it later is a thing
 that does not actually get done, so this one grows one entry at a time, each
 with a reason.
+
+### Running Terraform from the tailnet
+
+`vulcanus.forge.local` is a tailnet node in its own right (`100.64.0.4`), not
+something reached through the subnet router, so the Proxmox API answers on
+`https://vulcanus.forge.local:8006`. `TF_VAR_proxmox_api_url` in `.env` decides
+which path `tofu` takes: the hostname works from anywhere, a `192.168.0.x`
+address only from the LAN, since the policy grants the API by tag rather than by
+that address.
+
+The Talos half of an apply is separate — `talos_machine_configuration_apply`
+talks to `192.168.0.190:50000`, which the table above covers.
 
 ### Expanding it
 
@@ -158,7 +171,8 @@ it is a larger change than the problem justifies.
 - **`siderolabs/tailscale` on the Talos nodes.** Not installed, deliberately.
   It would put the *node's host network* on the tailnet, not MetalLB service IPs
   or pods, so it does nothing for the services above; the `talosctl` access it
-  buys is already covered twice, by WireGuard and by the subnet route. And a
+  buys is already covered twice, by WireGuard and by the subnet route with its
+  policy entry for port 50000. And a
   node's `tailscaled` has to reach `headscale.immortalkeep.com`, which the
   cluster itself serves — so it is least available exactly when it would be
   wanted.
