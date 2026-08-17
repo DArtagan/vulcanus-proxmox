@@ -23,7 +23,6 @@ Rules:
   * Extensions:
     * siderolabs/iscsi-tools
     * siderolabs/qemu-guest-agent
-    * siderolabs/tailscale
 2. Upgrade the machine.  `--stage` seems to help it go smoothly.
 ```
 talosctl --nodes 192.168.0.190 upgrade --stage --image factory.talos.dev/metal-installer/58e4656b31857557c8bad0585e1b2ee53f7446f4218f3fae486aa26d4f6470d8:v1.12.4

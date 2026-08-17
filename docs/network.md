@@ -80,6 +80,14 @@ which is expected since the cluster hosting them is also down.
 `immortalkeep.com` queries to CoreDNS (192.168.0.202), ensuring tailnet clients
 always get the internal ingress IP rather than the public record.
 
+This depends on `vulcanus` advertising `192.168.0.0/24` to the tailnet. Both
+192.168.0.202 and the 192.168.0.203 it answers with are LAN addresses, so
+without that route a remote client hands the query to its own local gateway and
+it is dropped — split DNS alone is not enough, because the address CoreDNS
+returns has to be routable too. Which of those routed addresses a client may
+actually reach is a separate question, answered by the Headscale policy. See
+[tailnet.md](tailnet.md).
+
 **Cluster-internal** (pods): Uses kube-dns for service discovery. Unrelated to
 the CoreDNS LoadBalancer service.
 

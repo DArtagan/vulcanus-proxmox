@@ -62,6 +62,14 @@ version silently meant "3.10.0 forever". 4.x is an architectural change touching
 every PVC in the cluster. Last not because it matters least but because it
 carries the most risk and needs a verified restore path first — which is item 1.
 
+**8. [tailnet-multi-user.md](tailnet-multi-user.md) — family on the tailnet**
+Every policy rule is `src: will@`, so a second Headscale user currently gets no
+access at all — their devices would register and then reach nothing, which
+presents as a broken tunnel rather than an intentional deny. Needs a tag scheme,
+rules for them, and a less manual way to issue keys. Last in the ordering
+because nothing is broken until someone is actually added, and it is the only
+item here driven by a new want rather than an existing defect.
+
 ## Waiting on a trigger
 
 Unranked because it cannot be scheduled — it needs a live failure to act on.

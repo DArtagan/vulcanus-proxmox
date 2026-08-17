@@ -1,0 +1,59 @@
+---
+# Makes the Proxmox host a Tailscale subnet router for the LAN.
+#
+# This is what lets internal names work off the LAN. Headscale's split-DNS
+# config sends immortalkeep.com to CoreDNS at 192.168.0.202, which answers with
+# the internal ingress at 192.168.0.203 — both LAN addresses, so a remote client
+# with no route to them sends the query to its own local gateway and it is
+# dropped.
+#
+# vulcanus is the router because it is already on the tailnet, already on the
+# LAN (192.168.0.111 on vmbr0), and already has to be up for anything else to
+# work — it is the hypervisor. See docs/tailnet.md.
+#
+# What the tailnet may actually reach through here is NOT decided on this host.
+# It is set by the headscale policy in
+# kubernetes/apps/headscale/policy-config-map.yaml, which grants only CoreDNS
+# and the internal ingress. Advertising a route is not the same as granting
+# access to it.
+#
+# The tag is applied server-side (`headscale nodes tag -t tag:vulcanus-subnet`)
+# rather than with `--advertise-tags` here, because advertising tags forces the
+# node to re-authenticate.
+- name: 'set up Proxmox host as a Tailscale subnet router'
+  hosts: proxmox
+
+  tasks:
+    - name: check tailscale is installed
+      command: tailscale version
+      changed_when: false
+
+    # Proxmox does not need this for VM traffic — that crosses vmbr0 as a
+    # bridge, not by routing — so it ships disabled. A subnet router does need
+    # it: packets arriving on tailscale0 for a LAN address have to be forwarded
+    # out vmbr0. Same task the WireGuard host already runs (see wireguard.yaml).
+    - name: enable and persist ip forwarding
+      sysctl:
+        name: '{{ item }}'
+        value: "1"
+        state: present
+        sysctl_set: yes
+        sysctl_file: /etc/sysctl.d/99-tailscale-subnet-router.conf
+        reload: yes
+      loop:
+        - net.ipv4.ip_forward
+        - net.ipv6.conf.all.forwarding
+
+    - name: read current advertised routes
+      command: tailscale debug prefs
+      register: tailscale_prefs
+      changed_when: false
+
+    # Advertising is only half of it. autoApprovers in the headscale policy
+    # fires when a route is first advertised, and an unapproved route carries no
+    # traffic while still looking correct from this host. Check the other side:
+    #   headscale nodes list-routes
+    #   headscale nodes approve-routes -i <id> -r 192.168.0.0/24
+    - name: advertise the LAN subnet to the tailnet
+      command: tailscale set --advertise-routes=192.168.0.0/24
+      when: "'192.168.0.0/24' not in (tailscale_prefs.stdout | from_json).AdvertiseRoutes | default([], true)"

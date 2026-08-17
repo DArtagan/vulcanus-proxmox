@@ -8,6 +8,7 @@ Work that has not been done yet lives in [`todos/`](../todos/), not here.
 | Doc | Contents |
 |---|---|
 | [network.md](network.md) | IP inventory, DNS architecture, service exposure, router port forwarding |
+| [tailnet.md](tailnet.md) | Headscale/Tailscale: nodes, the subnet router, the access policy and how to widen it |
 | [kubernetes.md](kubernetes.md) | Workload conventions: probes, config rollouts, chart automation, safe teardown |
 | [talos.md](talos.md) | Talos cluster operations and upgrades |
 | [disk_management.md](disk_management.md) | Storage layout and resizing |
@@ -33,6 +34,13 @@ not specific to it.
   attacker. Credentials that Alertmanager needs are referenced by mounted file
   path rather than inlined, so routing config stays readable in git while the
   credentials do not appear in it.
+- **Alert on the absence of recent success, not the presence of a past
+  failure.** A failure is an event and stays in the record forever; health is a
+  question with a current answer. Rules built the first way cannot resolve
+  themselves — the chart's `KubeJobFailed` clears only when someone deletes the
+  Job object, so one transient blip in a CronJob that runs every 15 minutes
+  paged for seven days straight. Prefer "has this succeeded lately", which goes
+  quiet on its own and cannot outlive the problem.
 - **Verify alert rules in both directions.** A rule that never fires looks
   exactly like a healthy one. Prove it silent when healthy *and* firing when
   not. This repo has produced that class of bug four times: a `promtetheus`

@@ -20,7 +20,11 @@ spec:
     extract: '$version'
   policy:
     semver:
-      range: '^0.28.0'
+      # Explicit bounds, because caret notation pins the minor on a 0.x version:
+      # '^0.29.0' resolves to '>=0.29.0 <0.30.0'. A range that excludes a new
+      # release has no visible symptom — Flux keeps scanning and keeps listing
+      # the newer tags it is correctly not selecting.
+      range: '>=0.29.0 <1.0.0'
 
 
 ---

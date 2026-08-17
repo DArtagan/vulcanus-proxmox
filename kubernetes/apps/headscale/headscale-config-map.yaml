@@ -187,7 +187,11 @@ data:
       mode: file
       # If the mode is set to "file", the path to a
       # HuJSON file containing ACL policies.
-      path: ""
+      #
+      # Mounted from the headscale-policy ConfigMap in its own directory rather
+      # than alongside config.yaml, because /etc/headscale is already a whole
+      # ConfigMap mount and a second one cannot be layered onto it.
+      path: "/etc/headscale/policy/policy.hujson"
 
     ## DNS
     #
