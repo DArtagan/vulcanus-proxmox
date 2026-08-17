@@ -156,6 +156,27 @@ already made should be captured verbatim so they are not relitigated, and wrong
 turns should be recorded honestly — inheriting mistaken reasoning is worse than
 inheriting none.
 
+### How it is phrased
+
+Applies to comments and config as much as to prose here.
+
+- **Present tense: what is, not what changed or what is missing.** No dates, no
+  "previously/until now/no longer", no describing the prior state — git carries
+  the delta, and a file narrating its own edit history ages into noise. Dates are
+  right in `todos/` specs, which are point-in-time by design, and in commit
+  messages, which are the delta. Rationale stays, in present tense: what breaks
+  without this, and why the obvious alternative was not taken. That last one is
+  the exception worth protecting — `CronJobHasNeverSucceeded` explaining why it
+  measures from `kube_cronjob_created`, or the `version-skew` rule preferring
+  `kube_pod_container_info`, guard against a reader reintroducing the bug. The
+  test is whether they plausibly could.
+- **Never expose an option whose other setting is simply wrong.** That is not
+  configuration, it is a way to break things plus an untested evaluation path.
+  Inline the value and comment why it is fixed; keep only what genuinely differs
+  between call sites. Nothing here is written for a hypothetical fork, so "someone
+  might want to change it" is not a reason to keep a knob. And once one is gone it
+  leaves no trace — an absent setting needs no epitaph.
+
 ## Security Policy
 
 This repository is public. It is intentionally shared to contribute to the community's body of knowledge. However, sensitive values must never be committed in plaintext.
