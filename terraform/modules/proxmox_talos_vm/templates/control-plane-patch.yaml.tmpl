@@ -5,3 +5,22 @@ machine:
         dhcp: true
         vip:
           ip: ${vip}
+cluster:
+  # Talos binds all three of these to localhost by default; these args move them
+  # off loopback so Prometheus can reach them.
+  #
+  # The etcd metrics listener is plaintext and unauthenticated by design: it is
+  # read-only, serves no key material and cannot mutate etcd. Reachable from the
+  # LAN is the accepted tradeoff. etcd's client port stays on mTLS.
+  etcd:
+    extraArgs:
+      listen-metrics-urls: http://0.0.0.0:2381
+  # These two need only the bind address. Their static pods run with hostNetwork
+  # and carry the `component:` labels the chart's Services select on, so the
+  # Services find them as soon as they answer off loopback.
+  controllerManager:
+    extraArgs:
+      bind-address: 0.0.0.0
+  scheduler:
+    extraArgs:
+      bind-address: 0.0.0.0
