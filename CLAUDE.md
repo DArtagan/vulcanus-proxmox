@@ -99,6 +99,10 @@ sops kubernetes/apps/<app>/secret.yaml
 
 - **Establish what actually depends on a thing before designing for compatibility with it.** Ask what reads this, and check. The promtail-to-Alloy migration was first planned around reproducing promtail's exact label set, until listing Grafana's datasources showed there had never been a Loki datasource at all — nothing had queried those logs in three years. One command, and it invalidated the whole design premise. Do that check before building for compatibility, not after.
 
+- **When the system is running, measure it rather than reasoning about it.** A claim that can be queried should be. Predicting from a rule's structure that `KubeMemoryOvercommit` could not clear took longer than the query that showed it clearing, and was wrong because it never checked how close the value sat to the threshold. Metric *names* deserve the same treatment: `kube_endpoint_address_available` does not exist, and `kube_endpoint_info` exists as a name while kube-state-metrics emits zero series for it here, because the `endpoints` collector is not in its `--resources`. Confirm the series has data before building on it.
+
+- **A verification step is part of the change and earns the same scrutiny.** State where each check runs from and why the number it reports moves for the reason claimed. Both halves have failed here in one sitting: `kubectl top node` was offered as proof a memory fix worked, when it counts page cache and so reads ~84% on a node with 2 GiB genuinely free; and `nc -zv` was offered against ports the tailnet policy does not grant, which fails from a roaming client no matter how healthy the service. Vantage point matters throughout this repo — LAN, tailnet and in-cluster reach different things, and the tailnet reaches only what [`docs/tailnet.md`](docs/tailnet.md) lists.
+
 The Kubernetes-specific ones live in [`docs/kubernetes.md`](docs/kubernetes.md), which is worth reading before changing a workload. In brief:
 
 - **"Applied" is not "in effect."** A ConfigMap-only change updates the object and leaves running pods on their old config, while Flux correctly reports healthy. It has silently misbehaved twice.
@@ -133,6 +137,19 @@ The point of the split is that the two ages differently. Documentation of the
 present system should be corrected whenever reality moves. A work spec is a
 point-in-time artefact whose value is highest the day it is written and which
 becomes misleading once acted on, so it is removed rather than left to rot.
+
+**Verification that outlives the session belongs in a rule, not a note.** Step 4
+deletes the spec, so any check it left pending goes with it — and plenty of
+fixes can only be confirmed by days of quiet. Neither directory is the answer:
+`docs/` describes the present and `todos/` holds work not yet done, while this is
+a question awaiting evidence. Encode it as an alert instead. The control plane
+was resized against an apiserver whose restarts could only be shown to have
+stopped by watching for a week; `ControlPlaneContainerRestarting` is that watch,
+and it reports without anyone remembering to look. This is the same instinct as
+"alert on the absence of recent success" in [`docs/README.md`](docs/README.md),
+applied to a fix rather than a workload. Where no rule can express it, say so in
+the commit message, which is the one artefact that is neither deleted nor
+expected to stay true.
 
 When writing either, record **why** and not only **what**. Decisions the user has
 already made should be captured verbatim so they are not relitigated, and wrong
