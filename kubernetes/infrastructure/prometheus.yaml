@@ -171,6 +171,23 @@ spec:
         # twice — single Dropbox-side failures that alerted for seven days and
         # four days respectively, each across runs that had already recovered.
         KubeJobFailed: true
+        # Two questions welded together with `or`, only one of which applies
+        # here. Its first branch — do the declared requests fit at all — is the
+        # useful one, and is replaced by cluster-capacity in
+        # prometheus-rules.yaml. Its second asks whether everything would still
+        # fit after losing the largest node, and nothing guards that branch by
+        # cluster size, so it evaluates on a single-control-plane cluster and
+        # fires permanently.
+        #
+        # That second question cannot be answered usefully here. It counts the
+        # control plane's allocatable memory although NoSchedule keeps every
+        # ordinary workload off it, so the shortfall it reports is ~8x too
+        # small; it counts DaemonSet requests that vanish with the node rather
+        # than moving; and it ignores that all PVCs are openebs-hostpath, so
+        # worker-0's workloads cannot move regardless of memory. Adding ~300 MiB
+        # anywhere it counts would silence it while changing nothing — which is
+        # what raising the control plane to 4 GiB did to it.
+        KubeMemoryOvercommit: true
     # The endpoint is explicit because the chart's default Service selects pods
     # labelled `component: etcd`, and Talos runs etcd as a host service rather
     # than a pod — the selector matches nothing, and a Service with no endpoints

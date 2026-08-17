@@ -238,3 +238,76 @@ spec:
               kubectl get pod -n kube-system {{ $labels.pod }}
               -o jsonpath='{.status.containerStatuses[*].lastState.terminated.exitCode}'
               — 137 is an OOM kill.
+---
+# Replaces the first branch of the chart's KubeMemoryOvercommit, which is
+# disabled in prometheus.yaml — see the comment there for why the rule as
+# shipped cannot be made to answer this. The question kept is the one worth
+# asking: does the memory every pod declares actually fit in the space the
+# scheduler can put it?
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cluster-capacity
+spec:
+  groups:
+    - name: cluster-capacity
+      rules:
+        # Both sides exclude NoSchedule nodes, which is the correction the
+        # chart's version is missing. kube_node_status_allocatable reports what
+        # a kubelet could allocate, not what the scheduler will place there, so
+        # counting the control plane credits the cluster with ~3.2 GiB no
+        # ordinary workload can ever use — and a rule that believes in capacity
+        # it does not have fires that much too late. Excluding the node from
+        # both halves keeps it consistent: the pods running there are
+        # DaemonSets and static pods, which are not competing for worker room.
+        #
+        # Running and Pending only. A completed Job's pod still carries its
+        # requests, and counting those inflates the total by several GiB while
+        # reserving nothing.
+        - record: cluster:memory_requests_schedulable:ratio
+          expr: |
+            sum(
+              (kube_pod_container_resource_requests{resource="memory"}
+                * on (namespace, pod) group_left() (kube_pod_status_phase{phase=~"Running|Pending"} == 1))
+              unless on (node) kube_node_spec_taint{effect="NoSchedule"}
+            )
+            /
+            sum(
+              kube_node_status_allocatable{resource="memory"}
+              unless on (node) kube_node_spec_taint{effect="NoSchedule"}
+            )
+
+        - alert: MemoryRequestsNearCapacity
+          expr: cluster:memory_requests_schedulable:ratio > 0.85
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: Pod memory requests are at {{ $value | humanizePercentage }} of schedulable capacity.
+            description: >-
+              Once requests exceed what the untainted nodes can allocate, new
+              pods stay Pending. This is a total, so it cannot see bin-packing —
+              a single pod larger than any one node's free space fails to
+              schedule well before this fires, and KubePodNotReady is what
+              catches that. Review the largest requests with:
+              kubectl top pod -A --sort-by=memory
+              and compare against kubectl describe node.
+
+        # Firing together with the warning above is intended, and is the pattern
+        # the chart itself uses for NodeFilesystemAlmostOutOfSpace. Crossing
+        # this threshold means the declared workload does not fit, which is a
+        # different situation from approaching the line, and the duplicate
+        # notification is not the problem worth optimising at that point.
+        - alert: MemoryRequestsExceedCapacity
+          expr: cluster:memory_requests_schedulable:ratio > 1
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: Pod memory requests exceed schedulable capacity ({{ $value | humanizePercentage }}).
+            description: >-
+              More memory is requested than the untainted nodes can allocate, so
+              something is Pending or will be at the next reschedule. Either give
+              the workers more memory in terraform/main.tf, or reduce requests —
+              note these are requests rather than usage, so the fix may be a
+              request set higher than the workload needs.
