@@ -107,27 +107,23 @@ strings. Any repair work should modernise the config rather than patch it.
 
 ## Alerting: CronJobs covered, Flux objects still not
 
-Updated 2026-08-08. Two separate gaps were conflated here originally.
+**CronJob failure alerting works.** Alertmanager routes to Pushover, and
+`CronJobNotSucceeding` in `kubernetes/infrastructure/prometheus-rules.yaml`
+alerts on time since last success, bucketed by schedule. It reads from
+kube-state-metrics and needs no per-job wiring, so `beets-import`,
+`podcast-feed-snapshot` and `rclone-dropbox` are covered for free.
 
-**CronJob failure alerting now works.** Alertmanager was enabled on 2026-08-07
-and routes to Pushover. `KubeJobFailed` fires off kube-state-metrics and needs
-no per-job wiring, so `beets-import`, `podcast-feed-snapshot` and
-`rclone-dropbox` are covered for free. It proved itself immediately by
-surfacing two failed jobs nobody knew about.
+`ttlSecondsAfterFinished` on the job templates is a rejected approach, not an
+outstanding one: it would trade away the retained failed Job, which is the only
+handle left for `kubectl describe`, to solve a problem that keying the alert to
+last success solves outright. Do not re-propose it.
 
-Two caveats that matter for designing the backup work:
+One gap still stands for designing the backup work:
 
-- **`KubeJobFailed` tracks the existence of a failed Job object, not current
-  health.** With `failedJobsHistoryLimit: 1`, a single transient failure keeps
-  alerting until either another failure replaces it or the Job is deleted by
-  hand. Observed directly: `rclone-dropbox` failed on 2026-07-31, the next three
-  runs succeeded, and the alert persisted for seven days regardless.
-  `ttlSecondsAfterFinished` on the job templates would make failed Jobs
-  self-clean, at the cost of losing the manual-acknowledgement property.
-- **Borgmatic is not covered by it at all.** It runs its own cron inside a
-  Deployment rather than as a Kubernetes CronJob, so no Job object is ever
-  created and `KubeJobFailed` can never see it. It was given borgmatic's native
-  `pushover` hook on 2026-08-07 to compensate.
+- **Borgmatic is not covered at all.** It runs its own cron inside a
+  Deployment rather than as a Kubernetes CronJob, so no Job or CronJob object is
+  ever created and nothing built on kube-state-metrics can see it. It was given
+  borgmatic's native `pushover` hook on 2026-08-07 to compensate.
 
 **Flux object Ready state still has no metric.** That gap is unchanged, and the
 rest of this section describes it. Investigated on 2026-08-07, after a broken

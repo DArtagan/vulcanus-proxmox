@@ -10,6 +10,14 @@ spec:
   suspend: false
   jobTemplate:
     spec:
+      # When Dropbox's API is unhealthy every attempt fails the same way, so the
+      # Kubernetes default of 6 burns 28 minutes to reach the same answer — and
+      # with concurrencyPolicy: Forbid that blocks the next one or two scheduled
+      # runs. Failing in roughly ten minutes lets the next 15-minute slot start
+      # clean against an upstream that may have recovered. A real outage bore
+      # this out: 25 minutes of retries all failed identically, and the next
+      # scheduled run succeeded.
+      backoffLimit: 2
       template:
         spec:
           initContainers:

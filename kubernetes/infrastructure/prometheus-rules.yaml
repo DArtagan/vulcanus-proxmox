@@ -48,3 +48,102 @@ spec:
               and resync with:
               talosctl --nodes <control-plane> upgrade-k8s --from <current> --to <target>
               See todos/talos-terraform-migration-prompt.md.
+---
+# Replaces the chart's KubeJobFailed, which is disabled in prometheus.yaml — see
+# the comment there for why. The short version: KubeJobFailed reports that a
+# failed Job object exists, which is not the same question as whether the
+# CronJob is currently working, and it can only be cleared by hand.
+#
+# These rules ask the question that actually matters: has this CronJob succeeded
+# recently? A transient failure is invisible because the next run fixes it;
+# sustained failure fires and then self-resolves on the first success, with no
+# manual cleanup.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cronjob-health
+spec:
+  groups:
+    - name: cronjob-health
+      rules:
+        # How long each CronJob may go without a success, bucketed by how often
+        # it runs. Keyed on the schedule label of kube_cronjob_info rather than
+        # on CronJob names, so a newly added CronJob lands in a bucket
+        # automatically — a name list would leave it silently uncovered, and a
+        # rule that covers less than it appears to is the failure mode this repo
+        # keeps producing.
+        #
+        # `or` is first-match-wins per series, so the branches read top to bottom
+        # as a table and the last one is an unconditional catch-all. Each branch
+        # is multiplied by zero and offset so the value is the threshold itself
+        # rather than kube_cronjob_info's constant 1.
+        #
+        # Prometheus regexes are fully anchored, and these sit inside PromQL
+        # string literals, so `\\*` is what reaches the engine as `\*`:
+        #   minute field contains / , or -  → sub-hourly  → 90m
+        #   hour field is *                 → hourly      → 3h
+        #   anything else                   → daily+      → 26h
+        #
+        # 90 minutes is roughly six missed rclone-dropbox runs. Its longest gap
+        # between successes across a month of history is 83.5 minutes, and that
+        # window contains a genuine Dropbox outage — so the budget clears real
+        # breakage without paging for blips that heal themselves.
+        - record: cronjob:max_seconds_without_success
+          expr: |
+            (max by (namespace, cronjob) (kube_cronjob_info{schedule=~"[^ ]*[/,-][^ ]* \\* \\* \\* \\*"}) * 0 + 5400)
+            or
+            (max by (namespace, cronjob) (kube_cronjob_info{schedule=~"[^ ]+ \\* \\* \\* \\*"}) * 0 + 10800)
+            or
+            (max by (namespace, cronjob) (kube_cronjob_info) * 0 + 93600)
+
+        # The suspend guard is load-bearing, not defensive tidiness: beets-import
+        # is suspended and its last success recedes further into the past every
+        # day, so without the `unless` it fires immediately and permanently.
+        - alert: CronJobNotSucceeding
+          expr: |
+            (
+              max by (namespace, cronjob) (time() - kube_cronjob_status_last_successful_time)
+                > on (namespace, cronjob) cronjob:max_seconds_without_success
+            )
+            unless on (namespace, cronjob) (kube_cronjob_spec_suspend == 1)
+          labels:
+            severity: warning
+          annotations:
+            summary: CronJob {{ $labels.namespace }}/{{ $labels.cronjob }} has not succeeded recently.
+            description: >-
+              Its last successful run was {{ $value | humanizeDuration }} ago,
+              past the budget for its schedule. This has outlasted several runs,
+              so it is not a transient upstream blip. Inspect with:
+              kubectl get jobs -n {{ $labels.namespace }} | grep {{ $labels.cronjob }}
+              and read the logs of the most recent failure in VictoriaLogs, since
+              the pod itself is likely gone — see docs/logging.md.
+
+        # kube_cronjob_status_last_successful_time does not exist until a CronJob
+        # has succeeded at least once, so CronJobNotSucceeding is structurally
+        # blind to one that has never worked at all. This is the rule that sees
+        # it: old enough to have had its chance, with no success on record.
+        #
+        # Age is measured from creation, not from last schedule time. A CronJob
+        # that is scheduling normally and failing every time holds its last
+        # schedule time within one cadence of now — 894s against a 5400s budget
+        # for rclone-dropbox — so a schedule-time test can never cross the
+        # threshold for exactly the workload this rule is meant to catch. Time
+        # since creation climbs monotonically instead, and a recreated CronJob
+        # gets one budget's grace before it counts.
+        - alert: CronJobHasNeverSucceeded
+          expr: |
+            (
+              max by (namespace, cronjob) (time() - kube_cronjob_created)
+                > on (namespace, cronjob) cronjob:max_seconds_without_success
+            )
+            unless on (namespace, cronjob) kube_cronjob_status_last_successful_time
+            unless on (namespace, cronjob) (kube_cronjob_spec_suspend == 1)
+          labels:
+            severity: warning
+          annotations:
+            summary: CronJob {{ $labels.namespace }}/{{ $labels.cronjob }} has never completed successfully.
+            description: >-
+              It has existed for {{ $value | humanizeDuration }} with no successful
+              run on record, so it has failed every time since it was created.
+              Check that its image, secrets and volume mounts resolve:
+              kubectl get jobs -n {{ $labels.namespace }} | grep {{ $labels.cronjob }}

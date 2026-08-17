@@ -154,6 +154,23 @@ spec:
             webhook_configs:
               - url_file: /etc/alertmanager/secrets/notification-secrets/deadmans-switch-url
                 send_resolved: false
+    defaultRules:
+      disabled:
+        # CronJobNotSucceeding in prometheus-rules.yaml covers this ground
+        # instead. KubeJobFailed is `kube_job_failed > 0`, and kube-state-metrics
+        # emits that series only for Jobs carrying a Failed condition. A Job is
+        # terminal, so the series is pinned at 1 for as long as the object
+        # exists — the alert's resolve condition is "someone deleted the Job",
+        # not "the workload recovered". Upstream's own annotation says so:
+        # "Removing failed job after investigation should clear this alert."
+        #
+        # That suits one-shot Jobs. For a CronJob it inverts: alert lifetime is
+        # governed by failedJobsHistoryLimit rather than by how long anything is
+        # actually broken, so one transient blip is indistinguishable from real
+        # breakage. rclone-dropbox runs every 15 minutes and demonstrated this
+        # twice — single Dropbox-side failures that alerted for seven days and
+        # four days respectively, each across runs that had already recovered.
+        KubeJobFailed: true
     # Talos binds these three components' metrics to localhost, so Prometheus
     # cannot scrape them and they alert as permanently Down — six of today's
     # twelve alerts, three of them critical. Disabling the scrapes stops the
