@@ -90,10 +90,10 @@ left over from that install. Delete them as cleanup; nothing references them.
 
 Candidates worth evaluating:
 
+- **Cilium** — the strongest Gateway API implementation, but it *is* the CNI.
 - **Envoy Gateway** — full Gateway API including TCPRoute/UDPRoute, CNI-agnostic
   so it does not care that this cluster runs Flannel, actively developed, and
   not a vendor's on-ramp to a paid product. The default recommendation.
-- **Cilium** — the strongest Gateway API implementation, but it *is* the CNI.
   Adopting it means replacing Flannel on Talos, which is a much larger change
   and touches the thing that took a Kubernetes component resync to modernise.
   Worth considering only as a deliberate networking project, not as an ingress
@@ -101,6 +101,9 @@ Candidates worth evaluating:
 - **nginx-gateway-fabric** — F5's Gateway API implementation. Closest to
   familiar nginx semantics, which is worth something given nginx config
   knowledge already exists here. Smaller community than Envoy Gateway.
+- **calico**
+- **linkerd**
+- **istio**
 
 ## The prompt
 
