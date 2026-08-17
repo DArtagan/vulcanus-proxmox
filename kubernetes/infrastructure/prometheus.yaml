@@ -171,15 +171,32 @@ spec:
         # twice — single Dropbox-side failures that alerted for seven days and
         # four days respectively, each across runs that had already recovered.
         KubeJobFailed: true
-    # Talos binds these three components' metrics to localhost, so Prometheus
-    # cannot scrape them and they alert as permanently Down — six of today's
-    # twelve alerts, three of them critical. Disabling the scrapes stops the
-    # noise; making them genuinely scrapable needs a machine config change and
-    # is written up in todos/talos-terraform-migration-prompt.md.
+    # The endpoint is explicit because the chart's default Service selects pods
+    # labelled `component: etcd`, and Talos runs etcd as a host service rather
+    # than a pod — the selector matches nothing, and a Service with no endpoints
+    # yields no targets and so no `up` series for TargetDown to report on. The
+    # listener itself is opened by the control-plane patch in
+    # terraform/modules/proxmox_talos_vm/templates/.
+    #
+    # Port 2381 and plain http are chart defaults. bearerTokenFile is cleared
+    # because the default sends Prometheus' ServiceAccount token in cleartext to
+    # an endpoint that does not read it.
+    kubeEtcd:
+      enabled: true
+      endpoints:
+        - 192.168.0.190
+      serviceMonitor:
+        bearerTokenFile: ""
+    # Scrapable because the same patch binds them to 0.0.0.0. Their static pods
+    # run with hostNetwork and carry the `component:` labels the chart's
+    # Services select on, so neither needs an explicit endpoint.
     kubeScheduler:
-      enabled: false
+      enabled: true
     kubeControllerManager:
-      enabled: false
+      enabled: true
+    # kube-proxy stays localhost-bound: Talos applies it as a bootstrap manifest
+    # rather than a control-plane static pod, so its bind address is a separate
+    # job — see todos/talos-terraform-migration-prompt.md.
     kubeProxy:
       enabled: false
     grafana:
