@@ -13,12 +13,14 @@
 
 ### Kubernetes Cluster (Talos Linux)
 
-| IP | Hostname | Role | Resources |
-|----|----------|------|-----------|
-| 192.168.0.190 | piraeus-control-plane-0.immortalkeep.com | Control plane | 3 GiB RAM, 2 cores |
-| 192.168.0.195 | piraeus-worker-0.immortalkeep.com | Worker (primary) | 24 GiB RAM, 8 cores, 1 TB OpenEBS |
-| 192.168.0.196 | piraeus-worker-1.immortalkeep.com | Worker (optical drive) | 8 GiB RAM, 4 cores, 100 GB OpenEBS |
-| 192.168.0.200 | piraeus-api.immortalkeep.com | Cluster VIP (virtual) | — |
+| IP | Hostname | Role |
+|----|----------|------|
+| 192.168.0.190 | piraeus-control-plane-0.immortalkeep.com | Control plane |
+| 192.168.0.195 | piraeus-worker-0.immortalkeep.com | Worker (primary) |
+| 192.168.0.196 | piraeus-worker-1.immortalkeep.com | Worker (optical drive) |
+| 192.168.0.200 | piraeus-api.immortalkeep.com | Cluster VIP (virtual) |
+
+Memory, cores and disk sizes are declared in `terraform/main.tf`.
 
 ### MetalLB Service IPs (pool: 192.168.0.201–210)
 

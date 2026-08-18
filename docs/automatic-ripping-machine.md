@@ -300,7 +300,7 @@ Key encoding settings (defined in the `vulcanus-handbrake-preset` custom preset)
 | Container | MKV | With chapter markers and metadata passthrough |
 | Deinterlace | Decomb (default) | Important for interlaced DVD content |
 
-`MAX_CONCURRENT_TRANSCODES: 1` limits to one transcode at a time — AV1 at preset 4 is CPU-intensive and the worker node has 6 allocated cores.
+`MAX_CONCURRENT_TRANSCODES: 1` limits to one transcode at a time — AV1 at preset 4 saturates whatever it is given, and this runs on `piraeus-worker-1`, the smaller of the two workers, alongside everything else scheduled there.
 
 `MAINFEATURE: false` means all tracks above the minimum length are transcoded, not just the longest. This is necessary for TV show discs where multiple episodes need to be extracted.
 
