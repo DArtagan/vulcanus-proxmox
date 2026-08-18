@@ -28,9 +28,11 @@ why so it does not get proposed again.
 **3. [etcd-disk-latency.md](etcd-disk-latency.md) — get etcd off spinning disks**
 etcd's p99 WAL fsync is 0.41s against a target of 0.010s, because `rpool` is two
 raidz2 vdevs of 7200rpm disks with no SLOG and the host holds no SSD at all. The
-nightly Proxmox backup drives it past 8s, which took out `kube-scheduler` and
-`kube-controller-manager` on 2026-08-18; their leader-election durations are now
-wide enough to absorb it, so the loud symptom is gone and the cause is not. Third
+nightly Proxmox backup drives it past 8s, and apiserver p99 for mutating verbs
+reaches 8.77s against a 1s SLO for the 22 minutes it runs. Six containers restart
+in that window; `kube-scheduler` and `kube-controller-manager` had their
+leader-election durations widened on 2026-08-18 and the other four — OpenEBS and
+SMB CSI provisioning, kube-state-metrics — are still exposed on 15s leases. Third
 because it is a live degradation of the component everything else depends on, and
 because the first step — choosing an SSD with power-loss protection — is quick.
 Blocked on that purchase, which is the only reason it is not higher. The alert is

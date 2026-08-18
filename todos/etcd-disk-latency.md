@@ -78,6 +78,38 @@ from was **not** identified: `createClients` in kube-scheduler v1.35.0 passes no
 timeout, and `renew()` divides nothing. Do not build on the 5 s figure; the renew
 deadline is the bound that decides whether the process survives.
 
+### Six containers restart, not two
+
+`kube-scheduler` and `kube-controller-manager` are the loudest but not the whole
+list. Restarts inside the same 25-minute window:
+
+| container | restarts | lease |
+|---|---|---|
+| `openebs-localpv-provisioner` | 6 | `openebs.io-local`, 15 s |
+| `kube-scheduler` | 5 | 45 s after 2026-08-18 |
+| `kube-controller-manager` | 4 | 45 s after 2026-08-18 |
+| `csi-provisioner` | 4 | `smb-csi-k8s-io`, 15 s |
+| `csi-resizer` | 4 | `external-resizer-smb-csi-k8s-io`, 15 s |
+| `kube-state-metrics` | 1 | — (liveness probe against the apiserver) |
+
+The four unaddressed ones sit on 15 s leases, tighter than the durations that
+killed the two that were fixed. apiserver p99 for `PUT|PATCH|POST` reads **8.77 s**
+across the window against 0.95 s at rest, so for 22 minutes a night the cluster
+cannot reliably accept a write: storage provisioning stalls and alerting metrics
+are unreliable.
+
+**These restarts do not happen at any other time.** Bucketed hourly across 20 h,
+all three of `openebs-localpv-provisioner`, `csi-provisioner` and
+`kube-state-metrics` restart in exactly two hours — the backup window, and the
+hour a Talos config change re-rendered the static pods. Zero in the other 18. So
+`openebs-localpv-provisioner`'s **768 restarts over 127 days** are not ambient
+flakiness: at ~6 per backup that is close to one nightly window per day for the
+life of the pod.
+
+This is the argument for the SLOG over per-component timeout tuning. Fixing the
+disk fixes all six at once; widening leases fixes them one chart at a time and
+leaves each new controller to be discovered the same way.
+
 Note the job is invisible to this repo: it lives only in `/etc/pve/jobs.cfg`,
 managed through the Proxmox UI rather than Ansible or Terraform. Identifying a
 nightly 10:00 UTC event meant reading `/var/log/pve/tasks`.
