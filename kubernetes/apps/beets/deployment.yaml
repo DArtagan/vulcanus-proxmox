@@ -37,10 +37,6 @@ spec:
               cp /config-map/config-beets.yaml     /config/beets/config.yaml
               cp /config-map/genre_whitelist.txt   /config/genre_whitelist.txt
               cp /config-map/beets-flask-gui.yaml  /config/beets-flask/config.yaml
-              # Runs before the app starts, to work around this cluster's VMs
-              # lacking AVX2. See the comment on the key in config-map.yaml.
-              cp /config-map/beets-flask-startup.sh /config/beets-flask/startup.sh
-              chmod +x /config/beets-flask/startup.sh
               # Local beets plugin, loaded via the `pluginpath` setting in the
               # beets config.
               mkdir -p /config/beetsplug

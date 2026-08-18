@@ -34,7 +34,9 @@ resource "proxmox_vm_qemu" "proxmox-backup-server" {
   }
   ipconfig0 = "[gw=192.168.0.1, ip=192.168.0.107/24]"
   cpu {
-    type = "kvm64"
+    # The physical CPU, unmasked; see the comment in
+    # modules/proxmox_talos_vm/main.tf for why.
+    type = "host"
     cores = 2
     sockets = 1
   }

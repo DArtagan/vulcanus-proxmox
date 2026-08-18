@@ -140,6 +140,62 @@ Restarting the control-plane VM does not stop workloads — kubelet keeps
 containers running without the apiserver — but nothing schedules, no Flux
 reconcile succeeds, and `kubectl` is unavailable until it returns.
 
+## The CPU the VMs present
+
+`cpu { type = "host" }` in `terraform/modules/proxmox_talos_vm/main.tf` passes
+the hypervisor's i7-6800K through unmasked, so the guests get AVX, AVX2, FMA,
+BMI1/2, LZCNT, MOVBE, PCLMULQDQ and AES-NI. There is one hypervisor, so the
+usual objection to `host` — a VM pinned to a host's CPU cannot live-migrate to a
+different one — does not apply. A restore of these VMs onto other hardware would
+need the type changed first.
+
+This is load-bearing, not a micro-optimisation. Compiled wheels increasingly
+assume x86-64-v3 without saying so, and the failure mode is a `SIGILL` at import
+with no traceback: beets-flask's `polars` dependency took the pod down while the
+container stayed up and the log claimed the server was running.
+
+**Never set the CPU through `args`.** Proxmox appends the raw `args` string after
+the `-cpu` it generates from the `cpu` block, and QEMU takes the last one — so a
+`-cpu` in `args` wins silently and the `cpu` block becomes decoration. `args`
+also bypasses Proxmox's own model translation: `x86-64-v3` is a Proxmox construct
+built from `qemu64` plus a flag list, and QEMU rejects the name outright. The
+only `args` here is worker-1's optical-drive passthrough, which the Proxmox API
+cannot express. To check that only one `-cpu` reaches QEMU:
+
+```bash
+ssh root@vulcanus.forge.local 'qm showcmd 910 --pretty | grep -- -cpu'
+```
+
+Check that command line rather than the apply's exit code. The telmate provider
+writes options but does not remove them: a plan that reads `args = "…" -> null`
+applies clean, reports success, and leaves the option in place on the VM. What
+it costs is silent — the VM reboots, and comes back with the setting the plan
+claimed to have dropped. `tofu plan` still shows the drift afterwards, which is
+the cheapest way to catch it. Clear the option on the host instead:
+
+```bash
+ssh root@vulcanus.forge.local 'qm set 900 --delete args'
+```
+
+A CPU type change needs a full power cycle, not a reboot from inside the guest,
+and the nodes go one at a time — the same discipline as a Talos upgrade. Apply it
+per VM so one `tofu apply` cannot restart the whole cluster at once:
+
+```bash
+tofu apply -target=module.talos_control_plane_0
+tofu apply -target=module.talos_worker_0
+tofu apply -target=module.talos_worker_1
+```
+
+Confirm it reached the guest rather than only the config — the same trap as a
+memory change:
+
+```bash
+kubectl run --rm -it cpucheck --image=busybox --restart=Never \
+  --overrides='{"spec":{"nodeSelector":{"kubernetes.io/hostname":"piraeus-worker-0"}}}' \
+  -- grep -m1 'model name' /proc/cpuinfo
+```
+
 ## Maintenance
 
 ### Upgrade Talos

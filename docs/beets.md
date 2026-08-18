@@ -365,37 +365,6 @@ precedent for a second PV against one share.
 handle are treated as the same volume, and the second's `mountOptions` are
 silently dropped.
 
-## It needs a polars workaround to start at all
-
-The VMs are configured with `cpu type = "kvm64"`, which masks every instruction
-set above SSE4.2 — the guests report `model name: Common KVM processor`.
-beets-flask v2 depends on polars, whose default compiled runtime
-(`polars-runtime-32`) is built for x86-64-v3 and raises `SIGILL` the instant it
-is imported.
-
-The failure is unusually quiet. The container stays up, the log prints
-`Server running on http://0.0.0.0:5001`, redis and the rq workers all start
-normally — and uvicorn's workers die and respawn about eleven times a second
-without a traceback, so nothing ever binds the port. The readiness probe is the
-only thing that distinguishes this from a healthy pod, which is why one is
-defined despite no other app in this repo having them.
-
-`beets-flask-startup.sh` in the ConfigMap is seeded to
-`/config/beets-flask/startup.sh` and run by the image's entrypoint before the
-app starts. It probes whether `import polars` succeeds and, if not, installs
-`polars-runtime-compat` pinned to the installed polars version — derived at
-runtime, because polars pins its runtime wheel to an exact version and a
-hardcoded one would go stale the next time Flux bumps the image.
-
-This costs a 54 MB download on every pod start and is a stopgap. The real fix is
-[`todos/proxmox-cpu-type.md`](../todos/proxmox-cpu-type.md); the script is
-written to become a no-op once that lands.
-
-Do not switch this to the documented `requirements.txt` mechanism. In v2 the
-entrypoint installs those with bare `pip`, which is `/usr/local/bin/pip` writing
-to the system site-packages rather than the application's `/venv` — it reports
-success and changes nothing.
-
 ## Image updates
 
 `beets-flask` is the only pre-release-tracking ImagePolicy in the repo. v2.0.0

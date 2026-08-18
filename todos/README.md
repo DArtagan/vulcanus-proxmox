@@ -51,16 +51,7 @@ the documented upgrade path here never ran. Fixed by hand on 2026-08-07; this is
 about making it not recur. Newer provider versions also make the factory image
 schematic declarative.
 
-**6. [proxmox-cpu-type.md](proxmox-cpu-type.md) — stop presenting a 2008-era CPU to the VMs**
-Every VM runs `cpu type = "kvm64"`, which masks AVX, AVX2, FMA and BMI. This
-blocked the beets-flask v2 deployment outright on 2026-08-13 — its polars
-dependency SIGILLs on import — and silently costs performance everywhere else.
-A workaround is in place, so nothing is broken today; the fix is one line of
-Terraform plus a rolling power cycle. Here rather than higher because it is
-contained and reversible, and here rather than lower because every new image
-increasingly assumes these instructions exist.
-
-**7. [config-change-rollouts.md](config-change-rollouts.md) — make a ConfigMap change reach the running process**
+**6. [config-change-rollouts.md](config-change-rollouts.md) — make a ConfigMap change reach the running process**
 Flux applies an updated ConfigMap without restarting the workload that reads it,
 so the cluster can run configuration that no longer matches the repo with
 nothing to indicate it — `flux get kustomizations` reports healthy, correctly,
@@ -69,13 +60,13 @@ the beets stack on 2026-08-13 and eight Deployments are exposed. Here because
 the failure mode is invisible rather than loud, which is the same reason the
 alerting work sits where it does.
 
-**8. [openebs-4x-migration-prompt.md](openebs-4x-migration-prompt.md) — OpenEBS 3.10 to 4.x**
+**7. [openebs-4x-migration-prompt.md](openebs-4x-migration-prompt.md) — OpenEBS 3.10 to 4.x**
 The chart repository in use was abandoned in December 2023, so the unpinned
 version silently meant "3.10.0 forever". 4.x is an architectural change touching
 every PVC in the cluster. Last not because it matters least but because it
 carries the most risk and needs a verified restore path first — which is item 1.
 
-**9. [tailnet-multi-user.md](tailnet-multi-user.md) — family on the tailnet**
+**8. [tailnet-multi-user.md](tailnet-multi-user.md) — family on the tailnet**
 Every policy rule is `src: will@`, so a second Headscale user currently gets no
 access at all — their devices would register and then reach nothing, which
 presents as a broken tunnel rather than an intentional deny. Needs a tag scheme,
@@ -110,9 +101,7 @@ Separate track; these do not compete with the infrastructure ordering.
 The nine beets-flask v2.0.0-rc5 bugs that used to sit here moved to
 `~/repositories/beets-flask/todos/` on 2026-08-14, decomposed one spec per bug.
 That fork is set up to contribute back to `pSpitzner/beets-flask`, so the work of
-reporting and fixing them belongs next to the code. Note that
-[proxmox-cpu-type.md](proxmox-cpu-type.md) is the host-side half of one of them —
-the polars AVX2 failure — and stays here.
+reporting and fixing them belongs next to the code.
 
 ## Writing a spec
 
