@@ -15,12 +15,31 @@ cluster:
   etcd:
     extraArgs:
       listen-metrics-urls: http://0.0.0.0:2381
-  # These two need only the bind address. Their static pods run with hostNetwork
-  # and carry the `component:` labels the chart's Services select on, so the
-  # Services find them as soon as they answer off loopback.
+  # The bind address lets Prometheus reach them: their static pods run with
+  # hostNetwork and carry the `component:` labels the chart's Services select on,
+  # so the Services find them as soon as they answer off loopback.
+  #
+  # The leader-election durations are 3x upstream. etcd's WAL fsync sits at 0.25s
+  # and reaches 8s whenever anything else touches rpool, which has no SLOG; at the
+  # defaults a lease renewal gets a 5s per-call budget, so a stall that long makes
+  # both components exit(1) on "Leaderelection lost". What the tight defaults buy
+  # is fast failover, and there is nothing here to fail over to — one replica of
+  # each, restarted by the kubelet only when it exits.
   controllerManager:
     extraArgs:
       bind-address: 0.0.0.0
+      leader-elect-lease-duration: 45s
+      leader-elect-renew-deadline: 30s
+      leader-elect-retry-period: 6s
+  # The scheduler needs the same durations, but it runs with `--config` and Talos
+  # refuses to merge that flag, so `--leader-elect-*` would be silently ignored.
+  # Talos renders the whole config file from `config:`, keeping only apiVersion,
+  # kind and clientConnection.kubeconfig for itself.
   scheduler:
     extraArgs:
       bind-address: 0.0.0.0
+    config:
+      leaderElection:
+        leaseDuration: 45s
+        renewDeadline: 30s
+        retryPeriod: 6s
