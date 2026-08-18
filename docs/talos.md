@@ -45,6 +45,51 @@ ceiling the Go runtime collects harder to stay under, so unlike a container
 apiserver is the wrong instrument: it converts a node-level kill into a
 guaranteed cgroup kill at a threshold picked by hand.
 
+### Leader election
+
+`kube-controller-manager` and `kube-scheduler` run leader election with durations
+3x upstream — lease 45s, renew deadline 30s, retry period 6s — set in the
+control-plane config patch.
+
+etcd's WAL fsync sits around 0.25s and reaches 8s whenever anything else touches
+`rpool`, which has no SLOG; see
+[`todos/etcd-disk-latency.md`](../todos/etcd-disk-latency.md). A renewal cycle is
+bounded by the renew deadline and retries every retry period — 10s and 2s
+upstream — so a stall of several seconds burns the entire cycle and both
+components exit(1) on "Leaderelection lost". A storage hiccup takes out two
+control-plane components. The nightly Proxmox backup produces exactly that stall,
+and it is a second route to the same failure the sizing above describes.
+
+The renew deadline is the number that governs this, so it is the one to size
+against a measured fsync tail. Leader election also stamps a `timeout` query
+param on the lease `Put`, which the apiserver honours by aborting its own handler;
+that is the string the failure appears as in the logs, but it is not the bound
+that decides whether the process survives.
+
+Widening the durations costs little here. What tight defaults buy is fast
+failover to a standby, and there is one replica of each: the kubelet restarts
+them when they exit, and no other candidate is waiting for the lease. The
+tradeoff returns if the control plane ever becomes three nodes, so the reasoning
+matters more than the numbers.
+
+The two components need different mechanisms, and reaching for the wrong one
+fails silently:
+
+- **controller-manager** takes `--leader-elect-lease-duration` and its siblings
+  through `cluster.controllerManager.extraArgs`.
+- **scheduler** runs with `--config`, which Talos refuses to merge, so a
+  `--leader-elect-*` flag in `scheduler.extraArgs` is accepted and then ignored.
+  Its durations belong in `cluster.scheduler.config.leaderElection`. Talos
+  renders the whole of `scheduler-config.yaml` from that field, keeping only
+  `apiVersion`, `kind` and `clientConnection.kubeconfig` for itself, so nothing
+  else in the file is at risk.
+
+Read the rendered file to confirm a change landed rather than trusting the apply:
+
+```bash
+talosctl -n 192.168.0.190 read /system/config/kubernetes/kube-scheduler/scheduler-config.yaml
+```
+
 ### Control-plane metrics
 
 Talos binds etcd, `kube-controller-manager` and `kube-scheduler` to localhost by

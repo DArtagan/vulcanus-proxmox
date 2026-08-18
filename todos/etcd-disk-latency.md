@@ -11,9 +11,9 @@ spinning disks, **no SLOG**. Every fsync waits on a ZIL commit to rotating
 media. Every physical device in the host is rotational — there is no SSD or
 NVMe anywhere in `vulcanus`.
 
-The cluster works. It is not failing, and nothing is user-visible. But mutating
-API calls sit on the Kubernetes SLO line, so there is little headroom before a
-load spike pushes them over.
+Mutating API calls sit on the Kubernetes SLO line, and the spike that pushes them
+over arrives nightly. On 2026-08-18 this cost two control-plane components: see
+[Consequences already observed](#consequences-already-observed) below.
 
 ## Evidence
 
@@ -43,6 +43,73 @@ rpool
 
 No `logs`, `cache` or `special` vdev. The control-plane zvol is
 `sync=standard`, `volblocksize=16K`, `logbias=latency`.
+
+## Consequences already observed
+
+**2026-08-18: the nightly Proxmox backup killed `kube-scheduler` and
+`kube-controller-manager`.** Five and seven restarts respectively, all inside one
+20-minute window, with `kube-apiserver` at zero restarts throughout — this is not
+the memory fault fixed the day before, and `/proc/vmstat` on the node reports
+`oom_kill 0`.
+
+The vzdump job in `/etc/pve/jobs.cfg` is scheduled `4:00`; the host runs MDT, so
+it starts at 10:00 UTC. It ran 10:00:07 → 10:22:01, `mode snapshot`, every VM.
+Disk-IO saturation rose on all three guests at once while their own IOPS stayed
+flat or fell — worker-0's reads dropped 226→106/s — so the contention is
+host-side, not any guest's workload. WAL fsync p99 went 0.25 s → **3.96 s**,
+peaking while VM 900's own disk was being read (10:09:14 → 10:13:01).
+
+The tail is what matters, over 5071 fsyncs in that window:
+
+| bucket | fsyncs |
+|---|---|
+| ≤ 1.024 s | 4991 (98.4%) |
+| 1–2 s | 31 |
+| 2–4 s | 36 |
+| 4–8.192 s | 11 |
+| **> 8.192 s** | **2** |
+
+p99.9 = 7.09 s. A renewal cycle is bounded by the renew deadline (10 s upstream)
+and retries every retry period (2 s), so a stall of several seconds burns the
+whole cycle and both components exit(1) on "Leaderelection lost", by design. The
+lease `Put` also carries `?timeout=5 s`, which the apiserver honours by aborting
+its own handler — that is how the failure reads in the logs. Where that 5 s comes
+from was **not** identified: `createClients` in kube-scheduler v1.35.0 passes no
+timeout, and `renew()` divides nothing. Do not build on the 5 s figure; the renew
+deadline is the bound that decides whether the process survives.
+
+Note the job is invisible to this repo: it lives only in `/etc/pve/jobs.cfg`,
+managed through the Proxmox UI rather than Ansible or Terraform. Identifying a
+nightly 10:00 UTC event meant reading `/var/log/pve/tasks`.
+
+A milder instance the same day, at 15:33, came from the Helm upgrade to
+kube-prometheus-stack 88.4.0: the same apiserver handler timeouts on the same
+lease paths with fsync at only 463 ms. Nothing restarted. **etcd here is marginal
+without any backup running** — the backup is the loudest competitor for the
+disks, not the only one.
+
+**Mitigated, not fixed.** Leader-election durations on both components are now 3x
+upstream (lease 45 s, renew 30 s, retry 6 s), so a multi-second stall is survived
+instead of fatal. etcd still stalls every night. The SLOG below is still the fix.
+
+Confirm that from the API rather than the machine config, because the machine
+config is two layers away from what the process uses:
+
+```bash
+kubectl get lease -n kube-system kube-scheduler kube-controller-manager \
+  -o custom-columns='NAME:.metadata.name,LEASE_SEC:.spec.leaseDurationSeconds'
+```
+
+Throttling the backup was considered and **declined** — user's call, 2026-08-18.
+`bwlimit` on the vzdump job would have reduced the stall itself and helped every
+guest, but it lives outside git and leaves the control plane just as intolerant of
+the next unrelated IO spike. Do not re-propose it as an alternative to the SLOG;
+it was weighed against exactly that.
+
+Also worth knowing: `ionice priority: 7` already appears in the vzdump log and
+does nothing useful. QEMU guest backups are issued via QMP by the KVM process,
+not by vzdump, and ZFS schedules ZIO through its own priority classes rather than
+the Linux block scheduler. Neither path sees that nice level.
 
 ## What has already been done
 
@@ -112,7 +179,16 @@ say it is unmeasured before that date.
 Whether slow etcd contributed to the control-plane instability fixed on
 2026-08-17 is likewise unproven. That was an OOM kill on working-set size, which
 is a separate mechanism. Slow etcd holding apiserver requests in flight is a
-plausible aggravator and nothing more.
+plausible aggravator and nothing more. The scheduler and controller-manager
+restarts a day later are a different matter — those are measured, and the cause
+is this one.
+
+**Whether the leader-election widening is sufficient is unmeasured.** It is sized
+against a tail whose top bucket is unbounded: two fsyncs exceeded 8.192 s and how
+far is not known, because `+Inf` is where the histogram stops. The stalls are also
+bursty and correlated rather than independent, so the retry budget helps less than
+the arithmetic suggests. `ControlPlaneContainerRestarting` staying silent across
+successive nightly backups is the evidence; treat one quiet night as insufficient.
 
 ## Prompt to open with
 
@@ -120,6 +196,8 @@ plausible aggravator and nothing more.
 > backend commit ~0.42 s and WAL fsync ~0.41 s, against etcd targets of 0.025 s
 > and 0.010 s, because `rpool` is two raidz2 vdevs of 7200 rpm disks with no
 > SLOG and the host contains no SSD at all. apiserver p99 PUT is 0.97 s against
-> a 1 s SLO. The fix is an SSD with power-loss protection added as a SLOG; help
-> me choose one and plan `zpool add rpool log <dev>`. Note the Alertmanager
-> silence expires 2026-09-17.
+> a 1 s SLO, and the nightly Proxmox backup pushes fsync past 8 s, which killed
+> `kube-scheduler` and `kube-controller-manager` on 2026-08-18 until their
+> leader-election durations were widened to absorb it. The fix is an SSD with
+> power-loss protection added as a SLOG; help me choose one and plan
+> `zpool add rpool log <dev>`. Note the Alertmanager silence expires 2026-09-17.

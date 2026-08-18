@@ -27,12 +27,14 @@ why so it does not get proposed again.
 
 **3. [etcd-disk-latency.md](etcd-disk-latency.md) — get etcd off spinning disks**
 etcd's p99 WAL fsync is 0.41s against a target of 0.010s, because `rpool` is two
-raidz2 vdevs of 7200rpm disks with no SLOG and the host holds no SSD at all.
-apiserver p99 PUT sits at 0.97s against a 1s SLO, so the control plane is on the
-line rather than over it. Third because it is a live degradation of the component
-everything else depends on, and because the first step — choosing an SSD with
-power-loss protection — is quick. Blocked on that purchase, which is the only
-reason it is not higher. The alert is silenced until 2026-09-17.
+raidz2 vdevs of 7200rpm disks with no SLOG and the host holds no SSD at all. The
+nightly Proxmox backup drives it past 8s, which took out `kube-scheduler` and
+`kube-controller-manager` on 2026-08-18; their leader-election durations are now
+wide enough to absorb it, so the loud symptom is gone and the cause is not. Third
+because it is a live degradation of the component everything else depends on, and
+because the first step — choosing an SSD with power-loss protection — is quick.
+Blocked on that purchase, which is the only reason it is not higher. The alert is
+silenced until 2026-09-17.
 
 **4. [version-notification-prompt.md](version-notification-prompt.md) — notice when a version stops tracking**
 23 of 34 ImagePolicies will silently stop advancing when a new major appears
