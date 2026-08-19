@@ -74,19 +74,18 @@ rules for them, and a less manual way to issue keys. Last in the ordering
 because nothing is broken until someone is actually added, and it is the only
 item here driven by a new want rather than an existing defect.
 
-## Waiting on a trigger
+## Waiting on a decision
 
-Unranked because it cannot be scheduled — it needs a live failure to act on.
-
-**[generic-device-plugin-hang.md](generic-device-plugin-hang.md) — capture a hang, report it upstream, then probe for it**
-The plugin's `/metrics` endpoint wedges permanently on nodes with an optical
-drive, and only an OOMKill recovers it hours later. The fix that stops the
-recurring Pushover alerts is a liveness probe, but shipping it first would
-restart a wedged pod within ~45s and make the defect impossible to capture — so
-the probe deliberately waits until a goroutine dump has been taken from a live
-wedge. The `TargetDown` alert is the cue to act. Device selection, the domain
-move and the digest pin shipped and were verified on 2026-08-14; only the
-capture, the upstream report and the probe remain.
+**[generic-device-plugin-hang.md](generic-device-plugin-hang.md) — file the upstream report, then pick a fix**
+The plugin pods stop serving HTTP entirely, pin their CPU at the 50m limit with
+97% CFS throttling, and recover only on restart. Root cause is abandoned
+Prometheus gathers: the 10s scrape timeout does not cancel the gather, so they
+queue on goCollector's mutex forever — eight of them, the oldest five hours old,
+were still running in the dump. Two goroutine dumps were captured on 2026-08-19,
+so the capture step that gated everything is done and the liveness probe is no
+longer held back. Outstanding: hand the bug report over for filing, and choose
+between removing the CPU limit and adding the probe. The spec records several
+conclusions from 2026-08-14 that the dumps disproved.
 
 ## Applications
 

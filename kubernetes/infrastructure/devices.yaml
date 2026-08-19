@@ -64,18 +64,21 @@ spec:
         name: generic-device-plugin
         env:
         # Makes SIGQUIT dump *all* goroutines rather than only the running one.
-        # The /metrics endpoint wedges permanently on nodes that have an optical
-        # device — the process stays healthy and still answers /health and 404s
-        # instantly, but every scrape then leaks a handler goroutine until the
-        # 20Mi limit OOMKills it hours later, which is the only thing that
-        # recovers it.  This is here so the next occurrence can be captured for
-        # an upstream bug report.  Remove once that is filed and fixed.
+        # The pod periodically stops serving HTTP entirely and pins its CPU at
+        # the limit below until something restarts it: a scrape that Prometheus
+        # abandons at its 10s timeout is never cancelled, so gathers pile up on
+        # client_golang's goCollector mutex and the queue can never drain.  This
+        # is here so a wedge can be dumped for the upstream report.  Remove once
+        # that is filed and fixed — see todos/generic-device-plugin-hang.md.
         - name: GOTRACEBACK
           value: all
-        # Upstream's defaults, kept deliberately.  A healthy pod sits flat at
-        # ~10.3Mi and only grows when wedged, so raising the limit would not
-        # prevent anything — it would just lengthen each outage.  Until the
-        # upstream hang is fixed the OOMKill is the backstop that recovers it.
+        # Upstream's defaults.  Memory is deliberately not raised: a wedged pod
+        # and a healthy one both sit near 15Mi, so memory is not what fails.
+        #
+        # The 50m CPU limit is a different matter — a wedged pod is throttled for
+        # 97% of every CFS period, which is what turns one slow gather into a
+        # collapse it cannot recover from.  Removing the limit is one of the two
+        # candidate fixes in the spec, and is the user's call.
         resources:
           requests:
             cpu: 50m
