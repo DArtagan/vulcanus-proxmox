@@ -25,36 +25,20 @@ unauthenticated RCE as recently as CVE-2025-1974. Its announced successor,
 InGate, is archived. Traefik is ruled out on prior experience; the doc records
 why so it does not get proposed again.
 
-**3. [etcd-disk-latency.md](etcd-disk-latency.md) — get etcd off spinning disks**
-etcd's p99 WAL fsync is 0.25s at rest against a target of 0.010s, because `rpool`
-is two raidz2 vdevs of spinning disks with no SLOG and the host holds no SSD at
-all. The nightly Proxmox backup drives it past 8s, and apiserver p99 for mutating
-verbs reaches 8.77s against a 1s SLO for as long as the backup runs — 22 minutes
-usually, 2h22m on 2026-08-19, because a guest restart discards QEMU's dirty
-bitmap and forces a full 1.1TiB read. Six containers restart in that window;
-widening leader-election on `kube-scheduler` and `kube-controller-manager`
-reduced their restarts but did not stop them, and the other four — OpenEBS and
-SMB CSI provisioning, kube-state-metrics — are still exposed on 15s leases. Third
-because it is a live degradation of the component everything else depends on.
-The device is chosen and the procedure written, and the whole thing is **parked
-on the NAND shortage**: a Kingston DC2000B is ~$310 against a normal sub-$100.
-Nothing to do here but re-check the price. The alert is silenced until
-2026-09-17.
-
-**4. [version-notification-prompt.md](version-notification-prompt.md) — notice when a version stops tracking**
+**3. [version-notification-prompt.md](version-notification-prompt.md) — notice when a version stops tracking**
 23 of 34 ImagePolicies will silently stop advancing when a new major appears
 outside their range, and two are already stuck. This is the work that makes the
 other items visible rather than needing to be rediscovered by audit. It also
 closes the separate gap where no metric can express a Flux object being unready.
 
-**5. [talos-terraform-migration-prompt.md](talos-terraform-migration-prompt.md) — Talos versions under Terraform**
+**4. [talos-terraform-migration-prompt.md](talos-terraform-migration-prompt.md) — Talos versions under Terraform**
 kube-proxy ran eight minor versions behind the control plane for roughly three
 years, because Talos refreshes bootstrap manifests only via `upgrade-k8s`, which
 the documented upgrade path here never ran. Fixed by hand on 2026-08-07; this is
 about making it not recur. Newer provider versions also make the factory image
 schematic declarative.
 
-**6. [config-change-rollouts.md](config-change-rollouts.md) — make a ConfigMap change reach the running process**
+**5. [config-change-rollouts.md](config-change-rollouts.md) — make a ConfigMap change reach the running process**
 Flux applies an updated ConfigMap without restarting the workload that reads it,
 so the cluster can run configuration that no longer matches the repo with
 nothing to indicate it — `flux get kustomizations` reports healthy, correctly,
@@ -63,13 +47,13 @@ the beets stack on 2026-08-13 and eight Deployments are exposed. Here because
 the failure mode is invisible rather than loud, which is the same reason the
 alerting work sits where it does.
 
-**7. [openebs-4x-migration-prompt.md](openebs-4x-migration-prompt.md) — OpenEBS 3.10 to 4.x**
+**6. [openebs-4x-migration-prompt.md](openebs-4x-migration-prompt.md) — OpenEBS 3.10 to 4.x**
 The chart repository in use was abandoned in December 2023, so the unpinned
 version silently meant "3.10.0 forever". 4.x is an architectural change touching
 every PVC in the cluster. Last not because it matters least but because it
 carries the most risk and needs a verified restore path first — which is item 1.
 
-**8. [tailnet-multi-user.md](tailnet-multi-user.md) — family on the tailnet**
+**7. [tailnet-multi-user.md](tailnet-multi-user.md) — family on the tailnet**
 Every policy rule is `src: will@`, so a second Headscale user currently gets no
 access at all — their devices would register and then reach nothing, which
 presents as a broken tunnel rather than an intentional deny. Needs a tag scheme,
@@ -89,6 +73,22 @@ so the capture step that gated everything is done and the liveness probe is no
 longer held back. Outstanding: hand the bug report over for filing, and choose
 between removing the CPU limit and adding the probe. The spec records several
 conclusions from 2026-08-14 that the dumps disproved.
+**[etcd-disk-latency.md](etcd-disk-latency.md) — get etcd off spinning disks**
+etcd's p99 WAL fsync is 0.25s at rest against a target of 0.010s, because `rpool`
+is two raidz2 vdevs of spinning disks with no SLOG and the host holds no SSD at
+all. The nightly Proxmox backup drives it past 8s, and apiserver p99 for mutating
+verbs reaches 8.77s against a 1s SLO for as long as the backup runs — 22 minutes
+usually, 2h22m on 2026-08-19, because a guest restart discards QEMU's dirty
+bitmap and forces a full 1.1TiB read. Six containers restart in that window;
+widening leader-election on `kube-scheduler` and `kube-controller-manager`
+reduced their restarts but did not stop them, and the other four — OpenEBS and
+SMB CSI provisioning, kube-state-metrics — are still exposed on 15s leases. Third
+because it is a live degradation of the component everything else depends on.
+The device is chosen and the procedure written, and the whole thing is **parked
+on the NAND shortage**: a Kingston DC2000B is ~$310 against a normal sub-$100.
+Nothing to do here but re-check the price. The alert is silenced until
+2026-09-17.
+
 
 ## Applications
 
