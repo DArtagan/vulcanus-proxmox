@@ -36,9 +36,10 @@ widening leader-election on `kube-scheduler` and `kube-controller-manager`
 reduced their restarts but did not stop them, and the other four — OpenEBS and
 SMB CSI provisioning, kube-state-metrics — are still exposed on 15s leases. Third
 because it is a live degradation of the component everything else depends on.
-The device is chosen and the procedure written; blocked only on buying an M.2
-NVMe with power-loss protection, which is the reason it is not higher. The alert
-is silenced until 2026-09-17.
+The device is chosen and the procedure written, and the whole thing is **parked
+on the NAND shortage**: a Kingston DC2000B is ~$310 against a normal sub-$100.
+Nothing to do here but re-check the price. The alert is silenced until
+2026-09-17.
 
 **4. [version-notification-prompt.md](version-notification-prompt.md) — notice when a version stops tracking**
 23 of 34 ImagePolicies will silently stop advancing when a new major appears

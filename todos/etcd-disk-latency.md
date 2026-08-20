@@ -301,18 +301,40 @@ whole device first so that space is genuinely unmapped.
 
 ### Which device, decided 2026-08-20
 
-Optane P1600X was the first choice and is **out on price** — user's call: the
-cheapest available is ~$300, which is not a short- or mid-term spend. It remains
-the better device long-term. Do not re-propose it at that price.
+**Kingston DC2000B**, M.2 2280, into the board's M2_1 slot. PCIe 4.0 x4, 112-layer
+TLC, hardware PLP covering cached data, 0.4 DWPD, five-year warranty. Equivalents
+if it is unavailable: Micron 7450 PRO M.2, Kingston DC1000B. Last resort is a
+SATA drive such as the DC600M into `ata9` — ~30–50 µs more per commit, and it
+shares the 00:1f.2 controller with four pool disks, which is the read storm this
+is meant to be immune to. That contention is probably not real at 155 MiB/s
+across eight disks, but it cannot be shown either way and NVMe sidesteps it.
 
-Buy instead an **M.2 NVMe with capacitor-backed power-loss protection**, into the
-board's M2_1 slot:
+**Optane at price parity was weighed and rejected.** Its ~10 µs against a
+capacitor-backed NAND drive's ~30–50 µs, and its flat tail under garbage
+collection, are real advantages with no occasion to appear at 369 KB/s and QD1
+into a 16 GiB partition with ~95% of the NAND as spare area — there is nothing
+for GC to do. With both at ~$310 the tiebreakers are warranty, current production
+and replaceability, and all three favour the DC2000B. Only a *lower* Optane price
+flips this; a higher one never does.
 
-| device | why |
-|---|---|
-| Micron 7450 PRO 480 GB M.2 2280 | a real datacentre drive, PLP on the datasheet, current production |
-| Kingston DC1000B 240 GB M.2 2280 | cheapest current-production M.2 with PLP; its modest throughput is irrelevant at 369 KB/s |
-| Kingston DC600M 480 GB, SATA | last resort — goes in `ata9`, costs ~30–50 µs more per commit and shares a controller with four pool disks |
+### Deferred on price, 2026-08-20 — user's call
+
+The device is settled. What is missing is a tolerable price: the DRAM and NAND
+shortage has a DC2000B 240 GB at ~$310 against the sub-$100 it normally sits at,
+and **$200+ is out of range**. Waiting for the market rather than buying at the
+top.
+
+Nothing above needs re-opening when prices recover — re-check the price, not the
+decision. Buy the DC2000B or whatever has replaced it in that line, confirm PLP
+against the two tells below, and run the procedure.
+
+What the delay costs, so that it stays a decision rather than a drift: the four
+15 s-lease components keep restarting every night; `kube-scheduler` and
+`kube-controller-manager` survive an ordinary night but have already failed one
+long one; and every guest restart buys a full-read backup the following night,
+which is the load that fired `etcdHighFsyncDurations`.
+`ControlPlaneContainerRestarting` is the standing watch over the control-plane
+half of that, and it reports without anyone remembering to look.
 
 PLP is the one non-negotiable specification, and it is checked on the datasheet
 rather than the marketing page. A drive that acknowledges a write from a volatile
@@ -423,8 +445,8 @@ fsync has to fall before they stop.
 > fsync past 8 s; widening leader-election on `kube-scheduler` and
 > `kube-controller-manager` reduced their restarts but did not stop them, and
 > four other components on 15 s leases still restart every night. The device is
-> chosen — an M.2 NVMe with capacitor-backed power-loss protection, on a passive
-> adapter in the free PCIe x16 slot — and the `zpool add` procedure and its
-> verification are written up in the spec. I have the drive; walk it in. Remove
-> the Alertmanager silence `43b35199-356a-4304-a1e9-288980fbcd3b` at the same
-> time, since it otherwise expires 2026-09-17.
+> chosen and the procedure written — a Kingston DC2000B in the board's M2_1 slot
+> — and the whole thing is parked on the NAND shortage having put it at ~$310
+> against a normal sub-$100. Check whether the price has come back; if it has,
+> walk the `zpool add` in and remove the Alertmanager silence at the same time,
+> since the alert is how the fix gets confirmed.
