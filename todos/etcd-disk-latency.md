@@ -319,6 +319,18 @@ rather than the marketing page. A drive that acknowledges a write from a volatil
 buffer can lose the ZIL in exactly the power cut the ZIL exists to survive, and
 it does so silently.
 
+Two tells separate a real one from an OEM client drive wearing a retailer's
+"enterprise" category — the Micron 2500 was the near-miss that prompted writing
+this down, listed under Newegg's enterprise NVMe filter while Micron files it
+under `client-ssd`:
+
+- **The protection must cover cached or in-flight writes.** "Enhanced power-loss
+  data protection", or capacitors named outright. "Power loss protection for
+  data-at-rest" and "power loss signal support" are the client features: they
+  keep already-written NAND and the FTL tables from corrupting, and lose the
+  acknowledged write that has not left the buffer.
+- **Endurance quoted as DWPD.** Client datasheets quote TBW alone.
+
 Buy an **NVMe** module rather than a SATA-mode M.2. That is the better device
 anyway, and it also sidesteps the question of whether a SATA M.2 costs one of the
 board's ten SATA ports, nine of which are in use.
