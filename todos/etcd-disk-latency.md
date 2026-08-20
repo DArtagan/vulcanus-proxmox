@@ -172,7 +172,18 @@ self-inflicted: the guests never issued TRIM, so worker-0's zvol held 786 GB
 referenced against 122 GB of live data, and a full read dragged ~660 GB of dead
 blocks off the platters. `discard = true` is now set on every virtio disk, which
 takes a reboot to activate and needs `fstrim` run by hand afterwards; see
-[`docs/talos.md`](../docs/talos.md). Trimmed, a full read should be ~250 GB.
+[`docs/talos.md`](../docs/talos.md).
+
+Trimmed 2026-08-20, worker-0 fell from 873 GB referenced to 307 GB and the
+control plane from 6.93 GB to 3.14 GB — ~570 GB that a full read no longer pulls
+off the platters. The trim itself cost almost nothing: fsync stayed between 0.33
+and 0.50 s throughout, against a 0.25 s floor, and the whole 1 TB volume took
+about four minutes. Pool free space did not move, because sanoid's 31 daily
+snapshots still pin the freed blocks — `usedbysnapshots` on the OpenEBS zvol went
+130 GB to 641 GB. That was expected; the backup read volume is the point.
+
+Judge the next full read on **duration**, not on `transferred`, which reports
+logical device size regardless of allocation.
 
 ## Most of what etcd writes is leader election
 

@@ -192,9 +192,10 @@ times, which is why so little here does.
 A reboot from inside the guest (`talosctl reboot`) keeps the QEMU process alive
 and the bitmap with it. The distinction is the QEMU process, not the guest OS.
 
-Nothing prevents this, so plan around it: trim the volume (below) so a full read
-is ~250 GB rather than 1.10 TiB, and prefer to trigger the expensive backup
-yourself rather than letting the 04:00 job find it.
+Nothing prevents this, so plan around it: keep the volume trimmed (below) so the
+blocks being read are live data rather than the guest's high-water mark, and
+prefer to trigger the expensive backup yourself rather than letting the 04:00 job
+find it.
 
 ```bash
 ssh root@vulcanus.forge.local 'vzdump 910 --storage pbs --mode snapshot'
@@ -202,8 +203,16 @@ ssh root@vulcanus.forge.local 'vzdump 910 --storage pbs --mode snapshot'
 
 The backup job lives in `/etc/pve/jobs.cfg` and is managed through the Proxmox
 UI, so it is invisible to this repo; `/var/log/pve/tasks` is where its history
-is. Per-VM `transferred` in those logs is how you tell a full read from an
-incremental.
+is.
+
+**Read `transferred` in those logs for the full-versus-incremental question
+only, not as a measure of work.** It reports the device's logical size, not
+bytes fetched from the platters, so a full read of a 1 TB disk says 1.10 TiB
+whether the disk is full or empty — VM 106 reports 32.00 GiB against a zvol
+holding 81.4K. **Duration and throughput are the figures that track real IO.** A
+full read of trimmed disks reports the same `transferred` as before and finishes
+far sooner, because unallocated regions come back as zeros without touching a
+disk. That is the number to compare after a guest restart.
 
 ## Reclaiming freed space on the OpenEBS volume
 
