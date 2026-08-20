@@ -198,12 +198,28 @@ resource "proxmox_vm_qemu" "main" {
         }
       }
     }
+    # discard passes the guest's TRIM through to ZFS. Without it a block freed
+    # inside the guest stays allocated on the zvol forever, so the zvol grows to
+    # the high-water mark and never shrinks: worker-0's OpenEBS volume holds
+    # 122 GB of live data against 786 GB referenced on rpool.
+    #
+    # The cost lands on backups. Whenever the QEMU process restarts, its PBS
+    # dirty bitmap goes with it and the next backup reads the whole disk, so
+    # those dead blocks are read too — 1.10 TiB over two hours on 2026-08-19,
+    # against ~10 GiB for an ordinary incremental. That saturates rpool and
+    # stalls etcd's WAL fsync for the duration.
+    #
+    # TRIM is not issued automatically: Talos runs no fstrim timer, and its
+    # machine.disks patch exposes a mountpoint but no mount options, so the
+    # discard mount option is not reachable. Run it by hand after enabling this
+    # — see docs/talos.md.
     virtio {
       virtio0 {
         disk {
           size = var.boot_disk_size
           storage = var.boot_disk_storage_pool
           backup = true
+          discard = true
         }
       }
       dynamic "virtio1" {
@@ -213,6 +229,7 @@ resource "proxmox_vm_qemu" "main" {
             size = virtio1.value.size
             storage = virtio1.value.storage_pool
             backup = true
+            discard = true
           }
         }
       }
