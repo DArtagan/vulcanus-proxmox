@@ -43,3 +43,28 @@ spec:
     # that schedules nothing on a Linux-only Talos cluster.
     windows:
       enabled: false
+    controller:
+      # Both sidecars default to a 15s lease, which is tighter than etcd's WAL
+      # fsync tail: fsync sits at 0.25s and reaches several seconds whenever
+      # anything else touches rpool, so both lose the lock and restart — 19 and
+      # 20 times during the 2026-08-19 backup, and 3 and 2 on an ordinary night.
+      # These match the control plane's durations, sized against that measured
+      # tail; see terraform/.../control-plane-patch.yaml.tmpl.
+      #
+      # retryPeriod is the one that governs write rate, since renewal happens on
+      # that cadence rather than per lease duration. Widening the lease alone
+      # buys stall tolerance and leaves the load on etcd unchanged.
+      #
+      # The controller runs one replica with strategy Recreate, so the usual
+      # cost of a long lease — a standby waiting to take over — is not paid
+      # here. In-flight provision and resize work is not lost when these stall:
+      # both sidecars re-list PVCs on start and re-drive anything unmet.
+      extraArgs:
+        csiProvisioner:
+          - "--leader-election-lease-duration=45s"
+          - "--leader-election-renew-deadline=30s"
+          - "--leader-election-retry-period=6s"
+        csiResizer:
+          - "--leader-election-lease-duration=45s"
+          - "--leader-election-renew-deadline=30s"
+          - "--leader-election-retry-period=6s"

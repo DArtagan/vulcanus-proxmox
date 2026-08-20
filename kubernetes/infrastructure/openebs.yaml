@@ -35,6 +35,20 @@ spec:
     remediation:
       retries: 3
   values:
+    localprovisioner:
+      # The provisioner runs one replica with strategy Recreate, so there is
+      # never a second pod to hand the lock to and leader election buys nothing.
+      # It costs a great deal: this chart uses the legacy endpointsleases lock,
+      # writing both an Endpoints object and a Lease every ~2s, which is ~1.16
+      # writes/sec — roughly 28% of every write etcd performs on this cluster,
+      # against a provisioner that is idle except when a PVC is created. On
+      # spinning disks with no SLOG each of those is a synchronous WAL fsync.
+      #
+      # It is also the crash: on any etcd stall the container loses the lock and
+      # panics, 25 times during the 2026-08-19 backup and ~6 on an ordinary
+      # night. Scaling this Deployment above one replica would reintroduce the
+      # race leader election exists to prevent.
+      enableLeaderElection: false
     ndm:
       resources:
         # TODO: https://github.com/openebs/node-disk-manager/issues/673
