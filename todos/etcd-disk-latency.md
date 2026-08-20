@@ -6,10 +6,10 @@ going live. It is correct.
 
 ## Summary
 
-etcd's synchronous writes land on `rpool`: two raidz2 vdevs of 7200 rpm
-spinning disks, **no SLOG**. Every fsync waits on a ZIL commit to rotating
-media. Every physical device in the host is rotational — there is no SSD or
-NVMe anywhere in `vulcanus`.
+etcd's synchronous writes land on `rpool`: two raidz2 vdevs of spinning disks —
+one of 7200 rpm, one of 5980 — with **no SLOG**. Every fsync waits on a ZIL
+commit to rotating media. Every physical device in the host is rotational —
+there is no SSD or NVMe anywhere in `vulcanus`.
 
 Mutating API calls sit on the Kubernetes SLO line, and the spike that pushes them
 over arrives nightly. On 2026-08-18 this cost two control-plane components: see
@@ -143,6 +143,52 @@ does nothing useful. QEMU guest backups are issued via QMP by the KVM process,
 not by vzdump, and ZFS schedules ZIO through its own priority classes rather than
 the Linux block scheduler. Neither path sees that nice level.
 
+### Two nights on the widened leases
+
+Verified 2026-08-20 from Prometheus. The 45 s leases have been in effect since
+2026-08-18 17:06 UTC.
+
+| night | vzdump ran | fsync p99 peak | `kube-scheduler` | `kube-controller-manager` |
+|---|---|---|---|---|
+| 2026-08-18 | 10:00:07 → 10:22:01 | 6.34 s | 5 restarts | 4 restarts |
+| 2026-08-19 | 10:00:04 → **12:22:11** | 5.59 s | 1 restart | 1 restart |
+| 2026-08-20 | 10:00:03 → 10:22:56 | 3.86 s | 0 | 0 |
+
+**The widening is a reduction, not a fix.** 08-19 was its first test and both
+components still lost leadership once each, at ~10:15, on 45 s leases. A quiet
+08-20 is a quiet ordinary night, not evidence the mitigation holds.
+
+**The exposure window is not 22 minutes; it is however long the backup runs.** On
+08-19 vzdump took 2 h 22 m, and all of the excess was `talos-worker-0`: both its
+disks logged `dirty-bitmap status: created new`, so QEMU had no incremental
+bitmap and vzdump read the entire 1.1 TiB off `rpool` at 155 MiB/s. The next
+night the bitmap survived, the same VM reported 10.4 GiB dirty, and it finished
+in 8 m 31 s. A dirty bitmap lives in the QEMU process, so any guest stop/start —
+a config change, a host reboot — buys a full-read backup the following night.
+etcd's fsync p99 stayed above 2 s for two and a half hours, and
+`KubeAPIErrorBudgetBurn` fired four separate times between 10:30 and 18:00.
+
+That night is also the only time `etcdHighFsyncDurations` has fired: crossing its
+0.5 s threshold takes a full-read backup. `etcdHighNumberOfFailedGRPCRequests`
+fired alongside it.
+
+The other four components still restart on an ordinary night. Within 08-20's
+22-minute window: `openebs-localpv-provisioner` 6, `csi-provisioner` 3,
+`csi-resizer` 2. Only `kube-state-metrics` was quiet.
+
+### The backup's other end is on `rpool` too
+
+`vzdump` writes to storage `pbs`, which is Proxmox Backup Server running as VM
+107 **on this same host**, and 107's 2 TB datastore disk is a raw file under
+`/rpool/proxmox_backup_server`. The nightly job therefore reads guest zvols off
+the eight spindles and writes the deduplicated result back to the same eight
+spindles. The job's `--exclude 107,100` is the only thing keeping that from being
+circular.
+
+Recorded as a fact about the load, not as a proposal. Where the datastore lives
+is a separate question from etcd's sync-write latency, and nothing in the fix
+below depends on it.
+
 ## What has already been done
 
 **Defragmented, 2026-08-17 20:43 UTC.** etcd reported 95 MB on disk against
@@ -166,7 +212,8 @@ single sample of a p99 over a bursty workload is not a measurement — reach for
 
 Defrag remains worth repeating occasionally on its own merits — 75 MB of dead
 pages is 75 MB that gets copied by every snapshot and backup — but not as a
-latency fix.
+latency fix. Three days later, on 2026-08-20, the file is back to 54 MB against
+19.7 MB in use, so the regrowth rate is roughly 11 MB of dead pages a day.
 
 **Silenced in Alertmanager**, silence ID `43b35199-356a-4304-a1e9-288980fbcd3b`,
 **expiring 2026-09-17**. The alert is permanently true until the storage
@@ -175,6 +222,24 @@ is deliberate: if this is still unaddressed in a month it starts paging again
 rather than being silenced into oblivion. The silence is Alertmanager runtime
 state on its PVC, not in git, so it is invisible to the repo — this file is the
 only record of it.
+
+## Host hardware, verified 2026-08-20
+
+MSI X99A GAMING PRO CARBON (MS-7A20), i7-6800K, 64 GiB, PVE 9.2.2, ZFS 2.4.2,
+`rpool` at ashift 12.
+
+- **No NVMe device anywhere.** `/sys/class/nvme` is empty.
+- **Slot6, PCIe 3.0 x16, free.** The only card in the machine is a GT 640; the
+  onboard USB and Realtek controllers take x1 slots. A single M.2 drive on a
+  passive x4 adapter needs no bifurcation.
+- **One free SATA port**, `ata9`, on the 00:1f.2 six-port controller. Nine of the
+  ten are taken: eight pool disks and the BD-RW.
+- Disks are 4x HGST HUH721010ALE604 (10 TB, 7200 rpm) and 4x ST4000VN008 (4 TB,
+  5980 rpm).
+- `MODULES=most` in `initramfs-tools`, and the current initrd already carries 15
+  nvme modules. This matters because `rpool` is the root pool: a log vdev the
+  initramfs cannot see turns a reboot into `zpool import -m` and discards
+  whatever the ZIL was holding. Checked rather than assumed.
 
 ## The fix
 
@@ -199,6 +264,99 @@ Alternatives considered:
 - **Raising the alert threshold. Do not**, for the same reason. The measured
   value is genuinely ~17x target for commits and ~40x for fsync.
 
+### Sizing and endurance, measured rather than guessed
+
+`/proc/spl/kstat/zfs/zil` across a quiet 30 s window, 2026-08-20:
+
+| counter | delta over 30 s |
+|---|---|
+| `zil_itx_metaslab_normal_write` | 11.07 MB |
+| `zil_itx_metaslab_normal_count` | 441 |
+| `zil_itx_needcopy_count` | 752 |
+| `zil_itx_indirect_count` | 148 |
+
+That is **369 KB/s of ZIL writes — ~32 GB/day, ~12 TB/year** — for the whole
+host, not just etcd. Double it for backup nights and any datacentre SSD's rated
+endurance still clears it by more than an order of magnitude. Capacity is a
+non-issue for the same reason: the ZIL holds at most a couple of transaction
+groups, so single-digit GiB is ample.
+
+The same counters confirm the SLOG will catch etcd's writes specifically. A
+record reaches the log device only on the `copied` or `needcopy` path;
+`indirect` records leave the data to be written to its final location and the
+fsync waits on that instead. etcd's zvol is `volblocksize=16K` with
+`logbias=latency`, under the 32 KiB `zfs_immediate_write_sz` cutoff, so it takes
+the copied path. The `indirect` records above are the large-write datasets — the
+fileserver shares — and they are not what is being fixed.
+
+**Buy capacity anyway and partition a slice of it.** The controller spreads wear
+across every block it has not been told to store, so a 240–480 GB drive carrying
+a 16 GiB log partition keeps ~95% of its NAND as spare area. `blkdiscard` the
+whole device first so that space is genuinely unmapped.
+
+### Which device, decided 2026-08-20
+
+Optane P1600X was the first choice and is **out on price** — user's call: the
+cheapest available is ~$300, which is not a short- or mid-term spend. It remains
+the better device long-term. Do not re-propose it at that price.
+
+Buy instead an **M.2 NVMe with capacitor-backed power-loss protection**, on a
+passive M.2→PCIe x4 adapter in Slot6:
+
+| device | why |
+|---|---|
+| Micron 7450 PRO 480 GB M.2 2280 | a real datacentre drive, PLP on the datasheet, current production |
+| Kingston DC1000B 240 GB M.2 2280 | cheapest current-production M.2 with PLP; its modest throughput is irrelevant at 369 KB/s |
+| Kingston DC600M 480 GB, SATA | if the adapter is unwanted — goes in `ata9`, costs ~30–50 µs more per commit and shares a controller with four pool disks |
+
+PLP is the one non-negotiable specification, and it is checked on the datasheet
+rather than the marketing page. A drive that acknowledges a write from a volatile
+buffer can lose the ZIL in exactly the power cut the ZIL exists to survive, and
+it does so silently.
+
+### The procedure
+
+Adding a log vdev is online: no downtime, no resilver, and `zpool remove` takes
+it back out, which works for log vdevs even on a pool containing raidz.
+
+```bash
+# 1. Confirm the device, and that it is the one you think it is.
+ls -l /dev/disk/by-id/ | grep -i nvme
+nvme list
+
+# 2. Hand the whole drive back to the controller, then take a small slice.
+blkdiscard /dev/nvme0n1
+sgdisk --zap-all /dev/nvme0n1
+sgdisk -n1:0:+16G -t1:BF07 -c1:slog /dev/nvme0n1
+partprobe /dev/nvme0n1
+
+# 3. by-id, never /dev/nvme0n1 — the same reason the pool disks use it.
+zpool add -o ashift=12 rpool log /dev/disk/by-id/nvme-<model>_<serial>-part1
+
+# 4. It takes traffic within seconds.
+zpool status rpool
+zpool iostat -v rpool 5
+grep slog /proc/spl/kstat/zfs/zil   # these counters are currently all zero
+```
+
+### How to tell it worked
+
+The defrag lesson applies: a single 5-minute sample of a p99 over a bursty
+workload is not a measurement. Compare matched windows.
+
+- fsync p99 at rest should fall from ~0.25 s to single-digit milliseconds:
+  `avg_over_time(histogram_quantile(0.99, sum(rate(etcd_disk_wal_fsync_duration_seconds_bucket[5m])) by (le))[6h:5m])`
+- `etcdHighCommitDurations` should clear on its own. **Remove the Alertmanager
+  silence `43b35199-356a-4304-a1e9-288980fbcd3b` when the device goes in**,
+  rather than letting it expire on 2026-09-17 — the alert is the confirmation.
+- The following night, `openebs-localpv-provisioner`, `csi-provisioner` and
+  `csi-resizer` should restart zero times during the backup. They are the better
+  signal now: the two widened components absorb a stall instead of reporting it.
+- Force the hard case rather than waiting for it. Stop and start
+  `talos-worker-0` so QEMU discards its dirty bitmap, and let the next backup do
+  the full 1.1 TiB read. That is the load that ran 2 h 22 m and was the only one
+  ever to fire `etcdHighFsyncDurations`.
+
 ## What is not known
 
 There is **no history before 2026-08-17**, because the etcd scrape did not exist
@@ -215,21 +373,31 @@ plausible aggravator and nothing more. The scheduler and controller-manager
 restarts a day later are a different matter — those are measured, and the cause
 is this one.
 
-**Whether the leader-election widening is sufficient is unmeasured.** It is sized
-against a tail whose top bucket is unbounded: two fsyncs exceeded 8.192 s and how
-far is not known, because `+Inf` is where the histogram stops. The stalls are also
-bursty and correlated rather than independent, so the retry budget helps less than
-the arithmetic suggests. `ControlPlaneContainerRestarting` staying silent across
-successive nightly backups is the evidence; treat one quiet night as insufficient.
+**The leader-election widening is measured, and it is not sufficient.** Both
+components still restarted once each on 2026-08-19 with 45 s leases in force. It
+was sized against a tail whose top bucket is unbounded — two fsyncs exceeded
+8.192 s on 08-18 and how far is unknowable, because `+Inf` is where the histogram
+stops — and against stalls that are bursty and correlated rather than
+independent, so the retry budget buys less than the arithmetic suggests. What is
+still unknown is the ceiling: how long a stall the 45 s lease does survive, and
+whether a longer full-read backup than 08-19's would breach it again.
+
+**What the SLOG does for the other four is unverified until it is in.** The
+15 s-lease components restart on ordinary nights as well as long ones, so their
+threshold is lower than the two widened ones; there is no measurement of how far
+fsync has to fall before they stop.
 
 ## Prompt to open with
 
 > Read `todos/etcd-disk-latency.md`. etcd on `piraeus-control-plane-0` has p99
-> backend commit ~0.42 s and WAL fsync ~0.41 s, against etcd targets of 0.025 s
-> and 0.010 s, because `rpool` is two raidz2 vdevs of 7200 rpm disks with no
-> SLOG and the host contains no SSD at all. apiserver p99 PUT is 0.97 s against
-> a 1 s SLO, and the nightly Proxmox backup pushes fsync past 8 s, which killed
-> `kube-scheduler` and `kube-controller-manager` on 2026-08-18 until their
-> leader-election durations were widened to absorb it. The fix is an SSD with
-> power-loss protection added as a SLOG; help me choose one and plan
-> `zpool add rpool log <dev>`. Note the Alertmanager silence expires 2026-09-17.
+> backend commit ~0.42 s and WAL fsync ~0.25 s at rest, against etcd targets of
+> 0.025 s and 0.010 s, because `rpool` is two raidz2 vdevs of spinning disks with
+> no SLOG and the host contains no SSD at all. The nightly Proxmox backup pushes
+> fsync past 8 s; widening leader-election on `kube-scheduler` and
+> `kube-controller-manager` reduced their restarts but did not stop them, and
+> four other components on 15 s leases still restart every night. The device is
+> chosen — an M.2 NVMe with capacitor-backed power-loss protection, on a passive
+> adapter in the free PCIe x16 slot — and the `zpool add` procedure and its
+> verification are written up in the spec. I have the drive; walk it in. Remove
+> the Alertmanager silence `43b35199-356a-4304-a1e9-288980fbcd3b` at the same
+> time, since it otherwise expires 2026-09-17.
