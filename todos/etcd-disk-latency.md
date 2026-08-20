@@ -110,6 +110,15 @@ This is the argument for the SLOG over per-component timeout tuning. Fixing the
 disk fixes all six at once; widening leases fixes them one chart at a time and
 leaves each new controller to be discovered the same way.
 
+The three 15 s components were nonetheless tuned on 2026-08-20, because the SLOG
+is deferred on price for as long as the NAND shortage lasts and they were
+restarting on ordinary nights, not only bad ones. `csi-provisioner` and
+`csi-resizer` now carry the same
+45 s/30 s/6 s durations as the control plane; `openebs-localpv-provisioner` has
+no duration knob in chart 3.10.0 and had leader election disabled instead. That
+does not weaken the argument above — it is interim, and it reduces *load* rather
+than making the disk faster.
+
 Note the job is invisible to this repo: it lives only in `/etc/pve/jobs.cfg`,
 managed through the Proxmox UI rather than Ansible or Terraform. Identifying a
 nightly 10:00 UTC event meant reading `/var/log/pve/tasks`.
@@ -123,6 +132,63 @@ disks, not the only one.
 **Mitigated, not fixed.** Leader-election durations on both components are now 3x
 upstream (lease 45 s, renew 30 s, retry 6 s), so a multi-second stall is survived
 instead of fatal. etcd still stalls every night. The SLOG below is still the fix.
+
+**How far it got — measured 2026-08-19.** A bitmap-reset backup (below) ran
+2h04m, roughly six times the stall that produced 5 and 7 restarts on 08-18, and
+`kube-scheduler` and `kube-controller-manager` restarted **once each**; the 15 s
+components in the same window restarted 19–25 times. So the widening absorbs far
+more than it used to and still does not clear the bar — see [What is not
+known](#what-is-not-known), which reads that single restart as the widening being
+insufficient rather than adequate, because it still pages.
+
+Two things about that window are worth keeping:
+
+- **Failed proposals are the sharp signal.** `etcd_server_proposals_failed_total`
+  rose 463 against 74 on an ordinary night, and slow applies 46,405 against
+  8,571. At rest both read zero, so a non-zero value means etcd genuinely could
+  not commit rather than merely being slow.
+- **Lease expiry is not.** `etcd_debugging_server_lease_expired_total` reads
+  1,180 during the stall against 1,224 on a quiet night — flat. Those are Events
+  ageing out on a 1 h TTL at ~400/h. `LeaseKeepAlive` gRPC failures come from
+  etcd being *blocked*, not from leases lapsing, and reading them as expiry
+  sends you after the wrong mechanism.
+
+The threshold between a night that pages and one that does not is narrow and
+empirical: 08-20 peaked at 3.81 s fsync and fired nothing, 08-19 peaked at 5.59 s
+and fired everything. etcd's request timeout is somewhere between. That constant
+was not pinned down, the same gap this file already records about the 5 s figure.
+
+## The backup is ~6x worse after any VM restart
+
+Proxmox Backup Server keeps its changed-block bitmap in the QEMU process, so any
+restart of that process discards it and the next backup reads every block. The
+CPU-type change on 2026-08-18 power-cycled all three VMs; the next night's job
+ran **142 minutes instead of 22.9**, and worker-0 alone transferred **1.10 TiB
+against ~10 GiB**. Both untouched VMs transferred identically on both nights,
+which is what identifies the cause.
+
+That is the amplifier behind every consequence in this file. It is also partly
+self-inflicted: the guests never issued TRIM, so worker-0's zvol held 786 GB
+referenced against 122 GB of live data, and a full read dragged ~660 GB of dead
+blocks off the platters. `discard = true` is now set on every virtio disk, which
+takes a reboot to activate and needs `fstrim` run by hand afterwards; see
+[`docs/talos.md`](../docs/talos.md). Trimmed, a full read should be ~250 GB.
+
+## Most of what etcd writes is leader election
+
+Measured 2026-08-20: ~3.9 of etcd's ~4.1 writes/sec are lease renewals. Real
+cluster state changes are a rounding error. Renewal follows `retryPeriod`, not
+`leaseDuration`, so widening a lease alone buys stall tolerance and leaves the
+write load untouched.
+
+`openebs-localpv-provisioner` was the largest single writer at ~28% of all etcd
+writes — the legacy `endpointsleases` lock writes an Endpoints object *and* a
+Lease every ~2 s, for one replica with nothing to fail over to. Disabling its
+leader election removes that load and the crash together: its last log line
+before each exit is `LeaderElection … stopped leading`.
+
+This matters for the SLOG decision only in that it lowers the floor. It does not
+change the fsync numbers, which are a property of the disks.
 
 Confirm that from the API rather than the machine config, because the machine
 config is two layers away from what the process uses:
@@ -328,11 +394,13 @@ Nothing above needs re-opening when prices recover — re-check the price, not t
 decision. Buy the DC2000B or whatever has replaced it in that line, confirm PLP
 against the two tells below, and run the procedure.
 
-What the delay costs, so that it stays a decision rather than a drift: the four
-15 s-lease components keep restarting every night; `kube-scheduler` and
-`kube-controller-manager` survive an ordinary night but have already failed one
-long one; and every guest restart buys a full-read backup the following night,
-which is the load that fired `etcdHighFsyncDurations`.
+What the delay costs, so that it stays a decision rather than a drift: three of
+the four 15 s-lease components have since been widened or had leader election
+turned off, leaving `kube-state-metrics`, which exits on its own when the
+apiserver watch fails rather than on a lease and so is untouched by that;
+`kube-scheduler` and `kube-controller-manager` survive an ordinary night but have
+already failed one long one; and every guest restart buys a full-read backup the
+following night, which is the load that fired `etcdHighFsyncDurations`.
 `ControlPlaneContainerRestarting` is the standing watch over the control-plane
 half of that, and it reports without anyone remembering to look.
 

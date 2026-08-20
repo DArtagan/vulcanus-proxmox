@@ -90,6 +90,38 @@ Read the rendered file to confirm a change landed rather than trusting the apply
 talosctl -n 192.168.0.190 read /system/config/kubernetes/kube-scheduler/scheduler-config.yaml
 ```
 
+#### Leader election is most of what etcd writes
+
+Nearly all of etcd's few writes per second are lease renewals; changes to actual
+cluster state are a rounding error beside the heartbeat that coordinates
+components which, on a single-node control plane, have nothing to coordinate
+with. On a pool of spinning disks with no SLOG every one of those is a
+synchronous WAL fsync, so leader-election settings are a load decision here and
+not only an availability one.
+
+Two consequences worth carrying into any new controller:
+
+- **`retryPeriod` governs the write rate, not `leaseDuration`.** Renewal happens
+  on the retry cadence. Widening only the lease buys tolerance of a stall and
+  leaves the write load exactly where it was, which is why the control-plane
+  components still renew about every 4s on 45s leases.
+- **A single-replica controller should not hold an election at all** where the
+  chart allows turning it off. `openebs-localpv-provisioner` runs with
+  `enableLeaderElection: false` for this reason: it takes the legacy
+  `endpointsleases` lock, writing both an Endpoints object *and* a Lease every
+  ~2s, which left on accounts for roughly a quarter of every write etcd takes —
+  to arbitrate between one replica and nobody.
+
+Measure it rather than reasoning from lease durations, since renewal cadence
+does not follow from them. Sample `renewTime` across every lease:
+
+```bash
+for i in $(seq 1 12); do
+  kubectl get lease -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name} {.spec.renewTime}{"\n"}{end}'
+  sleep 1
+done | sort | uniq | awk '{print $1}' | uniq -c | sort -rn | head
+```
+
 ### Control-plane metrics
 
 Talos binds etcd, `kube-controller-manager` and `kube-scheduler` to localhost by
@@ -140,6 +172,77 @@ Restarting the control-plane VM does not stop workloads — kubelet keeps
 containers running without the apiserver — but nothing schedules, no Flux
 reconcile succeeds, and `kubectl` is unavailable until it returns.
 
+## What a VM restart costs the next morning
+
+Restarting a VM is not free the following day, and the bill arrives while nobody
+is watching. Proxmox Backup Server tracks changed blocks in a dirty bitmap held
+in the QEMU process' memory. Anything that restarts that process — `qm
+stop`/`start`, `qm reboot`, a `tofu apply` that changes a parameter needing a
+reboot, a host reboot — discards the bitmap, so the next backup has no
+incremental to work from and reads **every block of every disk**.
+
+For worker-0 that is 1.10 TiB instead of ~10 GiB, and about two hours instead of
+eight minutes. `rpool` is saturated throughout, etcd's WAL fsync p99 rises from
+0.25s to around 5.5s, and the control plane degrades for as long as it runs:
+failed etcd proposals reach several hundred against a couple of dozen on an
+ordinary night, and `kube-scheduler` and `kube-controller-manager` restart even
+on their widened leases. Anything still holding a 15s lease restarts dozens of
+times, which is why so little here does.
+
+A reboot from inside the guest (`talosctl reboot`) keeps the QEMU process alive
+and the bitmap with it. The distinction is the QEMU process, not the guest OS.
+
+Nothing prevents this, so plan around it: trim the volume (below) so a full read
+is ~250 GB rather than 1.10 TiB, and prefer to trigger the expensive backup
+yourself rather than letting the 04:00 job find it.
+
+```bash
+ssh root@vulcanus.forge.local 'vzdump 910 --storage pbs --mode snapshot'
+```
+
+The backup job lives in `/etc/pve/jobs.cfg` and is managed through the Proxmox
+UI, so it is invisible to this repo; `/var/log/pve/tasks` is where its history
+is. Per-VM `transferred` in those logs is how you tell a full read from an
+incremental.
+
+## Reclaiming freed space on the OpenEBS volume
+
+The VMs pass guest TRIM through to ZFS (`discard = true` on every virtio disk in
+`terraform/modules/proxmox_talos_vm/main.tf`), but nothing issues it
+automatically: Talos runs no `fstrim` timer, and the `machine.disks` patch
+exposes a mountpoint with no mount options, so the `discard` mount option is out
+of reach. Run it by hand after freeing a large amount of data, and after any
+change that turns discard on for the first time:
+
+```bash
+kubectl create ns debug
+kubectl label ns debug pod-security.kubernetes.io/enforce=privileged
+kubectl debug node/piraeus-worker-0 -it --image ubuntu --profile=sysadmin -n debug \
+  -- fstrim -v /host/var/openebs
+kubectl delete ns/debug
+```
+
+Without it the zvol only ever grows to its high-water mark. Judge the result on
+the host, since the guest cannot see it:
+
+```bash
+ssh root@vulcanus.forge.local 'zfs list -o name,volsize,used,referenced rpool/data/vm-910-disk-1'
+```
+
+`referenced` is the number that should fall. Space held by sanoid's 31 daily
+snapshots is released only as those age out, but the reduction in backup read
+volume is immediate — that is the point of doing it.
+
+Enabling discard requires a reboot to take effect, and the module leaves
+`automatic_reboot` at the provider default of true, so the apply reboots the
+guest itself. Do it one VM at a time, and trim **before** the next backup rather
+than after, so the unavoidable full read is of the trimmed volume:
+
+```bash
+tofu apply -target=module.talos_worker_0   # reboots the guest
+# then fstrim, then let the backup run
+```
+
 ## The CPU the VMs present
 
 `cpu { type = "host" }` in `terraform/modules/proxmox_talos_vm/main.tf` passes
@@ -178,7 +281,9 @@ ssh root@vulcanus.forge.local 'qm set 900 --delete args'
 ```
 
 A CPU type change needs a full power cycle, not a reboot from inside the guest,
-and the nodes go one at a time — the same discipline as a Talos upgrade. Apply it
+and the nodes go one at a time — the same discipline as a Talos upgrade. It also
+costs a full backup the next morning; see [What a VM restart costs the next
+morning](#what-a-vm-restart-costs-the-next-morning). Apply it
 per VM so one `tofu apply` cannot restart the whole cluster at once:
 
 ```bash
