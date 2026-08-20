@@ -229,9 +229,14 @@ MSI X99A GAMING PRO CARBON (MS-7A20), i7-6800K, 64 GiB, PVE 9.2.2, ZFS 2.4.2,
 `rpool` at ashift 12.
 
 - **No NVMe device anywhere.** `/sys/class/nvme` is empty.
-- **Slot6, PCIe 3.0 x16, free.** The only card in the machine is a GT 640; the
-  onboard USB and Realtek controllers take x1 slots. A single M.2 drive on a
-  passive x4 adapter needs no bifurcation.
+- **The board's own M2_1 slot is the home for it**, and no PCIe adapter is
+  needed. M2_1 shares its lanes with the U.2 port and the bottom x16 slot; both
+  are empty, so it runs at its full PCIe 3.0 x4 off the CPU. Of the four CPU
+  root ports, only 00:02.0 is linked — x8, to the GT 640 — while 00:03.0 (x16)
+  and 00:01.0/00:01.1 (x4 each) all sit at x0. There are lanes to spare.
+- **Slot6, PCIe 3.0 x16, free**, as the fallback if M2_1 turns out to be
+  physically awkward. A single M.2 drive on a passive x4 adapter needs no
+  bifurcation.
 - **One free SATA port**, `ata9`, on the 00:1f.2 six-port controller. Nine of the
   ten are taken: eight pool disks and the BD-RW.
 - Disks are 4x HGST HUH721010ALE604 (10 TB, 7200 rpm) and 4x ST4000VN008 (4 TB,
@@ -300,19 +305,29 @@ Optane P1600X was the first choice and is **out on price** — user's call: the
 cheapest available is ~$300, which is not a short- or mid-term spend. It remains
 the better device long-term. Do not re-propose it at that price.
 
-Buy instead an **M.2 NVMe with capacitor-backed power-loss protection**, on a
-passive M.2→PCIe x4 adapter in Slot6:
+Buy instead an **M.2 NVMe with capacitor-backed power-loss protection**, into the
+board's M2_1 slot:
 
 | device | why |
 |---|---|
 | Micron 7450 PRO 480 GB M.2 2280 | a real datacentre drive, PLP on the datasheet, current production |
 | Kingston DC1000B 240 GB M.2 2280 | cheapest current-production M.2 with PLP; its modest throughput is irrelevant at 369 KB/s |
-| Kingston DC600M 480 GB, SATA | if the adapter is unwanted — goes in `ata9`, costs ~30–50 µs more per commit and shares a controller with four pool disks |
+| Kingston DC600M 480 GB, SATA | last resort — goes in `ata9`, costs ~30–50 µs more per commit and shares a controller with four pool disks |
 
 PLP is the one non-negotiable specification, and it is checked on the datasheet
 rather than the marketing page. A drive that acknowledges a write from a volatile
 buffer can lose the ZIL in exactly the power cut the ZIL exists to survive, and
 it does so silently.
+
+Buy an **NVMe** module rather than a SATA-mode M.2. That is the better device
+anyway, and it also sidesteps the question of whether a SATA M.2 costs one of the
+board's ten SATA ports, nine of which are in use.
+
+Bandwidth is not a consideration anywhere in this decision: 369 KB/s would be
+comfortable on the PCIe 2.0 x2 the M.2 falls back to if the bottom x16 slot is
+ever populated. Latency is the whole point, and that fallback path runs through
+the PCH and shares DMI with the SATA controllers — so if a card does go in that
+slot later, re-measure rather than assume.
 
 ### The procedure
 
