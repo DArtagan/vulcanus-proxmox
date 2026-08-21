@@ -224,7 +224,9 @@ data:
     album-level fields onto every item before this event fires, so the value is
     available by the time we look.
 
-    Existing genres are preserved: audiobook is prepended, never substituted.
+    Genres describing the book are preserved: audiobook is prepended, never
+    substituted. The one value removed is audiobook itself, in whatever case it
+    arrived, so the marker appears once and always in lower case.
     """
 
     from beets.plugins import BeetsPlugin
@@ -264,11 +266,19 @@ data:
                     continue
 
                 genres = values(item.get("genres"))
-                if GENRE in genres:
+
+                # Audible tags a number of these rips "Audiobook" outright.
+                # Matching only the exact marker leaves that sitting beside it
+                # as a near-duplicate differing in case alone, which is how
+                # "audiobook; Audiobook" gets stored. Case-folded so any
+                # spelling of it collapses into the one canonical value.
+                described = [g for g in genres if g.casefold() != GENRE]
+                wanted = [GENRE] + described
+                if genres == wanted:
                     continue
 
-                item.genres = [GENRE] + genres
-                self._log.info("prepended {0} genre: {1}", GENRE, item)
+                item.genres = wanted
+                self._log.info("set {0} genres: {1}", wanted, item)
 
   # beets-flask's own settings — the web UI and container behaviour, not beets
   # itself. Seeded to /config/beets-flask/config.yaml. Read only at startup;

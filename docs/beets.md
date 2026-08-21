@@ -224,7 +224,15 @@ Genre is the single field that decides placement. The local `audiobook_genre`
 plugin keeps it that way without hand-tagging everything MusicBrainz already
 knows: on `import_task_apply` — which fires before `manipulate_files`, so the
 destination is computed with the genre already set — it prepends `audiobook` to
-`genres` whenever `albumtypes` contains it. There is deliberately no
+`genres` whenever `albumtypes` contains it.
+
+Any existing spelling of `audiobook` is dropped first, case-folded, so the marker
+appears exactly once and always in lower case. Audible tags a number of these
+rips `Audiobook` outright, and matching only the exact marker left that beside it
+as a near-duplicate differing in case alone. Genres that describe the book are
+untouched.
+
+There is deliberately no
 `albumtypes:audiobook` path rule; two fields deciding one thing is worse than
 one field doing it well. To find audiobooks MusicBrainz knows about that we have
 not tagged:
