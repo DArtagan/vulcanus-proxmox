@@ -2,211 +2,224 @@
 
 ## Opening prompt
 
-> The audiobook side of the beets library is half-finished. Roughly 440 GiB of
-> audiobooks sit unimported in `/audio/import`, most of them absent from
-> MusicBrainz entirely; the ones already in the library are marked with a genre
-> rather than a release type, which is a field beets' own genre machinery is
-> hostile to. Read `todos/audiobook-importing.md` and work through whichever of
-> its four strands is most useful now — they are deliberately not sequential,
-> though 4 feeds 1 and 2, and 3 wants 2 mostly done first.
+> The audiobook backlog is mid-flight. `mb-seed` is built and the three-book
+> pilot is submitted and waiting out MusicBrainz's voting period. Read
+> `todos/audiobook-importing.md`, check whether the pilot survived review, and
+> if it did, work Phase 2 — the 31 library albums that have no MusicBrainz
+> release, which is the single gate on everything after it.
 
-## Where things stand (verified 2026-08-13)
+## Where things stand (verified 2026-08-21)
 
-The beets-flask deployment is live at `beets.immortalkeep.com` and working; see
-[`docs/beets.md`](../docs/beets.md) for how it is put together. This spec is only
-about the audiobook-specific work left over.
-
-**The library** — 914 albums, 14,092 items.
+**The library** — 950 albums.
 
 | | Albums |
 |---|---|
-| Tagged by us, `genres:audiobook` | 66 |
-| Flagged by MusicBrainz, `albumtypes:audiobook` | 38 |
-| Ours but not MusicBrainz's | 33 |
-| MusicBrainz's but not ours | 5 |
+| `genres:audiobook` | 107 |
+| `albumtypes:audiobook` | 76 |
+| `genres` but not `albumtypes` | **31** |
+| `albumtypes` but not `genres` | 0 |
+| Ours with no `mb_albumid` at all | **31** |
 
-Of those 33, **every one has no `mb_albumid` at all**. None are cases of a
-release existing in MusicBrainz without the audiobook secondary type, so strand
-1 is about *adding* releases, not correcting them.
+Those two 31s are the same 31 albums. Every album missing `albumtypes` is
+exactly an album with no MusicBrainz release, which makes the gate on Phase 3
+precise: create 31 releases, `mbsync`, and coverage goes to 107 of 107.
 
-**The inbox** — `/audio/import`, 3,755 files, 443.5 GiB (beets-flask's own inbox
-stats). Around 520 album folders; the retired CronJob's last run skipped 522 and
-beets-flask enqueued 553 on first scan, the difference being how nested folders
-are counted. By file type: 445 `.m4b`, 532 `.flac`/`.mp3` at depth ≤3.
+**The inbox** — `/audio/import`, 484 `.m4b`, 130 top-level folders, 392 GiB.
 
-**What the Audible rips carry.** Of 200 sampled `.m4b` files, 195 have a genre
-tag and 136 of those contain a comma. The values are Audible marketing
-categories, not genres: `Epic`, `Epic, Action & Adventure`,
-`Action & Adventure, Contemporary, Humorous, Movie, TV & Video Game Tie-Ins`.
-None appear in the 1,549-entry whitelist. They cannot be reliably split, because
-`Movie, TV & Video Game Tie-Ins` is a single category containing a comma. Six of
-the 200 are already tagged `Audiobook` with a capital A.
+The 2026-08-13 figures in earlier versions of this spec counted differently and
+were misleading. Corrected:
+
+| Earlier claim | Actually |
+|---|---|
+| ~520 mixed album folders | 479 folders holding exactly one `.m4b` (475 of them; 4 hold 2–3) |
+| "532 `.flac`/`.mp3` at depth ≤3" | a *file* count. It is 26 folders, ~8 of which are audiobooks too |
+| duplicate copies worth enumerating | **zero duplicate ASINs** across all 444. Dawnshard and Arcanum have left the inbox |
+
+**What the rips carry.** Not just the Audible marketing genres this spec used to
+describe — a full tone/m4b-tool tag set, on 444 of 485 files:
+
+```
+aART  Eden Hudson                       ©nrt  Travis Baldree
+©alb  Death Cultivator (Unabridged)     rldt  11-Oct-2020
+----:com.pilabor.tone:AUDIBLE_ASIN / SERIES / PART / PUBLISHER / LANGUAGE
+```
+
+They are `com.pilabor.tone` atoms, not `com.apple.iTunes`, so `mediafile`'s
+built-in `asin` field reads `None` against them. `albumartist` is the bare author
+on 442 of 464 readable files: 8 lack `aART` entirely (the author is in `©ART`)
+and 14 carry translator or illustrator noise, one listing the translator first.
+
+**Why the releases must be created rather than found.** Fifteen ASINs sampled
+against the MusicBrainz web service returned **0 hits by ASIN** and 4 by
+title+artist. Where MusicBrainz holds the book it models it as Audible parts or a
+CD rip — `We Are Legion` 61 tracks, `The Hunt for Red October` 99, `Academ's
+Fury` 17 CDs — against our single file. beets-flask's own stored previews:
+
+| best-candidate distance | tasks |
+|---|---|
+| ≥ 0.50 | **521** |
+| 0.30–0.50 | 64 |
+| 0.15–0.30 | 17 |
+| no candidate | 8 |
+| < 0.04 (auto) | **2** |
+
+`tracks` is penalised on all 521. Searching harder cannot fix this.
+
+## What is already built
+
+**[`tools/mb-seed/`](../tools/mb-seed/)** — run as `mb-seed` from the devenv
+shell; `mb-seed Cradle` narrows the queue by substring, which is how a batch is
+picked. It regenerates a manifest inside the cluster, serves a loopback review
+queue, hands each book to MusicBrainz's release editor with every field
+pre-filled, captures the resulting MBID into `ledger.json`, and then offers the
+book's cover art with a link to that release's upload page. 111 tests,
+`python3 -m unittest discover -s tools/mb-seed`. Its README carries the design
+rationale; read it before changing the seeding.
 
 ## Decisions already made
 
-Recorded so they are not relitigated:
+Recorded so they are not relitigated. The first three predate this phase.
 
 - **One field decides placement.** The user: *"there should be a single source of
-  truth, therefore keep only `genres:audiobook` and don't also include
-  `albumtypes:audiobook`."* That is why `paths` has no albumtypes rule today.
+  truth."* Originally that meant keeping only `genres:audiobook`. It now means
+  `albumtypes` alone — see the next entry.
 - **MusicBrainz is where the metadata should live.** The user: *"I'll be directly
   contributing to Musicbrainz itself, not maintaining tags for these out of band
-  (only in my library)."* This is what makes strand 3 worth doing at all.
-- **`genres` should eventually describe the book,** not merely mark it as one —
-  see strand 3.
+  (only in my library)."* Reaffirmed on 2026-08-21 after being shown the measured
+  cost, so MusicBrainz stays on the critical path.
+- **`genres` should eventually describe the book,** not merely mark it as one.
+- **Route on `albumtypes` alone**, not on both fields during a transition — but
+  only once every existing audiobook carries it, and by syncing it from
+  MusicBrainz rather than setting it locally. The user: *"it would be even better
+  if they were marked as such in musicbrainz and then we just synced against
+  what's there."* That is why Phase 2 gates Phase 3.
+- **Import through the beets-flask web UI**, keeping per-folder session state and
+  `delete_imported_folders`. Chosen knowing beets-flask can only copy, so this
+  writes 392 GiB of duplicate bytes over CIFS and the inbox drains by hand.
+- **One track per release** for the single-file books. This is what closes the
+  loop: beets matches the one `.m4b` cleanly and `mbsync` stays correct. The
+  releases already in MusicBrainz for this library use one track.
+- **Every narrator is credited**, as `author narrated by A, B & C`. Matches the
+  official guideline and the nine releases already here.
 
-## 1. Get the 33 into MusicBrainz
+## Phases
 
-They have no `mb_albumid`, so they were imported as-is. Find them with:
+### Phase 1 — pilot ✅ submitted 2026-08-21, awaiting review
 
-```bash
-beet ls -a 'genres:audiobook ^mb_albumid::.'
+`Goroth`, `Stain` and `Jackson` (*Everybody Loves Large Chests* 7–9). Goroth is
+imported and correct: `$author` resolved to `Neven Iliev` from `albumartists[0]`,
+filed at `audiobooks/Neven Iliev/…`, `albumtypes: other; audiobook`.
+
+**Check this first.** MusicBrainz edits sit in a seven-day voting period, so from
+about **2026-08-28** it is knowable whether the one-track model and the seeded
+metadata survived. If they did not, the model for all 479 changes and anything
+already submitted needs revisiting.
+
+```sh
+# ledger.json holds path -> MBID for what has been submitted
+https://musicbrainz.org/release/93d306d6-a23a-4bec-bcb3-3098f8f25ac7  # Goroth
+https://musicbrainz.org/release/5478966d-d1c7-43cd-a8e8-3554dbc55d3f  # Stain
+https://musicbrainz.org/release/a3f6281e-fb92-43ee-ba8b-8575304f4e3f  # Jackson
 ```
 
-Each needs a MusicBrainz release created, then `beet mbsync` to pick up the
-identifiers and `albumtypes`. Note that submission is GUI work — see strand 4 for
-why that is the awkward part.
+Note the pilot books are the *rarest* shape in the collection — full-cast
+productions with 5, 9 and 9 narrators, and no ASIN. 423 of 485 books have exactly
+one narrator. They stress-tested the credit logic but are not representative.
 
-## 2. Give every audiobook `albumtypes: audiobook`
+### Phase 2 — the 31 library albums, which gates Phase 3
 
-For anything in MusicBrainz this is automatic: `beet mbsync` refreshes
-`albumtypes` from the release, so strand 1 delivers this as a side effect.
-
-Do **not** hand-set `albumtypes` on releases that are in MusicBrainz — mbsync
-will overwrite it from the source, and the field would then be lying about its
-provenance. Setting it locally is only defensible for releases MusicBrainz does
-not have, and even then it becomes wrong the moment one is added.
-
-The reconciliation query, which uses MusicBrainz as a *detector* without letting
-it route anything:
-
-```bash
-beet ls -a 'albumtypes:audiobook ^genres:audiobook'
+```sh
+beet ls -a 'genres:audiobook' '^mb_albumid::.'
 ```
 
-## 3. Move path routing to `albumtypes`, then free up `genres`
+They are *multi-track* — 782 tracks for `Judas Unchained`, 727 for `Pandora's
+Star`, 493, 475, 107 — so they exercise a seeding path the single-file backlog
+does not. Model them as CD mediums, as `Academ's Fury` already is.
 
-Today `kubernetes/apps/beets/config-map.yaml` routes on `genres:audiobook`, and a
-local plugin (`beets-flask-plugin-audiobook-genre.py`) derives that genre from
-`albumtypes` at import time. Both exist because `albumtypes` covered too few
-albums to route on.
+`mb-seed` reads `/audio/import` and these are in the library, so it needs either
+a second root or hand-seeding. Decide which before starting.
 
-Once strand 2 has good coverage that inverts, and the reasons to switch are
-strong:
+Then `beet mbsync` from `beets-shell`, and `genres:audiobook ^albumtypes:audiobook`
+must reach empty.
 
-- **`audiobook` is not a genre, and beets knows it.** It is in the flat whitelist
-  but absent from beets' canonical genre tree (684 branches; `rock` and
-  `new wave` are in it). Every lastgenre feature is therefore a hazard to it —
-  the tree rejects it, `title_case` mangles it, `cleanup_existing` deletes it.
-- **It is the only option that survives `mbsync` by construction.** With
-  `musicbrainz.genres: yes`, mbsync replaces `genres` wholesale
-  (`- Indie Rock  + indietronica  + new wave`), and mbsync emits no plugin events
-  at all, so nothing can re-derive the marker afterwards. `albumtypes` is
-  MusicBrainz's own field and mbsync keeps it correct.
-- **It restores the user's own principle.** Once MusicBrainz is authoritative for
-  audiobook-ness, `genres:audiobook` is the duplicate, not `albumtypes`.
+**Risk:** a 782-track seed across ~40 mediums is a large POST and is untested.
+Try the largest one early; fall back to a skeleton release plus a second edit.
 
-Suggested sequence: add an `albumtypes:audiobook` rule alongside the existing
-`genres:audiobook` one (both pointing at `audiobooks/`), let them run together
-while coverage fills in, then delete the `genres` rule and the plugin.
+### Phase 3 — switch routing to `albumtypes`
 
-**Afterwards**, `genres` is free to describe the *content* of the book — fantasy,
-history, biography. At that point the Audible categories stop being junk to
-discard and become raw material worth mining, and `lastgenre.count: 3` plus
-`musicbrainz.genres: yes` become safe to enable.
+Only once Phase 2 leaves that query empty. In
+`kubernetes/apps/beets/config-map.yaml`: replace the `genres:audiobook` path rule
+with `albumtypes:audiobook` pointing at the same
+`audiobooks/$author/$album%aunique{}/$track $title`, keep it above `default`, drop
+`audiobook_genre` from the plugin list and delete its ConfigMap key, and drop the
+matching `config-seed` line in `deployment.yaml`. Then from `beets-shell`:
 
-Remember `beet move -a genres:audiobook` (or the albumtypes equivalent) to
-re-file anything already misplaced. Run it from `beets-shell`. It is cheaper
-than it looks: source and destination sit on the same CIFS mount and
-`beets.util.move` tries `os.replace` first, so anything already under `/audio/`
-relocates as a server-side rename rather than a copy. Only files crossing in
-from elsewhere move bytes.
+```sh
+beet move -a albumtypes:audiobook
+beet move 'albumtypes:audiobook' singleton:true   # -a is blind to singletons
+```
 
-Both rules must point at `audiobooks/$author/$album%aunique{}/$track $title` —
-`$author` is an `inline` computed field, not `$albumartist`. See
-[`docs/beets.md`](../docs/beets.md).
+### Phase 4 — the backlog
+
+Batches of ~25 folders. `mb-seed <substring>`, submit, import through the UI,
+`delete_imported_folders`, confirm `albumtypes:audiobook` rose by the batch size.
+
+Left to the end: the 41 `.m4b` with no ASIN; the 22 with a missing or noisy
+`albumartist`, fixed in MusicBrainz rather than as a local `author` override so
+the fix is not lost with `library.blb`; and the ~8 audiobooks among the 26
+mp3/flac folders. The other ~18 folders plus 2 m4a folders are ordinary music.
+
+## Costs discovered in the pilot
+
+- **Narrator names need correcting per book.** The tags say `Will Watt` and
+  `Justin James` where MusicBrainz has `Will M. Watt` and `Justin Thomas James`,
+  and the release editor will happily create a duplicate artist rather than link
+  the existing one. Watch the artist fields on every submission. If this proves
+  common across the backlog, a narrator alias file — like the `authors.toml` in
+  [`book-import-spec.md`](book-import-spec.md) — is the fix.
+- **`mb-seed` must be restarted to pick up code changes**, and the manifest goes
+  stale as books leave the inbox.
 
 ## Upstream bugs that will shape this work
 
-Found while importing the first handful on 2026-08-13. All are in
-beets-flask v2.0.0-rc5 and none are reported upstream yet — worth doing, since
-the first two will be hit repeatedly while working through the backlog.
+All in beets-flask v2.0.0-rc5, none reported upstream yet. The first two will be
+hit repeatedly.
 
 - **A session that dies mid-import can only be repaired by hand.** A schema cycle
   (`task.chosen_candidate_id` ↔ `candidate.task_id`) means SQLAlchemy cannot
-  order the deletes, so the delete endpoint, retag and undo all fail with
-  `CircularDependencyError`. Recovery procedure is in
-  [`docs/beets.md`](../docs/beets.md). A failed undo can also leave a *second*
-  session for the same folder, which is what makes the UI offer contradictory
-  advice.
-- **The rq job timeout is hardcoded at 600 s** in
-  `backend/beets_flask/redis.py`, with no configuration for it. This is why
-  ReplayGain had to move out of the import path; anything else slow enough will
-  hit the same wall, and the failure looks like a stuck session rather than a
-  timeout.
-- **The documented `requirements.txt` plugin mechanism does not work.**
-  `entrypoint_user_scripts.sh` installs with bare `pip`, which in v2 is
-  `/usr/local/bin/pip` writing to the system site-packages rather than the
-  application's `/venv`. It reports success and changes nothing. Use
-  `startup.sh` with an explicit `uv pip install`, as the polars workaround does.
-- **`docs/plugins.md` upstream still says the image is Alpine** and tells you to
-  use `apk`. v2 is `python:3.12-slim`.
-
-## Duplicate copies in the inbox
-
-Two of the first albums imported turned out to have a second, unrelated copy
-sitting elsewhere in `/audio/import`:
-
-```
-Dawnshard   Cosmere/Rosharan/Dawnshard, The Stormlight Archive # [B0B75NY8F2]   imported
-            Brandon Sanderson/Dawnshard - Stormlight Archive                    untouched
-Arcanum     Cosmere/Arcanum Unbounded [B01K5Q6VWO]                              imported
-            Arcanum Unbounded - The Cosmere Collection                          untouched
-```
-
-Two out of the first handful suggests there are more. Worth enumerating them
-before working through the backlog rather than discovering each one as a
-duplicate prompt mid-import — `import.duplicate_action: ask` will stop and ask
-every time.
-
-## 4. A workflow for the inbox backlog
-
-The hard part, and the one with no good tooling.
-
-Around 445 `.m4b` files, most absent from MusicBrainz. Creating a release is
-manual web work — MusicBrainz Picard or the release editor — and neither runs in
-the cluster. `mbsubmit` is enabled and offers `p` (print tracks in a submittable
-format) and `o` (open files in Picard) at the beets CLI prompt, plus a
-`beet mbsubmit` command; only the first is useful headlessly.
-
-So the loop needs designing, not just running. Things worth weighing:
-
-- beets-flask's `import_terminal` action sends a literal `beet import -t <paths>`
-  into its tmux pane, so `mbsubmit`'s prompt choices are available there.
-- The `edit` plugin would allow setting fields mid-import from that same
-  terminal. It is deliberately not enabled — it does nothing for the GUI import
-  path, and was judged not worth it while `beet modify` covers the same ground
-  afterwards. Revisit if this strand ends up living in the terminal.
-- Batching matters. Upstream documents frontend lag past a few hundred inbox
-  folders (issues #164, #175), and this inbox is at that scale.
-- Imports are copies, so the inbox never drains itself. beets-flask's
-  `delete_imported_folders` action clears what has landed.
+  order the deletes, so delete, retag and undo all fail with
+  `CircularDependencyError`. Recovery is in [`docs/beets.md`](../docs/beets.md).
+  Expect to do it at least once across 479 imports.
+- **The rq job timeout is hardcoded at 600 s** in `backend/beets_flask/redis.py`.
+  Not a factor while `replaygain.auto` is off, but it is why nothing slow may be
+  added to the import path.
+- **The documented `requirements.txt` plugin mechanism does not work.** Use
+  `startup.sh` with an explicit `uv pip install`.
+- **`docs/plugins.md` upstream still says the image is Alpine.** v2 is
+  `python:3.12-slim`.
 
 ## Things already tried that did not work
 
-- **`lastgenre.cleanup_existing: yes`** looked like the clean way to strip the
-  Audible category strings through the whitelist. It strips `audiobook` too, on
-  every album — because that value is not in the canonical genre tree. With
-  `prefer_specific: no` it survives but gets title-cased to `Audiobook`, and some
-  albums still empty out entirely. Do not enable it while routing depends on the
-  genre.
+- **`lastgenre.cleanup_existing: yes`** strips `audiobook` too, on every album,
+  because that value is not in beets' canonical genre tree.
 - **Splitting the Audible categories on commas** is not recoverable;
   `Movie, TV & Video Game Tie-Ins` is one category containing a comma.
-- **Routing on `albumtypes` was rejected once already**, on single-source-of-truth
-  grounds, when it covered 35 albums against 66. That reasoning was sound at the
-  time and is recorded above; strand 3 exists because the premise changed, not
-  because the reasoning was wrong.
-- **A `hook` plugin** to derive the genre was considered and rejected in favour of
-  the local plugin: `hook` can only run shell commands, would mean invoking
-  `beet modify` re-entrantly against a library the importer holds open, and fires
-  on `album_imported` — after files are placed, so it would force a second move.
+- **A `hook` plugin** to derive the genre: `hook` can only run shell commands,
+  would invoke `beet modify` re-entrantly against a library the importer holds
+  open, and fires on `album_imported` — after files are placed.
+- **Matching the backlog against MusicBrainz as it stands.** The 521-of-612
+  distance measurement above is what settled it.
+- **`urls._x_.link_type` in the seed.** The integer ID is not published anywhere
+  reachable; the parameter is optional, so the editor's dropdown is used instead.
+- **Carrying cover art in the manifest.** 463 covers at a median 553 KiB is
+  250 MB over a `kubectl exec` pipe that truncates silently. Fetched on demand.
+
+## Related
+
+- [`audiobook-cover-art.md`](audiobook-cover-art.md) — `artpath` is empty on every
+  audiobook; `fetchart` has no embedded-art source.
+- [`config-change-rollouts.md`](config-change-rollouts.md) — Phase 3's ConfigMap
+  change does not reach the running process on its own.
+- [`backups.md`](backups.md) — `library.blb` holds every tagging decision since
+  2022 and is not backed up. Snapshot before each phase; ad-hoc copies from
+  2026-08-21 are in `~/backups/beets/`.
