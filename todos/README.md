@@ -89,6 +89,16 @@ on the NAND shortage**: a Kingston DC2000B is ~$310 against a normal sub-$100.
 Nothing to do here but re-check the price. The alert is silenced until
 2026-09-17.
 
+**[vzdump-job-in-terraform.md](vzdump-job-in-terraform.md) — the backup job into IaC**
+The nightly Proxmox backup exists only in `/etc/pve/jobs.cfg`, including two
+settings applied by hand on 2026-08-23 that decide how hard it hits `rpool`. It
+is also the only thing protecting the OpenEBS PVC data, which makes item 1 above
+its neighbour. `telmate/proxmox` has no backup-job resource at all;
+`bpg/proxmox` has one but no *released* version implements `exclude`, and the
+alternative it does offer inverts the safety property so a new guest would be
+silently unbacked-up. Everything else about the approach was proven to work.
+Waiting on a bpg release, and nothing to do until one appears.
+
 
 ## Applications
 

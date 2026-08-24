@@ -263,7 +263,9 @@ Both stay available if it does not clear the nightly page.
 ## Backup tuning applied 2026-08-23
 
 Two changes to the vzdump job, which lives in `/etc/pve/jobs.cfg` and outside
-git. Neither is verified yet — the next ordinary night's numbers decide.
+git — [`vzdump-job-in-terraform.md`](vzdump-job-in-terraform.md) is the attempt
+to fix that, blocked on a provider release. Neither change is verified yet; the
+next ordinary night's numbers decide.
 
 - **`--exclude` now carries 101 and 106** alongside 100 and 107. Both are stopped
   scratch VMs, and a stopped VM has no QEMU process and therefore no dirty
