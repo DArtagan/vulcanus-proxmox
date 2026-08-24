@@ -18,6 +18,17 @@ spec:
           image: dartagan/media-toolkit-webtop:0.3.1 # {"$imagepolicy": "apps:media-toolkit-webtop"}
           ports:
             - containerPort: 3000
+          env:
+            # Without this the selkies init preloads /opt/lib/libudev.so.1.0.0-fake
+            # into every process in the session, and Thunar's GLib main loop then
+            # spins forever: it signals its own wakeup eventfd twice per iteration
+            # and reads it back, ~188,000 times a second, for a flat 1.02 cores.
+            # Same binary, same environment, 30 seconds each: 0.05s of CPU without
+            # the shim, 29.98s with it. NO_GAMEPAD takes the branch that never sets
+            # LD_PRELOAD at all; all it gives up is virtual gamepad passthrough,
+            # which a media toolkit has no use for.
+            - name: NO_GAMEPAD
+              value: "true"
           resources:
             limits:
               cpu: 6000m
