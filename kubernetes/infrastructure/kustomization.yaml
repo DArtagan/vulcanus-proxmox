@@ -15,6 +15,7 @@ resources:
   - coredns.yaml
   - csi-driver-smb.yaml
   - devices.yaml
+  - fstrim.yaml
   - games-pv.yaml
   - grafana-admin-secret.yaml
   - grafana-auth.yaml

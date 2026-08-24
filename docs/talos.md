@@ -214,13 +214,44 @@ full read of trimmed disks reports the same `transferred` as before and finishes
 far sooner, because unallocated regions come back as zeros without touching a
 disk. That is the number to compare after a guest restart.
 
+### How the backup job is tuned
+
+`--exclude 100,101,106,107`. 107 is Proxmox Backup Server itself and its
+datastore lives on `rpool`, so backing it up is circular. 100, 101 and 106 are
+stopped scratch VMs, and a stopped VM has no QEMU process and therefore no dirty
+bitmap — it can never be incremental. 106's zvol holds 81.4K and was read as
+32 GiB of zeros every night for it.
+
+`--performance max-workers=2`, against a default of 16. What hurts etcd is
+seeks, not bandwidth: worker-1's incremental reads 3.58 GiB at 22.6 MiB/s and
+still drives fsync p99 to 3.2 s, on eight spindles that do several hundred MiB/s
+sequentially. PBS incrementals fetch dirty 4 MiB chunks scattered across the
+zvol against a 16K `volblocksize` on a 40%-fragmented pool, so the number in
+flight at once is what decides how long a synchronous WAL write waits behind
+them. The corroboration is that a 90-minute *sequential* full re-read on
+2026-08-21 produced 68 failed etcd proposals — the same as the 14-minute
+*scattered* incremental the following night. Per minute, the incremental is the
+more expensive of the two. That is also why `bwlimit` addresses the wrong axis.
+
+**The LXC containers cost etcd nothing.** Across 103, 104 and 105 — eight
+minutes of file-level backup — fsync p99 sits on its 0.24 s floor and does not
+move. Every spike in the window belongs to a QEMU VM.
+
 ## Reclaiming freed space on the OpenEBS volume
 
 The VMs pass guest TRIM through to ZFS (`discard = true` on every virtio disk in
 `terraform/modules/proxmox_talos_vm/main.tf`), but nothing issues it
 automatically: Talos runs no `fstrim` timer, and the `machine.disks` patch
 exposes a mountpoint with no mount options, so the `discard` mount option is out
-of reach. Run it by hand after freeing a large amount of data, and after any
+of reach. `kubernetes/infrastructure/fstrim.yaml` closes that gap with a monthly
+CronJob per node, covering `/var` everywhere and `/var/openebs` on the two
+workers. There is one job per node rather than one carrying a list of hosts
+because a hostPath reaches only the node its pod lands on.
+
+FITRIM needs `SYS_ADMIN` and nothing else — in particular it does not need write
+access, so the host mounts are `readOnly: true`.
+
+Run it by hand as well after freeing a large amount of data, and after any
 change that turns discard on for the first time:
 
 ```bash

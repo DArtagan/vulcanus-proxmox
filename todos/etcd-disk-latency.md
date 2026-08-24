@@ -136,10 +136,10 @@ instead of fatal. etcd still stalls every night. The SLOG below is still the fix
 **How far it got — measured 2026-08-19.** A bitmap-reset backup (below) ran
 2h04m, roughly six times the stall that produced 5 and 7 restarts on 08-18, and
 `kube-scheduler` and `kube-controller-manager` restarted **once each**; the 15 s
-components in the same window restarted 19–25 times. So the widening absorbs far
-more than it used to and still does not clear the bar — see [What is not
-known](#what-is-not-known), which reads that single restart as the widening being
-insufficient rather than adequate, because it still pages.
+components in the same window restarted 19–25 times. A second bitmap-reset
+backup on 08-21 ran 98 minutes and every one of them held at zero — see [Six
+nights on the widened leases](#six-nights-on-the-widened-leases). Restarts are no
+longer the failure mode; the nightly page is, and that comes from fsync itself.
 
 Two things about that window are worth keeping:
 
@@ -185,6 +185,118 @@ snapshots still pin the freed blocks — `usedbysnapshots` on the OpenEBS zvol w
 Judge the next full read on **duration**, not on `transferred`, which reports
 logical device size regardless of allocation.
 
+### The trim's effect, against a matched control
+
+2026-08-21 was a second full re-read: the `tofu apply` that turned `discard` on
+restarted all three guests and reset their bitmaps, which was the known price of
+enabling it. That makes it the control for 08-19's full re-read of the same
+device.
+
+| VM 910, full re-read | zeros detected | duration | throughput |
+|---|---|---|---|
+| 08-19, before the trim | 293.35 GiB (26%) | 2h03m42s | 155.1 MiB/s |
+| 08-21, after the trim | **753.79 GiB (67%)** | **1h19m38s** | 240.9 MiB/s |
+
+460 GiB of freed-but-allocated blocks became detectable zeros, and a full re-read
+costs 35% less wall time. `transferred` reads 1.10 TiB on both nights, which is
+exactly why it is not the measure.
+
+Drift resumes immediately, because the guest mount carries no `discard` option
+and only an explicit `fstrim` returns anything. `referenced` was 307 GB after the
+08-20 trim, 279 GB three days later against 122 GB of live data, and 252 GB after
+a second trim on 08-23. `kubernetes/infrastructure/fstrim.yaml` now runs monthly
+on all three nodes, covering `/var` everywhere and `/var/openebs` on the workers.
+
+The other four filesystems each returned something on 08-23, though nothing on
+worker-0's scale: worker-0 `/var` 33.6 → 31.2 GB, worker-1 `/var` 15.0 → 14.1 GB
+and `/var/openebs` 15.4 → 14.7 GB, control plane `/var` 3.32 → 3.08 GB. Three of
+those zvols reference *less* than the guest reports using, because lz4 is on
+everywhere, so a zvol sitting below the guest figure does not mean there is
+nothing to trim.
+
+## Every backup pages
+
+Measured 2026-08-23 across six nights. `etcdHighFsyncDurations` warns above
+0.5 s, goes critical above 1 s, and carries `for: 10m`. Longest **contiguous**
+run above each, in the 09:50–12:50 UTC window:
+
+| night | > 0.5 s | > 1.0 s | failed proposals | job duration |
+|---|---|---|---|---|
+| 08-18 | 15m | 13m | 157 | 21.9m |
+| 08-19 *(bitmap reset)* | **137m** | 135m | 463 | 142.1m |
+| 08-20 | 14m | 13m | 74 | 22.9m |
+| 08-21 *(bitmap reset)* | **91m** | 27m | 68 | 97.8m |
+| 08-22 | 16m | 14m | 68 | 23.1m |
+| 08-23 | 13m | 11m | 49 | 19.1m |
+| quiet, 00:00–09:00 | 0m | 0m | **0** | — |
+
+An ordinary night spends 13–16 minutes above the threshold against a 10-minute
+`for`, so the alert fires every night and distinguishes nothing. The earlier
+claim in this file that crossing 0.5 s takes a full-read backup was wrong: it was
+inferred from one night, and from whether the *other* alerts fired.
+
+Note also that 08-21 — 91 minutes of storm — produced 68 failed proposals, the
+same as 08-22's 14-minute ordinary incremental. A long sequential re-read is
+gentler per minute than a short scattered one.
+
+### `etcdHighNumberOfFailedGRPCRequests` cannot mean what it says here
+
+The rule is a ratio under `sum without (grpc_type, grpc_code)`, which keeps
+`grpc_method`, so each method is its own series. `LeaseKeepAlive` is a bidi
+stream, and `grpc_server_handled_total` counts a stream once — when it
+terminates. Working streams are never counted. In 08-23's backup window the
+entire `LeaseKeepAlive` series was **five events, all `Unavailable`**: 5/5 =
+100%, from five samples in three hours. At rest it is 0/0 and the ratio is NaN.
+
+The alert therefore reads "did any lease stream break in the last five minutes",
+not "is a meaningful fraction of requests failing". Upstream's own
+`etcdGRPCRequestsSlow` filters `grpc_type="unary"` for this reason; this rule
+does not. Filtering to unary and aggregating across methods gives a usable
+signal: 0.00% at rest, 0.6–1.8% peak on ordinary nights, 2.75% on 08-19.
+
+**Offered 2026-08-23 and not taken**, together with widening
+`etcdHighFsyncDurations` to `for: 30m`, which separates 13–16m ordinary nights
+from 91–137m bad ones with a clean margin. The backup tuning below was preferred
+first, on the grounds that a quieter backup is worth more than a quieter alert.
+Both stay available if it does not clear the nightly page.
+
+## Backup tuning applied 2026-08-23
+
+Two changes to the vzdump job, which lives in `/etc/pve/jobs.cfg` and outside
+git. Neither is verified yet — the next ordinary night's numbers decide.
+
+- **`--exclude` now carries 101 and 106** alongside 100 and 107. Both are stopped
+  scratch VMs, and a stopped VM has no QEMU process and therefore no dirty
+  bitmap: it is read in full every night, permanently. 106's zvol holds 81.4K and
+  was read as 32 GiB of zeros nightly. 101 accounted for the entire 10:01–10:02
+  spike — fsync at 3.5 s for two minutes, off a 68-second read at 482 MiB/s.
+- **`--performance max-workers=2`**, from a default of 16.
+
+`max-workers` is a different axis from `bwlimit` and is not a way of reopening
+that decision. Bandwidth is not the binding constraint: worker-1's incremental
+reads 3.58 GiB at 22.6 MiB/s and still drives fsync p99 to 3.2 s, on eight
+spindles that do several hundred MiB/s sequentially. What costs is the number of
+scattered reads in flight, which is what `max-workers` caps. The mechanism is
+written up in [`docs/talos.md`](../docs/talos.md).
+
+The cost is a longer window: the VM phase should slow by roughly the factor the
+queue depth falls, and if it stretches past ~30 minutes the exposure is longer
+even though each minute is cheaper. Watch for `ignoring 'max-workers' setting` in
+the task log, which is what a QEMU without `backup-max-workers` reports; the
+running build is pve-qemu-kvm 11.0.0 and supports it.
+
+Verify from the same three numbers, on a night with no VM restart behind it:
+
+```bash
+# per-VM duration and throughput, not `transferred`
+ssh root@vulcanus.forge.local 'grep -h vzdump /var/log/pve/tasks/index | tail -1'
+```
+
+and, against the table above, the longest contiguous run of
+`histogram_quantile(0.99, rate(etcd_disk_wal_fsync_duration_seconds_bucket[5m]))`
+over 0.5 s, plus `increase(etcd_server_proposals_failed_total[3h])`. An ordinary
+night before these changes reads 13–16m and 49–74.
+
 ## Most of what etcd writes is leader election
 
 Measured 2026-08-20: ~3.9 of etcd's ~4.1 writes/sec are lease renewals. Real
@@ -220,16 +332,19 @@ does nothing useful. QEMU guest backups are issued via QMP by the KVM process,
 not by vzdump, and ZFS schedules ZIO through its own priority classes rather than
 the Linux block scheduler. Neither path sees that nice level.
 
-### Two nights on the widened leases
+### Six nights on the widened leases
 
-Verified 2026-08-20 from Prometheus. The 45 s leases have been in effect since
-2026-08-18 17:06 UTC.
+Verified 2026-08-23 from Prometheus. The 45 s leases have been in effect since
+2026-08-18 17:06 UTC, and the openebs and CSI changes since 2026-08-20.
 
 | night | vzdump ran | fsync p99 peak | `kube-scheduler` | `kube-controller-manager` |
 |---|---|---|---|---|
 | 2026-08-18 | 10:00:07 → 10:22:01 | 6.34 s | 5 restarts | 4 restarts |
 | 2026-08-19 | 10:00:04 → **12:22:11** | 5.59 s | 1 restart | 1 restart |
 | 2026-08-20 | 10:00:03 → 10:22:56 | 3.86 s | 0 | 0 |
+| 2026-08-21 | 10:00:01 → **11:37:51** | 3.94 s | 0 | 0 |
+| 2026-08-22 | 10:00:03 → 10:23:09 | 5.28 s | 0 | 0 |
+| 2026-08-23 | 10:00:01 → 10:19:09 | 3.50 s | 0 | 0 |
 
 **The widening is a reduction, not a fix.** 08-19 was its first test and both
 components still lost leadership once each, at ~10:15, on 45 s leases. A quiet
@@ -245,13 +360,29 @@ a config change, a host reboot — buys a full-read backup the following night.
 etcd's fsync p99 stayed above 2 s for two and a half hours, and
 `KubeAPIErrorBudgetBurn` fired four separate times between 10:30 and 18:00.
 
-That night is also the only time `etcdHighFsyncDurations` has fired: crossing its
-0.5 s threshold takes a full-read backup. `etcdHighNumberOfFailedGRPCRequests`
-fired alongside it.
+`etcdHighFsyncDurations` fires on **every** backup, not only on full-read ones —
+see [Every backup pages](#every-backup-pages) below, which corrects an earlier
+reading of this same window.
 
-The other four components still restart on an ordinary night. Within 08-20's
-22-minute window: `openebs-localpv-provisioner` 6, `csi-provisioner` 3,
-`csi-resizer` 2. Only `kube-state-metrics` was quiet.
+Container restarts in the same three-hour windows, which is where the 2026-08-20
+changes show up:
+
+| container | 08-19 | 08-20 | 08-21 | 08-22 | 08-23 |
+|---|---|---|---|---|---|
+| `openebs-localpv-provisioner` | 25 | 6 | **0** | **0** | **0** |
+| `csi-provisioner` | 19 | 3 | **0** | **0** | **0** |
+| `csi-resizer` | 20 | 2 | **0** | **0** | **0** |
+| `kube-scheduler` | 1 | 0 | 0 | 0 | 0 |
+| `kube-controller-manager` | 1 | 0 | 0 | 0 | 0 |
+| `kube-state-metrics` | 16 | 0 | 2 | 1 | 1 |
+
+08-21 is the load-bearing column: a 98-minute backup, fsync above 0.5 s for 91
+minutes, and every leader-election component held. Disabling openebs' election
+and widening the two CSI sidecars took that failure mode out entirely.
+
+`kube-state-metrics` is the exception and is not a lease problem: it exits with
+code 2 when its apiserver watch fails, terminating itself rather than being
+killed by a probe.
 
 ### The backup's other end is on `rpool` too
 
@@ -501,19 +632,23 @@ plausible aggravator and nothing more. The scheduler and controller-manager
 restarts a day later are a different matter — those are measured, and the cause
 is this one.
 
-**The leader-election widening is measured, and it is not sufficient.** Both
-components still restarted once each on 2026-08-19 with 45 s leases in force. It
-was sized against a tail whose top bucket is unbounded — two fsyncs exceeded
-8.192 s on 08-18 and how far is unknowable, because `+Inf` is where the histogram
-stops — and against stalls that are bursty and correlated rather than
-independent, so the retry budget buys less than the arithmetic suggests. What is
-still unknown is the ceiling: how long a stall the 45 s lease does survive, and
-whether a longer full-read backup than 08-19's would breach it again.
+**Where the widened leases break is still not bounded.** The only breach since
+they went in was 2026-08-19 — a 137-minute stall peaking at 5.59 s, one restart
+each. Three windows since have passed clean, including 08-21's 91-minute stall
+and 08-22's 5.28 s peak, so the ceiling is above both of those and below
+whatever 08-19 was. Depth and duration are entangled and neither has been varied
+on its own. The sizing was against a tail whose top bucket is unbounded — two
+fsyncs exceeded 8.192 s on 08-18 and how far is unknowable, because `+Inf` is
+where the histogram stops — and against stalls that are bursty and correlated
+rather than independent, so the retry budget buys less than the arithmetic
+suggests.
 
-**What the SLOG does for the other four is unverified until it is in.** The
-15 s-lease components restart on ordinary nights as well as long ones, so their
-threshold is lower than the two widened ones; there is no measurement of how far
-fsync has to fall before they stop.
+**Whether `max-workers=2` helps is unmeasured.** It was applied 2026-08-23 and
+the argument for it — that scattered reads in flight, not bandwidth, are what
+etcd waits behind — is inference from throughput figures, not from a controlled
+run. The counter-case is that it lengthens the window, so a night could come out
+with a lower peak and a longer time above threshold, which is worse for the
+alert and better for the control plane. One ordinary night settles it.
 
 ## Prompt to open with
 
@@ -521,9 +656,10 @@ fsync has to fall before they stop.
 > backend commit ~0.42 s and WAL fsync ~0.25 s at rest, against etcd targets of
 > 0.025 s and 0.010 s, because `rpool` is two raidz2 vdevs of spinning disks with
 > no SLOG and the host contains no SSD at all. The nightly Proxmox backup pushes
-> fsync past 8 s; widening leader-election on `kube-scheduler` and
-> `kube-controller-manager` reduced their restarts but did not stop them, and
-> four other components on 15 s leases still restart every night. The device is
+> fsync past 8 s. Leader-election tuning has stopped the restarts — nothing but
+> `kube-state-metrics` has restarted in a backup window since 2026-08-20 — but
+> every backup still spends 13–16 minutes above the alert threshold and pages.
+> The device is
 > chosen and the procedure written — a Kingston DC2000B in the board's M2_1 slot
 > — and the whole thing is parked on the NAND shortage having put it at ~$310
 > against a normal sub-$100. Check whether the price has come back; if it has,
