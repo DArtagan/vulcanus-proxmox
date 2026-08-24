@@ -27,6 +27,15 @@ spec:
             # the shim, 29.98s with it. NO_GAMEPAD takes the branch that never sets
             # LD_PRELOAD at all; all it gives up is virtual gamepad passthrough,
             # which a media toolkit has no use for.
+            #
+            # Upstream fixed this in selkies a45c38a6 (2026-04-14), "return an fd
+            # instead of /dev/null to avoid looping" — udev_monitor_get_fd handed
+            # back a descriptor on /dev/null, which polls readable forever, so the
+            # GLib source dispatched without end. This image's selkies is built
+            # from 159656df (2025-12-19) and predates that. Rebuilding
+            # dartagan/media-toolkit-webtop on a current webtop base fixes it at
+            # source and makes this setting redundant; it is only then that
+            # removing it would restore gamepads rather than the spin.
             - name: NO_GAMEPAD
               value: "true"
           resources:
