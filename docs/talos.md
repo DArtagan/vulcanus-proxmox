@@ -273,6 +273,36 @@ ssh root@vulcanus.forge.local 'zfs list -o name,volsize,used,referenced rpool/da
 snapshots is released only as those age out, but the reduction in backup read
 volume is immediate — that is the point of doing it.
 
+### A trim inflates the next backup
+
+Every discarded region is a write as far as QEMU is concerned, so it enters the
+PBS dirty bitmap and the following backup re-processes all of it. The dirty
+counts after the 2026-08-23 trim track the free space that was discarded almost
+exactly:
+
+| drive | mount | free when trimmed | dirty next morning |
+|---|---|---|---|
+| `910` virtio1 | `/var/openebs` | ~909 GiB | 790.2 GiB |
+| `911` virtio0 | `/var` | ~79.7 GiB | 83.0 GiB |
+| `911` virtio1 | `/var/openebs` | ~84.6 GiB | 88.1 GiB |
+| `910` virtio0 | `/var` | ~68.7 GiB | 70.6 GiB |
+| `911` efidisk0 | — | not trimmed | **drive clean** |
+
+That last row is the control: the one drive not trimmed reported nothing dirty.
+
+The bill is wall-clock, not etcd. Those regions are unallocated, so they come
+back as zeros at 468 MiB/s rather than being read off platters — worker-0's
+backup took 31m21s against 5m34s the night before, and the whole job 45 minutes
+against 19. No timing avoids it: a dirty bit persists until a backup consumes
+it, so on an ordinary day trimming right after a backup is no cheaper than
+trimming right before. The advice below to trim *before* the next backup is a
+different case — there the guest has been rebooted, the bitmap is gone and a
+full read is happening regardless, so trimming first decides whether that read
+is of live data or of the high-water mark.
+
+`kubernetes/infrastructure/fstrim.yaml` runs on the 1st, so it is the backup on
+the **2nd** of each month that carries this.
+
 Enabling discard requires a reboot to take effect, and the module leaves
 `automatic_reboot` at the provider default of true, so the apply reboots the
 guest itself. Do it one VM at a time, and trim **before** the next backup rather

@@ -299,6 +299,48 @@ and, against the table above, the longest contiguous run of
 over 0.5 s, plus `increase(etcd_server_proposals_failed_total[3h])`. An ordinary
 night before these changes reads 13–16m and 49–74.
 
+### First night on max-workers=2 — 2026-08-24, promising and confounded
+
+Both settings took: the log opens with `--performance 'max-workers=2' --exclude
+100,101,106,107` and carries no `ignoring 'max-workers' setting` warning.
+
+| | 08-23 (16 workers) | 08-24 (2 workers) |
+|---|---|---|
+| job duration | 19.1m | 45.1m |
+| fsync p99 peak | 3.50 s | **0.86 s** |
+| minutes > 0.5 s | 13m | 11m |
+| minutes > 1.0 s | 11m | **0m** |
+| failed proposals | 49 | **0** |
+| slow applies | 7,337 | 10,803 |
+
+Zero failed proposals against a floor of zero at rest, verified on the raw
+counter — flat at 204 across 181 consecutive successful scrapes, so it is an
+absence of failures and not an absence of data. `etcdHighFsyncDurations` fired
+**warning only, for about 90 seconds** at 10:34; the critical never even went
+pending. That is one Pushover notification at priority 0 instead of two, one of
+which was a priority-1 critical that overrides quiet hours.
+
+The shape is what a queue-depth cap does. 08-23 was two violent spikes to
+3.5–4.8 s with the 0.24 s floor between them; 08-24 is a 45-minute plateau at
+0.4–0.9 s that touches 1.02 s once. Slow applies rising while failed proposals
+fall to zero says the same thing: etcd was slowed for longer and blocked hard
+enough to abandon a write never.
+
+**It is not a clean test, and the confound is self-inflicted.** The trim the
+previous afternoon dirtied ~860 GiB, so worker-0's read was 85% holes at
+468 MiB/s rather than scattered allocated blocks at 24.6 MiB/s. Queue depth and
+access pattern both moved.
+
+The confound does point one way, though: last night read roughly **121 GiB of
+real non-zero data against 08-23's ~8 GiB** — fifteen times more — and etcd came
+out better on every measure. If sparseness were doing the work, the real-data
+volume would not have gone up.
+
+**Tonight is the clean A/B.** The trim's dirt was consumed on 08-24, so 08-25 is
+an ordinary small scattered incremental with `max-workers=2`, directly against
+08-23's ordinary small scattered incremental with 16. Compare on the same three
+numbers.
+
 ## Most of what etcd writes is leader election
 
 Measured 2026-08-20: ~3.9 of etcd's ~4.1 writes/sec are lease renewals. Real
