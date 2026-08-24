@@ -18,37 +18,6 @@ spec:
           image: dartagan/media-toolkit-webtop:0.3.3 # {"$imagepolicy": "apps:media-toolkit-webtop"}
           ports:
             - containerPort: 3000
-          env:
-            # Without this the selkies init preloads /opt/lib/libudev.so.1.0.0-fake
-            # into every process in the session, and Thunar's GLib main loop then
-            # spins forever: it signals its own wakeup eventfd twice per iteration
-            # and reads it back, ~188,000 times a second, for a flat 1.02 cores.
-            # Same binary, same environment, 30 seconds each: 0.05s of CPU without
-            # the shim, 29.98s with it. NO_GAMEPAD takes the branch that never sets
-            # LD_PRELOAD at all; all it gives up is virtual gamepad passthrough,
-            # which a media toolkit has no use for.
-            #
-            # Upstream fixed this in selkies a45c38a6 (2026-04-14), "return an fd
-            # instead of /dev/null to avoid looping" — udev_monitor_get_fd handed
-            # back a descriptor on /dev/null, which polls readable forever, so the
-            # GLib source dispatched without end.
-            #
-            # Rebuilding this image does not on its own retire the setting, which
-            # is the trap worth naming: selkies arrives through the LinuxServer
-            # base, which pins it by commit, so the *base* tag has to move. 0.3.2
-            # was a fresh build and still carried 159656df (2025-12-19), sixty-one
-            # commits short of the fix and a byte-identical shim. Check rather
-            # than infer — the library ships in the image even when nothing
-            # preloads it:
-            #
-            #   strings /opt/lib/libudev.so.1.0.0-fake | grep -oE 'selkies-[0-9a-f]{40}'
-            #
-            # and confirm that commit descends from a45c38a6. A fixed build also
-            # imports eventfd; the broken one imports neither eventfd nor epoll.
-            # Only once that passes does removing this give back gamepads rather
-            # than a core.
-            - name: NO_GAMEPAD
-              value: "true"
           resources:
             limits:
               cpu: 6000m
