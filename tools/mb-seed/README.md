@@ -38,7 +38,10 @@ a release by hand.
    paste the MBID instead.
 4. Books that have cover art get a second step before the queue moves on: the
    art is pulled out of the file, saved to `covers/`, and shown next to a link
-   straight to that release's *add cover art* page.
+   straight to that release's *add cover art* page. That link opens in a new
+   tab, because unlike the release editor the upload form takes no
+   `redirect_uri` and ends on the release page — following it in this tab would
+   abandon the queue.
 
 ## Cover art
 

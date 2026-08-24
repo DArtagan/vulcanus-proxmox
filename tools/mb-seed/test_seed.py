@@ -331,6 +331,24 @@ class TestCoverArtStep(unittest.TestCase):
         art = {"embedded": True, "mime": "image/png", "sidecars": []}
         self.assertTrue(seed.cover_filename(book(art=art)).endswith(".png"))
 
+    def test_the_upload_link_points_at_the_add_cover_art_page(self):
+        markup = seed.cover_art_link("93d306d6-a23a-4bec-bcb3-3098f8f25ac7", "Upload")
+        self.assertIn(
+            'href="https://musicbrainz.org/release/'
+            '93d306d6-a23a-4bec-bcb3-3098f8f25ac7/add-cover-art"',
+            markup,
+        )
+
+    def test_the_upload_link_opens_in_a_new_tab(self):
+        # The upload form never redirects back, so following it in this tab
+        # loses the queue. Unlike the seed hand-off, which does come back.
+        markup = seed.cover_art_link("93d306d6-a23a-4bec-bcb3-3098f8f25ac7", "Upload")
+        self.assertIn('target="_blank"', markup)
+
+    def test_the_upload_link_cannot_reach_back_through_the_opener(self):
+        markup = seed.cover_art_link("93d306d6-a23a-4bec-bcb3-3098f8f25ac7", "Upload")
+        self.assertIn("noopener", markup)
+
 
 class TestSeedPage(unittest.TestCase):
     """The hand-off to MusicBrainz has to be a real link, so it can be

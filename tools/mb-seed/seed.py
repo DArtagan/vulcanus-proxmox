@@ -128,6 +128,20 @@ def cover_art_url(mbid):
     return f"https://musicbrainz.org/release/{mbid}/add-cover-art"
 
 
+def cover_art_link(mbid, label):
+    """The upload hand-off, forced into a new tab.
+
+    The opposite of `seed_link`: the release editor takes a `redirect_uri` and
+    comes back here, while the cover art form has no such parameter and ends on
+    the release page. Following it in this tab would abandon the queue.
+    """
+    return (
+        f'<a class="button" target="_blank" rel="noopener" '
+        f'href="{html.escape(cover_art_url(mbid), quote=True)}">'
+        f"{html.escape(label)}</a>"
+    )
+
+
 def has_art(book):
     art = book.get("art") or {}
     return bool(art.get("embedded") or art.get("sidecars"))
@@ -459,8 +473,7 @@ class Handler(BaseHTTPRequestHandler):
                 f"<tr><th>Size</th><td>{(art.get('bytes') or 0) // 1024} KiB</td></tr>"
                 f"<tr><th>Saved to</th><td><code>{html.escape(saved)}</code></td>"
                 f"</tr></table>"
-                f"<p><a class='button' href='{cover_art_url(mbid)}'>"
-                f"Upload to the Cover Art Archive &rarr;</a></p>"
+                f"<p>{cover_art_link(mbid, 'Upload to the Cover Art Archive →')}</p>"
                 f"<p style='color:#666'>Choose <b>Front</b> as the type.</p>"
             )
         return page(
