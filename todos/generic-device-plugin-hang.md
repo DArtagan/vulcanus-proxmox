@@ -1,14 +1,56 @@
-# generic-device-plugin `/metrics` hang — report upstream, then decide the fix
+# generic-device-plugin `/metrics` hang — both fixes shipped, now watch
+
+## Opening prompt
+
+> The generic-device-plugin pods wedge: they stop serving HTTP entirely, burn
+> whatever CPU they are allowed, and recover only on restart. Root cause is
+> abandoned Prometheus gathers — a scrape the 10s timeout gives up on is never
+> cancelled, so they queue on client_golang's goCollector mutex forever. Read
+> `todos/generic-device-plugin-hang.md`: two goroutine dumps are captured, the
+> analysis is there, and it records several earlier conclusions it disproved.
+> **Both candidate fixes shipped on 2026-08-26** — the CPU limit is gone and a
+> liveness probe on `/metrics` is in. Start from "Where things stand", then
+> "What to watch": the question now is whether onsets still happen and, if they
+> do, whether they recover in ~45s instead of hours. Read *availability*, not
+> restart count, and note that the operational guidance on forensics changed
+> when the CPU limit went.
+
+## Where things stand
 
 Written 2026-08-14 from recurring `TargetDown` Pushover alerts; **substantially
-rewritten 2026-08-19 after two live goroutine dumps were captured.** The dumps
-disproved most of the original reading, so treat anything here as dated to
-2026-08-19 unless it says otherwise.
+rewritten 2026-08-19 after two live goroutine dumps**, which disproved most of
+the original reading. Treat anything undated as 2026-08-19.
 
-**Phase 1 shipped 2026-08-14** (`kubernetes/infrastructure/devices.yaml`).
-**The dumps are captured.** **Both fixes shipped 2026-08-26** — see "The two
-candidate fixes" below. What remains is **filing the upstream report**, and then
-watching for a wedge that recovers in 45s instead of hours.
+| | |
+|---|---|
+| Phase 1 — device selection by hardware identity | shipped 2026-08-14 |
+| Goroutine dumps captured | done 2026-08-19 |
+| Fix A — remove the CPU limit | shipped 2026-08-26 |
+| Fix B — liveness probe on `/metrics` | shipped 2026-08-26 |
+| Upstream bug report | **not filed** — draft at the end of this file, Will files it |
+| Did the fixes work? | **unknown, needs days of quiet** — see "What to watch" |
+
+The state the fixes were applied against, 2026-08-26: worker-0 wedged and ten
+hours down, the control plane having flapped four times that day, 7-day
+availability at 82.7% / 69.4% / 89.9% (control-plane / worker-0 / worker-1),
+five restarts each on two of the three, and every pod's last termination
+`OOMKilled` exit 137. `TargetDown` had been firing since 08:53. All three rolled
+clean at 19:06Z and were serving immediately.
+
+**Two things stated elsewhere in this file were true before 2026-08-26 and are
+not now.** Both would waste a session:
+
+- **"CPU pinned at exactly the limit" was the reliable wedge signature.** There
+  is no CPU limit any more, so a wedged pod will not sit at a round number. Use
+  `up == 0` on the job, or a `/metrics` fetch that times out — and expect the
+  probe to have reaped it inside 45s either way, so a wedge is now something you
+  catch in metrics after the fact rather than something you find still running.
+- **Forensics on a wedged pod was near-impossible**, because an ephemeral
+  container joined the same throttled cgroup — a consequence of the 50m limit.
+  A dump should now be prompt rather than a 25-minute crawl. But the probe will
+  restart the pod out from under you, which is a new obstacle in place of the
+  old one: **remove the `livenessProbe` from `devices.yaml` before trying to
+  capture another dump.**
 
 ## The defect
 
@@ -164,10 +206,15 @@ recovery a pod has if the probe ever stops working.
 throttling the process cannot drain its queue no matter how little work is left.
 A `requests: 50m` with no limit still protects the node under contention while
 letting the process finish a 2ms gather in 2ms. This is the standard shape for a
-small latency-sensitive daemon. It is a real change to cluster behaviour and is
-**the user's call**, not to be applied unilaterally — noting the user's standing
-instruction that raising the *memory* limit was the wrong answer for the same
-reason it may be the right one here: fix the mechanism, do not pad around it.
+small latency-sensitive daemon. Shipped 2026-08-26 on Will's decision, taken
+against his standing instruction that raising the *memory* limit was the wrong
+answer — the same reasoning, opposite conclusion, because here the limit is the
+mechanism rather than padding around it.
+
+It carries a risk the memory limit did not: **a wedged pod can now take a whole
+core on an otherwise-idle node** until the probe reaps it. worker-1 has four and
+also runs ARM's transcode. 45 seconds of that is acceptable; a probe that fails
+to fire is not, which is part of why B shipped alongside rather than after.
 
 **B. The liveness probe.** The backstop, and what stops the Pushover alerts. It
 must target `/metrics`, not `/health`.
@@ -199,30 +246,38 @@ longer a 25-minute throttled crawl, so keeping the ability is cheap. Remove it,
 and fold the probe rationale into `docs/kubernetes.md`, before deleting this
 spec.
 
-## Operational note: you cannot debug a wedged pod the easy way
+## Operational note: capturing another dump
 
-An ephemeral container from `kubectl debug` joins the **same pod cgroup**, so it
-inherits the saturated 50m quota. A `for` loop over eight threads reading
-`/proc` got through **one** thread in 17 minutes. Budget accordingly:
+Two obstacles, and **the first one is gone since 2026-08-26**. Recorded because
+the old text below is what a reader will otherwise budget for.
 
-- Do not plan interactive forensics. Issue one short command at a time.
-- `kill -QUIT 1` is cheap and works — but the dump itself is throttled. The
-  worker-1 dump took ~25 minutes to write 405 lines; worker-0 exceeded an hour.
-- The container only restarts *after* the dump finishes, so
-  `kubectl logs --previous` is empty until then. Poll `restartCount`, and read
-  the **current** log to watch it stream in the meantime.
+**Was true, now is not.** An ephemeral container from `kubectl debug` joins the
+same pod cgroup, so it inherited the saturated 50m quota: a `for` loop over
+eight threads reading `/proc` got through **one** thread in 17 minutes, and the
+worker-1 dump took ~25 minutes to write 405 lines while worker-0 exceeded an
+hour. With no CPU limit that throttling is gone and a dump should be prompt.
+
+**Is true now.** The liveness probe restarts a wedged pod within ~45s, which is
+less time than noticing and reacting takes. **Remove the `livenessProbe` from
+`kubernetes/infrastructure/devices.yaml` before attempting a capture**, and put
+it back afterwards.
+
+Still true either way: the container only restarts *after* the dump finishes, so
+`kubectl logs --previous` is empty until then — poll `restartCount` and read the
+**current** log to watch it stream.
 
 Capture procedure that worked:
 
 ```bash
-# 1. Confirm which pod
+# 1. Find the wedged pod. up == 0 is the signature now; CPU is no longer pinned
+#    at a round number, because there is no limit to pin it to.
 kubectl exec -n infrastructure alertmanager-kube-prometheus-kube-prome-alertmanager-0 \
   -c alertmanager -- wget -qO- \
   'http://kube-prometheus-kube-prome-prometheus.infrastructure.svc:9090/api/v1/query?query=up{job="infrastructure/generic-device-plugin"}' \
 | jq -r '.data.result[] | "\(.metric.pod) up=\(.value[1])"'
 
-# 2. Confirm the signature: CPU pinned at the limit is the reliable tell
-#    (every HTTP path hangs, so probing paths distinguishes nothing)
+# 2. Confirm by fetching /metrics directly and watching it time out.
+#    Probing other paths distinguishes nothing: at full wedge every path hangs.
 
 # 3. Dump — one short command, distroless image so an ephemeral container is required
 kubectl debug -n infrastructure <pod> --image=busybox:1.36 \
@@ -232,24 +287,48 @@ kubectl debug -n infrastructure <pod> --image=busybox:1.36 \
 kubectl logs -n infrastructure <pod> -c generic-device-plugin --previous > dump.txt
 ```
 
+One question a fresh dump could still answer, which the two existing ones do
+not: the CPU time at wedge was overwhelmingly **system** time — thread 11 on
+worker-1 showed `utime=111 stime=17482`. That is a syscall pattern rather than a
+compute one, and nothing here explains what those syscalls are. If A turns out
+not to have prevented the collapse, that is where to look next.
+
 ## Step — File the bug report
 
 The draft is at the end of this file, rewritten 2026-08-19 against the dumps.
 Attach both dump files. **The user asked to do the filing themselves** — write
 it up, hand it over, do not submit it.
 
+Checked 2026-08-26: upstream's last binary release is `0.2.0` (2026-04-14),
+nothing since May touches the metrics path, and the single open issue is
+unrelated. So this is unreported and no fix is pending.
+
+Its **Environment** block deliberately still says `limits: 50m/20Mi`. That is
+the configuration the bug was observed under, it is *upstream's own manifest
+default*, and that is the point — the report's third suggestion is that those
+defaults are the problem. Do not update it to match what this cluster runs now.
+If the local removal of the CPU limit produces a result before the report goes
+in, add it as a separate data point rather than by editing the environment.
+
 ## Verification
 
-Once a fix ships, the regression test is that the next onset does not become a
-collapse. The tell is `scrape_duration_seconds` for the job: it should return to
-baseline rather than ratchet toward the 10s timeout.
+The regression test is that an onset no longer becomes a collapse. The tell is
+`scrape_duration_seconds` for the job: it should spike and return to baseline
+rather than ratchet toward the 10s timeout.
 
 ```bash
-# CPU pinned at the limit is the earliest reliable signal
-kubectl exec -n infrastructure alertmanager-kube-prometheus-kube-prome-alertmanager-0 \
-  -c alertmanager -- wget -qO- \
-  'http://kube-prometheus-kube-prome-prometheus.infrastructure.svc:9090/api/v1/query?query=rate(container_cpu_usage_seconds_total{namespace="infrastructure",container="generic-device-plugin"}[5m])'
+# Availability is the number that answers the question. Compare against the
+# 2026-08-26 baseline in "Where things stand": 82.7% / 69.4% / 89.9%.
+avg_over_time(up{job=~".*generic-device-plugin.*"}[7d])
+
+# Onset shape: does it recover, or ratchet toward 10?
+scrape_duration_seconds{job=~".*generic-device-plugin.*"}
 ```
+
+`rate(container_cpu_usage_seconds_total{container="generic-device-plugin"}[5m])`
+is still worth looking at, but it is no longer the *signal* it was: with no
+limit there is no round number to pin at, and a healthy pod reads ~0.0003 cores
+against a wedged one reading whatever the node will give it.
 
 With the probe (fix B), expect `reason: Error` from the probe rather than
 `OOMKilled`, and downtime under 10 minutes so no alert fires:
@@ -288,7 +367,8 @@ why checking a *running* ARM pod is a false pass.
   (The 2026-08-19 dumps support this from a new angle — memory is not the
   binding constraint at all.)
 - **Liveness probe deliberately not shipped**, so the defect stayed capturable.
-  That purpose is now served.
+  That purpose was served by the 2026-08-19 dumps, and the probe shipped
+  2026-08-26.
 
 ### The image bump had a side effect worth knowing about
 
@@ -308,18 +388,73 @@ that is half of a contract with another workload.** A "hygiene" image bump is
 enough to break that, invisibly, with the failure deferred to an unrelated
 restart weeks later.
 
-## The prompt to open with
+## It does not only fail admission — it makes admission slow
 
-> The generic-device-plugin pods wedge: they stop serving HTTP entirely, pin
-> their CPU at the 50m limit with 97% CFS throttling, and recover only on
-> restart. Root cause is abandoned Prometheus gathers accumulating — the scrape
-> timeout (10s) does not cancel the gather, so they queue on goCollector's mutex
-> forever. Two goroutine dumps are captured and the analysis is in
-> `todos/generic-device-plugin-hang.md`; read it, and note that the file records
-> several earlier conclusions it disproved. Outstanding: hand me the upstream bug
-> report to file, and decide between removing the CPU limit and adding the
-> liveness probe.
+A third outcome, not covered above or in the ARM spec, observed while restarting
+ARM to pick up a new secret. The pod scheduled onto `piraeus-worker-1`
+immediately and then sat `Pending` for **~2m30s with no container statuses at
+all** — not `ContainerCreating`, not an event beyond `Scheduled`. Then it started
+normally and has run since.
 
+Measured at that moment, with the other two nodes as the control:
+
+| node | `/metrics` lines | CFS throttled, 10m |
+|---|---|---|
+| piraeus-worker-1 | **0** (wget times out) | **97.8%** |
+| piraeus-worker-0 | 129 | 0.3% |
+| piraeus-control-plane-0 | 129 | 0.3% |
+
+So the wedge was live on worker-1 during the admission. gRPC `Allocate` still
+answered — `devic.es/cdrom` stayed `allocatable: 1` throughout and the pod did
+get its device — but it answered slowly, because the process serving it was
+pinned at the 50m limit that has since been removed.
+
+This matters for how the coupling in `todos/disc-ripping.md` is framed. That spec
+says a wedge overlapping an ARM pod recreation makes admission *fail*. It can
+also just make it take minutes, which looks like nothing being wrong and is
+easy to attribute to a slow SMB mount or image pull. Neither `OpticalDriveUnavailable`
+nor anything else fires, correctly — the resource never went away.
+
+It also argues for removing the CPU limit over adding the liveness probe, or at
+least ahead of it: a probe restarts a wedged pod after the fact, whereas the
+throttling is what turns a wedge into a delay that other workloads feel.
+
+**A wedged pod was left running rather than restarted**, so worker-1's plugin is
+available for another goroutine dump for as long as it lasts. Restarting it is
+the documented recovery and would destroy that.
+
+## What to watch now that both have shipped
+
+Applied 2026-08-26 with worker-0 wedged and 10 hours down, the control plane
+having flapped four times that day, and 7-day availability at 82.7% / 69.4% /
+89.9% (control-plane / worker-0 / worker-1). All three pods' last termination
+was `OOMKilled`, exit 137.
+
+The regression test is unchanged and is in **Verification** above:
+`scrape_duration_seconds` should return to baseline after an onset rather than
+ratchet toward the 10s timeout. Three things distinguish the outcomes:
+
+- **A worked** — onsets stop becoming collapses. `scrape_duration_seconds`
+  spikes and recovers, restart count stops climbing.
+- **A did not work but B caught it** — restarts continue, but each wedge lasts
+  ~45s rather than hours, and availability goes to ~99%. The remaining question
+  would then be the `stime`-dominated CPU profile (`utime=111 stime=17482`),
+  which says the work is syscalls rather than compute and which nothing here
+  explains.
+- **Neither worked** — restart count climbs *faster* than before, because the
+  probe is now reaping wedges the OOM killer used to take hours to reach. That
+  looks like a regression in `kube_pod_container_status_restarts_total` and is
+  not one; read availability, not restarts.
+
+Watch for one new risk that did not exist before: with no CPU limit, a wedged
+pod can take a whole core on an idle node until the probe reaps it. Worker-1 has
+four cores and also runs ARM's transcode. 45 seconds of that is acceptable; if
+the probe ever fails to fire, it is not.
+
+Still open and untouched by this change: the correlation between the
+2026-08-14 commit and worker-0's first-ever failures. `3e4e016` bundled the
+image bump with the glob path, the data cannot separate them, and that commit is
+also what made ARM's device matching correct — so it is not casually reverted.
 ---
 
 # Upstream bug report — draft
@@ -467,71 +602,3 @@ automation cannot track it — `semver`, `numerical` and `alphabetical` are all
 meaningless over commit SHAs. The Helm chart is versioned, but its DaemonSet
 template hardcodes the `--device` arguments, so it cannot be used for custom
 device groups like the one above.
-
-### It does not only fail admission — it makes admission slow, 2026-08-25
-
-A third outcome, not covered above or in the ARM spec, observed while restarting
-ARM to pick up a new secret. The pod scheduled onto `piraeus-worker-1`
-immediately and then sat `Pending` for **~2m30s with no container statuses at
-all** — not `ContainerCreating`, not an event beyond `Scheduled`. Then it started
-normally and has run since.
-
-Measured at that moment, with the other two nodes as the control:
-
-| node | `/metrics` lines | CFS throttled, 10m |
-|---|---|---|
-| piraeus-worker-1 | **0** (wget times out) | **97.8%** |
-| piraeus-worker-0 | 129 | 0.3% |
-| piraeus-control-plane-0 | 129 | 0.3% |
-
-So the wedge was live on worker-1 during the admission. gRPC `Allocate` still
-answered — `devic.es/cdrom` stayed `allocatable: 1` throughout and the pod did
-get its device — but it answered slowly, because the process serving it is
-pinned at its 50m limit.
-
-This matters for how the coupling in `todos/disc-ripping.md` is framed. That spec
-says a wedge overlapping an ARM pod recreation makes admission *fail*. It can
-also just make it take minutes, which looks like nothing being wrong and is
-easy to attribute to a slow SMB mount or image pull. Neither `OpticalDriveUnavailable`
-nor anything else fires, correctly — the resource never went away.
-
-It also argues for removing the CPU limit over adding the liveness probe, or at
-least ahead of it: a probe restarts a wedged pod after the fact, whereas the
-throttling is what turns a wedge into a delay that other workloads feel.
-
-**A wedged pod was left running rather than restarted**, so worker-1's plugin is
-available for another goroutine dump for as long as it lasts. Restarting it is
-the documented recovery and would destroy that.
-
-## What to watch now that both have shipped
-
-Applied 2026-08-26 with worker-0 wedged and 10 hours down, the control plane
-having flapped four times that day, and 7-day availability at 82.7% / 69.4% /
-89.9% (control-plane / worker-0 / worker-1). All three pods' last termination
-was `OOMKilled`, exit 137.
-
-The regression test is unchanged and is in **Verification** above:
-`scrape_duration_seconds` should return to baseline after an onset rather than
-ratchet toward the 10s timeout. Three things distinguish the outcomes:
-
-- **A worked** — onsets stop becoming collapses. `scrape_duration_seconds`
-  spikes and recovers, restart count stops climbing.
-- **A did not work but B caught it** — restarts continue, but each wedge lasts
-  ~45s rather than hours, and availability goes to ~99%. The remaining question
-  would then be the `stime`-dominated CPU profile (`utime=111 stime=17482`),
-  which says the work is syscalls rather than compute and which nothing here
-  explains.
-- **Neither worked** — restart count climbs *faster* than before, because the
-  probe is now reaping wedges the OOM killer used to take hours to reach. That
-  looks like a regression in `kube_pod_container_status_restarts_total` and is
-  not one; read availability, not restarts.
-
-Watch for one new risk that did not exist before: with no CPU limit, a wedged
-pod can take a whole core on an idle node until the probe reaps it. Worker-1 has
-four cores and also runs ARM's transcode. 45 seconds of that is acceptable; if
-the probe ever fails to fire, it is not.
-
-Still open and untouched by this change: the correlation between the
-2026-08-14 commit and worker-0's first-ever failures. `3e4e016` bundled the
-image bump with the glob path, the data cannot separate them, and that commit is
-also what made ARM's device matching correct — so it is not casually reverted.
