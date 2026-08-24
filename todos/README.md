@@ -110,6 +110,7 @@ Separate track; these do not compete with the infrastructure ordering.
 | [audiobook-cover-art.md](audiobook-cover-art.md) | A unified system for sourcing, filing and refreshing cover art. `artpath` is empty on every audiobook while 95% of the inbox carries art `fetchart` cannot see |
 | [book-import-spec.md](book-import-spec.md) | Design for a CLI tool to be the single entry point into the Stump library |
 | [podcast-archive-context.md](podcast-archive-context.md) | Follow-up context from replacing Podgrab with Pinepods, including the feed snapshot job |
+| [disc-ripping-reliability.md](disc-ripping-reliability.md) | ARM has completed 3 of 11 jobs, Blu-ray 1 of 5. Plus a startup blind spot, a device-admission race, and documentation that no longer matches the running system |
 
 The nine beets-flask v2.0.0-rc5 bugs that used to sit here moved to
 `~/repositories/beets-flask/todos/` on 2026-08-14, decomposed one spec per bug.
