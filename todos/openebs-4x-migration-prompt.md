@@ -30,16 +30,26 @@ and LocalPV became a subchart. This is not a drop-in replacement of the
 
 ```
 openebs/provisioner-localpv:3.5.0
-openebs/node-disk-manager:2.1.0
-openebs/node-disk-operator:2.1.0
 ```
+
+NDM and the node-disk-operator were removed on 2026-08-24 (`ndm.enabled: false`,
+`ndmOperator.enabled: false`). They inventoried raw disks as `BlockDevice`
+objects for engines that claim whole disks, and no such engine runs here. What
+they cost was real: NDM re-probes every block device in a loop and applies its
+path-filter only *after* each probe has read the device, which pinned the
+passed-through optical drive at 95% utilisation and burned 2.8 MB/s of reads on
+worker-0, which has no optical drive at all. So question 3 below is answered and
+its `ndm.resources` workaround for openebs/node-disk-manager#673 is gone. The
+`BlockDevice` CRDs and two orphan `Unclaimed` objects remain — one of them names
+`talos-worker-0`, a node that no longer exists — and are cleanup for this
+migration.
 
 Two StorageClasses, both provisioner `openebs.io/local`:
 
 | Name | Reclaim | Binding | Notes |
 |---|---|---|---|
 | `openebs-hostpath` | **Delete** | WaitForFirstConsumer | BasePath `/var/openebs/local`. Everything uses this. |
-| `openebs-device` | Delete | WaitForFirstConsumer | Unused. |
+| `openebs-device` | Delete | WaitForFirstConsumer | Unused — zero PVs, zero BlockDeviceClaims. Ceases to exist in 4.x. |
 
 `reclaimPolicy: Delete` is the single most dangerous fact here. Any sequence that
 deletes a PVC deletes the data with it.
@@ -100,10 +110,15 @@ delete them as cleanup — that also shrinks the migration surface by four.
 > 2. Whether existing PVs provisioned by 3.5.0 are still honoured by the 4.x
 >    provisioner, or whether they need to be adopted / re-created. `reclaimPolicy:
 >    Delete` means getting this wrong loses data.
-> 3. What happens to NDM. It is deprecated in 4.x and the `ndm` resource limits
->    workaround currently in `kubernetes/infrastructure/openebs.yaml` (for
->    openebs/node-disk-manager#673) may no longer apply. `openebs-device` is unused,
->    so dropping NDM entirely is probably fine — confirm it.
+> 3. Nothing, for NDM — it is already gone, and 4.5.1 has no trace of it: the
+>    subcharts are `openebs-crds`, `localpv-provisioner`, `zfs-localpv`,
+>    `lvm-localpv`, `rawfile-localpv`, `mayastor`, `loki`, `alloy`, and a
+>    recursive grep for `node-disk-manager` or `blockdevice` across the unpacked
+>    chart returns nothing. `localpv-provisioner` 4.5.1 templates only
+>    `hostpath-class.yaml`, so `openebs-device` ceases to exist as well; confirm
+>    that removing a StorageClass with no PVs is a no-op for Helm here. Note also
+>    that Mayastor never reads `BlockDevice` — its `DiskPool` names device paths
+>    directly — so nothing about replicated storage depends on what was removed.
 > 4. A restore path. Before anything is applied I want to know how each of the 26
 >    volumes gets back. Borgmatic already backs up some of this — check
 >    `kubernetes/apps/borgmatic/` and `todos/backups.md` for what is actually

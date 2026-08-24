@@ -332,6 +332,26 @@ Additional precautions:
 
 Note: SATA Aggressive Link Power Management (ALPM) was investigated as a potential cause but is already set to `max_performance` on all ports — it is not a factor.
 
+### Guest-side scanners
+
+Nothing inside the Talos guest may probe `/dev/sr0` on a schedule either. The
+drive answers a read of block 0 only where the disc has a 2048-byte data mode;
+an audio CD has none, so every attempt fails with `Illegal mode for this track`
+after ~15ms. `blkid` tries enough offsets that a single pass costs 5.9 seconds
+against ~2ms on a virtual disk, and anything repeating that holds the drive at
+95% utilisation and ~0.85 cores of iowait indefinitely — on a node with four.
+
+This is why OpenEBS Node Disk Manager is disabled in
+`kubernetes/infrastructure/openebs.yaml`. Its `path-filter` names `/dev/sr0`
+and always did; the filter is simply applied after every probe has already read
+the device, and a filtered device is never cached, so each pass re-probes from
+scratch. A filter that runs after the read is not a filter, and reading the
+config is not enough to tell.
+
+Ejecting is not a way out. The tray opens, the scanner's next `open()`
+auto-closes it, and the grinding resumes within seconds — so a scanner has to
+be stopped before the drive can be cleared.
+
 ### Recovery
 
 If the drive disconnects, first try the software recovery script deployed to the host by `ansible/proxmoxer.yaml`:
