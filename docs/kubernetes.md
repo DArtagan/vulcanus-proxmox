@@ -117,6 +117,23 @@ Practical shape, from the one probe currently in the repo
   readiness while silently covering fewer nodes. After any DaemonSet change,
   check desired equals your node count rather than trusting `READY`.
 
+## Debugging a running process
+
+**You cannot attach a debugger here — plan the experiment instead.** The Talos
+nodes set `kernel.yama.ptrace_scope=2`, so `strace`, `gdb` and even reading
+another process's `/proc/<pid>/environ` need `CAP_SYS_PTRACE`, and PodSecurity
+enforces `baseline` cluster-wide, which refuses that capability — so
+`kubectl debug --profile=sysadmin` is rejected outright. Two things still work.
+`talosctl` runs outside all of it and will read any `/proc` and `/sys` file on
+the node, which is enough to characterise a process without touching it:
+`processes` gives state and CPU time, `/proc/<pid>/io` gives syscall counts and
+byte totals, `fdinfo/<n>` identifies eventfds and inotify instances, `maps`
+lists loaded libraries, and per-thread files under `task/` say which thread is
+actually burning the CPU. And an A/B run of the process under two configurations
+answers "why" more convincingly than a backtrace would, because it demonstrates
+the fix rather than the fault — that is how webtop's Thunar spin was pinned on
+its preloaded udev shim.
+
 ## Removing a stateful workload
 
 **Inventory what dies with it.** For each PVC it owns, check three things: the
