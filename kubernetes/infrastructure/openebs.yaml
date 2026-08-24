@@ -49,16 +49,24 @@ spec:
       # night. Scaling this Deployment above one replica would reintroduce the
       # race leader election exists to prevent.
       enableLeaderElection: false
+    # Node Disk Manager inventories raw block devices as BlockDevice objects so
+    # that an engine wanting a whole disk can claim one. Nothing here does:
+    # every PV is openebs-hostpath, the openebs-device StorageClass has none,
+    # and there are no BlockDeviceClaims. Mayastor, the engine that would make
+    # storage-attached pods movable between workers, names device paths in its
+    # DiskPool directly and never reads a BlockDevice — so this forecloses
+    # nothing. Only cStor and Jiva would want it back.
+    #
+    # What it costs while enabled is real. It re-probes every block device in a
+    # loop and applies its path-filter only *after* each probe has already read
+    # the device, so the filter that names /dev/sr0 does not spare it: an
+    # unreadable disc in the passed-through optical drive makes blkid take 5.9s
+    # per pass and pins the drive at 95% utilisation forever. Even a node with
+    # no optical drive pays ~2.8 MB/s of reads that nothing consumes.
     ndm:
-      resources:
-        # TODO: https://github.com/openebs/node-disk-manager/issues/673
-        limits:
-          cpu: 200m
-        requests:
-          cpu: 200m
-  #  # https://github.com/openebs/charts/issues/324
-  #  ndmExporter:
-  #    enabled: true
+      enabled: false
+    ndmOperator:
+      enabled: false
 
 
 ---
