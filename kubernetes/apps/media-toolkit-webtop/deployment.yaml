@@ -31,11 +31,22 @@ spec:
             # Upstream fixed this in selkies a45c38a6 (2026-04-14), "return an fd
             # instead of /dev/null to avoid looping" — udev_monitor_get_fd handed
             # back a descriptor on /dev/null, which polls readable forever, so the
-            # GLib source dispatched without end. This image's selkies is built
-            # from 159656df (2025-12-19) and predates that. Rebuilding
-            # dartagan/media-toolkit-webtop on a current webtop base fixes it at
-            # source and makes this setting redundant; it is only then that
-            # removing it would restore gamepads rather than the spin.
+            # GLib source dispatched without end.
+            #
+            # Rebuilding this image does not on its own retire the setting, which
+            # is the trap worth naming: selkies arrives through the LinuxServer
+            # base, which pins it by commit, so the *base* tag has to move. 0.3.2
+            # was a fresh build and still carried 159656df (2025-12-19), sixty-one
+            # commits short of the fix and a byte-identical shim. Check rather
+            # than infer — the library ships in the image even when nothing
+            # preloads it:
+            #
+            #   strings /opt/lib/libudev.so.1.0.0-fake | grep -oE 'selkies-[0-9a-f]{40}'
+            #
+            # and confirm that commit descends from a45c38a6. A fixed build also
+            # imports eventfd; the broken one imports neither eventfd nor epoll.
+            # Only once that passes does removing this give back gamepads rather
+            # than a core.
             - name: NO_GAMEPAD
               value: "true"
           resources:
