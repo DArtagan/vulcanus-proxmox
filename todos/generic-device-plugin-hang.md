@@ -89,6 +89,44 @@ inheriting mistaken reasoning is worse than inheriting none.
   `gp.mu` is not involved at all. The contended lock is `goCollector`'s, inside
   client_golang.
 
+### The wedge does end in an OOM kill, and that is what pages, 2026-08-25
+
+Both open questions above are about how the wedge *ends*. It ends both ways, and
+the OOM path is noisy in a place nobody was looking.
+
+`talosctl --nodes 192.168.0.190 dmesg` and the same on `.195`:
+
+```
+[2026-08-21T05:12:01Z] oom-kill:constraint=CONSTRAINT_MEMCG ... task=generic-device-
+[2026-08-25T10:08:42Z] oom-kill:constraint=CONSTRAINT_MEMCG ... task=generic-device-
+  Killed process 176966 (generic-device-) total-vm:1274432kB, anon-rss:11344kB
+[2026-08-24T20:43:11Z] worker-0, same signature
+[2026-08-25T10:09:07Z] worker-0, 25 seconds after the control-plane kill
+```
+
+This does **not** overturn "memory is not the binding constraint" — `anon-rss`
+at the moment of the kill is 11–13 MB, comfortably under 20Mi, and
+`container_memory_working_set_bytes` peaks at 19.8 MB on wedged and healthy pods
+alike. What crosses the limit is the cgroup total, page cache included, not the
+process. The kill is a symptom of the wedge, exactly as the user's decision
+assumes; the limit is what reaps it.
+
+Two things follow that were not previously recorded:
+
+- **The two nodes wedge together.** 08-25's kills are 25 seconds apart on
+  separate VMs. Whatever abandons the gathers is cluster-wide — a scrape-side
+  event, not something local to a node. That is a lead the goroutine dumps do not
+  cover.
+- **It pages as `NodeOOMKill`, misattributed.** `node_vmstat_oom_kill` counts
+  CONSTRAINT_MEMCG kills alongside node-wide ones, so every one of these on the
+  control-plane node fired an alert whose text says the *node* ran out and names
+  kube-apiserver as the victim. All 24 firing samples in the seven days to
+  2026-08-25 were this plugin. The rule now carries an `unless` that excludes
+  kills attributable to a container with its own memory limit — see
+  `kubernetes/infrastructure/prometheus-rules.yaml`. Until this spec's work
+  lands, the plugin's OOM kills are therefore silent; `restartCount` on the
+  DaemonSet is the remaining signal.
+
 ### A regression that correlates with our own change
 
 `piraeus-worker-0` had **zero** `up == 0` samples between 2026-08-01 and the
