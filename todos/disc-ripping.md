@@ -28,7 +28,7 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 
 | Phase | What | State |
 |---|---|---|
-| 0 | Unwedge the drive, close the cross-cutting defects | **done** bar D5's secret; reconciled 2026-08-25 |
+| 0 | Unwedge the drive, close the cross-cutting defects | **done** — reconciled and verified in the container, 2026-08-25 |
 | 1 | Audio CD | **next** — needs the Mànran CD put back in the drive |
 | 2 | DVD | not started |
 | 3 | Blu-ray | not started |
@@ -490,6 +490,14 @@ but it recurs on every reboot that loses the race, and it **couples to
 wedge overlaps an ARM pod recreation, admission fails exactly this way. Decide
 the two together.
 
+**Failing admission is not the only outcome, and the other one is quieter.** On
+2026-08-25 a deliberate ARM restart sat `Pending` for ~2m30s with no container
+statuses at all, then started normally. worker-1's plugin was serving zero bytes
+of HTTP and throttled at 97.8% at that moment, against 0.3% on both other nodes.
+`Allocate` still answered and `devic.es/cdrom` never left `allocatable: 1` — it
+just answered slowly. Nothing alerts on that, correctly, and it reads like a slow
+image pull or SMB mount. Budget for it when a restart seems to hang.
+
 ### D10 — dead configuration
 
 ```yaml
@@ -562,24 +570,15 @@ Prerequisite for everything else. Nothing here needs a disc.
    sitting unseen, which needs item 5 first.
 4. ~~**Bring the resource limits under the node's capacity**~~ (D6). Now
    3000m / 4Gi.
-5. **Wire notifications** (D5) — `AUTO_EJECT` is on and `config-map.yaml` now
-   references the two placeholders, but **the secret half needs Will**: `sops -d`
-   cannot run unattended, because the age recipient is a passphrase-protected SSH
-   key and sops has no tty. He runs
-   `sops kubernetes/apps/automatic-ripping-machine/api-keys.yaml` and adds to
-   `stringData`:
-
-   ```yaml
-   PUSHOVER_USER_KEY: <user key, top right of pushover.net>
-   PUSHOVER_APP_TOKEN: <API token of a Pushover Application>
-   ```
-
-   The user key is the same one in
-   `kubernetes/infrastructure/notification-secrets.yaml`. The token can be that
-   one too, but a separate Application is better: Pushover labels each message
-   with its application name, so ARM's "disc finished" is then distinguishable
-   from an Alertmanager page at a glance. **This must land in the same push as
-   the ConfigMap change** — see D5 for what happens if it does not.
+5. ~~**Wire notifications**~~ (D5). Done 2026-08-25 — `PO_USER_KEY` and
+   `PO_APP_KEY` are substituted in the running container, from
+   `PUSHOVER_USER_KEY` / `PUSHOVER_APP_TOKEN` in `api-keys.yaml`. Two things
+   worth keeping: `sops -d` cannot run unattended here, because the age
+   recipient is a passphrase-protected SSH key and sops has no tty, so editing
+   that file is always Will's to do. And the Secret is read by the
+   `config-injector` init container through `envFrom`, so **nothing restarts ARM
+   when it changes** — getting it into the cluster is not enough, and a
+   `kubectl rollout restart` was needed to make it take effect.
 6. ~~**Delete `RIPMETHOD_DVD` / `RIPMETHOD_BR`**~~ (D10). `LOGLEVEL` stays at
    `DEBUG` deliberately for the duration of phases 1–3: the per-second
    `ServerUtil` noise is the price of having detail when a rip fails. Revisit
@@ -895,3 +894,27 @@ Two things the check caught that reading the ConfigMap would not have:
 
 Phase 0 is done bar D5's secret. **Phase 1 can start**: put the Mànran CD back
 in and watch a music rip end to end.
+
+### 2026-08-25 — phase 0 complete
+
+The Pushover secret landed and ARM was restarted to pick it up; `PO_USER_KEY`
+and `PO_APP_KEY` are substituted in the running container.
+
+Two things learned in the doing, both recorded above: a Secret consumed through
+`envFrom` on an init container has nothing watching it, so it needs a manual
+rollout; and the device-plugin wedge can *delay* admission rather than fail it,
+which is a quieter third outcome than D9 described. That wedge was live on
+worker-1 during the restart and was deliberately left running, so it is
+available for another goroutine dump — see
+[generic-device-plugin-hang.md](generic-device-plugin-hang.md).
+
+**Phase 1 is next and needs a person at the machine**: the Mànran CD back in the
+drive, enclosure door open. Four things to watch, in order —
+
+- whether the media gate lets it through first time, i.e. one job rather than a
+  failed `Could not determine disc type` beside a good one;
+- whether Pushover actually delivers, which has never been tested end to end;
+- whether abcde's FLAC lands in `/root/audio/<Artist> <Album>/` and beets-flask
+  picks it up inside its 30s debounce;
+- what cdparanoia reports per track. Nothing reads that today, and it is the
+  input to the `whipper` decision Will deferred until there was real data.

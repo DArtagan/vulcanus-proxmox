@@ -454,3 +454,38 @@ automation cannot track it — `semver`, `numerical` and `alphabetical` are all
 meaningless over commit SHAs. The Helm chart is versioned, but its DaemonSet
 template hardcodes the `--device` arguments, so it cannot be used for custom
 device groups like the one above.
+
+### It does not only fail admission — it makes admission slow, 2026-08-25
+
+A third outcome, not covered above or in the ARM spec, observed while restarting
+ARM to pick up a new secret. The pod scheduled onto `piraeus-worker-1`
+immediately and then sat `Pending` for **~2m30s with no container statuses at
+all** — not `ContainerCreating`, not an event beyond `Scheduled`. Then it started
+normally and has run since.
+
+Measured at that moment, with the other two nodes as the control:
+
+| node | `/metrics` lines | CFS throttled, 10m |
+|---|---|---|
+| piraeus-worker-1 | **0** (wget times out) | **97.8%** |
+| piraeus-worker-0 | 129 | 0.3% |
+| piraeus-control-plane-0 | 129 | 0.3% |
+
+So the wedge was live on worker-1 during the admission. gRPC `Allocate` still
+answered — `devic.es/cdrom` stayed `allocatable: 1` throughout and the pod did
+get its device — but it answered slowly, because the process serving it is
+pinned at its 50m limit.
+
+This matters for how the coupling in `todos/disc-ripping.md` is framed. That spec
+says a wedge overlapping an ARM pod recreation makes admission *fail*. It can
+also just make it take minutes, which looks like nothing being wrong and is
+easy to attribute to a slow SMB mount or image pull. Neither `OpticalDriveUnavailable`
+nor anything else fires, correctly — the resource never went away.
+
+It also argues for removing the CPU limit over adding the liveness probe, or at
+least ahead of it: a probe restarts a wedged pod after the fact, whereas the
+throttling is what turns a wedge into a delay that other workloads feel.
+
+**A wedged pod was left running rather than restarted**, so worker-1's plugin is
+available for another goroutine dump for as long as it lasts. Restarting it is
+the documented recovery and would destroy that.
