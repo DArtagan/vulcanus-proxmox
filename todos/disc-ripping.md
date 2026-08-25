@@ -28,8 +28,8 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 
 | Phase | What | State |
 |---|---|---|
-| 0 | Unwedge the drive, close the cross-cutting defects | **in progress** — one item blocked, one awaiting a decision |
-| 1 | Audio CD | not started |
+| 0 | Unwedge the drive, close the cross-cutting defects | **done** bar D5's secret; reconciled 2026-08-25 |
+| 1 | Audio CD | **next** — needs the Mànran CD put back in the drive |
 | 2 | DVD | not started |
 | 3 | Blu-ray | not started |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
@@ -43,11 +43,11 @@ wedges on the first disc and stays wedged.
 
 Check these three before starting, because two of them will mislead you:
 
-- **The repo is ahead of the cluster.** The phase 0 changes live in this repo,
-  but Flux is what applies them and the Deployment has to restart before the
-  container re-reads its config. Assume the running pod is older than the repo
-  until shown otherwise: if it is, the live config is still
-  `MANUAL_WAIT_TIME: 31536000` and the old `arm-disc-wrapper.sh`. Confirm with
+- **Check the container, not the ConfigMap.** Phase 0 reconciled on 2026-08-25
+  and the running pod has it, but the general point stands and cost two
+  surprises that day: ARM rewrites its own config file (D10) and the init
+  container leaves an unresolved `${...}` verbatim, so the ConfigMap in git and
+  the config in the process are different artefacts. Confirm with
   `kubectl exec -n automatic-ripping-machine deploy/automatic-ripping-machine -- grep MANUAL_WAIT_TIME /etc/arm/config/arm.yaml`
   and do not trust `flux get kustomizations`, which reports healthy either way —
   see [config-change-rollouts.md](config-change-rollouts.md).
@@ -502,6 +502,20 @@ Neither is read anywhere in ARM 2.23.2. `RIPMETHOD` (no suffix) *is* used —
 `backup_dvd`. Delete the two placeholders: they have no working setting at all,
 and a reader debugging Blu-ray will reasonably assume `RIPMETHOD_BR` governs it.
 
+**Deleting them from the ConfigMap does not remove them from the running
+config,** which was assumed and is wrong (verified 2026-08-25, after the change
+reconciled). `config/config.py:33-38` loads our rendered file, loads ARM's
+shipped `setup/arm.yaml` template, merges with `arm_config.update(cur_cfg)` so
+our values win — and then **rewrites our file in place** from the merged result
+plus `ui/comments.json`. A key we remove comes back from upstream's defaults,
+and our own comments never survive into `/etc/arm/config/arm.yaml` at all.
+
+So this achieved the thing actually worth achieving — nobody reading *this repo*
+is misled any more — and nothing else. `RIPMETHOD_DVD: "PLACEHOLDER"` in the
+running file is upstream's default, and only upstream can drop it. Do not
+re-attempt the deletion expecting a different outcome; the fix is on the Upstream
+list.
+
 Also consider `LOGLEVEL: DEBUG` (`config-map.yaml:153`). `arm.log` is dominated
 by per-second `ServerUtil` polling of CPU, memory and disk, written continuously
 to the OpenEBS disk, and it buries genuine errors. `INFO` would make phases 2–4
@@ -574,9 +588,13 @@ Prerequisite for everything else. Nothing here needs a disc.
    `kubernetes/infrastructure/prometheus-rules.yaml`. Per `CLAUDE.md`,
    verification that outlives the session belongs in a rule, and D3's cause can
    only be identified by catching the *next* occurrence.
-8. **Restart the Deployment** and confirm the ConfigMap actually reached the
-   process (D10). Not done — waits on the change being committed, since Flux is
-   what applies it.
+8. ~~**Restart the Deployment** and confirm the ConfigMap actually reached the
+   process~~ (D10). Confirmed 2026-08-25 against the running container:
+   `MANUAL_WAIT_TIME: 600`, `AUTO_EJECT: true`, and the new wrapper with its
+   `MEDIA_TIMEOUT` and `flock`. The check found two things reading the ConfigMap
+   alone would not have — the `RIPMETHOD_*` keys came back (see D10) and the
+   Pushover placeholders were still literal, because the secret had not been
+   pushed yet.
 
 Housekeeping, low priority, do not let it block the phases: 76 empty directories
 in `/root/video/raw/`, and three 43 GB copies of The Rescuers' BDMV (129 GB) from
@@ -746,6 +764,7 @@ fixed.
 | The abandon notification prints the PID as if it were the job id | `ui/json_api.py` | `Job: 366 was Abandoned!` where 366 is a PID. Makes the notification history unreadable against the job table. |
 | One insert produces two jobs, and `duplicate_run_check` does not catch it | `ripper/utils.py:758` | D2. The docstring says this is exactly what it is for, but the first job finishes failing before the second starts, so there is no overlap to detect. Gating on `ID_CDROM_MEDIA_*` is what actually fixes it — our `arm-disc-wrapper.sh` does it outside ARM, and it belongs inside. |
 | `parse_udev()` lets the last matching key win | `models/job.py:170` | A `for` loop of `elif`s with no `break`, so `disctype` depends on udev's iteration order rather than on precedence. |
+| ARM rewrites the operator's `arm.yaml` in place | `config/config.py:33-38` | It merges its shipped template under the user's file and writes the result back, so a key removed by the operator is silently restored and the operator's comments are replaced by `comments.json`. Hostile to anything that manages the file declaratively — a ConfigMap, Ansible, a Nix module. The merge itself is reasonable; writing it back over the source is not. |
 
 The first three are one report, not three: they compose into the wedge.
 
@@ -856,3 +875,23 @@ Added the **Upstream** section. Will is willing to run a forked image where a fi
 cannot be made in config, so the list is worth keeping properly rather than
 working around each item silently. Ten items so far; the first three are one
 report, since they compose into the wedge.
+
+### 2026-08-25 — phase 0 reconciled, and one assumption disproved
+
+Pushed and reconciled. The running container has `MANUAL_WAIT_TIME: 600`,
+`AUTO_EJECT: true`, limits of 3000m/4Gi, and the new wrapper. Both alert rules
+loaded healthy, and `RipperRestarted` went to `firing` on the restart that
+delivered them — an unplanned but better proof that it fires than the falsified
+variant it was tested against.
+
+Two things the check caught that reading the ConfigMap would not have:
+
+- **ARM rewrites `/etc/arm/config/arm.yaml`**, so deleting `RIPMETHOD_DVD` and
+  `RIPMETHOD_BR` did not remove them. D10 is corrected above and it is now an
+  Upstream item. This is the "applied is not in effect" rule with a new variant:
+  not a stale process, but a process that edits the file it was given.
+- **The Pushover placeholders were still literal**, because the secret was in
+  the working tree and not yet pushed.
+
+Phase 0 is done bar D5's secret. **Phase 1 can start**: put the Mànran CD back
+in and watch a music rip end to end.
