@@ -64,8 +64,14 @@ data:
     # Wait for manual identification
     MANUAL_WAIT: true
 
-    # Wait time for manual identification (in seconds)
-    MANUAL_WAIT_TIME: 31536000
+    # Wait time for manual identification (in seconds).
+    # This bounds only the *blocking* window. A title set later still takes
+    # effect: arm_ripper.py re-derives the final directory from title_manual
+    # after the transcode, so the real correction window lasts the whole job.
+    # An unbounded wait holds SystemDrives.job_id_current, which makes every
+    # later insert fail with "Job already running on /dev/sr0" until someone
+    # abandons the job in the web UI.
+    MANUAL_WAIT_TIME: 600
 
     # Allows you to format the date/time to your own liking
     # This will be used throughout ARM and ARMui
@@ -108,10 +114,11 @@ data:
     UNIDENTIFIED_EJECT: false
 
 
-    # Auto-ejects disks
     # Auto-ejects disks when complete etc
-    # Set to false to disable auto-ejection
-    AUTO_EJECT: false
+    # The tray opening is the only signal that a job has finished which does not
+    # require opening the web UI, and the drive is at a different house from
+    # whoever administers it.
+    AUTO_EJECT: true
 
 
     #####################
@@ -205,8 +212,6 @@ data:
     # *** NOTE: MakeMKV only supports the backup or backup_dvd method on BluRay discs.
     # backup_dvd forces arm to extract the dvd with MakeMKV prior to the Handbrake step
     RIPMETHOD: "backup_dvd"
-    RIPMETHOD_DVD: "PLACEHOLDER"
-    RIPMETHOD_BR: "PLACEHOLDER"
 
     # MakeMKV Arguments
     # MakeMKV Profile used for controlling Audio Track Selection.
@@ -317,8 +322,8 @@ data:
 
     # Pushover API User and Application Key
     # Leave User key empty to disable Pushover notifications
-    PO_USER_KEY: ""
-    PO_APP_KEY: ""
+    PO_USER_KEY: "${PUSHOVER_USER_KEY}"
+    PO_APP_KEY: "${PUSHOVER_APP_TOKEN}"
 
 
     ## Specify a script to be called.
