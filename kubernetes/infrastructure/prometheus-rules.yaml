@@ -79,20 +79,36 @@ spec:
         # rather than kube_cronjob_info's constant 1.
         #
         # Prometheus regexes are fully anchored, and these sit inside PromQL
-        # string literals, so `\\*` is what reaches the engine as `\*`:
-        #   minute field contains / , or -  → sub-hourly  → 90m
-        #   hour field is *                 → hourly      → 3h
-        #   anything else                   → daily+      → 26h
+        # string literals, so `\\*` is what reaches the engine as `\*`. Cron
+        # fields are `minute hour day-of-month month day-of-week`:
+        #   minute contains / , or -         → sub-hourly → 90m
+        #   hour is *                        → hourly     → 3h
+        #   day-of-month or month restricted → monthly    → 33d
+        #   day-of-week restricted           → weekly     → 8d
+        #   anything else                    → daily      → 26h
         #
         # 90 minutes is roughly six missed rclone-dropbox runs. Its longest gap
         # between successes across a month of history is 83.5 minutes, and that
         # window contains a genuine Dropbox outage — so the budget clears real
         # breakage without paging for blips that heal themselves.
+        #
+        # A budget can never be shorter than the schedule it covers, so the
+        # monthly bucket necessarily waits a month before it can report: 33 days
+        # is the 31-day maximum gap of a day-1 schedule plus slack. That is the
+        # price of asking "has this succeeded recently" instead of "did the last
+        # run fail", which is the trade this whole group is built on — see the
+        # KubeJobFailed comment above. Without these two branches the fstrim
+        # CronJobs land in the daily catch-all and page 26 hours after every
+        # monthly run, forever.
         - record: cronjob:max_seconds_without_success
           expr: |
             (max by (namespace, cronjob) (kube_cronjob_info{schedule=~"[^ ]*[/,-][^ ]* \\* \\* \\* \\*"}) * 0 + 5400)
             or
             (max by (namespace, cronjob) (kube_cronjob_info{schedule=~"[^ ]+ \\* \\* \\* \\*"}) * 0 + 10800)
+            or
+            (max by (namespace, cronjob) (kube_cronjob_info{schedule=~"[^ ]+ [^ ]+ ([^ *][^ ]* [^ ]+|\\* [^ *][^ ]*) [^ ]+"}) * 0 + 2851200)
+            or
+            (max by (namespace, cronjob) (kube_cronjob_info{schedule=~"[^ ]+ [^ ]+ \\* \\* [^ *][^ ]*"}) * 0 + 691200)
             or
             (max by (namespace, cronjob) (kube_cronjob_info) * 0 + 93600)
 
@@ -112,8 +128,9 @@ spec:
             summary: CronJob {{ $labels.namespace }}/{{ $labels.cronjob }} has not succeeded recently.
             description: >-
               Its last successful run was {{ $value | humanizeDuration }} ago,
-              past the budget for its schedule. This has outlasted several runs,
-              so it is not a transient upstream blip. Inspect with:
+              past the budget for its schedule. That budget is one schedule
+              period plus slack, so a single late or transient run does not
+              reach it. Inspect with:
               kubectl get jobs -n {{ $labels.namespace }} | grep {{ $labels.cronjob }}
               and read the logs of the most recent failure in VictoriaLogs, since
               the pod itself is likely gone — see docs/logging.md.
@@ -178,6 +195,24 @@ spec:
         # a second control-plane node is covered the day it joins. The join goes
         # through kube_node_info because node-exporter series carry no node
         # label, only instance.
+        #
+        # The `unless` is what makes that scoping true. node_vmstat_oom_kill
+        # counts CONSTRAINT_MEMCG kills alongside node-wide ones, so a pod on the
+        # control-plane node hitting its own limit trips a rule whose every other
+        # line assumes the node ran out — and generic-device-plugin does exactly
+        # that against its 20Mi limit whenever it wedges. Every firing sample
+        # this rule produced in the seven days to 2026-08-25 was that, and none
+        # was a node-level kill. The guard excludes only kills attributable to a
+        # container that has a memory limit of its own, so a static pod, etcd or
+        # kubelet — none of which carry one — still pages.
+        #
+        # It is existence-based rather than arithmetic, and that costs something:
+        # a limited container and the node itself OOM-ing within the same hour
+        # suppresses. Subtracting instead is not available, because
+        # memory.oom.group kills a whole cgroup and no metric says how many
+        # processes that was. `increase(... restarts) > 0` is what bounds the
+        # guard to the hour; last_terminated_reason alone persists on a pod until
+        # its next restart and would suppress indefinitely.
         - alert: NodeOOMKill
           expr: |
             (
@@ -188,6 +223,15 @@ spec:
               kube_node_info * on (node) group_left() kube_node_role{role="control-plane"},
               "instance", "$1:9100", "internal_ip", "(.+)"
             )
+            unless on (node) (
+              count by (node) (
+                (increase(kube_pod_container_status_restarts_total[1h]) > 0)
+                * on (namespace, pod, container) group_left()
+                  (kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1)
+                * on (namespace, pod, container) group_left(node)
+                  kube_pod_container_resource_limits{resource="memory"}
+              )
+            )
           for: 5m
           labels:
             # Warning rather than critical: the control plane degrades but keeps
@@ -197,13 +241,16 @@ spec:
           annotations:
             summary: The kernel OOM killer fired on control-plane node {{ $labels.node }}.
             description: >-
-              {{ $value | printf "%.0f" }} process(es) killed in the last hour.
-              Control-plane components carry no memory limits, so this is the
-              node running out, and the kernel picks the largest process — which
-              is kube-apiserver. Check headroom with:
-              kubectl top node {{ $labels.node }}
-              and size the VM against the apiserver's peak, not its average —
-              see docs/talos.md.
+              {{ $value | printf "%.0f" }} process(es) killed in the last hour,
+              none of them attributable to a container with a memory limit of its
+              own. Confirm that and see what died with:
+              talosctl --nodes {{ $labels.instance | reReplaceAll ":9100" "" }} dmesg | grep -B1 -A2 'oom-kill:constraint'
+              — CONSTRAINT_NONE is the node itself running out, and the kernel
+              picks the largest process, which is kube-apiserver. kubectl top
+              node cannot answer this: it counts reclaimable page cache and reads
+              high on a node with memory genuinely free. If it is the node, size
+              the VM against the apiserver's peak rather than its average — see
+              docs/talos.md.
 
         # KubePodCrashLooping keys on the CrashLoopBackOff waiting reason, which
         # a static pod restarting every few hours never reaches: it restarts
@@ -311,3 +358,95 @@ spec:
               the workers more memory in terraform/main.tf, or reduce requests —
               note these are requests rather than usage, so the fix may be a
               request set higher than the workload needs.
+---
+# The optical drive and the workload that uses it. Both rules exist because the
+# failure they describe is silent: a rip that dies leaves no trace anyone sees
+# until they open the ARM web UI, and the drive going missing looks exactly like
+# nobody having inserted a disc.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: disc-ripping
+spec:
+  groups:
+    - name: disc-ripping
+      rules:
+        # A rip is hours of work in a single process with no checkpoint, and ARM
+        # cannot survive its container going away: main.py's cleanup only runs
+        # on SIGTERM, so a SIGKILL leaves the job untouched until the next run
+        # calls clean_old_jobs(), which marks it failed with no error recorded
+        # and no stop time. Jobs 7, 8 and 9 all ended that way in April 2026 and
+        # the cause was never established, because nothing was watching.
+        #
+        # Both halves are needed and neither is redundant. The restart counter
+        # sees a container restarted in place, which is what an OOM kill looks
+        # like; it does **not** see the pod being replaced, because the new pod
+        # starts its own series at zero — and the April jobs died across a pod
+        # replacement, which is how the ARM pod's IP moved between job 7 and job
+        # 8. A rule built on the counter alone would have watched all of that
+        # and reported nothing.
+        #
+        # Clears by itself an hour after the event — the same shape as
+        # ControlPlaneContainerRestarting above. Deliberate restarts page once,
+        # which is worth keeping: a Flux image bump landing mid-rip destroys
+        # that rip, and this is how you find out it did.
+        - alert: RipperRestarted
+          expr: |
+            (
+              time() - max(kube_pod_start_time{namespace="automatic-ripping-machine"}) < 3600
+            )
+            or
+            (
+              sum(increase(kube_pod_container_status_restarts_total{
+                namespace="automatic-ripping-machine"
+              }[1h])) > 0
+            )
+          for: 5m
+          labels:
+            # Warning, not critical: nothing is lost that a re-rip cannot
+            # recover, since the raw MakeMKV backup is kept (DELRAWFILES is
+            # false). Critical maps to a Pushover priority that overrides quiet
+            # hours, and a disc can wait until morning.
+            severity: warning
+          annotations:
+            summary: The ripper restarted, killing any rip in progress.
+            description: >-
+              The ARM pod was replaced or its container restarted within the
+              last hour. Any job that was ripping or transcoding is gone, and it
+              will show in the web UI as failed with no error recorded and no
+              stop time, because clean_old_jobs() cannot know why. Read what
+              happened with:
+              kubectl get pods -n automatic-ripping-machine
+              -o custom-columns=NAME:.metadata.name,START:.status.startTime,LAST:.status.containerStatuses[*].lastState.terminated.reason
+              — OOMKilled means the container hit its own memory limit, which is
+              the outcome to want here; the alternative is the kernel choosing a
+              victim elsewhere on a node that also runs flux-system and both
+              ingress controllers.
+
+        # The drive is advertised by generic-device-plugin, which matches on
+        # /dev/disk/by-id/ata-PIONEER_BD-RW_* rather than on /dev/sr0 — so this
+        # goes to zero both when the plugin stops serving and when the drive
+        # itself drops off the ATA bus, which it has done repeatedly. Either way
+        # no disc can be ripped and ARM will sit Pending on its next restart
+        # without anything appearing to be wrong.
+        #
+        # `absent` covers the plugin never registering at all, which `== 0`
+        # cannot see: with no series there is nothing to compare.
+        - alert: OpticalDriveUnavailable
+          expr: |
+            sum(kube_node_status_allocatable{resource="devic_es_cdrom"}) == 0
+            or absent(kube_node_status_allocatable{resource="devic_es_cdrom"})
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: No node advertises an optical drive.
+            description: >-
+              devic.es/cdrom is allocatable nowhere, so nothing can rip a disc.
+              Check whether the drive is still on the bus from the Proxmox host:
+              ls /dev/sr0 /dev/sg3 /dev/optical-drive-sg && dmesg | grep ata4
+              — "hardreset failed" means the link dropped, and recovery is
+              /usr/local/bin/optical-drive-recovery.sh followed by a full power
+              cycle if that fails. If the devices are present, the device plugin
+              is the suspect; see docs/automatic-ripping-machine.md and
+              todos/generic-device-plugin-hang.md.
