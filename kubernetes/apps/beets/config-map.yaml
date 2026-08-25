@@ -199,6 +199,17 @@ data:
       # still in the inbox that is the difference between an evening and a
       # week.
       auto: no
+      # beets defaults this to os.cpu_count(), which is 8 on worker-0, and the
+      # CronJob carries no CPU limit — so eight ffmpeg processes at ~140 MB each
+      # ran alongside `beet`'s own ~1.1 GiB and crossed the 2Gi memory limit on
+      # 2026-08-25, once nine long audiobooks entered the set of albums needing
+      # analysis. Every attempt died ~12 minutes in and restarted from scratch,
+      # seven times. Two holds the ffmpeg term near 0.3 GiB; the limit stays
+      # where it is, so it remains a guard rather than a formality.
+      #
+      # Inert for beets-flask, which shares this config but has `auto: no`
+      # above, so it never runs the analysis this bounds.
+      threads: 2
     lastgenre:
       force: no
       # Seeded to this same absolute path in both containers, so one config
