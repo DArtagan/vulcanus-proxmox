@@ -630,12 +630,25 @@ Open questions for this phase:
   patched or silence-filled audio and the job still reports success, because
   `rip_music()` checks only abcde's exit code (D4).
 
-  That reframes the `whipper` question. The first move is not AccurateRip, it is
-  making abcde say anything at all: `CDPARANOIAOPTS="-e"` in our `abcde.conf` is
-  config-only and puts the per-track smilies in the log. Consider `-z=N` to bound
-  how long it retries a bad sector, or `-X` to abort outright, and note plain
-  `-z` retries forever, which on a damaged disc holds the drive indefinitely.
-  Once that is in, decide whether AccurateRip is worth the move off ARM.
+  **Fixed 2026-08-26**: `CDPARANOIAOPTS="-e"`. The job log now carries
+  cdparanoia's per-track status. `;-(` (gave up correcting) and `:-(` (scratch
+  detected) are the two that mean the audio may be wrong; `:-|` and `:-/` are
+  jitter and drift that were corrected.
+
+  Deliberately not paired with `-z`: plain `--never-skip` retries a bad sector
+  indefinitely and would hold the drive until someone noticed. `-z=N` bounds it
+  and `-X` aborts outright — pick one once real discs have reported something,
+  rather than guessing a retry count now.
+
+  **Nothing reads this yet.** D4 still stands: `rip_music()` checks abcde's exit
+  code alone, so a disc full of `;-(` still reports success. The log is now
+  worth reading; making the job fail on it is the next step, and it needs a
+  sample of what ordinary discs produce before a threshold means anything.
+
+  Only then is the `whipper` question worth answering. AccurateRip verifies the
+  read against other people's rips of the same pressing, which is a stronger
+  claim than cdparanoia's "I did not notice a problem" — but it is a move off
+  ARM entirely, and the cheap signal should be exhausted first.
 - **AccurateRip.** Not available — `whipper` and `cdrdao` are absent from the
   container. If Will wants EAC-grade verification this is the "radical
   improvement" candidate, and it means running the CD path outside ARM. Raise it

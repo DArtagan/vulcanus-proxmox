@@ -701,7 +701,26 @@ data:
     # Other options:
     # The variable CDPARANOIOPTS is also used by GNU's cd-paranoia,
     # so use this when setting CDROMREADERSYNTX=libcdio.
-    #CDPARANOIAOPTS=
+    #
+    # -e is the only read-quality signal this pipeline has. cdparanoia hides its
+    # progress display when stderr is not a terminal, and abcde is exactly the
+    # "wrapper script" the flag's help text says to use it for — so without it a
+    # job log records `Ripping from sector … / outputting to … / Done.` and
+    # nothing about whether the read was clean. rip_music() checks only abcde's
+    # exit code, so a scratched disc would rip to patched audio and still report
+    # success.
+    #
+    # What to look for in the job log, from `cdparanoia --help`:
+    #   :-)  clean          :-|  jitter, corrected     :-/  read drift
+    #   :-P  unreported loss of streaming              8-|  hard to correct
+    #   :-0  SCSI/ATAPI transport error                :-(  scratch detected
+    #   ;-(  gave up trying to correct                 :^D  finished
+    # `;-(` and `:-(` are the ones that mean the audio may be wrong.
+    #
+    # Not paired with -z: plain --never-skip retries a bad sector indefinitely,
+    # which on a damaged disc holds the drive until someone notices. Decide the
+    # retry bound after seeing what real discs report.
+    CDPARANOIAOPTS="-e"
     #CDDA2WAVOPTS=
     #PIRDOPTS="-p"
     # Options for the CD ripper dagrab can be seen by running 'dagrab -h'.
