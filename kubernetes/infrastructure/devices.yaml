@@ -64,28 +64,53 @@ spec:
         name: generic-device-plugin
         env:
         # Makes SIGQUIT dump *all* goroutines rather than only the running one.
-        # The pod periodically stops serving HTTP entirely and pins its CPU at
-        # the limit below until something restarts it: a scrape that Prometheus
+        # The pod periodically stops serving HTTP entirely: a scrape Prometheus
         # abandons at its 10s timeout is never cancelled, so gathers pile up on
         # client_golang's goCollector mutex and the queue can never drain.  This
         # is here so a wedge can be dumped for the upstream report.  Remove once
         # that is filed and fixed — see todos/generic-device-plugin-hang.md.
         - name: GOTRACEBACK
           value: all
-        # Upstream's defaults.  Memory is deliberately not raised: a wedged pod
-        # and a healthy one both sit near 15Mi, so memory is not what fails.
-        #
-        # The 50m CPU limit is a different matter — a wedged pod is throttled for
-        # 97% of every CFS period, which is what turns one slow gather into a
-        # collapse it cannot recover from.  Removing the limit is one of the two
-        # candidate fixes in the spec, and is the user's call.
         resources:
+          # No CPU limit, deliberately.  A wedged pod was throttled for 97% of
+          # every CFS period and so could not drain its gather queue however
+          # little work was left: the limit is what turned one slow gather into
+          # a collapse.  The request still gives the scheduler something to
+          # place and still bounds this pod's share when the node is contended;
+          # what it no longer does is stop a 2ms gather taking 2ms.  The
+          # liveness probe below is what bounds a runaway instead.
+          #
+          # Memory is limited and deliberately not raised.  A wedged pod and a
+          # healthy one both sit near 15Mi, so memory is not what fails — but
+          # the cgroup crosses 20Mi on page cache, and that OOM kill is the only
+          # thing that recovers a wedge when nothing else does.  Raising it
+          # would remove the backstop behind the backstop.
           requests:
             cpu: 50m
             memory: 10Mi
           limits:
-            cpu: 50m
             memory: 20Mi
+        # docs/kubernetes.md says default to readiness and be wary of liveness.
+        # This is the carve-out.  A restart is the only thing that clears a
+        # wedge; a healthy /metrics answers in 1.6ms, so there is no long
+        # synchronous work in the probe path; and /metrics has no external
+        # dependency, so this cannot turn one outage into many.  Readiness would
+        # accomplish nothing — the DaemonSet sits behind no Service, so NotReady
+        # would neither restore the device nor silence the alert.
+        #
+        # /metrics rather than /health.  /health answers 200 on a pod that has
+        # already stopped serving scrapes and only hangs once the wedge is
+        # total, so it never distinguishes the state worth acting on.
+        #
+        # No startupProbe: the plugin serves ~95ms after start, and three
+        # failures at 15s apart give it 30s before the first restart.
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: http
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
         ports:
         - containerPort: 8080
           name: http

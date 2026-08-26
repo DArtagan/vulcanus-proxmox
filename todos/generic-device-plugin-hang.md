@@ -6,8 +6,9 @@ disproved most of the original reading, so treat anything here as dated to
 2026-08-19 unless it says otherwise.
 
 **Phase 1 shipped 2026-08-14** (`kubernetes/infrastructure/devices.yaml`).
-**The dumps are captured** — that step is done. What remains is filing the
-report and choosing between two candidate fixes.
+**The dumps are captured.** **Both fixes shipped 2026-08-26** — see "The two
+candidate fixes" below. What remains is **filing the upstream report**, and then
+watching for a wedge that recovers in 45s instead of hours.
 
 ## The defect
 
@@ -147,7 +148,16 @@ new device config, or vice versa, and wait.
 
 ## The two candidate fixes
 
-Neither has been applied. They are not mutually exclusive.
+**Both applied 2026-08-26** (Will's decision), in that order of importance.
+They were never mutually exclusive, and the OOM finding of 2026-08-25 is what
+settled the ordering: restarts were already happening involuntarily, so B makes
+recovery fast rather than possible, while A is the only one that attacks how the
+collapse forms.
+
+The same finding rules out one thing that looks adjacent: **do not raise the
+memory limit.** `anon-rss` at kill time is 11–13 MB against 20Mi — it is cgroup
+page cache crossing the line, not the process — and that OOM kill is the only
+recovery a pod has if the probe ever stops working.
 
 **A. Remove the CPU limit, keep the request.** The throttling numbers say the
 50m limit is what converts a slow gather into an unrecoverable collapse: at 97%
@@ -159,8 +169,8 @@ small latency-sensitive daemon. It is a real change to cluster behaviour and is
 instruction that raising the *memory* limit was the wrong answer for the same
 reason it may be the right one here: fix the mechanism, do not pad around it.
 
-**B. The liveness probe.** Still worth having as the backstop, and it is what
-stops the Pushover alerts. It must target `/metrics`, not `/health`.
+**B. The liveness probe.** The backstop, and what stops the Pushover alerts. It
+must target `/metrics`, not `/health`.
 
 ```yaml
 livenessProbe:
@@ -183,8 +193,11 @@ nor stop the alert. No `startupProbe`: the plugin serves ~95ms after start.
 Note `/health` returned 200 on a wedged pod at the early stage and hangs at the
 late stage; it is never a correct probe target here.
 
-Once the probe ships, remove `GOTRACEBACK=all` and fold the probe rationale into
-`docs/kubernetes.md` before deleting this spec.
+`GOTRACEBACK=all` stays for now. Its own condition is "once the report is filed
+and fixed", and it is not filed — and with the CPU limit gone a dump is no
+longer a 25-minute throttled crawl, so keeping the ability is cheap. Remove it,
+and fold the probe rationale into `docs/kubernetes.md`, before deleting this
+spec.
 
 ## Operational note: you cannot debug a wedged pod the easy way
 
@@ -489,3 +502,36 @@ throttling is what turns a wedge into a delay that other workloads feel.
 **A wedged pod was left running rather than restarted**, so worker-1's plugin is
 available for another goroutine dump for as long as it lasts. Restarting it is
 the documented recovery and would destroy that.
+
+## What to watch now that both have shipped
+
+Applied 2026-08-26 with worker-0 wedged and 10 hours down, the control plane
+having flapped four times that day, and 7-day availability at 82.7% / 69.4% /
+89.9% (control-plane / worker-0 / worker-1). All three pods' last termination
+was `OOMKilled`, exit 137.
+
+The regression test is unchanged and is in **Verification** above:
+`scrape_duration_seconds` should return to baseline after an onset rather than
+ratchet toward the 10s timeout. Three things distinguish the outcomes:
+
+- **A worked** — onsets stop becoming collapses. `scrape_duration_seconds`
+  spikes and recovers, restart count stops climbing.
+- **A did not work but B caught it** — restarts continue, but each wedge lasts
+  ~45s rather than hours, and availability goes to ~99%. The remaining question
+  would then be the `stime`-dominated CPU profile (`utime=111 stime=17482`),
+  which says the work is syscalls rather than compute and which nothing here
+  explains.
+- **Neither worked** — restart count climbs *faster* than before, because the
+  probe is now reaping wedges the OOM killer used to take hours to reach. That
+  looks like a regression in `kube_pod_container_status_restarts_total` and is
+  not one; read availability, not restarts.
+
+Watch for one new risk that did not exist before: with no CPU limit, a wedged
+pod can take a whole core on an idle node until the probe reaps it. Worker-1 has
+four cores and also runs ARM's transcode. 45 seconds of that is acceptable; if
+the probe ever fails to fire, it is not.
+
+Still open and untouched by this change: the correlation between the
+2026-08-14 commit and worker-0's first-ever failures. `3e4e016` bundled the
+image bump with the glob path, the data cannot separate them, and that commit is
+also what made ARM's device matching correct — so it is not casually reverted.

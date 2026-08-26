@@ -63,16 +63,18 @@ item here driven by a new want rather than an existing defect.
 
 ## Waiting on a decision
 
-**[generic-device-plugin-hang.md](generic-device-plugin-hang.md) — file the upstream report, then pick a fix**
+**[generic-device-plugin-hang.md](generic-device-plugin-hang.md) — file the upstream report, then watch**
 The plugin pods stop serving HTTP entirely, pin their CPU at the 50m limit with
 97% CFS throttling, and recover only on restart. Root cause is abandoned
 Prometheus gathers: the 10s scrape timeout does not cancel the gather, so they
 queue on goCollector's mutex forever — eight of them, the oldest five hours old,
-were still running in the dump. Two goroutine dumps were captured on 2026-08-19,
-so the capture step that gated everything is done and the liveness probe is no
-longer held back. Outstanding: hand the bug report over for filing, and choose
-between removing the CPU limit and adding the probe. The spec records several
-conclusions from 2026-08-14 that the dumps disproved.
+were still running in the dump. Two goroutine dumps were captured on 2026-08-19.
+Both fixes shipped on 2026-08-26 — the CPU limit is gone and a liveness probe on
+`/metrics` is in — so what is outstanding is handing the bug report over for
+filing, and confirming an onset now recovers rather than collapsing. The spec
+records several conclusions from 2026-08-14 that the dumps disproved, plus a
+2026-08-25 finding that the wedge ends in an OOM kill, which is why the memory
+limit must not be raised.
 **[etcd-disk-latency.md](etcd-disk-latency.md) — get etcd off spinning disks**
 etcd's p99 WAL fsync is 0.25s at rest against a target of 0.010s, because `rpool`
 is two raidz2 vdevs of spinning disks with no SLOG and the host holds no SSD at
