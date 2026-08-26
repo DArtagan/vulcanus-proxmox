@@ -330,7 +330,7 @@ data:
     # We will call the script with two arguments:
     # First Argument: Title
     # Second Argument: Body
-    BASH_SCRIPT: ""
+    BASH_SCRIPT: "/usr/local/bin/arm-audio-handoff.sh"
 
 
     # OMDB_API_KEY
@@ -762,7 +762,15 @@ data:
     # If you'd like to make a default location that overrides the current
     # directory for putting mp3's, uncomment this.
     # OUTPUTDIR="$home/music/"
-    OUTPUTDIR="/root/audio/"
+    # Container-local, deliberately: abcde encodes each track straight to its
+    # output directory, and beets-flask enqueues an album 30s after it stops
+    # changing — a gap that falls between tracks. Writing here and handing the
+    # finished album over in one step is what stops it importing a partial
+    # album and never retrying. See arm-audio-handoff.sh in init-scripts.yaml.
+    #
+    # Not a second mount of the audio share: ARM's write access stays limited
+    # to import/.
+    OUTPUTDIR="/home/arm/arm-incoming/"
 
     # Or if you'd just like to put the temporary .wav files somewhere else
     # you can specify that here

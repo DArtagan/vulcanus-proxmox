@@ -30,6 +30,12 @@ data:
         fi
     done
 
+    # Where abcde writes a CD rip before arm-audio-handoff.sh moves it into the
+    # inbox. Container-local and ephemeral: anything still here after a restart
+    # is a rip that died before handing over, and re-inserting the disc is the
+    # recovery.
+    mkdir -p /home/arm/arm-incoming
+
     ln -s /root/.MakeMKV/ /home/arm/.MakeMKV
 
     # abcde.conf is expected in /etc by the abcde installation
@@ -111,6 +117,100 @@ data:
     done
 
     exec /opt/arm/scripts/docker/docker_arm_wrapper.sh "${DEVNAME}"
+
+  arm-audio-handoff.sh: |
+    #!/bin/bash
+    # Moves a finished CD rip from container-local staging into the beets-flask
+    # inbox, in a way that never shows a partial album.
+    #
+    # abcde encodes each track straight to its output directory, and
+    # beets-flask enqueues an album 30s after it stops changing. Those gaps fall
+    # *between tracks*, so pointing abcde at the inbox means it always sees a
+    # partial album: on 2026-08-26 it built a session against a one-track folder
+    # and never re-enqueued, leaving ten tracks on disk and nothing in the
+    # library.
+    #
+    # Staging is container-local rather than a second mount of the audio share,
+    # so ARM keeps write access to `import/` alone and nothing else.
+    #
+    # Invisibility during the copy uses two independent properties of
+    # beets-flask, because either alone is a single point of failure:
+    #   * its watchdog drops any event whose basename starts with "."
+    #   * a file counts as audio only when its *name* ends in an audio extension
+    # so tracks land as `.<name>.part` and are renamed only once all of them
+    # have arrived. A dotted *directory* is not sufficient — measured with a
+    # matched control on 2026-08-26, beets-flask enqueued dotted and undotted
+    # probes identically.
+    #
+    # ARM calls this for every notification (utils.bash_notify) with
+    # $1=title $2=body, because there is no completion hook: abcde's
+    # do_postprocess is commented out and ARM has no per-stage callback. Hence
+    # the message match.
+    set -u
+
+    BODY="${2:-}"
+
+    STAGING="/home/arm/arm-incoming"
+    INBOX="/root/audio"
+    ARMLOG="/home/arm/logs/arm.log"
+
+    log() {
+        echo "$(date) [ARM] audio-handoff: $*" >> "${ARMLOG}"
+    }
+
+    # utils.py builds this as f"Music CD: {job.title} {PROCESS_COMPLETE}".
+    # Matching the failure messages too would hand off a half-ripped album.
+    case "${BODY}" in
+        "Music CD: "*"processing complete."*) ;;
+        *) exit 0 ;;
+    esac
+
+    [ -d "${STAGING}" ] || { log "nothing staged at ${STAGING}"; exit 0; }
+
+    shopt -s nullglob
+    for album in "${STAGING}"/*/; do
+        album="${album%/}"
+        name="$(basename "${album}")"
+        dest="${INBOX}/${name}"
+
+        if [ -e "${dest}" ]; then
+            log "refusing to overwrite ${dest}; leaving ${name} in staging"
+            continue
+        fi
+
+        mkdir -p "${dest}"
+        failed=0
+        for src in "${album}"/*; do
+            [ -f "${src}" ] || continue
+            base="$(basename "${src}")"
+            if ! cp "${src}" "${dest}/.${base}.part"; then
+                log "copy failed for ${base}"
+                failed=1
+                break
+            fi
+        done
+
+        if [ "${failed}" -ne 0 ]; then
+            # Leave nothing behind that could be read as an album, and keep
+            # staging so the rip is not lost.
+            rm -f "${dest}"/.*.part
+            rmdir "${dest}" 2>/dev/null
+            log "aborted ${name}; staging kept at ${album}"
+            continue
+        fi
+
+        # Reveal. Each rename is within one directory, so the album goes from
+        # invisible to complete in a few milliseconds.
+        for tmp in "${dest}"/.*.part; do
+            base="$(basename "${tmp}")"
+            base="${base#.}"
+            base="${base%.part}"
+            mv "${tmp}" "${dest}/${base}"
+        done
+
+        log "handed off ${name} to ${dest}"
+        rm -rf "${album}"
+    done
 
   armui.sh: |
     #!/bin/bash

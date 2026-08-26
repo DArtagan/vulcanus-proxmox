@@ -713,34 +713,49 @@ into `albumart_backup/` mid-scan. That removes the `FileNotFoundError` and the
 JPEG-enqueued-as-an-album, and gives the conventional layout that beets'
 `fetchart` reads as a filesystem source.
 
-**The partial-album race is still open.** The plan is a staging directory that
-the watcher does not see, with the finished album moved in as one event.
+**The partial-album race is closed** — `arm-audio-handoff.sh` in
+`init-scripts.yaml`, wired as `BASH_SCRIPT`, with tests in
+`tools/arm-audio-handoff/`.
 
-Two things to get right, and **do not repeat the mistake made here on
-2026-08-26**: `inbox.py:108` was read as skipping anything under a dotted path.
-It does not — the check is `os.path.basename(fullpath).startswith(".")` on the
-*event* path, and the event for `.arm-incoming/Album/01.flac` has basename
-`01.flac`. The candidate mechanism is instead `disk.py:135`, where the folder
-walk skips directories matching `ignore_globs`, which resolves here to
-`['.*', '*~', 'System Volume Information', 'lost+found', '*.log', 'desktop.ini',
-'Icon.ico', 'Thumbs.db']`. Verify empirically with a dotted directory **and a
-non-dotted control** before designing on it; a first probe returned "no session
-created" for an unrelated reason (a websocket `ConnectionError` in the handler),
-which would have been read as proof.
+abcde now writes to `/home/arm/arm-incoming/`, **container-local**. Will ruled
+out the alternative — mounting the whole audio share so a staging sibling of
+`import/` could be renamed into place — on data-integrity grounds: it would widen
+ARM's write access from `import/` to `music/`, `audiobooks/` and everything else
+on the share, and upstream ARM has a history of surprising permission and
+directory behaviour. That is why our scripts are hot-plugged in by mount rather
+than trusted to the image.
 
-The other half is where staging lives. Inside the inbox mount, the move is a
-same-filesystem rename — atomic, one event. Outside it, ARM would need a second
-mount of the same PVC at a different subPath, and `mv` across two CIFS mounts is
-a copy: the destination file grows during it, which recreates the race being
-fixed.
+Container-local staging means the handoff is a copy, not a rename, so the
+destination files grow — which would recreate the very race. The script gets
+around it by copying each track to `.<name>.part` and renaming only once all of
+them have landed, using two independent beets-flask properties at once: its
+watchdog drops events whose basename starts with `.`, and a file counts as audio
+only when its *name* ends in an audio extension.
 
-abcde has no usable post-run hook — `do_postprocess` is commented out in the
-script, and its body runs inside a subshell ending in `exit 0`. So the move has
-to come from ARM, and `BASH_SCRIPT` (`config-map.yaml:328`, currently empty) is
-the only lever. It fires on *every* notification, so it would have to match the
-completion message `Music CD: <title> processing complete.` Since the drive is
-exclusive, only one album can be in staging at a time, so the script need not
-parse the title out — it can move whatever is there.
+**A dotted staging directory does not work, and it was tested rather than
+assumed.** Two probes under `/audio/import/`, one dotted and one not, were
+enqueued identically as `import_auto`. `disk.py:135`'s `ignore_globs` skip
+governs the folder walk used for listing, not the watchdog's per-event enqueue
+path. An earlier single probe returned "no session created" for an unrelated
+reason — a websocket `ConnectionError` in the handler — and without the matched
+control would have read as proof.
+
+`inbox.py:108` is **not** the mechanism, despite reading like it: the check is
+`os.path.basename(fullpath).startswith(".")` on the *event* path, so
+`.arm-incoming/Album/01.flac` has basename `01.flac` and passes straight through.
+It does apply to a dotted *filename*, which is why the script uses one.
+
+abcde has no usable post-run hook — `do_postprocess` is commented out, and the
+body runs inside a subshell ending in `exit 0`. So the trigger is ARM's
+`BASH_SCRIPT`, which fires on *every* notification and therefore matches the
+completion message `Music CD: <title> processing complete.` Because the drive is
+exclusive, only one album can be in staging, so the script moves whatever it
+finds rather than parsing the title out.
+
+**Untested against a real disc.** The unit tests cover the decision and the
+naming; what they cannot cover is whether beets-flask actually stays quiet
+through a live copy. Phase 1 is not finished until a second CD goes in and lands
+in the library without a manual rename.
 
 **(b) belongs to `~/repositories/beets-flask/todos/`**, not here.
 

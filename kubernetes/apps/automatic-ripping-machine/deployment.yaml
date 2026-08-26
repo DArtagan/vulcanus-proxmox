@@ -73,6 +73,9 @@ spec:
             - mountPath: /usr/local/bin/arm-disc-wrapper.sh
               name: init-scripts
               subPath: arm-disc-wrapper.sh
+            - mountPath: /usr/local/bin/arm-audio-handoff.sh
+              name: init-scripts
+              subPath: arm-audio-handoff.sh
             - mountPath: /etc/service/armui/run
               name: init-scripts
               subPath: armui.sh
@@ -111,6 +114,8 @@ spec:
                 path: 51-docker-arm.rules
               - key: arm-disc-wrapper.sh
                 path: arm-disc-wrapper.sh
+              - key: arm-audio-handoff.sh
+                path: arm-audio-handoff.sh
               - key: armui.sh
                 path: armui.sh
         - name: data
