@@ -182,6 +182,29 @@ use `pragma integrity_check` instead. And more than one session per folder is
 possible: a failed undo can create a second one, which is what produces the
 contradictory buttons.
 
+### The library keeps its own residue
+
+The session is only half of what a failed import leaves behind. beets adds the
+album to `library.blb` in the apply stage, *before* `manipulate_files` puts any
+file where it belongs, so a failure during file manipulation leaves a complete
+album — every item — whose paths still point inside `/audio/import`:
+
+```sh
+beet ls -a -f '$albumartist - $album'   # looks imported
+beet ls -f '$path' 'album:<name>'       # paths are still under import/
+```
+
+Nothing surfaces this. Flux is healthy, the UI shows the folder as failed, and
+`beet stats` counts the album as part of the collection. Check the paths, not the
+presence of the album.
+
+Repairing the session does not touch it, and the two have to agree. Setting a
+session to `IMPORT_COMPLETED` while the library still points into the inbox
+claims a file layout that does not exist; `PREVIEW_COMPLETED` plus `beet remove`
+of the album — which drops the database rows and leaves the files alone — is the
+combination that actually returns the folder to "not yet imported". `beet remove`
+needs `beets-shell`, which scales the Deployment down for the write.
+
 ## Imports are copies, not moves
 
 beets-flask supports `copy` only — it types `move` as `Literal[False]`, so
@@ -372,6 +395,34 @@ precedent for a second PV against one share.
 `volumeHandle` must be unique per PV for the SMB CSI driver — two PVs sharing a
 handle are treated as the same volume, and the second's `mountOptions` are
 silently dropped.
+
+### The mount hides every permission the server enforces
+
+`uid=`, `gid=`, `file_mode=` and `dir_mode=` describe what the CIFS client
+*reports*. Nothing under `/audio` carries real ownership into the pod, so every
+path renders as `drwxr-xr-x beetle beetle` regardless of what the fileserver
+holds, and `ls` from inside the cluster cannot show a permission problem — it
+prints the mount options back at you. Only two checks mean anything:
+
+```sh
+# Does the operation the app needs actually succeed?
+kubectl exec -n apps <pod> -- su beetle -c 'touch "/audio/import/<folder>/.probe"'
+# What does the server itself think?
+ssh root@192.168.0.105 'stat -c "%a %U:%G %n" "/mnt/storage/media/audio/import/<folder>"'
+```
+
+There is a standing reason to reach for them. `[audio-rw]` sets no `force user`,
+so Samba authorises as the real Unix user `rancher` — unlike `[media]`, which
+forces `nobody` and is immune. A folder that reaches the inbox by a route that
+preserves some other uid — rsync or scp as root, rather than a write through the
+share — lands owned by that uid at mode 0755, leaving rancher `r-x`. beets can
+read the audio and can create nothing beside it.
+
+That asymmetry is what makes the failure confusing rather than merely annoying:
+the destination is writable, the source is not, and the CIFS view says both are
+`beetle`. A copy out of such a folder succeeds; anything needing to write or
+unlink *within* it fails with `Permission denied` against a directory whose
+permissions look correct from every vantage point inside the cluster.
 
 ## Image updates
 
