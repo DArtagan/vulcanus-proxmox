@@ -739,7 +739,17 @@ data:
     #  ACTIONS=default,playlist
     # The default action list (referenced as "default") is defined in the following
     # comment:
-    ACTIONS=musicbrainz,read,encode,tag,move,replaygain,clean,getalbumart,embedalbumart
+    # `embedalbumart` is deliberately absent. It embeds cover.jpg into every
+    # track and then, hardcoded with no way to configure it, does
+    #   mkdir "$FINALDIR"/albumart_backup && mv "$ALBUMARTFILE" "$FINALDIR"/albumart_backup
+    # That leaves the conventional cover.jpg missing from the album directory,
+    # and the mid-rip move of a file beets-flask is scanning is a race it loses:
+    # on 2026-08-26 it threw FileNotFoundError on the vanished cover.jpg, and
+    # separately enqueued albumart_backup/ as an album of its own containing one
+    # JPEG. `getalbumart` alone leaves cover.jpg beside the audio, which is both
+    # the traditional layout and what beets' fetchart reads as a filesystem
+    # source.
+    ACTIONS=musicbrainz,read,encode,tag,move,replaygain,clean,getalbumart
 
     # CD device you want to read from
     # It can be defined as a singletrack flac file, but since it might change from

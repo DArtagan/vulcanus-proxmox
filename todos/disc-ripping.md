@@ -29,7 +29,7 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 | Phase | What | State |
 |---|---|---|
 | 0 | Unwedge the drive, close the cross-cutting defects | **done** — reconciled and verified in the container, 2026-08-25 |
-| 1 | Audio CD | **next** — needs the Mànran CD put back in the drive |
+| 1 | Audio CD | rip **proven end to end** 2026-08-26; handoff to beets still racy |
 | 2 | DVD | not started |
 | 3 | Blu-ray | not started |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
@@ -612,9 +612,30 @@ than assuming it.
 
 Open questions for this phase:
 
-- **Integrity.** abcde's exit code is the only signal ARM checks (D4). cdparanoia
-  reports per-track read status; that output goes into the job log and nothing
-  reads it. Decide what "this rip is good" means and test it.
+- **Integrity. There is no read-quality signal at all** — corrected 2026-08-26,
+  having previously been written here as "cdparanoia reports it and nothing reads
+  it". It does not report it. `CDPARANOIAOPTS` is empty in abcde and we set
+  nothing, and cdparanoia suppresses its progress display when stderr is not a
+  terminal — `-e/--stderr-progress` exists precisely to "force output of progress
+  information to stderr (for wrapper scripts)", which is what abcde is. What the
+  job log actually contains per track is:
+
+  ```
+  Ripping from sector 0 (track 1 [7:34.69])
+  outputting to /home/arm/abcde.xxxxxxx/track01.wav
+  Done.
+  ```
+
+  No status symbols, no error summary, nothing. So a scratched disc yields
+  patched or silence-filled audio and the job still reports success, because
+  `rip_music()` checks only abcde's exit code (D4).
+
+  That reframes the `whipper` question. The first move is not AccurateRip, it is
+  making abcde say anything at all: `CDPARANOIAOPTS="-e"` in our `abcde.conf` is
+  config-only and puts the per-track smilies in the log. Consider `-z=N` to bound
+  how long it retries a bad sector, or `-X` to abort outright, and note plain
+  `-z` retries forever, which on a damaged disc holds the drive indefinitely.
+  Once that is in, decide whether AccurateRip is worth the move off ARM.
 - **AccurateRip.** Not available — `whipper` and `cdrdao` are absent from the
   container. If Will wants EAC-grade verification this is the "radical
   improvement" candidate, and it means running the CD path outside ARM. Raise it
@@ -626,6 +647,117 @@ Open questions for this phase:
 
 **Test disc:** the Mànran *The Test* CD from job 12 — already MusicBrainz-matched,
 so it exercises the happy path.
+
+### The manual wait is dead time on an audio CD, and cannot be shortened
+
+Found 2026-08-26 during the first run of phase 1. Three upstream defects compose,
+all three now on the Upstream list:
+
+- The disc *is* identified early — `logger.py:35` calls `Job.identify_audio_cd()`
+  to name the log file, which resolves the MusicBrainz title before anything else
+  runs. Job 13's title was `Mànran The Test` from the first second.
+- But `job.label` stays empty, because the only thing that sets it for music sits
+  behind `if mounted:` and an audio CD has no filesystem — and `notify_entry`
+  reads `label`, not `title`. Hence "Found music CD: None" on a disc ARM had
+  already named.
+- And the UI renders no identification controls at all for a music job, so
+  `title_manual` can never be set, so `check_for_wait()` can never break early.
+
+Net effect: **every audio CD waits the full `MANUAL_WAIT_TIME` doing nothing a
+person could act on, and the notification cannot tell them which disc it is.** At
+600s that roughly doubles the wall-clock time per disc, against a rip of ~10–15
+minutes. For someone feeding a stack it is the dominant cost.
+
+Config cannot fix this — `MANUAL_WAIT` is global and the DVD case genuinely wants
+it. Fixing it locally would mean the forked image.
+
+**Will's decision, 2026-08-26: do not fork for this.** "That time cost is not a
+worry to us in the day-to-day." It stays on the Upstream list, where the fix is
+small and defensible — use `job.title` in the music branch of `notify_entry`,
+include the job link as the video branch does, and skip the wait for disc types
+the UI offers no override for. Do not re-propose a fork on the strength of the
+wait alone; something else would have to justify it.
+
+### The handoff to beets is racy, and this rip is stuck in the inbox
+
+Found 2026-08-26 on job 13, the first complete audio rip. **The rip itself was
+perfect; the import never happened.** The album is still in `/audio/import/` and
+absent from the beets library.
+
+Two independent defects compose. The evidence, in order:
+
+| time | what |
+|---|---|
+| 19:24:46 | abcde writes `01 - MSR.flac` into `/root/audio/Mànran The Test/` — the beets-flask inbox |
+| 19:25:16 | beets-flask's 30s debounce fires. `folder` row created for a directory holding **one track**, session `60ee9477` created |
+| 19:27–19:37 | nine more tracks land. Every watchdog event logs `skipping enqueue` |
+| ~19:37 | abcde's `embedalbumart` moves `cover.jpg` into `albumart_backup/`. beets-flask, scanning, hits `FileNotFoundError: /audio/import/Mànran The Test/cover.jpg` |
+| 19:38:01 | ARM reports success. Session `60ee9477` is still `NOT_STARTED` with **no task ever created** |
+| 19:38:25 | `albumart_backup/` is a *new* path with no session, so it **is** enqueued as `import_auto` — a folder containing one JPEG and no audio |
+
+**(a) ARM writes incrementally into a watched directory.** abcde encodes each
+track straight to its final path, and gaps between tracks run 60–170s — far
+longer than `debounce_before_autotag: 30`. So beets-flask always sees a partial
+album, and `cover.jpg` moving out from under it mid-scan is the same race in a
+second form.
+
+**(b) beets-flask never retries an `IMPORT_AUTO` that did not start.**
+`watchdog/inbox.py:186-201`: `should_enqueue` is true only when no session
+exists for the path, and only `PREVIEW` re-enqueues on a hash change. So one
+early, failed session pins the folder permanently. Three other albums imported
+cleanly at 17:51 the same day, so this is the race and not a broken installation.
+
+**Half of (a) is already fixed.** `embedalbumart` is out of abcde's `ACTIONS`,
+so `cover.jpg` stays beside the audio instead of being embedded and then moved
+into `albumart_backup/` mid-scan. That removes the `FileNotFoundError` and the
+JPEG-enqueued-as-an-album, and gives the conventional layout that beets'
+`fetchart` reads as a filesystem source.
+
+**The partial-album race is still open.** The plan is a staging directory that
+the watcher does not see, with the finished album moved in as one event.
+
+Two things to get right, and **do not repeat the mistake made here on
+2026-08-26**: `inbox.py:108` was read as skipping anything under a dotted path.
+It does not — the check is `os.path.basename(fullpath).startswith(".")` on the
+*event* path, and the event for `.arm-incoming/Album/01.flac` has basename
+`01.flac`. The candidate mechanism is instead `disk.py:135`, where the folder
+walk skips directories matching `ignore_globs`, which resolves here to
+`['.*', '*~', 'System Volume Information', 'lost+found', '*.log', 'desktop.ini',
+'Icon.ico', 'Thumbs.db']`. Verify empirically with a dotted directory **and a
+non-dotted control** before designing on it; a first probe returned "no session
+created" for an unrelated reason (a websocket `ConnectionError` in the handler),
+which would have been read as proof.
+
+The other half is where staging lives. Inside the inbox mount, the move is a
+same-filesystem rename — atomic, one event. Outside it, ARM would need a second
+mount of the same PVC at a different subPath, and `mv` across two CIFS mounts is
+a copy: the destination file grows during it, which recreates the race being
+fixed.
+
+abcde has no usable post-run hook — `do_postprocess` is commented out in the
+script, and its body runs inside a subshell ending in `exit 0`. So the move has
+to come from ARM, and `BASH_SCRIPT` (`config-map.yaml:328`, currently empty) is
+the only lever. It fires on *every* notification, so it would have to match the
+completion message `Music CD: <title> processing complete.` Since the drive is
+exclusive, only one album can be in staging at a time, so the script need not
+parse the title out — it can move whatever is there.
+
+**(b) belongs to `~/repositories/beets-flask/todos/`**, not here.
+
+**Resolved for this album, 2026-08-26.** Neither supported route worked: session
+delete is beets-flask's own `session-delete-circular-dependency` bug, and opening
+the candidate view crashes the UI with `can't access property "asis_candidate", a
+is undefined` — `candidateSelector.tsx:93` dereferences `task.asis_candidate`
+and a never-started session has zero tasks, so `task` is `undefined`. A folder
+whose import is stuck is therefore unreachable from the UI as well.
+
+What worked: move `albumart_backup/cover.jpg` up to `cover.jpg`, remove the empty
+subdirectory, and **rename the folder**. The session lookup is
+`get_by_hash_and_path(hash=None, path=…)`, so a new path gets a new session. It
+enqueued on its own and imported 40 seconds later.
+
+All of this is written up for upstream in
+`~/repositories/beets-flask/todos/inbox-auto-import-never-retries.md`.
 
 ## Phase 2 — DVD
 
@@ -763,6 +895,9 @@ fixed.
 | The abandon notification prints the PID as if it were the job id | `ui/json_api.py` | `Job: 366 was Abandoned!` where 366 is a PID. Makes the notification history unreadable against the job table. |
 | One insert produces two jobs, and `duplicate_run_check` does not catch it | `ripper/utils.py:758` | D2. The docstring says this is exactly what it is for, but the first job finishes failing before the second starts, so there is no overlap to detect. Gating on `ID_CDROM_MEDIA_*` is what actually fixes it — our `arm-disc-wrapper.sh` does it outside ARM, and it belongs inside. |
 | `parse_udev()` lets the last matching key win | `models/job.py:170` | A `for` loop of `elif`s with no `break`, so `disctype` depends on udev's iteration order rather than on precedence. |
+| The music notification names `job.label`, which is always empty for an audio CD | `ripper/utils.py:115` | The video branch two lines up uses `job.title` and appends a link to the job. For music it uses `label`, so every Pushover message reads "Found music CD: None" — while `job.title` is sitting there correctly populated. One word. |
+| `job.label` is never set for an audio CD | `ripper/identify.py:65-70` | `job.get_disc_type()` — the only thing that assigns `label` for music — is inside `if mounted:`, and an audio CD has no mountable filesystem. So the field the notification reads can never be filled for the one disc type that reads it. |
+| The UI offers no way to identify a music job, so its manual wait can never end early | `ui/static/js/common.js:79` | `musicCheck()` renders Title Search, Custom Title and Edit Settings only when `video_type !== "Music"`. `check_for_wait()` exits early only when `title_manual` is set, and nothing can set it. The full `MANUAL_WAIT_TIME` therefore always elapses on an audio CD, doing nothing that could be acted on. |
 | ARM rewrites the operator's `arm.yaml` in place | `config/config.py:33-38` | It merges its shipped template under the user's file and writes the result back, so a key removed by the operator is silently restored and the operator's comments are replaced by `comments.json`. Hostile to anything that manages the file declaratively — a ConfigMap, Ansible, a Nix module. The merge itself is reasonable; writing it back over the source is not. |
 
 The first three are one report, not three: they compose into the wedge.
@@ -918,3 +1053,30 @@ drive, enclosure door open. Four things to watch, in order —
   picks it up inside its 30s debounce;
 - what cdparanoia reports per track. Nothing reads that today, and it is the
   input to the `whipper` decision Will deferred until there was real data.
+
+### 2026-08-26 — phase 1: the rip works, the handoff did not
+
+Job 13 is **the first ARM job ever to produce a verified file.** Ten FLACs,
+363 MB, all ten pass `flac -t`, tags clean (artist/album/title/date/track/total
+plus ReplayGain), and the tray opened by itself. Every phase 0 fix held: one job
+rather than two, the wait released at 600s, and both Pushover notifications
+arrived — the first end-to-end confirmation that ARM can tell anyone anything.
+
+The import did not happen, for reasons entirely downstream of the rip. Written
+up above and, for the parts that are upstream's, in the beets-flask fork's
+todos. The album is in the library now.
+
+Three findings worth carrying into phases 2–4:
+
+- **"Success" still needs checking against output**, and now there is a way:
+  `flac -t` for audio. D4 remains the rule.
+- **The audio path has no read-quality signal**, which is not what this spec said
+  before today. `CDPARANOIAOPTS="-e"` is the cheap fix and it comes before any
+  `whipper` decision.
+- **whipper has no post-run hook and will not get one** —
+  [whipper-team/whipper#394](https://github.com/whipper-team/whipper/issues/394)
+  asked for exactly this, citing "adding the release to beets" as the use case,
+  and was closed with a "Rejected" label. That is not an argument against
+  whipper: adopting it means writing a wrapper to invoke it anyway, and a
+  wrapper is a superset of a hook. The hook question only matters when bolting
+  it into someone else's pipeline.
