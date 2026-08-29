@@ -214,9 +214,12 @@ it is there. Merge the branch into `main` as often as testing requires. **Never
 merge `main` back into the branch** — the review diff is computed from the fork
 point, so a back-merge drags Flux Bot's commits into it.
 
-**Roll forward.** A change that does not work out gets more commits, never
-amended or rebased ones, and nothing is squashed: the commit series is the thread
-of development the review follows.
+**Roll forward.** A change that does not work out gets more commits. Once a
+commit is pushed it is never amended, rebased or squashed — `main` is reconciled
+by Flux and shared across machines, so rewriting it is not a local matter.
+Correcting a commit that has never left the machine is fine; the rule exists to
+protect history others have already seen, and to keep the commit series intact as
+the thread of development the review follows.
 
 **The review** is a pull request opened after the first commit and before the
 first deploy — GitHub cannot open one with no commits between base and head —
