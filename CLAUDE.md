@@ -234,7 +234,10 @@ replies to and resolves them with `tools/review/`.
 **Closing** merges the PR into its own frozen base. That is a real merge and
 leaves `main` untouched, because the code reached `main` incrementally long
 before. The mechanics are the `review-open`, `deploy` and `review-close` aliases
-in `.config/wt.toml`.
+in `.config/wt.toml`. Closing in the browser skips `review-close` and its
+check that the work reached `main`, so
+`.github/workflows/land-reviewed-work.yml` merges it there instead — which means
+closing a review from the browser can deploy to the cluster.
 
 If a conflict resolved during a merge to `main` changes the project's own work,
 make the equivalent edit on the branch as an ordinary commit. Otherwise the

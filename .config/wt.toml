@@ -79,5 +79,9 @@ if ! git merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
   fi
 fi
 
+# Drafts cannot be merged from the web UI; whether the API refuses one is not
+# worth depending on either way, and closing the review is exactly the moment the
+# work stops being a draft.
+gh pr ready {{ branch }}
 gh pr merge {{ branch }} --merge --delete-branch
 '''
