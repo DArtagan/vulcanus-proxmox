@@ -117,7 +117,8 @@ The Kubernetes-specific ones live in [`docs/kubernetes.md`](docs/kubernetes.md),
 
 ## Documentation Protocol
 
-Two directories, deliberately separated by tense.
+Two directories, deliberately separated by tense, plus an index of what is
+finished.
 
 **`docs/` — the present system.** How things work as they stand. Descriptive,
 not aspirational: if something in `docs/` is not true of the running cluster,
@@ -128,6 +129,11 @@ verified context to start a session cold plus a prompt to open with. A file
 existing in `todos/` means that work is outstanding. See `todos/README.md`, which
 also holds the ordered priority list and guidance on writing a good spec.
 
+**[`docs/project_log.md`](docs/project_log.md) — work that is finished.** The
+slug each project used, when it landed, and the pull request where its review
+happened. The one past-tense file in `docs/`, and the registry that stops a slug
+being reused.
+
 **The lifecycle:**
 
 1. Work is identified and written as a spec in `todos/`, capturing what was
@@ -135,7 +141,9 @@ also holds the ordered priority list and guidance on writing a good spec.
 2. The work is carried out, usually in its own session opened with that spec.
 3. Whatever the work leaves behind that is *permanently true* is written into
    `docs/` — the resulting architecture, conventions, operational notes.
-4. The spec in `todos/` is deleted. It was scaffolding.
+4. The spec in `todos/` is deleted — it was scaffolding — and an entry is added
+   to [`docs/project_log.md`](docs/project_log.md). Steps 3 and 4 belong in one
+   commit on the project branch, so the closing change lands inside the review.
 
 The point of the split is that the two ages differently. Documentation of the
 present system should be corrected whenever reality moves. A work spec is a
@@ -173,13 +181,67 @@ Applies to comments and config as much as to prose here.
   the exception worth protecting — `CronJobHasNeverSucceeded` explaining why it
   measures from `kube_cronjob_created`, or the `version-skew` rule preferring
   `kube_pod_container_info`, guard against a reader reintroducing the bug. The
-  test is whether they plausibly could.
+  test is whether they plausibly could. The single exception is
+  [`docs/project_log.md`](docs/project_log.md), which is past tense by design —
+  see [`docs/README.md`](docs/README.md) for why an index of pointers is not a
+  file narrating its own edit history.
 - **Never expose an option whose other setting is simply wrong.** That is not
   configuration, it is a way to break things plus an untested evaluation path.
   Inline the value and comment why it is fixed; keep only what genuinely differs
   between call sites. Nothing here is written for a hypothetical fork, so "someone
   might want to change it" is not a reason to keep a knob. And once one is gone it
   leaves no trace — an absent setting needs no epitaph.
+
+## Project Workflow
+
+Work of any consequence gets a branch, and that branch is what a review sees. The
+branch — not a commit range, not a session — is what defines a project, because
+`main` interleaves Flux Bot's commits with everything else and no contiguous
+range is ever just one project.
+
+**The slug** is the `todos/` spec filename without `.md`. It names the branch and
+appears in commit trailers. New specs drop the `-prompt`, `-spec` and `-context`
+suffixes — every file in `todos/` is a spec, so the suffix says nothing. Slugs
+are never reused; [`docs/project_log.md`](docs/project_log.md) is the registry.
+Work too small to warrant future notice needs none of this.
+
+**Commits** carry a `Project: <slug>` trailer where they are substantive.
+Roll-forwards and trivial fixes need none, and one commit may carry several. The
+trailer is a convenience for finding work on `main`; the branch is the authority.
+
+**Deploying to test.** Flux reconciles from `main`, so nothing is testable until
+it is there. Merge the branch into `main` as often as testing requires. **Never
+merge `main` back into the branch** — the review diff is computed from the fork
+point, so a back-merge drags Flux Bot's commits into it.
+
+**Roll forward.** A change that does not work out gets more commits. Once a
+commit is pushed it is never amended, rebased or squashed — `main` is reconciled
+by Flux and shared across machines, so rewriting it is not a local matter.
+Correcting a commit that has never left the machine is fine; the rule exists to
+protect history others have already seen, and to keep the commit series intact as
+the thread of development the review follows.
+
+**The review** is a pull request opened after the first commit and before the
+first deploy — GitHub cannot open one with no commits between base and head —
+based on a
+`review/<slug>-base` branch frozen at the fork point. That base never receives
+the work, so merging into `main` does not close the PR and its diff stays exactly
+this project's total change. Anything computing that diff reads the base from
+its ref rather than recomputing it: `merge-base` returns the branch tip once the
+work has reached `main`, which yields an empty diff. Comment threads are the review; a session reads,
+replies to and resolves them with `tools/review/`.
+
+**Closing** merges the PR into its own frozen base. That is a real merge and
+leaves `main` untouched, because the code reached `main` incrementally long
+before. The mechanics are the `review-open`, `deploy` and `review-close` aliases
+in `.config/wt.toml`. Closing in the browser skips `review-close` and its
+check that the work reached `main`, so
+`.github/workflows/land-reviewed-work.yml` merges it there instead — which means
+closing a review from the browser can deploy to the cluster.
+
+If a conflict resolved during a merge to `main` changes the project's own work,
+make the equivalent edit on the branch as an ordinary commit. Otherwise the
+review passes on code that is not what is deployed.
 
 ## Security Policy
 
