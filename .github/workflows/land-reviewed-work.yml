@@ -48,6 +48,11 @@ jobs:
             echo "Already on main; nothing to land."
             exit 0
           fi
+          # An identity is required: actions/checkout sets none, so git refuses to
+          # merge without one. The id+login@users.noreply.github.com form is what
+          # makes GitHub attribute the commit to the bot account instead of an
+          # unlinked name; 41898282 is that account's id and never changes, so it
+          # is inlined rather than looked up on every run.
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git merge --no-ff "$HEAD_SHA" -m "Land $HEAD_REF on main after review."
