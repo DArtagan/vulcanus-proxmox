@@ -63,5 +63,21 @@ git switch {{ branch }}
 # long before. The base branch is kept, not deleted, so the PR renders forever.
 review-close = '''
 set -e
+
+# Closing deletes the branch, so the work has to be on main first. A project that
+# touches nothing Flux deploys never needs `deploy` for testing, which is exactly
+# when this is easy to forget and expensive to get wrong: the commits would
+# survive only on the frozen review base.
+# Checked against the local ref first so the ordinary case costs no passphrase.
+if ! git merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
+  git fetch -q origin main
+  if ! git merge-base --is-ancestor HEAD origin/main; then
+    echo "this branch is not contained in main - run wt deploy first." >&2
+    echo "closing deletes the branch, and the work would survive only on the" >&2
+    echo "frozen review base." >&2
+    exit 1
+  fi
+fi
+
 gh pr merge {{ branch }} --merge --delete-branch
 '''
