@@ -225,10 +225,110 @@ class Safety(unittest.TestCase):
             with open(os.path.join(existing, "keep.flac"), "w") as fh:
                 fh.write("previous rip\n")
             h.run()
-            self.assertEqual(h.inbox_tree(), ["keep.flac"])
-            self.assertTrue(
+            self.assertEqual(
+                h.inbox_tree(), ["keep.flac"], "the first album must be untouched"
+            )
+
+
+class CollidingAlbumNames(unittest.TestCase):
+    """Two discs can produce the same album directory, and it is not a corner
+    case: every disc MusicBrainz cannot identify is named
+    `Unknown Artist Unknown Album`. Two of those in a row collide.
+
+    Refusing the handoff and keeping the album in staging looks safe and is not,
+    for two reasons found on 2026-08-29. Staging is container-local and
+    ephemeral, so a retained album dies at the next pod restart. And abcde writes
+    the *next* rip into that same directory, so an 8-track disc landing on a
+    retained 11-track one leaves tracks 1-8 from the new disc and 9-11 from the
+    old — a plausible-looking album that is two discs. Silent corruption, which
+    is worse than either losing it or refusing loudly.
+
+    So the album always lands; the name is disambiguated instead."""
+
+    def _rip(self, harness, tracks, contents):
+        os.makedirs(harness.album_dir, exist_ok=True)
+        for t in tracks:
+            with open(os.path.join(harness.album_dir, t), "w") as fh:
+                fh.write(contents)
+        harness.run()
+
+    def test_second_album_lands_beside_the_first(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            h = Harness(tmp, album="Unknown Artist Unknown Album", tracks=TRACKS)
+            h.run()
+            self._rip(h, TRACKS, "second disc\n")
+            self.assertEqual(
+                sorted(os.listdir(h.inbox)),
+                ["Unknown Artist Unknown Album", "Unknown Artist Unknown Album (2)"],
+            )
+            with open(
+                os.path.join(h.inbox, "Unknown Artist Unknown Album (2)", TRACKS[0])
+            ) as fh:
+                self.assertEqual(fh.read(), "second disc\n")
+
+    def test_third_album_lands_too(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            h = Harness(tmp, album="Unknown Artist Unknown Album", tracks=TRACKS)
+            h.run()
+            self._rip(h, TRACKS, "second\n")
+            self._rip(h, TRACKS, "third\n")
+            self.assertIn("Unknown Artist Unknown Album (3)", os.listdir(h.inbox))
+
+    def test_staging_is_always_cleared_so_the_next_rip_cannot_merge(self):
+        # The corruption path: staging left populated, then abcde rips a
+        # shorter disc into it and the leftover tracks masquerade as part of it.
+        with tempfile.TemporaryDirectory() as tmp:
+            h = Harness(tmp, album="Unknown Artist Unknown Album", tracks=TRACKS)
+            h.run()
+            self.assertFalse(os.path.isdir(h.album_dir))
+            self._rip(h, TRACKS, "second\n")
+            self.assertFalse(
                 os.path.isdir(h.album_dir),
-                "staging must be kept when the handoff is refused",
+                "staging must be empty after a colliding handoff too",
+            )
+
+    def test_the_first_album_is_never_modified(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            h = Harness(tmp, album="Unknown Artist Unknown Album", tracks=TRACKS)
+            h.run()
+            first = os.path.join(h.inbox, "Unknown Artist Unknown Album", TRACKS[0])
+            before = open(first).read()
+            self._rip(h, TRACKS, "second disc\n")
+            self.assertEqual(open(first).read(), before)
+
+    def test_a_colliding_handoff_is_still_invisible_while_incomplete(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            h = Harness(tmp, album="Unknown Artist Unknown Album", tracks=TRACKS)
+            h.run()
+            os.remove(h.copies)
+            self._rip(h, TRACKS, "second\n")
+            for d in h.copy_destinations():
+                base = os.path.basename(d)
+                self.assertTrue(base.startswith("."), base)
+                self.assertFalse(base.endswith(".flac"), base)
+
+    def test_a_failed_copy_moves_staging_aside_so_it_cannot_be_merged_into(self):
+        # The abort path is now the only one that keeps staging, which makes it
+        # the only remaining way abcde's next rip could write into a directory
+        # that still holds an album. Moving it aside closes that.
+        with tempfile.TemporaryDirectory() as tmp:
+            h = Harness(tmp)
+            Harness._write(
+                os.path.join(h.bindir, "cp"),
+                f'#!/bin/sh\necho "$2" >> {h.copies}\n'
+                f'[ "$(wc -l < {h.copies})" -gt 1 ] && exit 1\n'
+                f'exec {h.real_cp} "$@"\n',
+            )
+            h.run()
+            self.assertFalse(
+                os.path.isdir(h.album_dir),
+                "the album abcde would rip into next must not still hold a rip",
+            )
+            kept = [d for d in os.listdir(h.staging) if d.startswith("Mànran The Test")]
+            self.assertEqual(len(kept), 1, f"the rip must be kept somewhere: {kept}")
+            self.assertNotEqual(kept[0], "Mànran The Test")
+            self.assertEqual(
+                sorted(os.listdir(os.path.join(h.staging, kept[0]))), sorted(TRACKS)
             )
 
     def test_a_failed_copy_leaves_no_audio_in_the_inbox(self):
@@ -246,7 +346,8 @@ class Safety(unittest.TestCase):
                 h.inbox_tree(), [], "a partial album must not be left behind"
             )
             self.assertTrue(
-                os.path.isdir(h.album_dir), "staging must survive a failed handoff"
+                any(d.startswith("Mànran The Test") for d in os.listdir(h.staging)),
+                "the rip must survive a failed handoff, under some name",
             )
 
 
