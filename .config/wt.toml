@@ -42,32 +42,7 @@ fi
 git push -u origin {{ branch }}
 git push origin "$base:refs/heads/review/{{ branch }}-base"
 gh pr create --base "review/{{ branch }}-base" --head {{ branch }} --draft \
-  --title "{{ branch }}" --body "Inventory pending: run \`wt review-body\`."
-'''
-
-# Rewrite the PR body as a neutral inventory: what changed and in which commits,
-# with no narrative. The base is read from its ref and never recomputed with
-# merge-base: after the first deploy the branch is contained in main, so a
-# recomputed base would collapse to the branch tip and the inventory would come
-# out empty. Orientation belongs behind a <details> fold added by hand,
-# so a reader forms their own view before reading anyone else's.
-# --no-ext-diff is required: diff.external is difftastic globally, so a plain
-# git diff here would emit rendered output instead of a stat.
-review-body = '''
-set -e
-git fetch -q origin "refs/heads/review/{{ branch }}-base:refs/remotes/origin/review/{{ branch }}-base"
-base=$(git rev-parse "origin/review/{{ branch }}-base")
-{
-  echo "## Inventory"
-  echo
-  echo '```'
-  git diff --no-ext-diff --stat "$base..HEAD"
-  echo '```'
-  echo
-  echo "## Commits"
-  echo
-  git log --reverse --format='- `%h` %s' "$base..HEAD"
-} | gh pr edit {{ branch }} --body-file -
+  --title "{{ branch }}" --body ""
 '''
 
 # Merge the branch into main so Flux deploys it. One way only: merging main back

@@ -226,7 +226,9 @@ first deploy â€” GitHub cannot open one with no commits between base and head â€
 based on a
 `review/<slug>-base` branch frozen at the fork point. That base never receives
 the work, so merging into `main` does not close the PR and its diff stays exactly
-this project's total change. Comment threads are the review; a session reads,
+this project's total change. Anything computing that diff reads the base from
+its ref rather than recomputing it: `merge-base` returns the branch tip once the
+work has reached `main`, which yields an empty diff. Comment threads are the review; a session reads,
 replies to and resolves them with `tools/review/`.
 
 **Closing** merges the PR into its own frozen base. That is a real merge and
