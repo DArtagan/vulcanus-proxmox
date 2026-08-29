@@ -173,10 +173,21 @@ data:
         name="$(basename "${album}")"
         dest="${INBOX}/${name}"
 
-        if [ -e "${dest}" ]; then
-            log "refusing to overwrite ${dest}; leaving ${name} in staging"
-            continue
-        fi
+        # Two discs can land on the same name, and it is not a corner case:
+        # every disc MusicBrainz cannot identify is called
+        # "Unknown Artist Unknown Album". Disambiguate rather than refuse.
+        #
+        # Refusing and leaving the album in staging looks safer and is not.
+        # Staging is container-local, so a retained album dies at the next pod
+        # restart; and abcde writes the *next* rip into the same directory, so
+        # an 8-track disc landing on a retained 11-track one leaves tracks 1-8
+        # from the new disc and 9-11 from the old. That album looks complete and
+        # is two discs.
+        suffix=2
+        while [ -e "${dest}" ]; do
+            dest="${INBOX}/${name} (${suffix})"
+            suffix=$(( suffix + 1 ))
+        done
 
         mkdir -p "${dest}"
         failed=0
@@ -191,11 +202,16 @@ data:
         done
 
         if [ "${failed}" -ne 0 ]; then
-            # Leave nothing behind that could be read as an album, and keep
-            # staging so the rip is not lost.
+            # Leave nothing in the inbox that could be read as an album, and
+            # keep the rip rather than discarding it. Move it aside under a name
+            # abcde will not rip into: this is the only path that keeps staging,
+            # so it is the only remaining way the next disc could merge into an
+            # existing album.
             rm -f "${dest}"/.*.part
             rmdir "${dest}" 2>/dev/null
-            log "aborted ${name}; staging kept at ${album}"
+            kept="${album}.failed-$(date +%s)"
+            mv "${album}" "${kept}"
+            log "aborted ${name}; rip kept at ${kept}, and it will not survive a pod restart"
             continue
         fi
 
@@ -209,6 +225,7 @@ data:
         done
 
         log "handed off ${name} to ${dest}"
+        # Always, so the next rip cannot merge into what is left here.
         rm -rf "${album}"
     done
 

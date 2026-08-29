@@ -785,6 +785,25 @@ completion message `Music CD: <title> processing complete.` Because the drive is
 exclusive, only one album can be in staging, so the script moves whatever it
 finds rather than parsing the title out.
 
+**Colliding album names are disambiguated, not refused.** Every disc MusicBrainz
+cannot identify is called `Unknown Artist Unknown Album`, so two unidentified
+discs in a row collide — which is not a corner case once a stack is being fed in.
+
+The first version refused the handoff and kept the album in staging. That looks
+safe and is not, for two reasons found on 2026-08-29 by reproducing it:
+
+- Staging is container-local, so a retained album dies at the next pod restart.
+- abcde rips the *next* disc into that same directory. An 8-track disc landing on
+  a retained 11-track one leaves tracks 1–8 from the new disc and 9–11 from the
+  old — an album that looks complete and is two discs. Silent corruption, worse
+  than either losing it or failing loudly.
+
+So the destination gets a ` (2)`, ` (3)` suffix and the album always lands, and
+staging is cleared on every success. The one path that still keeps a rip is a
+failed copy, and it moves the directory aside to `<album>.failed-<epoch>` for the
+same reason — that was the last route by which the next disc could merge into an
+existing album.
+
 **Proven on a real disc, 2026-08-29.** Job 14: eleven tracks handed off in one
 step, and beets-flask created its session **70 seconds after** the handoff,
 reaching `PREVIEW_COMPLETED` rather than the `NOT_STARTED` dead-end job 13 hit.
