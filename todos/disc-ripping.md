@@ -29,7 +29,7 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 | Phase | What | State |
 |---|---|---|
 | 0 | Unwedge the drive, close the cross-cutting defects | **done** — reconciled and verified in the container, 2026-08-25 |
-| 1 | Audio CD | rip **proven end to end** 2026-08-26; handoff to beets still racy |
+| 1 | Audio CD | **done** — proven end to end on two discs, 2026-08-29 |
 | 2 | DVD | not started |
 | 3 | Blu-ray | not started |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
@@ -640,10 +640,30 @@ Open questions for this phase:
   and `-X` aborts outright — pick one once real discs have reported something,
   rather than guessing a retry count now.
 
-  **Nothing reads this yet.** D4 still stands: `rip_music()` checks abcde's exit
-  code alone, so a disc full of `;-(` still reports success. The log is now
-  worth reading; making the job fail on it is the next step, and it needs a
-  sample of what ordinary discs produce before a threshold means anything.
+  **`-e` is the machine-readable callback stream, not the smiley progress bar** —
+  that is `-E`. Each line is `##: <code> [<action>] @ <sector>`, which is the
+  better of the two here because it can be counted rather than eyeballed. The
+  config comment said smilies until 2026-08-29; it was written from
+  `cdparanoia --help`'s legend without checking which format the flag selects.
+
+  **Baseline for a clean disc**, from job 14, an 11-track CD:
+
+  | callback | count |
+  |---|---|
+  | `-2 [wrote]` | 188899 |
+  | `0 [read]` | 14512 |
+  | `1 [verify]` | 1068 |
+  | `9 [overlap]` | 225 |
+  | `-1 [finished]` | 11 |
+
+  `overlap` is paranoia adjusting its read overlap, not an error. Anything else
+  — scratch, skip, readerr, fixup dropped/duped, repair, backoff — means the
+  audio may be wrong. That is the threshold: **any callback outside those five
+  is worth failing on.** It costs 5.4 MB of job log per disc.
+
+  **Nothing reads it yet.** D4 still stands: `rip_music()` checks abcde's exit
+  code alone. Making the job fail on a bad read is now a well-defined change
+  rather than a guess, and it needs the `BASH_SCRIPT` hook or a fork.
 
   Only then is the `whipper` question worth answering. AccurateRip verifies the
   read against other people's rips of the same pressing, which is a stronger
@@ -765,10 +785,10 @@ completion message `Music CD: <title> processing complete.` Because the drive is
 exclusive, only one album can be in staging, so the script moves whatever it
 finds rather than parsing the title out.
 
-**Untested against a real disc.** The unit tests cover the decision and the
-naming; what they cannot cover is whether beets-flask actually stays quiet
-through a live copy. Phase 1 is not finished until a second CD goes in and lands
-in the library without a manual rename.
+**Proven on a real disc, 2026-08-29.** Job 14: eleven tracks handed off in one
+step, and beets-flask created its session **70 seconds after** the handoff,
+reaching `PREVIEW_COMPLETED` rather than the `NOT_STARTED` dead-end job 13 hit.
+It saw a complete album. No `.part` files left behind.
 
 **(b) belongs to `~/repositories/beets-flask/todos/`**, not here.
 
@@ -1108,3 +1128,32 @@ Three findings worth carrying into phases 2–4:
   whipper: adopting it means writing a wrapper to invoke it anyway, and a
   wrapper is a superset of a hook. The hook question only matters when bolting
   it into someone else's pipeline.
+
+### 2026-08-29 — phase 1 closes
+
+Job 14, an unrelated CD, ran unattended while the site was unreachable and did
+every part of it right.
+
+- **One job**, straight to `CD` — the media gate again.
+- **`-e` produced real read data**, and the disc read clean: only `read`,
+  `verify`, `wrote`, `overlap` and `finished`. That is the baseline recorded
+  above, and it is what a threshold can now be set against.
+- **The handoff worked.** Eleven tracks moved in one step, and beets-flask's
+  session was created 70s later at `PREVIEW_COMPLETED` — it saw a complete
+  album, where job 13's saw one track and died.
+- **The tray opened** on its own.
+
+It stopped at preview rather than importing, which is **correct**: MusicBrainz
+returned HTTP 404 for disc ID `me52FDJAZbLLImDQaZV1kydxfSI-`, so the album is
+`Unknown Artist / Track 1…11` and beets is waiting for a person. An
+unidentifiable disc should wait, not guess. Nothing to fix — but note the rip
+still succeeds and still lands, so the failure mode is "needs a human", not
+"lost".
+
+`getalbumart` fetched nothing, for the same reason: no identification, nothing
+to look art up by.
+
+**Phase 2 is next: DVD.** There is a known-good raw rip on the share already —
+job 3's Le Mans — so the transcode can be exercised without re-reading a disc.
+Watch for D4: a DVD that reports success having produced nothing is exactly what
+happened before, and `find /root/video/completed -type f` is the check.
