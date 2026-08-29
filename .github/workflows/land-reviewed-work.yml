@@ -1,0 +1,59 @@
+# A review pull request is merged into its own frozen base, never into main.
+# Main receives the work through ordinary merges during development, because
+# that is the only way to test against the cluster. A project that touches
+# nothing Flux deploys never needs those merges, so closing its review would
+# leave the commits reachable only from the review base. This lands them.
+#
+# `wt review-close` refuses in that situation, but closing the pull request in
+# the browser bypasses that guard entirely. This is the net under that path.
+
+name: Land reviewed work on main
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+# Two reviews closing at once would race for main.
+concurrency: land-reviewed-work
+
+jobs:
+  land:
+    # Only review pull requests, and only when actually merged. A review closed
+    # without merging is abandoned work and must not reach main.
+    if: >-
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.base.ref, 'review/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          # Full history: the merge needs the reviewed commits, which reach this
+          # clone through the review base branch rather than through main.
+          fetch-depth: 0
+
+      - name: Land the reviewed commits
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -e
+          # Merge the SHA, not the branch name: closing deletes the head branch,
+          # so the ref is usually gone by the time this runs. The commit itself
+          # stays reachable through the review base it was just merged into.
+          if git merge-base --is-ancestor "$HEAD_SHA" HEAD; then
+            echo "Already on main; nothing to land."
+            exit 0
+          fi
+          # An identity is required: actions/checkout sets none, so git refuses to
+          # merge without one. The id+login@users.noreply.github.com form is what
+          # makes GitHub attribute the commit to the bot account instead of an
+          # unlinked name; 41898282 is that account's id and never changes, so it
+          # is inlined rather than looked up on every run.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git merge --no-ff "$HEAD_SHA" -m "Land $HEAD_REF on main after review."
+          git push origin main

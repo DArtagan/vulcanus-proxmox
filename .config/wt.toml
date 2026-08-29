@@ -1,0 +1,87 @@
+# Worktrunk config for vulcanus-proxmox.
+#
+# The review workflow lives here rather than as prose in CLAUDE.md because the
+# frozen-base mechanics are exact: get the base commit wrong and the pull request
+# either closes itself on the first merge to main or shows the wrong diff. See
+# "Project Workflow" in CLAUDE.md for why the shape is what it is.
+#
+# Every alias here pushes, so the user runs them: the SSH key is
+# passphrase-protected and an agent cannot unlock it.
+
+[aliases]
+
+# Open the review. Freezes a base at the fork point and opens a draft PR against
+# it, so merging the branch into main never closes the PR.
+review-open = '''
+set -e
+
+# Both failure modes look identical in the refs -- a branch with no commits and a
+# branch already merged into main are both "contained in main" -- so the message
+# covers both rather than guessing.
+refuse_empty() {
+  echo "no commits on this branch that are not already in main." >&2
+  echo "  new branch?  commit first: GitHub cannot open a pull request with no" >&2
+  echo "               commits between base and head." >&2
+  echo "  merged already?  the review diff would be empty; the review needed" >&2
+  echo "               opening before the first deploy." >&2
+  exit 1
+}
+
+# Checked against the local ref first, so this cannot fail after asking for the
+# SSH passphrase.
+if [ "$(git rev-list --count origin/main..HEAD 2>/dev/null || echo 0)" = "0" ]; then
+  refuse_empty
+fi
+
+git fetch -q origin main
+base=$(git merge-base origin/main HEAD)
+if [ "$base" = "$(git rev-parse HEAD)" ]; then
+  refuse_empty
+fi
+
+git push -u origin {{ branch }}
+git push origin "$base:refs/heads/review/{{ branch }}-base"
+gh pr create --base "review/{{ branch }}-base" --head {{ branch }} --draft \
+  --title "{{ branch }}" --body ""
+'''
+
+# Merge the branch into main so Flux deploys it. One way only: merging main back
+# into the branch would drag Flux Bot's commits into the review diff.
+deploy = '''
+set -e
+if ! git switch main 2>/dev/null; then
+  echo "main is checked out in another worktree - run deploy from there." >&2
+  exit 1
+fi
+git merge --no-ff {{ branch }} -m "Merge {{ branch }} for cluster test."
+git push origin main
+git switch {{ branch }}
+'''
+
+# Complete the review. Merging into the frozen base marks the PR genuinely
+# merged and leaves main untouched, because the code reached main incrementally
+# long before. The base branch is kept, not deleted, so the PR renders forever.
+review-close = '''
+set -e
+
+# Closing deletes the branch, so the work has to be on main first. A project that
+# touches nothing Flux deploys never needs `deploy` for testing, which is exactly
+# when this is easy to forget and expensive to get wrong: the commits would
+# survive only on the frozen review base.
+# Checked against the local ref first so the ordinary case costs no passphrase.
+if ! git merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
+  git fetch -q origin main
+  if ! git merge-base --is-ancestor HEAD origin/main; then
+    echo "this branch is not contained in main - run wt deploy first." >&2
+    echo "closing deletes the branch, and the work would survive only on the" >&2
+    echo "frozen review base." >&2
+    exit 1
+  fi
+fi
+
+# Drafts cannot be merged from the web UI; whether the API refuses one is not
+# worth depending on either way, and closing the review is exactly the moment the
+# work stops being a draft.
+gh pr ready {{ branch }}
+gh pr merge {{ branch }} --merge --delete-branch
+'''
