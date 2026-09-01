@@ -2,7 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: automatic-ripping-machine
 resources:
-  - api-keys.yaml
+  - api-keys.sops.yaml
   - audio-rw-arm-pvc.yaml
   - config-map.yaml
   - data-pvc.yaml

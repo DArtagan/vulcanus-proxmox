@@ -14,7 +14,6 @@
 # saturates rpool, and during waking hours so a run that misbehaves is seen.
 # worker-0's 1 TB volume takes about two minutes and lifts etcd's WAL fsync p99
 # from 0.25 s to ~0.44 s; the others finish in seconds.
----
 apiVersion: batch/v1
 kind: CronJob
 metadata:

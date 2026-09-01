@@ -46,6 +46,11 @@ ansible-playbook <playbook>.yaml
 sops <file>        # Edit encrypted file
 ```
 
+**Formatting:**
+```bash
+treefmt            # Format the whole tree
+```
+
 ## Architecture
 
 ### Infrastructure Layers
@@ -83,9 +88,9 @@ Each app in `kubernetes/apps/` typically contains a `kustomization.yaml`, a `Dep
 
 ### Secrets Pattern
 
-Kubernetes secrets are SOPS-encrypted YAML files committed to the repo. Flux decrypts them using the age/ssh key. To create/edit a secret:
+Kubernetes secrets are SOPS-encrypted YAML files committed to the repo. Flux decrypts them using the age/ssh key. Encrypted files are named `*.sops.yaml`: that is what the `path_regex` in `.sops.yaml` matches, and what keeps `treefmt` away from them, since reformatting an encrypted file invalidates its MAC. To create/edit a secret:
 ```bash
-sops kubernetes/apps/<app>/secret.yaml
+sops kubernetes/apps/<app>/secrets.sops.yaml
 ```
 
 ## Key Operational Notes
@@ -252,11 +257,30 @@ This repository is public. It is intentionally shared to contribute to the commu
 - **Semi-sensitive values** (internal hostnames, IP addresses, usernames, email addresses, domain names, service URLs) should default to SOPS encryption. If you are unsure, raise it for the user's consideration before committing.
 - When adding any new value to a config file, stop and ask: could this help an attacker? If yes or maybe, use SOPS.
 
-SOPS-encrypted files are decrypted by Flux at apply time using the age key referenced in `.sops.yaml`. To create or edit an encrypted file:
+SOPS-encrypted files are decrypted by Flux at apply time using the age key referenced in `.sops.yaml`, and are named `*.sops.yaml`. To create or edit an encrypted file:
 ```bash
-sops kubernetes/apps/<app>/secret.yaml
+sops kubernetes/apps/<app>/secrets.sops.yaml
 ```
 
-## Pre-commit Hooks
+## Formatting
 
-Automatically run on `git commit` via devenv: `deadnix`, `flake-checker`, `nixfmt-rfc-style`, `shellcheck`, `statix`, `tflint`, `end-of-file-fixer`, `trim-trailing-whitespace`.
+Every formatter in the repo is a [treefmt](https://treefmt.com/) formatter,
+configured in the `treefmt` block of `devenv.nix`. `treefmt` formats the tree;
+entering the devenv shell runs it too, and it runs again on `git commit`.
+
+`nixfmt`, `deadnix` and `statix` cover Nix; `yamlfmt` YAML; `ruff-format`
+Python; `jsonfmt` JSON; `taplo` TOML. Terraform goes through a wrapper that
+pipes `tofu fmt` into a `sed` leaving `=` un-aligned, in one pass so each file
+is written at most once — a second write bumps the mtime and trips
+`--fail-on-change` in the commit hook. Everything else (`*.j2`, `*.cfg`,
+`*.conf`, `*.md`, `*.txt`, `*.yaml.tmpl`) gets a `whitespace` formatter that
+trims trailing whitespace and ends files on one newline.
+
+Four things are excluded: `*.sops.yaml`, because reformatting an encrypted file
+invalidates its MAC; `kubernetes/cluster/flux-system/**`, generated verbatim by
+`flux bootstrap`; `terraform/.terraform/**` and `devenv.lock`. Helm chart
+templates under `kubernetes/charts/*/templates/` are Go templates rather than
+YAML, so `yamlfmt` alone skips them.
+
+`tflint` and `shellcheck` also run on `git commit`. They are linters, so they
+report rather than rewrite and stay outside treefmt.

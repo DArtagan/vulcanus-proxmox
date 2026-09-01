@@ -52,7 +52,7 @@ Everything is plain HTTP routing with TLS from cert-manager via the
 There is no ModSecurity, no Lua, no snippet annotations, and no auth-url — the
 migration surface is genuinely small.
 
-`kubernetes/infrastructure/basic-auth.yaml` and `grafana-auth.yaml` exist; check
+`kubernetes/infrastructure/basic-auth.sops.yaml` and `grafana-auth.sops.yaml` exist; check
 whether any Ingress still references them before assuming they are dead.
 
 ### The L4 problem is already solved

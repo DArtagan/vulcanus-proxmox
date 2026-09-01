@@ -28,7 +28,7 @@ resources:
   - podgrab
   - photos-pvc.yaml
   - rclone
-  - rancher-key.yaml
+  - rancher-key.sops.yaml
   - rustdesk
   - salamander.yaml
   - stump

@@ -52,7 +52,9 @@ def dict_of(pairs):
     out = {}
     for key, value in pairs:
         if key in out:
-            out[key] = (out[key] if isinstance(out[key], list) else [out[key]]) + [value]
+            out[key] = (out[key] if isinstance(out[key], list) else [out[key]]) + [
+                value
+            ]
         else:
             out[key] = value
     return out
@@ -101,7 +103,10 @@ class TestArtistCredit(unittest.TestCase):
         # Matches "Teresa: Everybody Loves Large Chests (Vol.5)":
         # Neven Iliev narrated by Jeff Hays, Annie Ellicott & Justin Thomas James
         credit = seed.artist_credit(
-            book(author="Neven Iliev", narrator="Jeff Hays, Annie Ellicott, Justin Thomas James")
+            book(
+                author="Neven Iliev",
+                narrator="Jeff Hays, Annie Ellicott, Justin Thomas James",
+            )
         )
         self.assertEqual(
             seed.render_credit(credit),
@@ -109,13 +114,16 @@ class TestArtistCredit(unittest.TestCase):
         )
 
     def test_a_full_cast_credits_every_narrator(self):
-        credit = seed.artist_credit(book(author="Neven Iliev", narrator="A, B, C, D, E, F, G, H, I"))
+        credit = seed.artist_credit(
+            book(author="Neven Iliev", narrator="A, B, C, D, E, F, G, H, I")
+        )
         self.assertEqual(
             [n["artist.name"] for n in credit],
             ["Neven Iliev", "A", "B", "C", "D", "E", "F", "G", "H", "I"],
         )
         self.assertEqual(
-            seed.render_credit(credit), "Neven Iliev narrated by A, B, C, D, E, F, G, H & I"
+            seed.render_credit(credit),
+            "Neven Iliev narrated by A, B, C, D, E, F, G, H & I",
         )
 
     def test_no_narrator_credits_the_author_alone(self):
@@ -162,15 +170,20 @@ class TestNarratorParsing(unittest.TestCase):
         )
 
     def test_drops_placeholders_case_insensitively(self):
-        self.assertEqual(seed.narrators(book(narrator="Jeff Hays, Full Cast")), ["Jeff Hays"])
+        self.assertEqual(
+            seed.narrators(book(narrator="Jeff Hays, Full Cast")), ["Jeff Hays"]
+        )
 
     def test_keeps_a_studio_which_is_a_real_entity(self):
         self.assertIn(
-            "Soundbooth Theater", seed.narrators(book(narrator="Jeff Hays, Soundbooth Theater"))
+            "Soundbooth Theater",
+            seed.narrators(book(narrator="Jeff Hays, Soundbooth Theater")),
         )
 
     def test_a_dropped_placeholder_is_reported_for_review(self):
-        self.assertEqual(seed.dropped_narrators(book(narrator="Jeff Hays, full cast")), ["full cast"])
+        self.assertEqual(
+            seed.dropped_narrators(book(narrator="Jeff Hays, full cast")), ["full cast"]
+        )
 
     def test_nothing_is_reported_when_every_narrator_is_a_person(self):
         self.assertEqual(seed.dropped_narrators(book()), [])
@@ -455,7 +468,9 @@ class TestLedger(unittest.TestCase):
     def test_records_and_persists(self):
         ledger = seed.Ledger(self.path)
         ledger.record("Cradle/unsouled.m4b", "abc-123")
-        self.assertEqual(seed.Ledger(self.path).entries, {"Cradle/unsouled.m4b": "abc-123"})
+        self.assertEqual(
+            seed.Ledger(self.path).entries, {"Cradle/unsouled.m4b": "abc-123"}
+        )
 
     def test_a_missing_ledger_starts_empty(self):
         self.assertEqual(seed.Ledger(self.path).entries, {})

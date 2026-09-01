@@ -21,7 +21,7 @@ Verified 2026-08-17.
   `autoApprovers` entry. Introduced by the subnet-router work; no other node is
   tagged.
 - **The policy is `will@`-only.** Every rule in
-  `kubernetes/apps/headscale/policy-config-map.yaml` has `"src": ["will@"]`.
+  `kubernetes/apps/headscale/policy-config-map.sops.yaml` has `"src": ["will@"]`.
   **A new user therefore gets no access at all** — not to the internal ingress,
   not to other devices, not even to their own second device. The policy has to
   grow with the first person added, or their devices will register and then

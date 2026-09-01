@@ -42,7 +42,9 @@ UNABRIDGED = re.compile(r"\s*\((?:un)?abridged\)\s*$", re.IGNORECASE)
 # A credit that names anyone but the author is one the $author inline field
 # cannot resolve, and one that must be fixed in MusicBrainz rather than with a
 # local override. Flagged for review rather than parsed.
-CREDIT_NOISE = re.compile(r"(translat|illustrat|read by|narrated by|performed by)", re.I)
+CREDIT_NOISE = re.compile(
+    r"(translat|illustrat|read by|narrated by|performed by)", re.I
+)
 
 
 def text(tags, key):

@@ -11,13 +11,13 @@ spec:
         - botamusique.immortalkeep.com
       secretName: botamusique-ingress-tls
   rules:
-  - host: botamusique.immortalkeep.com
-    http:
-      paths:
-      - pathType: Prefix
-        path: /
-        backend:
-          service:
-            name: botamusique
-            port:
-              number: 8181
+    - host: botamusique.immortalkeep.com
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: botamusique
+                port:
+                  number: 8181
