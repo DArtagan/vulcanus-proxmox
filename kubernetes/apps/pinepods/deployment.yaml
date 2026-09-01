@@ -103,7 +103,7 @@ spec:
             - mountPath: /var/lib/pgdata
               name: database
         - name: valkey
-          image: valkey/valkey:8.1.9-alpine # {"$imagepolicy": "apps:pinepods-valkey"}
+          image: valkey/valkey:8.1.10-alpine # {"$imagepolicy": "apps:pinepods-valkey"}
           ports:
             - containerPort: 6379
           resources:
