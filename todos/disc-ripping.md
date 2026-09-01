@@ -30,7 +30,7 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 |---|---|---|
 | 0 | Unwedge the drive, close the cross-cutting defects | **done** — reconciled and verified in the container, 2026-08-25 |
 | 1 | Audio CD | **done** 2026-08-31 — one loose end, see below |
-| 2 | DVD | **in progress** — root cause found 2026-09-01, fix untested |
+| 2 | DVD | **done** 2026-09-01 — first video file ARM has ever produced |
 | 3 | Blu-ray | not started |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
 
@@ -1290,9 +1290,10 @@ Fixed by giving ARM its own `ImageUpdateAutomation`, scoped to this app's
 directory so it cannot race the `apps` one, plus a manual bump to 2.24.3 so it is
 testable now rather than at the next reconcile.
 
-**What is not yet proven** is that the newer MakeMKV fixes the rip. That is the
-hypothesis — 2.23.2 bundles MakeMKV 1.18.3, and MakeMKV refuses disc access once
-a version ages out — but it needs a disc to confirm.
+**Confirmed.** Job 18 on 2.24.3 (MakeMKV 1.18.4) ripped and transcoded The
+Hallelujah Trail end to end — the first video file ARM has ever produced. A
+single patch release of MakeMKV was the whole difference; 1.18.3 refused every
+disc, 1.18.4 refuses none.
 
 ### What was ruled out first, so it is not re-tested
 
@@ -1323,3 +1324,48 @@ holds a real licence, so the intended fix is the newer version rather than
 falling back to beta keys; but if a current MakeMKV still rejects the stored
 key, the stored *value* is the next thing to check, since a purchased key is
 perpetual and should not be refused.
+
+### 2026-09-01 — phase 2 done: the first video file ARM has ever produced
+
+Job 18, The Hallelujah Trail (1965), on ARM 2.24.3 / MakeMKV 1.18.4.
+
+| stage | | |
+|---|---|---|
+| identified | 05:57 | OMDb, `tt0059250`, `hasnicetitle` |
+| manual wait | 05:57 → 06:07 | 600s, released on its own |
+| MakeMKV `backup_dvd` | 06:07 → 07:54 | 1h47m, 7.1 GB of `VIDEO_TS` |
+| HandBrake | 07:54 → 09:13 | 1h19m |
+| success | 09:14 | tray ejected on its own |
+
+**Three hours seventeen minutes from insert to done, and the drive was held for
+all of it** (D8). Verified rather than assumed, because status alone has lied
+before:
+
+```
+/root/video/completed/movies/The-Hallelujah-Trail (1965)_178824223068/The-Hallelujah-Trail (1965).mkv
+  1,293,281,925 bytes — av1 video, 2× opus stereo, dvd_subtitle, 9332s
+```
+
+`ffprobe` confirms it decodes. The 7.1 GB raw backup survives, so a bad
+transcode is recoverable without re-reading the disc.
+
+**The multi-title worry did not materialise.** Two tracks passed `MINLENGTH`,
+13 seconds apart — the same near-duplicate shape the Blu-ray showed. ARM's
+`skip_transcode_movie` picked the largest and moved only that, renaming it to
+`<Title> (<Year>).mkv`; the other was discarded with the transcode directory.
+For a movie that is the behaviour you want, and it is better than the Blu-ray
+note in D8 predicted. Whether it still holds for a TV disc, where every title
+matters, is untested.
+
+**Housekeeping left behind.** Eight empty directories under
+`completed/movies` and `transcode/movies`, from the failed jobs 15–17 and the
+April Rescuers/Le Mans runs. They also cause the `_<stage>` suffix on the
+output path, because `check_for_dupe_folder` finds the name taken. Harmless,
+untidy, and it means the tidy path `The-Hallelujah-Trail (1965)` is occupied by
+an empty directory while the real film sits in the suffixed one.
+
+**Phase 3 is Blu-ray**, and the case for it is now much stronger than it was:
+the April Blu-ray failures were on 2.23.2, and every one of them may have been
+this same MakeMKV expiry. The Rescuers' 43 GB raw backup is still on the share,
+so the transcode half can be exercised without re-reading the disc — but the
+rip half needs the disc, and is now worth retrying.
