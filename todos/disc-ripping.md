@@ -30,7 +30,7 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 |---|---|---|
 | 0 | Unwedge the drive, close the cross-cutting defects | **done** — reconciled and verified in the container, 2026-08-25 |
 | 1 | Audio CD | **done** 2026-08-31 — one loose end, see below |
-| 2 | DVD | **in progress** from 2026-09-01 |
+| 2 | DVD | **in progress** — root cause found 2026-09-01, fix untested |
 | 3 | Blu-ray | not started |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
 
@@ -1251,3 +1251,75 @@ What to check when it finishes, in order of what has actually gone wrong before:
    the archival copy and the thing that makes a bad transcode recoverable.
 4. **How long the drive was held.** The disc is locked in for rip *and*
    transcode (D8), so the tray will not open until the whole job ends.
+
+### 2026-09-01 — the video path has been broken by a stalled image bump
+
+Jobs 15 and 16, the same DVD twice, both `Error while running MakeMKV`, exit code
+253. MakeMKV's own message:
+
+```
+MSG:5021  This application version is too old.  Please download the latest
+          version at http://www.makemkv.com/ or enter a registration key to
+          continue using the current version.
+```
+
+**Root cause: ARM has not been updated since 2026-04-16, and nothing said so.**
+
+`32a1918` moved ARM into its own namespace that day and changed the marker to
+`{"$imagepolicy": "automatic-ripping-machine:automatic-ripping-machine"}`. Flux's
+`Setters` strategy only resolves ImagePolicies in **the same namespace as the
+ImageUpdateAutomation**, and the only two automations live in `apps` and
+`infrastructure`. So the `apps` automation scans this file, cannot resolve the
+marker, and reports `repository up-to-date`. Nothing errors, and the ImagePolicy
+reports the newest tag correctly the entire time:
+
+| | |
+|---|---|
+| ImagePolicy `latestRef.tag` | 2.24.3 |
+| deployment pins | 2.23.2 |
+| last automated bump | `0bf421b`, 2026-04-02 |
+| ARM releases missed | 2.24.0, 2.24.1, 2.24.2, 2.24.3 |
+
+ARM is the **only** app in `kubernetes/apps/` whose marker is not `apps:`, which
+is why it is the only one affected. This is a concrete instance of
+[version-notification-prompt.md](version-notification-prompt.md) — and the cost
+of that class of bug, which that spec argues about in the abstract, is five
+months of every DVD and Blu-ray failing.
+
+Fixed by giving ARM its own `ImageUpdateAutomation`, scoped to this app's
+directory so it cannot race the `apps` one, plus a manual bump to 2.24.3 so it is
+testable now rather than at the next reconcile.
+
+**What is not yet proven** is that the newer MakeMKV fixes the rip. That is the
+hypothesis — 2.23.2 bundles MakeMKV 1.18.3, and MakeMKV refuses disc access once
+a version ages out — but it needs a disc to confirm.
+
+### What was ruled out first, so it is not re-tested
+
+Each of these was checked and is **not** the cause:
+
+- **The key is not installed too late.** `prep_mkv` runs `update_key.sh` before
+  the first `makemkvcon` call, in that order, confirmed in the job log.
+- **`update_key.sh`'s bash bug is harmless.** Line 52 does throw
+  `((: > 0 : syntax error` on a missing settings file, but it sits inside an
+  `if` condition where `set -e` does not apply, so the script continues and
+  writes the key. Verified by running it.
+- **The key is accepted for drive listing.** With it installed,
+  `makemkvcon -r --cache=1 info disc:9999` identifies the drive with no
+  complaint. The version check only fires when a disc is actually opened, which
+  is why an empty tray cannot reproduce this.
+- **It is not the first MakeMKV run in a fresh container.** Deleting
+  `settings.conf`, and separately deleting all of `settings.conf`,
+  `update.conf` and the 3 MB `_private_data.tar`, then replaying ARM's exact
+  sequence: both succeed. This theory fitted the April pattern well and was
+  wrong.
+- **Warm MakeMKV state changes nothing.** Job 16 ran with all of it present and
+  failed identically.
+
+One live thread: **`MAKEMKV_PERMA_KEY` being populated disables ARM's beta-key
+updater**, by ARM's own documentation of the setting. The updater works — it
+fetches the current month's `T-` key from the forum, verified 2026-09-01. Will
+holds a real licence, so the intended fix is the newer version rather than
+falling back to beta keys; but if a current MakeMKV still rejects the stored
+key, the stored *value* is the next thing to check, since a purchased key is
+perpetual and should not be refused.
