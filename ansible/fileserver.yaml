@@ -20,24 +20,6 @@
         groups: nogroup,fileshare
 
   tasks:
-    # - name: install nfs
-    #   apt:
-    #     name: nfs-kernel-server
-    #     update_cache: yes
-    #     state: present
-
-    #- name: install nfs-ganesha
-    #  apt:
-    #    name: nfs-ganesha
-    #    update_cache: yes
-    #    state: present
-
-    #- name: install nfs-ganesha-vfs
-    #  apt:
-    #    name: nfs-ganesha-vfs
-    #    update_cache: yes
-    #    state: present
-
     - name: install samba
       apt:
         name: samba
@@ -75,15 +57,6 @@
       loop_control:
         label: "{{ item.username }}"
 
-    #- name: create nfs configuration
-    #  template:
-    #    dest: /etc/ganesha/ganesha.conf
-    #    src: ganesha.conf.j2
-    #    owner: root
-    #    group: root
-    #    mode: '0600'
-    #  notify: reload nfs config
-
     - name: create samba configuration
       template:
         dest: /etc/samba/smb.conf
@@ -100,11 +73,6 @@
         state: started
 
   handlers:
-    # - name: reload nfs config
-    #   shell: systemctl reload nfs-ganesha
-    #   args:
-    #     executable: /bin/bash
-
     - name: reload samba config
       shell: smbcontrol all reload-config
       args:
