@@ -29,8 +29,8 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 | Phase | What | State |
 |---|---|---|
 | 0 | Unwedge the drive, close the cross-cutting defects | **done** — reconciled and verified in the container, 2026-08-25 |
-| 1 | Audio CD | **done** — proven end to end on two discs, 2026-08-29 |
-| 2 | DVD | not started |
+| 1 | Audio CD | **done** 2026-08-31 — one loose end, see below |
+| 2 | DVD | **in progress** from 2026-09-01 |
 | 3 | Blu-ray | not started |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
 
@@ -43,11 +43,15 @@ wedges on the first disc and stays wedged.
 
 Check these three before starting, because two of them will mislead you:
 
-- **Check the container, not the ConfigMap.** Phase 0 reconciled on 2026-08-25
-  and the running pod has it, but the general point stands and cost two
-  surprises that day: ARM rewrites its own config file (D10) and the init
-  container leaves an unresolved `${...}` verbatim, so the ConfigMap in git and
-  the config in the process are different artefacts. Confirm with
+- **Check the container, not the ConfigMap** — this has now caught something on
+  every single deploy. ARM rewrites its own config file (D10); the init container
+  leaves an unresolved `${...}` verbatim; and **`init-scripts` is mounted with
+  `subPath`, which Kubernetes never updates in place**, so the scripts in
+  `/usr/local/bin/` are frozen at pod start no matter what Flux applies. That
+  last one is worse than the stale-ConfigMap case in
+  [config-change-rollouts.md](config-change-rollouts.md), because there is no
+  interval after which it corrects itself: **every change to
+  `init-scripts.yaml` requires `kubectl rollout restart`.** Confirm with
   `kubectl exec -n automatic-ripping-machine deploy/automatic-ripping-machine -- grep MANUAL_WAIT_TIME /etc/arm/config/arm.yaml`
   and do not trust `flux get kustomizations`, which reports healthy either way —
   see [config-change-rollouts.md](config-change-rollouts.md).
@@ -804,6 +808,15 @@ failed copy, and it moves the directory aside to `<album>.failed-<epoch>` for th
 same reason — that was the last route by which the next disc could merge into an
 existing album.
 
+> **Loose end, deliberately left 2026-08-31.** The disambiguation is covered by
+> sixteen unit tests and has **never run against a real rip** — the fixture needs
+> a second disc MusicBrainz cannot identify, and one was not to hand. Re-ripping
+> the *same* unidentified disc exercises the identical path if a second is hard
+> to find. Until then, the expected behaviour on a colliding rip is
+> `Unknown Artist Unknown Album (2)` beside the existing folder, and a
+> `handed off … to …(2)` line in `arm.log`. If instead the log says `refusing to
+> overwrite`, the container is running a stale script — see below.
+
 **Proven on a real disc, 2026-08-29.** Job 14: eleven tracks handed off in one
 step, and beets-flask created its session **70 seconds after** the handoff,
 reaching `PREVIEW_COMPLETED` rather than the `NOT_STARTED` dead-end job 13 hit.
@@ -1176,3 +1189,65 @@ to look art up by.
 job 3's Le Mans — so the transcode can be exercised without re-reading a disc.
 Watch for D4: a DVD that reports success having produced nothing is exactly what
 happened before, and `find /root/video/completed -type f` is the check.
+
+### 2026-08-31 — phase 1 closed, with one thing unproven
+
+Deployed and verified in the running container: the collision fix, the abort
+path moving staging aside, `CDPARANOIAOPTS="-e"`, `ACTIONS` without
+`embedalbumart`, `OUTPUTDIR` on container-local staging, and `BASH_SCRIPT`.
+
+**The restart was not optional and the check is what caught it.** After Flux
+reconciled, the cluster ConfigMap held the new script while the running container
+still had the old one, because `init-scripts` is mounted with `subPath`. Recorded
+in "Where things stand" — it is a harder version of
+[config-change-rollouts.md](config-change-rollouts.md), since a subPath mount
+never corrects itself.
+
+**The loose end** is the collision fix never having run against a real rip. Noted
+above with what to look for. Everything else in phase 1 is proven on real discs.
+
+Carried into phase 2, from what phase 1 cost:
+
+- **"Success" means nothing without checking the output.** For audio that was
+  `flac -t`; for video it is `find /root/video/completed -type f`. Jobs 3 and 5
+  reported success having produced no file at all, and that went unnoticed for
+  four months.
+- **Watch the notification ordering.** `utils.notify` runs `bash_notify` before
+  sending to Pushover, so "processing complete" goes out whether or not the
+  post-processing worked. Fine for the video path, which has no handoff — but it
+  means the message is a statement about ARM's pipeline, not about files landing.
+- **A DVD holds the drive for the whole transcode**, not just the rip (D8), so
+  the throughput question phase 1 never had to face arrives here.
+
+### 2026-09-01 — phase 2 begins
+
+A DVD is in the drive. The tray was open — `eject -t /dev/sr0` on the Proxmox
+host closes it, which is the same manual step D2b leaves in place deliberately,
+since automatic tray movement is ruled out by the enclosure door.
+
+Job 15 identified cleanly, which is a better start than the CDs had:
+
+| | |
+|---|---|
+| title | `The-Hallelujah-Trail` |
+| year | 1965 |
+| IMDb | `tt0059250` |
+| video_type | movie |
+| CRC64 | `c664091933fa7782` |
+| label | `HALLELUJAH_TRAIL` |
+
+One job, disc type `dvd`, `hasnicetitle`, OMDb hit on the first try. The
+1337server CRC64 lookup ran first and OMDb supplied the metadata.
+
+What to check when it finishes, in order of what has actually gone wrong before:
+
+1. **`find /root/video/completed -type f`.** Non-empty is the only proof. Jobs 3
+   and 5 reported success with nothing there.
+2. **How many files, and are two of them the same film.** `MINLENGTH: 420` and
+   `MAINFEATURE: false` mean every title over seven minutes is transcoded; on the
+   Blu-ray that produced two near-identical main features (D8's phase 3 note).
+3. **Whether the raw backup survived** — `DELRAWFILES: false`, so
+   `/root/video/raw/HALLELUJAH_TRAIL*` should hold the full `VIDEO_TS`. That is
+   the archival copy and the thing that makes a bad transcode recoverable.
+4. **How long the drive was held.** The disc is locked in for rip *and*
+   transcode (D8), so the tray will not open until the whole job ends.
