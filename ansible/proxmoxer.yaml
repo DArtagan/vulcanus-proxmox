@@ -1,4 +1,3 @@
----
 - name: 'prep proxmox hosts for automation'
   hosts: proxmox
   vars:
@@ -197,20 +196,20 @@
         mode: '0755'
 
   handlers:
-  - name: load wireguard module
-    shell: modprobe wireguard
+    - name: load wireguard module
+      shell: modprobe wireguard
 
-  - name: reload udev rules
-    shell: udevadm control --reload-rules && udevadm trigger --subsystem-match=scsi_generic && udevadm trigger --subsystem-match=block --action=add
+    - name: reload udev rules
+      shell: udevadm control --reload-rules && udevadm trigger --subsystem-match=scsi_generic && udevadm trigger --subsystem-match=block --action=add
 
-  - name: restart smartd
-    systemd:
-      name: smartmontools
-      state: restarted
+    - name: restart smartd
+      systemd:
+        name: smartmontools
+        state: restarted
 
-  - name: enable optical drive monitor
-    systemd:
-      name: optical-drive-ata-monitor
-      daemon_reload: true
-      enabled: true
-      state: started
+    - name: enable optical drive monitor
+      systemd:
+        name: optical-drive-ata-monitor
+        daemon_reload: true
+        enabled: true
+        state: started

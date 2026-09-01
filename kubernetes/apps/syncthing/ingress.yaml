@@ -11,13 +11,13 @@ spec:
         - syncthing.immortalkeep.com
       secretName: syncthing-ingress-tls
   rules:
-  - host: syncthing.immortalkeep.com
-    http:
-      paths:
-      - pathType: Prefix
-        path: /
-        backend:
-          service:
-            name: syncthing
-            port:
-              number: 8384
+    - host: syncthing.immortalkeep.com
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: syncthing
+                port:
+                  number: 8384

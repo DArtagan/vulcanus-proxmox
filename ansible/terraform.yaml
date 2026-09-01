@@ -1,10 +1,9 @@
----
 - name: 'terraform on proxmox'
   hosts: proxmox
 
-# Note: this playbook is not very idempotent, it will blithely attempt
-# user/role creation and assume it worked.  The API key will only be shown the
-# first time.
+  # Note: this playbook is not very idempotent, it will blithely attempt
+  # user/role creation and assume it worked.  The API key will only be shown the
+  # first time.
 
   tasks:
     - name: 'create terraform role'

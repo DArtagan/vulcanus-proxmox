@@ -11,13 +11,13 @@ spec:
         - pinepods.immortalkeep.com
       secretName: pinepods-ingress-tls
   rules:
-  - host: pinepods.immortalkeep.com
-    http:
-      paths:
-      - pathType: Prefix
-        path: /
-        backend:
-          service:
-            name: pinepods
-            port:
-              number: 8040
+    - host: pinepods.immortalkeep.com
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: pinepods
+                port:
+                  number: 8040

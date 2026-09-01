@@ -9,7 +9,7 @@ spec:
     mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
     operation: copy
   ref:
-    tag: 0.16.1  # {"$imagepolicy": "infrastructure:metallb:tag"}
+    tag: 0.16.1 # {"$imagepolicy": "infrastructure:metallb:tag"}
 
 
 ---
@@ -83,7 +83,7 @@ metadata:
   name: metallb
 spec:
   addresses:
-  - 192.168.0.201-192.168.0.210
+    - 192.168.0.201-192.168.0.210
 
 
 ---

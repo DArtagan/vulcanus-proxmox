@@ -69,7 +69,9 @@ def raise_for_graphql_errors(payload):
     """
     errors = payload.get("errors")
     if errors:
-        raise GraphQLError("; ".join(error.get("message", "unknown") for error in errors))
+        raise GraphQLError(
+            "; ".join(error.get("message", "unknown") for error in errors)
+        )
     return payload
 
 
@@ -97,17 +99,22 @@ def parse_threads(payload):
         if line is None:
             line = node.get("originalLine")
         comments = [
-            ((comment.get("author") or {}).get("login") or "unknown", comment.get("body") or "")
+            (
+                (comment.get("author") or {}).get("login") or "unknown",
+                comment.get("body") or "",
+            )
             for comment in node["comments"]["nodes"]
         ]
-        threads.append(Thread(
-            identifier=node["id"],
-            path=node["path"],
-            line=line,
-            is_resolved=node["isResolved"],
-            is_outdated=node["isOutdated"],
-            comments=comments,
-        ))
+        threads.append(
+            Thread(
+                identifier=node["id"],
+                path=node["path"],
+                line=line,
+                is_resolved=node["isResolved"],
+                is_outdated=node["isOutdated"],
+                comments=comments,
+            )
+        )
     return threads
 
 
@@ -120,7 +127,9 @@ def format_threads(threads):
         return "no open threads"
     lines = []
     for thread in threads:
-        location = thread.path if thread.line is None else f"{thread.path}:{thread.line}"
+        location = (
+            thread.path if thread.line is None else f"{thread.path}:{thread.line}"
+        )
         flags = []
         if thread.is_outdated:
             flags.append("outdated")
@@ -142,7 +151,9 @@ def run_graphql(query, **variables):
         command += [flag, f"{name}={value}"]
     completed = subprocess.run(command, capture_output=True, text=True)
     if not completed.stdout.strip():
-        raise GraphQLError(completed.stderr.strip() or f"gh exited {completed.returncode}")
+        raise GraphQLError(
+            completed.stderr.strip() or f"gh exited {completed.returncode}"
+        )
     return raise_for_graphql_errors(json.loads(completed.stdout))
 
 
@@ -150,7 +161,9 @@ def current_pull_request():
     """Resolve owner, repo and PR number for the checked-out branch."""
     completed = subprocess.run(
         ["gh", "pr", "view", "--json", "number,headRepository,headRepositoryOwner"],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     data = json.loads(completed.stdout)
     return (
@@ -164,7 +177,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     subcommands = parser.add_subparsers(dest="command", required=True)
 
-    listing = subcommands.add_parser("list", help="show threads on the current branch's PR")
+    listing = subcommands.add_parser(
+        "list", help="show threads on the current branch's PR"
+    )
     listing.add_argument("--all", action="store_true", help="include resolved threads")
 
     replying = subcommands.add_parser("reply", help="reply within a thread")
@@ -178,7 +193,9 @@ def main(argv=None):
 
     if arguments.command == "list":
         owner, repo, number = current_pull_request()
-        threads = parse_threads(run_graphql(THREAD_QUERY, owner=owner, repo=repo, number=number))
+        threads = parse_threads(
+            run_graphql(THREAD_QUERY, owner=owner, repo=repo, number=number)
+        )
         if not arguments.all:
             threads = unresolved(threads)
         print(format_threads(threads))
