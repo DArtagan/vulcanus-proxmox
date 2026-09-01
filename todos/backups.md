@@ -16,8 +16,8 @@ Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
 
 | Phase | What | State |
 |---|---|---|
-| A | Record the spec, open the review | **in progress** (2026-09-01) |
-| 0 | Stop the bleeding — replication, retention, scrub, expansion | not started |
+| A | Record the spec, open the review | **done** 2026-09-01 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3) |
+| 0 | Stop the bleeding — replication, retention, scrub | **in progress**; key escrow done 2026-09-01, vdev expansion deferred |
 | 1 | Reclaim — dead guests, orphans | not started |
 | 2 | Application backups — K8up + restic | not started |
 | 2b | Delete the borg tree, after a restore is proven | not started |
@@ -25,6 +25,10 @@ Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
 | 4 | Platform images offsite — PBS #2 + sync | not started |
 | 5 | The offline copy — external disk | not started, needs a ~$200 purchase |
 | 6 | Verification, notification, runbook | not started |
+
+**Two disks for the mini-nas vdev expansion are deferred** — purchasing takes time,
+user's call 2026-09-01. See *Operating without the expansion* below for what changes.
+The expansion itself stays in the plan; only its timing moved.
 
 ---
 
@@ -279,7 +283,8 @@ It also silently sizes the restic repository and mini-nas's snapshot space.
 |---|---|---|
 | sanoid vulcanus `rpool/storage` | 36 hourly, 30 daily, 24 monthly | 2 y *(unchanged)* |
 | sanoid vulcanus PVE datasets | 30 daily | 30 d *(unchanged)* |
-| **sanoid mini-nas** | 24 hourly, **60 daily**, 24 monthly | 2 y, deeper daily than source |
+| **sanoid mini-nas `storage/*`** | 24 hourly, **60 daily**, 24 monthly | 2 y, deeper daily than source |
+| **sanoid mini-nas `data/*`, `ROOT`** | 30 daily | 30 d, matching source |
 | **restic** (app + mass files) | keep-last 10, hourly 24, daily 30, weekly 8, monthly 24, `--keep-tag decommissioned` | 2 y |
 | PBS primary | keep-last 31 | 31 d *(unchanged)* |
 | **PBS #2** | keep-daily 30, weekly 8, monthly 12 | 1 y |
@@ -469,6 +474,55 @@ scripting.
 
 ---
 
+## Operating without the vdev expansion
+
+The two disks that take mini-nas from 12.6 to 19.1 TiB are deferred — user's call
+2026-09-01, purchasing takes time. The work proceeds, with four adjustments.
+
+**The steady state is fine; the transient is not.** mini-nas at 12.6 TiB supports
+vulcanus up to **14.8 TiB used** (12.6 / 0.85). vulcanus is at 13.9, so the
+constraint holds with ~0.9 TiB of headroom. The standing rule until disks arrive:
+**do not let vulcanus pass ~14.8 TiB used.**
+
+But occupancy through the phases, at 12.6 TiB, would have peaked badly:
+
+| After | mini-nas holds | Occupancy |
+|---|---|---|
+| Phase 0 (sanoid finally prunes) | 10.3 | 82% |
+| Phase 2 (+ restic replica 0.65) | 10.95 | 87% |
+| Phase 4a (+ PBS #2, `rpool/data` still replicated) | 11.75 | **93%** |
+| Phase 4b (`vulcanus-data` retired, −1.8) | 9.95 | 79% |
+
+93% is not a threshold quibble — it is the range where ZFS allocation degrades.
+
+**Adjustment 1: PBS #2's datastore goes on `spool`.** It is 2x 2 TB raidz1, ~1.7 TiB
+usable, healthy, and unimported since the pool was built. This removes the 93% peak
+entirely (rpool tops out at 87%), puts the stranded capacity to work, and lands
+PBS #2 on different spindles from the ZFS replica — better failure isolation offsite
+than putting both on `rpool` would give. Confirm actual usable size on import;
+`spool` also carries two 16 GB swap partitions already in use.
+
+**Adjustment 2: retention depth only where it is cheap.** The 60-daily figure for
+mini-nas was sized against 19.1 TiB. At 12.6, apply it to `storage/*` — media barely
+changes, so extra dailies cost almost nothing — and hold `data/*` at 30 daily
+matching source, since those are high-churn zvols that retire in Phase 4 anyway.
+
+**Adjustment 3: mini-nas pool-health thresholds are 90% warning / 94% critical**
+until the expansion, not 80/90. A warning at 80% would fire continuously against a
+*predicted* 82-87% and train everyone to ignore it, which is the anti-pattern
+`docs/README.md` names directly. Restore 80/90 once the expansion lands and
+occupancy falls to ~53%. vulcanus keeps 80/90 throughout.
+
+**Adjustment 4 (optional): reorder to 0 -> 4 -> 2 -> 3** if 87% proves too tight in
+practice. That peaks at 82%, because retiring `vulcanus-data` frees 1.8 TiB before
+the restic replica arrives. Not taken as the default because it delays granular
+restore — the headline objective — behind the PBS work, and because PBS #2 would then
+sync a datastore that Phase 3 has not yet shrunk.
+
+**Nothing here changes the purchase ceiling below.** The equation governs disk sizes
+at upgrade time; these adjustments govern how the work is sequenced while the pool is
+small. Once expanded, the numbers in the four-round table apply unchanged.
+
 ## Capacity: the cascade and the purchase ceiling
 
 Disks cascade — vulcanus gets new larger ones, its retired vdev moves to mini-nas.
@@ -584,8 +638,12 @@ first deploy.
 
 ### Phase 0 — stop the bleeding
 
-- **Key escrow first** (objective 7, zero risk, highest consequence): `age.agekey`,
-  `.talosconfig` and the Talos machine secrets into the password manager.
+- ~~**Key escrow first**~~ — **done 2026-09-01.** The age keypair is in the password
+  manager and the local `age.agekey` was deleted. That cost no access: `.sops.yaml`
+  carries three recipients and any one private half opens every file, local `sops -d`
+  goes through the `thenixbeast_will` ssh-ed25519 key, and Flux decrypts from the
+  in-cluster `sops-age` Secret in `flux-system`, which still holds the key.
+  Still outstanding: `.talosconfig` and the Talos machine secrets.
 - Repair the five diverged syncoid datasets. Method: `zfs rename` each stale target
   aside, let syncoid do a full send, destroy the renamed copy once the new one
   completes — so an old copy exists throughout. Re-seed is ~30 GB, not the 120 GB the
@@ -594,9 +652,12 @@ first deploy.
 - Enable `services.zfs.autoScrub` on mini-nas.
 - Import `spool` and add the matching `fileSystems` entry — the gotcha mini-nas's own
   CLAUDE.md warns about.
-- **Expand both mini-nas vdevs from 3 to 4 disks** with `zpool attach`. Two disks,
-  >= 3.64 TiB and >= 2.72 TiB respectively. Takes usable from 12.7 to 19.1 TiB and
-  occupancy from 80% to 53%.
+- ~~**Expand both mini-nas vdevs from 3 to 4 disks**~~ — **deferred 2026-09-01**,
+  pending disk purchase. Two disks, >= 3.64 TiB and >= 2.72 TiB respectively, via
+  `zpool attach`; takes usable from 12.7 to 19.1 TiB and occupancy from 80% to 53%.
+  See *Operating without the vdev expansion* for what changes meanwhile.
+- **Import `spool`** — now load-bearing rather than tidiness, since PBS #2's
+  datastore goes there.
 - `OnFailure=` plus a success ping on every sanoid and syncoid unit.
 - Pool-health timers on both hosts.
 
@@ -644,6 +705,10 @@ then performance.
 Second PBS VM on mini-nas's Proxmox VE — **not** the NixOS module. proxmox-nixos
 lists "Proxmox backup server" under its **Roadmap**, and the module is 101 lines
 exposing only `enable` and `localIP`.
+
+**Its datastore goes on `spool`, not `rpool`** — see *Operating without the vdev
+expansion*. That keeps `rpool` off 93% while the expansion is pending, and puts the
+offsite VM images on different spindles from the offsite ZFS replica.
 
 Remote plus scheduled sync job, and **a verify job on the target, because PBS sync
 does not verify chunks on arrival.** Add the verify and prune jobs the primary
@@ -695,7 +760,10 @@ the session become alert rules rather than notes, per the Documentation Protocol
 - **Phase 0** — `Result=success` on all four mini-nas units; offsite snapshot count
   falls from 29,305; newest-snapshot age under 25 h for **all thirteen** guest
   datasets, asserted per dataset rather than per job; `zpool status` shows a scrub
-  scheduled; `zpool list` reports mini-nas usable at ~19.1 TiB after expansion.
+  scheduled; **mini-nas occupancy falls from 88% to ~82%** once sanoid prunes, which
+  is the number that says the retention fix worked. `zpool list spool` confirms its
+  usable size before PBS #2 is sized against it. The ~19.1 TiB figure applies only
+  once the deferred expansion lands.
 - **Phase 1** — `zpool list` on both pools.
 - **Phase 2** — restore a canary PVC into scratch space and diff it against the live
   volume: the first restore this estate has ever performed. Then confirm the
