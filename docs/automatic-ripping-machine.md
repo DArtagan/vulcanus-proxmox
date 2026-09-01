@@ -18,9 +18,10 @@ Proxmox host (vulcanus)
         ▼
 Talos VM: piraeus-worker-1 (192.168.0.196, vmid 911)
   /dev/sr0, /dev/sg0  — optical drive as seen by guest kernel
-        │ squat.ai/cdrom device plugin
+  /dev/disk/by-id/ata-PIONEER_BD-RW_BDR-212U → sr0  — how the plugin identifies it
+        │ devic.es/cdrom device plugin
         ▼
-ARM pod (apps namespace)
+ARM pod (automatic-ripping-machine namespace)
   /dev/sr0, /dev/sg0  — device plugin injects these into the container
 ```
 
@@ -69,19 +70,136 @@ Inside the guest, the Talos kernel recognises the device as SCSI type 5 (optical
 
 ## Kubernetes: Device Plugin and Security Policy
 
-ARM runs in the `apps` namespace, which enforces **PodSecurity Admission (PSA) `baseline`**. This blocks `privileged: true` containers. ARM does not need it:
+ARM runs in its own `automatic-ripping-machine` namespace, labelled
+`pod-security.kubernetes.io/enforce: privileged`
+(`kubernetes/apps/automatic-ripping-machine/namespace.yaml`). The container is
+not itself `privileged: true` — it adds only the `SYS_ADMIN` capability:
 
 - **SG_IO** (raw SCSI ioctls used by MakeMKV) works without privileges. It is just an `ioctl` call on a device file. Default seccomp does not block it.
 - **udev events** reach the container's udevd without privileges (explained below).
 
-The **squat.ai generic device plugin** (`kubernetes/infrastructure/devices.yaml`) runs as a privileged DaemonSet in the `infrastructure` namespace. It exposes `/dev/sr0` and `/dev/sg0` on the node as an allocatable Kubernetes resource called `squat.ai/cdrom`.
+The **squat.ai generic device plugin** (`kubernetes/infrastructure/devices.yaml`) runs as a privileged DaemonSet in the `infrastructure` namespace. It exposes `/dev/sr0` and `/dev/sg0` on the node as an allocatable Kubernetes resource called `devic.es/cdrom`.
+
+### How the plugin picks the *real* drive
+
+The plugin does not match on `/dev/sr0`. Every Talos VM exposes a QEMU virtual
+DVD-ROM at `/dev/sr0` for its install ISO, so matching the bare path made the
+control plane advertise a phantom `devic.es/cdrom` backed by the install ISO.
+Because ARM has no `nodeSelector` and schedules purely on that resource, it could
+be placed on the control plane and bound to the ISO instead of the burner.
+
+The device group therefore matches on hardware identity instead:
+
+```yaml
+groups:
+  - paths:
+      - path: /dev/disk/by-id/ata-PIONEER_BD-RW_*
+        mountPath: /dev/sr0
+      - path: /dev/sg0
+```
+
+`/dev/disk/by-id/` distinguishes them — `ata-PIONEER_BD-RW_BDR-212U` on worker-1
+versus `ata-QEMU_DVD-ROM_QM00003` on the control plane. A group is only
+advertised when **all** of its non-optional paths match, so a node without the
+Pioneer advertises nothing.
+
+Two consequences worth knowing:
+
+- **Nothing is pinned to a node.** Move the drive to another VM in
+  `terraform/main.tf` and the resource follows it, with ARM following the
+  resource. There is no hostname to keep in sync on either side.
+- **Other hardware extends the same way.** A GPU would be another `--device`
+  group; the DaemonSet stays on every node and self-selects by what is present.
+
+Note the plugin passes the *unresolved* symlink as the device's `HostPath`
+(`deviceplugin/path.go` does not call `EvalSymlinks`) and relies on the
+container runtime to resolve it. containerd 2.1.6 does so correctly — verified
+2026-08-14 by restarting ARM so it took a fresh allocation, then confirming
+both `/dev/sr0` and `/dev/sg0` inside the container report
+`PIONEER / BD-RW   BDR-212U`.
+
+If a future runtime change ever breaks this, the fallback is to list
+`/dev/sr0` and `/dev/sg0` as the mounted paths and keep the by-id entry purely
+as a match predicate:
+
+```yaml
+groups:
+  - paths:
+      - path: /dev/sr0
+      - path: /dev/sg0
+      - path: /dev/disk/by-id/ata-PIONEER_BD-RW_*
+        mountPath: /dev/cdrom-discriminator
+```
+
+### Verifying the passthrough
+
+Checking a *running* ARM pod proves nothing — a device already granted to a
+live container is never withdrawn, so it will look correct even if the config
+is broken. The device ID is a sha1 over the matched host paths, so a fresh
+allocation is what exercises the current config. Restart ARM while it is idle,
+then compare against this known-good baseline:
+
+```
+sr0 vendor/model/rev : PIONEER / BD-RW   BDR-212U / 1.01   maj=11 min=0  (block)
+sg0 vendor/model     : PIONEER / BD-RW   BDR-212U          maj=21 min=0  (char)
+```
+
+```bash
+kubectl exec -n automatic-ripping-machine deploy/automatic-ripping-machine -- sh -c '
+for f in vendor model rev; do printf "sr0 %s: " "$f"; cat /sys/block/sr0/device/$f; done
+for f in vendor model; do printf "sg0 %s: " "$f"; cat /sys/class/scsi_generic/sg0/device/$f; done
+stat -c "%n %F maj=%t min=%T" /dev/sr0 /dev/sg0'
+```
+
+**`sr0` and `sg0` must report the same vendor/model.** That is what proves both
+resolve to the same underlying SCSI device; `/dev/sg0` carries the SCSI commands
+that control the drive, so a mismatch matters more than anything else here.
+`udevadm info` on either device also shows a shared `DEVPATH` parent
+(`.../target2:0:0/2:0:0:0/...`), which confirms the same thing independently.
+
+Note `makemkvcon` is **not** usable as a check — as of 2026-08-12 it reports
+"This application version is too old" (v1.18.3). ARM's own drive listing shows
+an empty maker/model for the same underlying reason it always has: udev's
+`ata_id`/`cdrom_id` helpers run in the host's udevd, not in the container, so
+`ID_MODEL`/`ID_VENDOR` are never populated there. Read identity from sysfs
+instead, as above.
+
+### The resource domain, and how it can break
+
+The resource is `devic.es/cdrom`. The `devic.es` half is the plugin's
+**domain**, which `devices.yaml` leaves implicit so that it takes upstream's
+default.
+
+This is worth knowing because **upstream has changed that default before**. The
+image pinned here until 2026-08-14 defaulted to `squat.ai`, and bumping it
+renamed the resource to `devic.es/cdrom` — dropping `squat.ai/cdrom`, which ARM
+still requested at the time, to `allocatable: 0` on every node. ARM kept
+running, because a device already granted to a live container is not withdrawn,
+so nothing appeared broken. The pod would have gone `Pending` forever on its
+next restart. The repo moved to `devic.es` on 2026-08-14 to match the default.
+
+If ARM is ever `Pending` on `Insufficient devic.es/cdrom` after an image bump,
+this is the first thing to check:
+
+```bash
+kubectl get nodes -o custom-columns='NODE:.metadata.name,CDROM:.status.allocatable.devic\.es/cdrom'
+
+# the plugin image is distroless, so scrape it from a pod that has a shell:
+kubectl exec -n infrastructure alertmanager-kube-prometheus-kube-prome-alertmanager-0 \
+  -c alertmanager -- wget -qO- http://<plugin-pod-ip>:8080/metrics \
+  | grep generic_device_plugin_devices
+```
+
+The metric reports the resource name the plugin is actually advertising. If it
+no longer matches ARM's `resources.limits`, either realign the two or pin the
+old name with `--domain <domain>` in `devices.yaml`.
 
 The ARM deployment claims this resource:
 
 ```yaml
 resources:
   limits:
-    squat.ai/cdrom: 1
+    devic.es/cdrom: 1
 ```
 
 This is an exclusive resource — only one pod can hold it at a time. This is why the deployment uses `strategy: Recreate` rather than `RollingUpdate`: a rolling update would try to start the new pod before terminating the old one, but the new pod can never schedule because the old pod still holds the device.
@@ -182,7 +300,7 @@ Key encoding settings (defined in the `vulcanus-handbrake-preset` custom preset)
 | Container | MKV | With chapter markers and metadata passthrough |
 | Deinterlace | Decomb (default) | Important for interlaced DVD content |
 
-`MAX_CONCURRENT_TRANSCODES: 1` limits to one transcode at a time — AV1 at preset 4 is CPU-intensive and the worker node has 6 allocated cores.
+`MAX_CONCURRENT_TRANSCODES: 1` limits to one transcode at a time — AV1 at preset 4 saturates whatever it is given, and this runs on `piraeus-worker-1`, the smaller of the two workers, alongside everything else scheduled there.
 
 `MAINFEATURE: false` means all tracks above the minimum length are transcoded, not just the longest. This is necessary for TV show discs where multiple episodes need to be extracted.
 
@@ -205,7 +323,7 @@ DEVICESCAN -d removable -n standby -m root -M exec /usr/share/smartmontools/smar
 Additional precautions:
 - Only one VM or process should ever have the drive open at a time
 - Do not create test VMs that also pass through `sg3` while the ARM VM is running (see: the `cdrom-test` VM incident)
-- The squat.ai/cdrom exclusive device resource enforces this at the Kubernetes level, but it does not prevent other QEMU VMs on the Proxmox host from also opening the sg device
+- The devic.es/cdrom exclusive device resource enforces this at the Kubernetes level, but it does not prevent other QEMU VMs on the Proxmox host from also opening the sg device
 - **Before running any manual `makemkvcon` command inside the ARM pod, verify no rip is in progress:**
   ```bash
   kubectl exec -n apps <arm-pod> -- pgrep -af makemkv
@@ -213,6 +331,26 @@ Additional precautions:
   If anything is returned, do not proceed until it finishes.
 
 Note: SATA Aggressive Link Power Management (ALPM) was investigated as a potential cause but is already set to `max_performance` on all ports — it is not a factor.
+
+### Guest-side scanners
+
+Nothing inside the Talos guest may probe `/dev/sr0` on a schedule either. The
+drive answers a read of block 0 only where the disc has a 2048-byte data mode;
+an audio CD has none, so every attempt fails with `Illegal mode for this track`
+after ~15ms. `blkid` tries enough offsets that a single pass costs 5.9 seconds
+against ~2ms on a virtual disk, and anything repeating that holds the drive at
+95% utilisation and ~0.85 cores of iowait indefinitely — on a node with four.
+
+This is why OpenEBS Node Disk Manager is disabled in
+`kubernetes/infrastructure/openebs.yaml`. Its `path-filter` names `/dev/sr0`
+and always did; the filter is simply applied after every probe has already read
+the device, and a filtered device is never cached, so each pass re-probes from
+scratch. A filter that runs after the read is not a filter, and reading the
+config is not enough to tell.
+
+Ejecting is not a way out. The tray opens, the scanner's next `open()`
+auto-closes it, and the grinding resumes within seconds — so a scanner has to
+be stopped before the drive can be cleared.
 
 ### Recovery
 
@@ -240,7 +378,7 @@ To replicate this setup:
 
 3. **Device plugin**: `kubernetes/infrastructure/devices.yaml` (squat.ai generic device plugin) must be deployed and the plugin pod must be running on the worker node.
 
-4. **ARM deployment**: `kubernetes/apps/automatic-ripping-machine/` deploys the ARM pod. The `squat.ai/cdrom: 1` resource limit, `strategy: Recreate`, and the udev rule + wrapper script ConfigMap mounts are all required.
+4. **ARM deployment**: `kubernetes/apps/automatic-ripping-machine/` deploys the ARM pod. The `devic.es/cdrom: 1` resource limit, `strategy: Recreate`, and the udev rule + wrapper script ConfigMap mounts are all required.
 
 5. **Verify**: With a disc in the drive, run:
    ```bash

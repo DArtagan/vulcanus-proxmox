@@ -1,0 +1,24 @@
+# Sync traffic only. The web UI keeps its own ClusterIP Service in service.yaml
+# so it stays behind the ingress with TLS, rather than being published
+# unauthenticated on this address.
+apiVersion: v1
+kind: Service
+metadata:
+  name: syncthing-sync
+spec:
+  type: LoadBalancer
+  loadBalancerIP: "192.168.0.206"
+  # Preserves the client address, which QUIC needs to keep a session pinned and
+  # which makes the connection logs mean something.
+  externalTrafficPolicy: Local
+  selector:
+    app: syncthing
+  ports:
+    - name: syncthing-tcp
+      protocol: TCP
+      port: 22000
+    # QUIC. This never worked through the ingress, where nginx tore the stream
+    # down after one datagram — every connection reported tcp-server.
+    - name: syncthing-udp
+      protocol: UDP
+      port: 22000

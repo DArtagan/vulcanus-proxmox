@@ -13,12 +13,14 @@
 
 ### Kubernetes Cluster (Talos Linux)
 
-| IP | Hostname | Role | Resources |
-|----|----------|------|-----------|
-| 192.168.0.190 | piraeus-control-plane-0.immortalkeep.com | Control plane | 3 GiB RAM, 2 cores |
-| 192.168.0.195 | piraeus-worker-0.immortalkeep.com | Worker (primary) | 24 GiB RAM, 8 cores, 1 TB OpenEBS |
-| 192.168.0.196 | piraeus-worker-1.immortalkeep.com | Worker (optical drive) | 8 GiB RAM, 4 cores, 100 GB OpenEBS |
-| 192.168.0.200 | piraeus-api.immortalkeep.com | Cluster VIP (virtual) | — |
+| IP | Hostname | Role |
+|----|----------|------|
+| 192.168.0.190 | piraeus-control-plane-0.immortalkeep.com | Control plane |
+| 192.168.0.195 | piraeus-worker-0.immortalkeep.com | Worker (primary) |
+| 192.168.0.196 | piraeus-worker-1.immortalkeep.com | Worker (optical drive) |
+| 192.168.0.200 | piraeus-api.immortalkeep.com | Cluster VIP (virtual) |
+
+Memory, cores and disk sizes are declared in `terraform/main.tf`.
 
 ### MetalLB Service IPs (pool: 192.168.0.201–210)
 
@@ -27,7 +29,12 @@
 | 192.168.0.201 | ingress-nginx-external |
 | 192.168.0.202 | CoreDNS |
 | 192.168.0.203 | ingress-nginx-internal (default ingress class) |
-| 192.168.0.204–210 | Available |
+| 192.168.0.204 | RustDesk (hbbs + hbbr) |
+| 192.168.0.205 | Mumble (voice chat) |
+| 192.168.0.206 | Syncthing (sync protocol) |
+| 192.168.0.207–210 | Available |
+
+Check the router's DHCP range before widening the pool past .210.
 
 ## DNS Architecture
 
@@ -75,6 +82,14 @@ which is expected since the cluster hosting them is also down.
 `immortalkeep.com` queries to CoreDNS (192.168.0.202), ensuring tailnet clients
 always get the internal ingress IP rather than the public record.
 
+This depends on `vulcanus` advertising `192.168.0.0/24` to the tailnet. Both
+192.168.0.202 and the 192.168.0.203 it answers with are LAN addresses, so
+without that route a remote client hands the query to its own local gateway and
+it is dropped — split DNS alone is not enough, because the address CoreDNS
+returns has to be routable too. Which of those routed addresses a client may
+actually reach is a separate question, answered by the Headscale policy. See
+[tailnet.md](tailnet.md).
+
 **Cluster-internal** (pods): Uses kube-dns for service discovery. Unrelated to
 the CoreDNS LoadBalancer service.
 
@@ -113,22 +128,66 @@ internet (external).
 | homepage.immortalkeep.com | Homepage | Dashboard |
 | grafana.immortalkeep.com | Grafana | Monitoring dashboards |
 | prometheus.immortalkeep.com | Prometheus | Metrics |
-| kubernetes.immortalkeep.com | Kubernetes Dashboard | Cluster UI |
 | syncthing.immortalkeep.com | Syncthing | File sync |
 | filebot.immortalkeep.com | Filebot | Media organizer |
-| podgrab.immortalkeep.com | Podgrab | Podcast downloader |
+| pinepods.immortalkeep.com | Pinepods | Podcast archive and player |
+| podgrab.immortalkeep.com | Podgrab | Podcast downloader (scaled to zero, superseded by Pinepods) |
 | youtube.immortalkeep.com | youtube-dl | Video downloader |
 | media-toolkit.immortalkeep.com | Media Toolkit Webtop | Desktop environment |
 | arm.immortalkeep.com | Automatic Ripping Machine | DVD ripper |
 | botamusique.immortalkeep.com | Botamusique | Music bot (disabled) |
 
-### Non-HTTP Services (TCP/UDP passthrough via both ingress controllers)
+### Non-HTTP Services (dedicated LoadBalancer IP)
 
-| Port | Protocol | Service |
-|------|----------|---------|
-| 64738 | TCP + UDP | Mumble (voice chat) |
-| 22000 | TCP + UDP | Syncthing (sync protocol) |
-| 21027 | UDP | Syncthing (discovery) |
+No service uses the ingress controllers for TCP/UDP any more. Each L4 service
+has its own MetalLB address with `externalTrafficPolicy: Local`, which preserves
+the client address and puts the pod directly behind the address with no proxy in
+the path.
+
+| IP | Port | Protocol | Service |
+|----|------|----------|---------|
+| 192.168.0.204 | 21115 | TCP | RustDesk hbbs (NAT type test) |
+| 192.168.0.204 | 21116 | TCP + UDP | RustDesk hbbs (rendezvous, ID registration, hole punching) |
+| 192.168.0.204 | 21117 | TCP | RustDesk hbbr (relay) |
+| 192.168.0.205 | 64738 | TCP + UDP | Mumble (voice chat) |
+| 192.168.0.206 | 22000 | TCP + UDP | Syncthing (sync protocol) |
+
+**Do not route UDP through ingress-nginx.** Its `tcp:`/`udp:` ConfigMap keys are
+not part of the Ingress API — they render an nginx `stream` block bolted onto an
+HTTP controller, and nginx closes a UDP stream after a single response datagram.
+Behind it, Mumble clients need "force TCP" to be heard at all and Syncthing
+never negotiates QUIC, reporting `tcp-server` on every connection. A dedicated
+MetalLB address with `externalTrafficPolicy: Local` is the way to expose L4.
+
+Syncthing's 21027 is not exposed anywhere. It is LAN discovery, which works by
+broadcast within a subnet; the pod's broadcast domain is the cluster network, so
+announcements cannot cross in either direction no matter how it is exposed.
+
+Syncthing keeps its ClusterIP Service for the web UI, which stays behind the
+ingress with TLS. `syncthing.immortalkeep.com` therefore still resolves to the
+internal ingress via the wildcard; sync traffic uses `syncthing-sync`.
+
+### Router Port Forwarding
+
+| Service | External port | Internal IP | Internal port | Protocol |
+|---------|---------------|-------------|---------------|----------|
+| HTTP (redirect to HTTPS) | 80 | 192.168.0.201 | 80 | TCP |
+| HTTPS (external ingress) | 443 | 192.168.0.201 | 443 | TCP |
+| RustDesk hbbs NAT test | 21115 | 192.168.0.204 | 21115 | TCP |
+| RustDesk hbbs rendezvous | 21116 | 192.168.0.204 | 21116 | TCP |
+| RustDesk hbbs hole punching | 21116 | 192.168.0.204 | 21116 | UDP |
+| RustDesk hbbr relay | 21117 | 192.168.0.204 | 21117 | TCP |
+| Mumble | 64738 | 192.168.0.205 | 64738 | TCP |
+| Mumble | 64738 | 192.168.0.205 | 64738 | UDP |
+| Syncthing sync | 22000 | 192.168.0.206 | 22000 | TCP |
+| Syncthing QUIC | 22000 | 192.168.0.206 | 22000 | UDP |
+
+**Never forward:**
+
+| IP | Why |
+|----|-----|
+| 192.168.0.202 | CoreDNS. Exposing it publishes an open resolver, which will be abused for DNS amplification. |
+| 192.168.0.203 | Internal ingress. It serves the same hostnames without the external class's intent, bypassing the internal/external split. |
 
 ### No Ingress
 
@@ -155,6 +214,19 @@ hairpinning. This was rejected because all client types already resolve through
 CoreDNS (directly or via Headscale split DNS), so hairpinning doesn't occur.
 The rewrite would have introduced a second domain that all apps would need to
 know about, adding complexity for no gain.
+
+**RustDesk bypasses ingress-nginx:** Every other non-HTTP service is exposed
+through the ingress controllers' `tcp:`/`udp:` port maps. RustDesk is not,
+for two reasons. First, ingress-nginx renders `proxy_responses 1` for every UDP
+stream, which closes the UDP session after a single reply — but RustDesk's
+UDP 21116 is a long-lived channel over which `hbbs` *pushes* punch-hole
+requests to the controlled machine, so inbound sessions would never start.
+Second, `hbbs` hands the source address it observes to the other peer as the
+hole-punch target; behind nginx that is the controller pod IP, which is
+unroutable, so every session would silently fall back to the relay. A dedicated
+MetalLB IP with `externalTrafficPolicy: Local` avoids both. Raising
+`proxy-stream-responses` globally would have fixed only the first problem, at
+the cost of changing mumble's and syncthing's UDP behaviour.
 
 **forge.local for Headscale MagicDNS:** The `.local` TLD is technically reserved
 for mDNS (RFC 6762), but this works in practice because Tailscale clients use

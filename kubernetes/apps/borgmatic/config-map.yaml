@@ -40,6 +40,16 @@ data:
         - echo "Finished a backup."
       on_error:
         - echo "Error during prune/compact/create/check."
+      # borgmatic runs its own cron inside a Deployment rather than as a
+      # Kubernetes CronJob, so KubeJobFailed does not cover it. Without this,
+      # a failed backup only ever reached stdout.
+      pushover:
+        token: ${PUSHOVER_TOKEN}
+        user: ${PUSHOVER_USER_KEY}
+        start:
+          priority: -1
+        fail:
+          priority: 1
   crontab.txt: |
     0 10 */2 * * /usr/local/bin/borgmatic --stats --verbosity 1 --syslog-verbosity 1 2>&1
   games.yaml: |

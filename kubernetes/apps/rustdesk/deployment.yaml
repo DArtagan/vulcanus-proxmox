@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rustdesk
+  labels:
+    app: rustdesk
+spec:
+  # hbbs keeps peer state in SQLite, which is not safe to share between
+  # instances. Recreate rather than RollingUpdate because the data volume is
+  # ReadWriteOnce.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: rustdesk
+  template:
+    metadata:
+      labels:
+        app: rustdesk
+    spec:
+      containers:
+        # ID / rendezvous server. Registers peers and signals hole punching.
+        - name: hbbs
+          image: rustdesk/rustdesk-server:1.1.16 # {"$imagepolicy": "apps:rustdesk"}
+          command: ["/usr/bin/hbbs"]
+          env:
+            - name: KEY
+              valueFrom:
+                secretKeyRef:
+                  name: rustdesk
+                  key: KEY
+            # The startup UDP self-test does not survive the LoadBalancer path.
+            - name: TEST_HBBS
+              value: "no"
+          ports:
+            - containerPort: 21115
+              protocol: TCP
+            - containerPort: 21116
+              protocol: TCP
+            - containerPort: 21116
+              protocol: UDP
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 10m
+              memory: 32Mi
+          volumeMounts:
+            - mountPath: /root
+              name: data
+
+        # Relay server. Carries sessions when hole punching fails.
+        - name: hbbr
+          image: rustdesk/rustdesk-server:1.1.16
+          command: ["/usr/bin/hbbr"]
+          env:
+            # hbbr defaults to an empty key, which disables relay key
+            # validation and leaves it an open relay. Reuse the hbbs key.
+            - name: KEY
+              valueFrom:
+                secretKeyRef:
+                  name: rustdesk
+                  key: KEY
+          ports:
+            - containerPort: 21117
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 256Mi
+            requests:
+              cpu: 10m
+              memory: 32Mi
+          volumeMounts:
+            - mountPath: /root
+              name: data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: rustdesk-data-pvc

@@ -3,7 +3,9 @@ kind: HelmRepository
 metadata:
   name: csi-driver-smb
 spec:
-  interval: 5m  # 24h
+  interval: 24h
+  # The kubernetes-csi.github.io Pages repository only publishes 1.20.x. This raw
+  # branch URL carries the full history, so older versions stay pinnable.
   url: https://raw.githubusercontent.com/kubernetes-csi/csi-driver-smb/master/charts
 
 
@@ -17,7 +19,9 @@ spec:
   chart:
     spec:
       chart: csi-driver-smb
-      version: 1.14.0
+      # No OCI chart is published, so this is bumped by hand rather than by the
+      # image automation the other infrastructure charts now use.
+      version: 1.20.3
       sourceRef:
         kind: HelmRepository
         name: csi-driver-smb
@@ -28,3 +32,39 @@ spec:
   upgrade:
     remediation:
       retries: 3
+  values:
+    feature:
+      # Defaults to true from 1.20.x, which appends Ephemeral to the CSIDriver's
+      # volumeLifecycleModes. That field is immutable and the live object is
+      # ["Persistent"], so leaving it on fails the upgrade. Nothing here uses
+      # inline volumes; every SMB share is mounted through a static PV.
+      enableInlineVolume: false
+    # Defaults to true from 1.20.x, which would add a csi-smb-node-win DaemonSet
+    # that schedules nothing on a Linux-only Talos cluster.
+    windows:
+      enabled: false
+    controller:
+      # Both sidecars default to a 15s lease, which is tighter than etcd's WAL
+      # fsync tail: fsync sits at 0.25s and reaches several seconds whenever
+      # anything else touches rpool, so both lose the lock and restart — 19 and
+      # 20 times during the 2026-08-19 backup, and 3 and 2 on an ordinary night.
+      # These match the control plane's durations, sized against that measured
+      # tail; see terraform/.../control-plane-patch.yaml.tmpl.
+      #
+      # retryPeriod is the one that governs write rate, since renewal happens on
+      # that cadence rather than per lease duration. Widening the lease alone
+      # buys stall tolerance and leaves the load on etcd unchanged.
+      #
+      # The controller runs one replica with strategy Recreate, so the usual
+      # cost of a long lease — a standby waiting to take over — is not paid
+      # here. In-flight provision and resize work is not lost when these stall:
+      # both sidecars re-list PVCs on start and re-drive anything unmet.
+      extraArgs:
+        csiProvisioner:
+          - "--leader-election-lease-duration=45s"
+          - "--leader-election-renew-deadline=30s"
+          - "--leader-election-retry-period=6s"
+        csiResizer:
+          - "--leader-election-lease-duration=45s"
+          - "--leader-election-renew-deadline=30s"
+          - "--leader-election-retry-period=6s"

@@ -21,3 +21,41 @@ spec:
   policy:
     semver:
       range: '^2.0.0'
+
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: beets-flask
+spec:
+  image: pspitzner/beets-flask
+  interval: 15m0s
+
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: beets-flask
+spec:
+  imageRepositoryRef:
+    name: beets-flask
+  # Tags are v-prefixed. The anchors keep out `latest`, `stable`, `rc` and the
+  # sha-* tags; the optional trailing group is what admits a pre-release like
+  # v2.0.0-rc5. Flux maps the extracted version back to the real tag, so the
+  # Deployment still gets pspitzner/beets-flask:v2.0.0-rc5.
+  filterTags:
+    pattern: '^v(?P<version>[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)$'
+    extract: '$version'
+  policy:
+    semver:
+      # 2.0.0 has only ever shipped as release candidates, so the range has to
+      # admit pre-releases — a plain '^2.0.0' resolves to nothing at all today.
+      # Masterminds/semver records pre-release-ness per AND-group, so naming a
+      # pre-release in the lower bound also lets '<3.0.0' match them.
+      #
+      # This is the only pre-release-tracking policy in the repo, and it will
+      # roll onto v2.0.0 final unattended when that ships. Tighten it to
+      # '^2.0.0' at that point.
+      range: '>=2.0.0-rc1 <3.0.0'

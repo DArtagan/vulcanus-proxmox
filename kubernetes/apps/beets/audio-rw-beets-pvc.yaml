@@ -1,0 +1,14 @@
+# Claims the uid-mapped view of the audio share. See
+# kubernetes/infrastructure/audio-rw-beets-pv.yaml for why beets-flask needs
+# its own mount rather than sharing audio-rw-pvc.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: audio-rw-beets-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 750Gi
+  volumeName: audio-rw-beets-pv

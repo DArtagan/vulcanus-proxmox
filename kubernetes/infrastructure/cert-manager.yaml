@@ -1,12 +1,43 @@
----
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
+kind: OCIRepository
 metadata:
-  name: jetstack
+  name: cert-manager
 spec:
-  interval: 24h
-  url: https://charts.jetstack.io
-
+  interval: 1h
+  url: oci://quay.io/jetstack/charts/cert-manager
+  # The chart is published alongside a provenance artifact, so the layer has to
+  # be selected explicitly rather than taken as the only one.
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    tag: v1.21.1 # {"$imagepolicy": "infrastructure:cert-manager:tag"}
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: cert-manager
+spec:
+  image: quay.io/jetstack/charts/cert-manager
+  interval: 1h
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: cert-manager
+spec:
+  imageRepositoryRef:
+    name: cert-manager
+  # Recent releases are tagged both with and without a leading v; only the
+  # v-prefixed form goes all the way back, so match that one consistently.
+  filterTags:
+    pattern: '^v(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$'
+    extract: '$version'
+  policy:
+    semver:
+      # cert-manager does ship behaviour changes in minors, so read the upgrade
+      # notes when this crosses one.
+      range: '>=1.21.1 <2.0.0'
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -14,25 +45,24 @@ metadata:
   name: cert-manager
 spec:
   interval: 15m
-  chart:
-    spec:
-      chart: cert-manager
-      version: 1.12.2
-      sourceRef:
-        kind: HelmRepository
-        name: jetstack
-      interval: 15m
-        #  install:
-        #    crds: CreateReplace
-        #  upgrade:
-        #    crds: CreateReplace
+  chartRef:
+    kind: OCIRepository
+    name: cert-manager
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
   values:
-    installCRDs: true
-    promtetheus:
+    crds:
+      enabled: true
+      # Removing the CRDs garbage-collects every Certificate and Issuer with
+      # them, so keep them behind even if the release is uninstalled.
+      keep: true
+    prometheus:
       servicemonitor:
         enabled: true
-
-
 ---
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer

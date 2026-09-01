@@ -1,12 +1,37 @@
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
+kind: OCIRepository
 metadata:
   name: coredns
 spec:
-  interval: 24h
-  url: https://coredns.github.io/helm
-
-
+  interval: 1h
+  url: oci://ghcr.io/coredns/charts/coredns
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    tag: 1.47.0 # {"$imagepolicy": "infrastructure:coredns:tag"}
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: coredns
+spec:
+  image: ghcr.io/coredns/charts/coredns
+  interval: 1h
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: coredns
+spec:
+  imageRepositoryRef:
+    name: coredns
+  filterTags:
+    pattern: '^(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$'
+    extract: '$version'
+  policy:
+    semver:
+      range: '>=1.47.0 <2.0.0'
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -14,14 +39,15 @@ metadata:
   name: coredns
 spec:
   interval: 5m
-  chart:
-    spec:
-      chart: coredns
-      version: 1.45.0
-      sourceRef:
-        kind: HelmRepository
-        name: coredns
-      interval: 5m
+  chartRef:
+    kind: OCIRepository
+    name: coredns
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
   values:
     isClusterService: false
     prometheus:
@@ -32,7 +58,11 @@ spec:
     serviceType: LoadBalancer
     servers:
       - zones:
-        - zone: .
+          - zone: .
+            # Without this the chart renders a UDP port only. The live Service has
+            # carried both udp-53 and tcp-53 since chart 1.29.0, and resolvers fall
+            # back to TCP for responses that do not fit in a UDP datagram.
+            use_tcp: true
         port: 53
         plugins:
           - name: errors
@@ -60,7 +90,8 @@ spec:
             # directly, and LAN devices use CoreDNS via router DHCP (primary) with
             # Cloudflare (secondary) as fallback.
       - zones:
-        - zone: immortalkeep.com
+          - zone: immortalkeep.com
+            use_tcp: true
         port: 53
         plugins:
           - name: errors
@@ -74,6 +105,29 @@ spec:
           - name: prometheus
             parameters: 0.0.0.0:9153
           - name: reload
+      # status.immortalkeep.com is a Cloudflare DNS entry that redirects to
+      # the Uptime Robot status page — it is not served by the internal
+      # ingress. This zone is more specific than immortalkeep.com above, so
+      # CoreDNS answers it via public DNS instead of falling through to the
+      # wildcard record, which would otherwise point it at the internal
+      # ingress (no rule there for this host). Covers LAN clients (CoreDNS
+      # via router DHCP) and tailnet clients (CoreDNS via Headscale split
+      # DNS) with one change.
+      - zones:
+          - zone: status.immortalkeep.com
+            use_tcp: true
+        port: 53
+        plugins:
+          - name: errors
+          - name: health
+            configBlock: |-
+              lameduck 5s
+          - name: ready
+          - name: forward
+            parameters: . tls://1.1.1.1
+            configBlock: |-
+              tls_servername cloudflare-dns.com
+              health_check 5s
     zoneFiles:
       - filename: db.immortalkeep.com
         domain: immortalkeep.com
@@ -83,7 +137,7 @@ spec:
 
           ; --- SOA & NS ---
           @                       IN  SOA  ns.immortalkeep.com. hostmaster.immortalkeep.com. (
-                                               2026041101 ; serial (YYYYMMDDNN)
+                                               2026080701 ; serial (YYYYMMDDNN)
                                                86400      ; refresh (1d)
                                                7200       ; retry (2h)
                                                2419200    ; expire (4w)
@@ -102,9 +156,38 @@ spec:
           piraeus-worker-1        IN  A    192.168.0.196
           piraeus-api             IN  A    192.168.0.200  ; cluster VIP
 
+          ; --- Services with their own LoadBalancer IP ---
+          ; Must be listed explicitly, otherwise the wildcard below sends them
+          ; to the internal ingress, which does not serve their ports.
+          rustdesk                IN  A    192.168.0.204
+          mumble                  IN  A    192.168.0.205
+          ; Sync traffic only. syncthing.immortalkeep.com is intentionally left
+          ; to the wildcard so the web UI keeps reaching the ingress over TLS.
+          syncthing-sync          IN  A    192.168.0.206
+
           ; --- Kubernetes services (via ingress) ---
           ; Wildcard routes all subdomains to internal ingress controller.
           ; Explicit records above take precedence over the wildcard.
+          ;
+          ; The apex serves the website and nothing else. Mumble in particular
+          ; is not on it: the one supported name is mumble.immortalkeep.com.
+          ; This matters because a resolver answers with an address, not an
+          ; address and port, so the apex cannot point at Mumble without taking
+          ; the website with it — and only clients using CoreDNS see this at
+          ; all. Anyone on public DNS gets the WAN address for either name and
+          ; is forwarded to 192.168.0.205 regardless.
+          ;
+          ; It was briefly done the other way, in Aug 2026: a second Service
+          ; sharing 192.168.0.203 with the ingress via MetalLB, so that both
+          ; names worked for LAN clients. Reverted deliberately. Sharing an
+          ; address forces the Cluster external traffic policy, which SNATs
+          ; every client arriving on the apex to a single pod-network address —
+          ; they stop being distinguishable in the Mumble log — and it drops
+          ; the guarantee that voice lands on the node running the pod, so a
+          ; reschedule silently adds a hop. It also coupled the ingress address
+          ; to Mumble's config, which put every internal HTTPS service in the
+          ; blast radius of a Mumble mistake. One canonical name is less to
+          ; maintain and none of that is true of it.
           @                       IN  A    192.168.0.203
           *.immortalkeep.com.     IN  A    192.168.0.203
 
@@ -112,6 +195,11 @@ spec:
           ; 192.168.0.201 = ingress-nginx-external
           ; 192.168.0.202 = CoreDNS (this service)
           ; 192.168.0.203 = ingress-nginx-internal
+          ; 192.168.0.204 = rustdesk (hbbs + hbbr)
+          ; 192.168.0.205 = mumble (64738 tcp+udp)
+          ; 192.168.0.206 = syncthing sync (22000 tcp+udp)
+          ; Pool is 192.168.0.201-210, so 207-210 remain. Check the router's
+          ; DHCP range before widening it.
           ;
           ; --- Router DHCP DNS settings ---
           ; Primary: 192.168.0.202 (CoreDNS)

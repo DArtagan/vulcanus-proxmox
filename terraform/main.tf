@@ -205,7 +205,14 @@ module "talos_control_plane_0" {
   uefi = false
   vmid = 900
   target_node = var.proxmox_host_node
-  memory = 3072
+  # kube-apiserver holds ~362 MiB of live heap and peaks at ~1.33 GiB resident:
+  # Go lets the heap roughly double before collecting, and 158 watch caches
+  # across 526 open watches cost more in goroutine stacks than the data costs in
+  # storage. Talos, etcd, kubelet and containerd take a further ~560 MiB outside
+  # any pod. Size against that peak, not the average — short of it the kernel
+  # OOM-kills the apiserver, and controller-manager and scheduler follow it out
+  # when their leader-election leases go.
+  memory = 4096
   cores = 2
   ip_address = "192.168.0.190"
   boot_disk_size = "10G"

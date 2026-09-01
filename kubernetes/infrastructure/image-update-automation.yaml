@@ -8,6 +8,11 @@ spec:
     kind: GitRepository
     name: flux-system
     namespace: flux-system
+  # Scoped so this and the apps automation cannot both rewrite and push the same
+  # commit; without a path each one scans the whole repository.
+  update:
+    path: ./kubernetes/infrastructure
+    strategy: Setters
   git:
     checkout:
       ref:

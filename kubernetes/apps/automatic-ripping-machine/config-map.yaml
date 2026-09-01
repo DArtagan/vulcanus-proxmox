@@ -64,8 +64,14 @@ data:
     # Wait for manual identification
     MANUAL_WAIT: true
 
-    # Wait time for manual identification (in seconds)
-    MANUAL_WAIT_TIME: 31536000
+    # Wait time for manual identification (in seconds).
+    # This bounds only the *blocking* window. A title set later still takes
+    # effect: arm_ripper.py re-derives the final directory from title_manual
+    # after the transcode, so the real correction window lasts the whole job.
+    # An unbounded wait holds SystemDrives.job_id_current, which makes every
+    # later insert fail with "Job already running on /dev/sr0" until someone
+    # abandons the job in the web UI.
+    MANUAL_WAIT_TIME: 600
 
     # Allows you to format the date/time to your own liking
     # This will be used throughout ARM and ARMui
@@ -108,10 +114,11 @@ data:
     UNIDENTIFIED_EJECT: false
 
 
-    # Auto-ejects disks
     # Auto-ejects disks when complete etc
-    # Set to false to disable auto-ejection
-    AUTO_EJECT: false
+    # The tray opening is the only signal that a job has finished which does not
+    # require opening the web UI, and the drive is at a different house from
+    # whoever administers it.
+    AUTO_EJECT: true
 
 
     #####################
@@ -205,8 +212,6 @@ data:
     # *** NOTE: MakeMKV only supports the backup or backup_dvd method on BluRay discs.
     # backup_dvd forces arm to extract the dvd with MakeMKV prior to the Handbrake step
     RIPMETHOD: "backup_dvd"
-    RIPMETHOD_DVD: "PLACEHOLDER"
-    RIPMETHOD_BR: "PLACEHOLDER"
 
     # MakeMKV Arguments
     # MakeMKV Profile used for controlling Audio Track Selection.
@@ -317,15 +322,15 @@ data:
 
     # Pushover API User and Application Key
     # Leave User key empty to disable Pushover notifications
-    PO_USER_KEY: ""
-    PO_APP_KEY: ""
+    PO_USER_KEY: "${PUSHOVER_USER_KEY}"
+    PO_APP_KEY: "${PUSHOVER_APP_TOKEN}"
 
 
     ## Specify a script to be called.
     # We will call the script with two arguments:
     # First Argument: Title
     # Second Argument: Body
-    BASH_SCRIPT: ""
+    BASH_SCRIPT: "/usr/local/bin/arm-audio-handoff.sh"
 
 
     # OMDB_API_KEY
@@ -696,7 +701,33 @@ data:
     # Other options:
     # The variable CDPARANOIOPTS is also used by GNU's cd-paranoia,
     # so use this when setting CDROMREADERSYNTX=libcdio.
-    #CDPARANOIAOPTS=
+    #
+    # -e is the only read-quality signal this pipeline has. cdparanoia hides its
+    # progress display when stderr is not a terminal, and abcde is exactly the
+    # "wrapper script" the flag's help text says to use it for — so without it a
+    # job log records `Ripping from sector … / outputting to … / Done.` and
+    # nothing about whether the read was clean. rip_music() checks only abcde's
+    # exit code, so a scratched disc would rip to patched audio and still report
+    # success.
+    #
+    # -e is the machine-readable callback stream, not the smiley progress bar
+    # (that is -E). Each line is `##: <code> [<action>] @ <sector>`, which is
+    # the more useful of the two here because it can be counted.
+    #
+    # A clean disc produces only these, measured over an 11-track CD:
+    #   -2 [wrote]    188899      0 [read]     14512
+    #    1 [verify]     1068      9 [overlap]    225      -1 [finished]  11
+    # `overlap` is paranoia adjusting its read overlap, not an error. Anything
+    # else — scratch, skip, readerr, fixup dropped/duped, repair, backoff —
+    # means the audio may be wrong.
+    #
+    # It is verbose: that disc's job log is 5.4 MB. LOGLIFE ages it out at 90
+    # days, and the logs live on the OpenEBS PVC rather than the share.
+    #
+    # Not paired with -z: plain --never-skip retries a bad sector indefinitely,
+    # which on a damaged disc holds the drive until someone notices. Decide the
+    # retry bound after seeing what real discs report.
+    CDPARANOIAOPTS="-e"
     #CDDA2WAVOPTS=
     #PIRDOPTS="-p"
     # Options for the CD ripper dagrab can be seen by running 'dagrab -h'.
@@ -734,7 +765,17 @@ data:
     #  ACTIONS=default,playlist
     # The default action list (referenced as "default") is defined in the following
     # comment:
-    ACTIONS=musicbrainz,read,encode,tag,move,replaygain,clean,getalbumart,embedalbumart
+    # `embedalbumart` is deliberately absent. It embeds cover.jpg into every
+    # track and then, hardcoded with no way to configure it, does
+    #   mkdir "$FINALDIR"/albumart_backup && mv "$ALBUMARTFILE" "$FINALDIR"/albumart_backup
+    # That leaves the conventional cover.jpg missing from the album directory,
+    # and the mid-rip move of a file beets-flask is scanning is a race it loses:
+    # on 2026-08-26 it threw FileNotFoundError on the vanished cover.jpg, and
+    # separately enqueued albumart_backup/ as an album of its own containing one
+    # JPEG. `getalbumart` alone leaves cover.jpg beside the audio, which is both
+    # the traditional layout and what beets' fetchart reads as a filesystem
+    # source.
+    ACTIONS=musicbrainz,read,encode,tag,move,replaygain,clean,getalbumart
 
     # CD device you want to read from
     # It can be defined as a singletrack flac file, but since it might change from
@@ -747,7 +788,15 @@ data:
     # If you'd like to make a default location that overrides the current
     # directory for putting mp3's, uncomment this.
     # OUTPUTDIR="$home/music/"
-    OUTPUTDIR="/root/audio/"
+    # Container-local, deliberately: abcde encodes each track straight to its
+    # output directory, and beets-flask enqueues an album 30s after it stops
+    # changing — a gap that falls between tracks. Writing here and handing the
+    # finished album over in one step is what stops it importing a partial
+    # album and never retrying. See arm-audio-handoff.sh in init-scripts.yaml.
+    #
+    # Not a second mount of the audio share: ARM's write access stays limited
+    # to import/.
+    OUTPUTDIR="/home/arm/arm-incoming/"
 
     # Or if you'd just like to put the temporary .wav files somewhere else
     # you can specify that here

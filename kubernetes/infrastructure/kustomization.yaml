@@ -2,8 +2,10 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: infrastructure
 resources:
+  - alloy.yaml
   - audio-pv.yaml
   - audio-rw-arm-pv.yaml
+  - audio-rw-beets-pv.yaml
   - audio-rw-pv.yaml
   #- authentik.yaml
   - basic-auth.yaml
@@ -13,21 +15,25 @@ resources:
   - coredns.yaml
   - csi-driver-smb.yaml
   - devices.yaml
+  - fstrim.yaml
   - games-pv.yaml
+  - grafana-admin-secret.yaml
   - grafana-auth.yaml
   - image-update-automation.yaml
   - ingress-nginx-reverse-proxy.yaml
-  - kubernetes-dashboard.yaml
-  - loki.yaml
   - media-pv.yaml
   - metallb.yaml
+  - metrics-server.yaml
   - namespace.yaml
+  - notification-secrets.yaml
   - openebs.yaml
   #- openvpn
   - photos-pv.yaml
+  - prometheus-rules.yaml
   - prometheus.yaml
   - rancher-key.yaml
   - smb-credentials.yaml
   - syncthing-pv.yaml
+  - victoria-logs.yaml
   - video-arm-pv.yaml
   - video-pv.yaml

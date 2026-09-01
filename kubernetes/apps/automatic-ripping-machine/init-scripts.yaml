@@ -30,6 +30,12 @@ data:
         fi
     done
 
+    # Where abcde writes a CD rip before arm-audio-handoff.sh moves it into the
+    # inbox. Container-local and ephemeral: anything still here after a restart
+    # is a rip that died before handing over, and re-inserting the disc is the
+    # recovery.
+    mkdir -p /home/arm/arm-incoming
+
     ln -s /root/.MakeMKV/ /home/arm/.MakeMKV
 
     # abcde.conf is expected in /etc by the abcde installation
@@ -42,12 +48,46 @@ data:
 
   arm-disc-wrapper.sh: |
     #!/bin/bash
-    # Gatekeeper called by udev on any block device change event.
-    # Checks that a disc is actually present before invoking ARM, so that
-    # eject events (tray open, no disc) don't trigger spurious rip attempts.
+    # Gatekeeper called by udev on any block device change event. Two things
+    # must be true before starting ARM:
+    #
+    #   1. A disc is present with the tray closed (CDROM_DRIVE_STATUS ==
+    #      CDS_DISC_OK). Without this the eject event, which the container does
+    #      receive, triggers a rip attempt against an empty drive.
+    #   2. udev has published at least one ID_CDROM_MEDIA_* property for the
+    #      device. Job.parse_udev() derives disctype from those alone, and the
+    #      drive answers CDS_DISC_OK before its TOC has been read — so ARM
+    #      started on the first of the events an insert generates fails with
+    #      "Could not determine disc type" and leaves the drive holding that
+    #      job, which blocks every later insert until someone abandons it by
+    #      hand.
+    #
+    # Match ID_CDROM_MEDIA_ and not bare ID_CDROM_. The latter (ID_CDROM_BD,
+    # ID_CDROM_DVD, ...) reports what the drive is capable of reading and is
+    # present with the tray open.
+    set -u
+
     DEVNAME="$1"
     DEV="/dev/${DEVNAME}"
     ARMLOG="/home/arm/logs/arm.log"
+
+    # The drive needs a few seconds to read the TOC, longer for a Blu-ray than
+    # for a CD.
+    MEDIA_TIMEOUT=60
+    MEDIA_INTERVAL=2
+
+    log() {
+        echo "$(date) [ARM] disc-wrapper: $*" >> "${ARMLOG}"
+    }
+
+    # One insert generates several change events, and an ATA link reset during a
+    # rip generates more. The lock is inherited through the exec below, so it is
+    # held for the life of the job and only the first event gets one.
+    exec 9>"/run/lock/arm-disc-${DEVNAME}.lock"
+    if ! flock -n 9; then
+        log "a job already holds ${DEV}, skipping"
+        exit 0
+    fi
 
     STATUS=$(python3 -c "
     import fcntl, os
@@ -56,17 +96,138 @@ data:
         s = fcntl.ioctl(fd, 0x5326, 0)  # CDROM_DRIVE_STATUS
         os.close(fd)
         print(s)
-    except Exception as e:
+    except Exception:
         print(0)
     " 2>/dev/null)
 
     # CDS_DISC_OK=4: disc present and tray closed. Anything else, skip.
     if [ "${STATUS}" != "4" ]; then
-        echo "$(date) [ARM] disc-wrapper: no disc in ${DEV} (status=${STATUS}), skipping" >> "${ARMLOG}"
+        log "no disc in ${DEV} (status=${STATUS}), skipping"
         exit 0
     fi
 
+    waited=0
+    until udevadm info "${DEV}" 2>/dev/null | grep -q "ID_CDROM_MEDIA_"; do
+        if [ "${waited}" -ge "${MEDIA_TIMEOUT}" ]; then
+            log "udev published no ID_CDROM_MEDIA_* for ${DEV} after ${MEDIA_TIMEOUT}s, skipping"
+            exit 0
+        fi
+        sleep "${MEDIA_INTERVAL}"
+        waited=$(( waited + MEDIA_INTERVAL ))
+    done
+
     exec /opt/arm/scripts/docker/docker_arm_wrapper.sh "${DEVNAME}"
+
+  arm-audio-handoff.sh: |
+    #!/bin/bash
+    # Moves a finished CD rip from container-local staging into the beets-flask
+    # inbox, in a way that never shows a partial album.
+    #
+    # abcde encodes each track straight to its output directory, and
+    # beets-flask enqueues an album 30s after it stops changing. Those gaps fall
+    # *between tracks*, so pointing abcde at the inbox means it always sees a
+    # partial album: on 2026-08-26 it built a session against a one-track folder
+    # and never re-enqueued, leaving ten tracks on disk and nothing in the
+    # library.
+    #
+    # Staging is container-local rather than a second mount of the audio share,
+    # so ARM keeps write access to `import/` alone and nothing else.
+    #
+    # Invisibility during the copy uses two independent properties of
+    # beets-flask, because either alone is a single point of failure:
+    #   * its watchdog drops any event whose basename starts with "."
+    #   * a file counts as audio only when its *name* ends in an audio extension
+    # so tracks land as `.<name>.part` and are renamed only once all of them
+    # have arrived. A dotted *directory* is not sufficient — measured with a
+    # matched control on 2026-08-26, beets-flask enqueued dotted and undotted
+    # probes identically.
+    #
+    # ARM calls this for every notification (utils.bash_notify) with
+    # $1=title $2=body, because there is no completion hook: abcde's
+    # do_postprocess is commented out and ARM has no per-stage callback. Hence
+    # the message match.
+    set -u
+
+    BODY="${2:-}"
+
+    STAGING="/home/arm/arm-incoming"
+    INBOX="/root/audio"
+    ARMLOG="/home/arm/logs/arm.log"
+
+    log() {
+        echo "$(date) [ARM] audio-handoff: $*" >> "${ARMLOG}"
+    }
+
+    # utils.py builds this as f"Music CD: {job.title} {PROCESS_COMPLETE}".
+    # Matching the failure messages too would hand off a half-ripped album.
+    case "${BODY}" in
+        "Music CD: "*"processing complete."*) ;;
+        *) exit 0 ;;
+    esac
+
+    [ -d "${STAGING}" ] || { log "nothing staged at ${STAGING}"; exit 0; }
+
+    shopt -s nullglob
+    for album in "${STAGING}"/*/; do
+        album="${album%/}"
+        name="$(basename "${album}")"
+        dest="${INBOX}/${name}"
+
+        # Two discs can land on the same name, and it is not a corner case:
+        # every disc MusicBrainz cannot identify is called
+        # "Unknown Artist Unknown Album". Disambiguate rather than refuse.
+        #
+        # Refusing and leaving the album in staging looks safer and is not.
+        # Staging is container-local, so a retained album dies at the next pod
+        # restart; and abcde writes the *next* rip into the same directory, so
+        # an 8-track disc landing on a retained 11-track one leaves tracks 1-8
+        # from the new disc and 9-11 from the old. That album looks complete and
+        # is two discs.
+        suffix=2
+        while [ -e "${dest}" ]; do
+            dest="${INBOX}/${name} (${suffix})"
+            suffix=$(( suffix + 1 ))
+        done
+
+        mkdir -p "${dest}"
+        failed=0
+        for src in "${album}"/*; do
+            [ -f "${src}" ] || continue
+            base="$(basename "${src}")"
+            if ! cp "${src}" "${dest}/.${base}.part"; then
+                log "copy failed for ${base}"
+                failed=1
+                break
+            fi
+        done
+
+        if [ "${failed}" -ne 0 ]; then
+            # Leave nothing in the inbox that could be read as an album, and
+            # keep the rip rather than discarding it. Move it aside under a name
+            # abcde will not rip into: this is the only path that keeps staging,
+            # so it is the only remaining way the next disc could merge into an
+            # existing album.
+            rm -f "${dest}"/.*.part
+            rmdir "${dest}" 2>/dev/null
+            kept="${album}.failed-$(date +%s)"
+            mv "${album}" "${kept}"
+            log "aborted ${name}; rip kept at ${kept}, and it will not survive a pod restart"
+            continue
+        fi
+
+        # Reveal. Each rename is within one directory, so the album goes from
+        # invisible to complete in a few milliseconds.
+        for tmp in "${dest}"/.*.part; do
+            base="$(basename "${tmp}")"
+            base="${base#.}"
+            base="${base%.part}"
+            mv "${tmp}" "${dest}/${base}"
+        done
+
+        log "handed off ${name} to ${dest}"
+        # Always, so the next rip cannot merge into what is left here.
+        rm -rf "${album}"
+    done
 
   armui.sh: |
     #!/bin/bash

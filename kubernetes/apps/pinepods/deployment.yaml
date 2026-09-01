@@ -1,0 +1,127 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pinepods
+  labels:
+    app: pinepods
+spec:
+  # ReadWriteOnce PVCs for Postgres and Valkey mean the old pod must release them
+  # before the new one starts.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: pinepods
+  template:
+    metadata:
+      labels:
+        app: pinepods
+    spec:
+      containers:
+        - name: pinepods
+          image: madeofpendletonwool/pinepods:0.9.0 # {"$imagepolicy": "apps:pinepods"}
+          env:
+            # HOSTNAME is embedded in the RSS feeds PinePods generates, so it must be
+            # the externally reachable URL rather than localhost.
+            - name: HOSTNAME
+              value: https://pinepods.immortalkeep.com
+            - name: SEARCH_API_URL
+              value: https://search.pinepods.online/api/search
+            - name: PEOPLE_API_URL
+              value: https://people.pinepods.online
+            - name: DB_TYPE
+              value: postgresql
+            - name: DB_HOST
+              value: localhost
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              value: pinepods_database
+            - name: DB_USER
+              value: postgres
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pinepods
+                  key: database_password
+            - name: VALKEY_HOST
+              value: localhost
+            - name: VALKEY_PORT
+              value: "6379"
+            # The SMB shares expose all files as root with no uid mapping, and
+            # startup.sh chowns the download and backup directories to PUID:PGID.
+            # Matches filebot, which writes to the same fileserver.
+            - name: PUID
+              value: "0"
+            - name: PGID
+              value: "0"
+            - name: TZ
+              value: America/Denver
+          ports:
+            - containerPort: 8040
+          resources:
+            limits:
+              memory: "2Gi"
+          volumeMounts:
+            - mountPath: /opt/pinepods/downloads
+              name: audio
+              subPath: podcasts/
+            # The pre-existing 248 GB of podcasts, relocated out of podcasts/ so
+            # PinePods owns its download tree exclusively.
+            - mountPath: /opt/pinepods/local-media
+              name: audio
+              subPath: podcasts-legacy/
+            # pg_dump output. Intended for the borg share so rclone-b2 would carry
+            # it offsite, but that share is not writable by the SMB credentials and
+            # borgmatic's own repositories are currently missing, so its backups are
+            # failing. Parked on a local volume until that is sorted out: this
+            # survives pod restarts and guards against a bad migration, but it is
+            # node-local and not offsite.
+            - mountPath: /opt/pinepods/backups
+              name: backups
+        - name: database
+          image: postgres:18.6 # {"$imagepolicy": "apps:pinepods-postgres"}
+          env:
+            # POSTGRES_USER is omitted: it defaults to "postgres", which is what
+            # DB_USER expects. POSTGRES_DB cannot be omitted, since it would
+            # otherwise default to the username rather than pinepods_database.
+            - name: POSTGRES_DB
+              value: pinepods_database
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pinepods
+                  key: database_password
+            # Set explicitly rather than relying on the image default, which is
+            # version-scoped (/var/lib/postgresql/18/docker). A future major
+            # version bump would otherwise silently point at an empty directory.
+            - name: PGDATA
+              value: /var/lib/pgdata/pgdata
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - mountPath: /var/lib/pgdata
+              name: database
+        - name: valkey
+          image: valkey/valkey:8.1.10-alpine # {"$imagepolicy": "apps:pinepods-valkey"}
+          ports:
+            - containerPort: 6379
+          resources:
+            limits:
+              memory: "256Mi"
+          volumeMounts:
+            - mountPath: /data
+              name: valkey
+      volumes:
+        - name: database
+          persistentVolumeClaim:
+            claimName: pinepods-database-pvc
+        - name: valkey
+          persistentVolumeClaim:
+            claimName: pinepods-valkey-pvc
+        - name: audio
+          persistentVolumeClaim:
+            claimName: audio-rw-pvc
+        - name: backups
+          persistentVolumeClaim:
+            claimName: pinepods-backups-pvc

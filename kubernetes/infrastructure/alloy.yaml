@@ -1,0 +1,184 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: grafana
+spec:
+  interval: 15m  # 24h
+  url: https://grafana.github.io/helm-charts
+
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: alloy
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: alloy
+      # No OCI chart is published — ghcr.io refuses even an anonymous pull token
+      # for it, unlike loki and promtail under the same prefix — so this is
+      # bumped by hand rather than by the image automation the OCI-backed charts
+      # use. Same tier as metrics-server and csi-driver-smb.
+      version: 1.11.1
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+      interval: 15m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    # The chart ships monitoring.grafana.com CRDs (PodLogs and friends) for the
+    # loki.source.podlogs component, which this config does not use.
+    crds:
+      create: false
+
+    alloy:
+      # otelcol.receiver.filelog and otelcol.storage.file are both still
+      # "public-preview" in Alloy 1.18.1, and the chart defaults this to
+      # "generally-available", so without it the collector refuses to load the
+      # config at all rather than degrading. Verified with `alloy validate`:
+      # fails on both components at the default level, passes at this one.
+      #
+      # The label describes Alloy's own wrapper, not the upstream OpenTelemetry
+      # filelogreceiver underneath it, which is long-established.
+      stabilityLevel: public-preview
+
+      mounts:
+        # hostPath-mounts /var/log read-only. Without it there are no container
+        # log files to read and the receiver silently finds nothing.
+        varlog: true
+        extra:
+          - name: alloy-storage
+            mountPath: /var/lib/alloy
+
+      # Backed by the hostPath below. otelcol.storage.file defaults its directory
+      # under this path, so the filelog checkpoints land on the node rather than
+      # on the pod's ephemeral layer.
+      storagePath: /var/lib/alloy
+
+      configMap:
+        content: |-
+          // Checkpoints for the filelog receiver. filelog's start_at defaults to
+          // "end", so losing these does not cause a re-read of every file — it
+          // causes a gap covering whatever was written while the pod was down.
+          // Persisting them on the node closes that gap across restarts.
+          otelcol.storage.file "checkpoints" {}
+
+          otelcol.receiver.filelog "pods" {
+            include = ["/var/log/pods/*/*/*.log"]
+            // Do not let Alloy ingest its own output.
+            exclude = ["/var/log/pods/infrastructure_alloy-*/*/*.log"]
+
+            // REQUIRED, and defaults to false. The container operator below
+            // derives all of its Kubernetes metadata from log.file.path, which
+            // only exists when this is set. Without it the operator still parses
+            // the log line but emits no k8s.* attributes at all, and every log
+            // ends up in one anonymous stream.
+            include_file_path = true
+
+            storage = otelcol.storage.file.checkpoints.handler
+
+            // Parses the containerd/CRI line format and lifts namespace, pod,
+            // pod UID and container out of the file path into standard k8s.*
+            // resource attributes. Replaces both promtail's `cri: {}` stage and
+            // the eleven __path__/relabel rules its chart defaults carried.
+            operators = [{
+              type = "container",
+            }]
+
+            output {
+              logs = [otelcol.processor.k8sattributes.pods.input]
+            }
+          }
+
+          otelcol.processor.k8sattributes "pods" {
+            // The container operator already set k8s.pod.uid from the file path,
+            // so associate on that. Associating on connection IP does not work
+            // for file-sourced logs, which have no originating connection.
+            pod_association {
+              source {
+                from = "resource_attribute"
+                name = "k8s.pod.uid"
+              }
+            }
+
+            // Workload identity from the Kubernetes API. The chart's default
+            // RBAC already grants pods and apps/replicasets, which is what the
+            // deployment-name lookup needs.
+            extract {
+              metadata = [
+                "k8s.namespace.name",
+                "k8s.pod.name",
+                "k8s.container.name",
+                "k8s.deployment.name",
+                "k8s.daemonset.name",
+                "k8s.statefulset.name",
+                "k8s.cronjob.name",
+                "k8s.job.name",
+                "k8s.node.name",
+              ]
+            }
+
+            output {
+              logs = [otelcol.processor.batch.pods.input]
+            }
+          }
+
+          otelcol.processor.batch "pods" {
+            output {
+              logs = [otelcol.exporter.otlphttp.victorialogs.input]
+            }
+          }
+
+          otelcol.exporter.otlphttp "victorialogs" {
+            client {
+              // The exporter appends "/v1/logs", which yields VictoriaLogs'
+              // documented ingest path /insert/opentelemetry/v1/logs. Logs are
+              // the only signal here, so logs_endpoint would be redundant.
+              endpoint = "http://victoria-logs.infrastructure.svc.cluster.local:9428/insert/opentelemetry"
+
+              // VictoriaLogs promotes EVERY resource attribute to a stream field
+              // by default. k8s.pod.uid alone would then mint a brand new stream
+              // on every pod restart, so the stream fields are pinned explicitly.
+              // This degrades silently and gradually if wrong — check stream
+              // cardinality after a rollout, not just that logs arrive.
+              headers = {
+                "VL-Stream-Fields" = "k8s.namespace.name,k8s.pod.name,k8s.container.name",
+              }
+            }
+          }
+
+    controller:
+      # The Alloy chart ships no tolerations, but the promtail chart it replaces
+      # defaulted to tolerating the control-plane taint. Without this the
+      # DaemonSet quietly runs on the two workers only, and every control-plane
+      # log — kube-apiserver, kube-controller-manager, kube-scheduler, etcd —
+      # stops being collected with nothing failing to indicate it. Caught by
+      # counting Alloy pods (2) against nodes (3) after the first rollout.
+      #
+      # Only the control-plane key is listed: promtail also carried the legacy
+      # node-role.kubernetes.io/master taint, which this cluster's Kubernetes no
+      # longer sets.
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+
+      volumes:
+        extra:
+          - name: alloy-storage
+            hostPath:
+              # /var is writable on Talos and survives a reboot, unlike the
+              # tmpfs /run that promtail kept its positions file on.
+              path: /var/lib/alloy
+              type: DirectoryOrCreate
+
+    # Replaces the ServiceMonitor promtail had, so the collector keeps being
+    # scraped by Prometheus.
+    serviceMonitor:
+      enabled: true

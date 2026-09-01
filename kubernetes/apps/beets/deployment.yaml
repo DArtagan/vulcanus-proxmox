@@ -1,0 +1,130 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: beets-flask
+  labels:
+    app: beets-flask
+spec:
+  # /config and /library are both ReadWriteOnce openebs-hostpath volumes, so a
+  # rolling update would deadlock: the replacement pod cannot attach them until
+  # the outgoing pod has released them.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: beets-flask
+  template:
+    metadata:
+      labels:
+        app: beets-flask
+    spec:
+      initContainers:
+        # beets-flask reads its configuration exactly once, at startup, from
+        # files it expects to be able to write — so they cannot simply be a
+        # read-only ConfigMap mount. Copying them onto the PVC on every start
+        # keeps git authoritative: a change made in the web UI survives until
+        # the next restart and no longer.
+        #
+        # Only these three paths are written. Everything else under /config, in
+        # particular beets-flask-sqlite.db, is left alone.
+        - name: config-seed
+          image: busybox:latest
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              mkdir -p /config/beets /config/beets-flask
+              cp /config-map/config-beets.yaml     /config/beets/config.yaml
+              cp /config-map/genre_whitelist.txt   /config/genre_whitelist.txt
+              cp /config-map/beets-flask-gui.yaml  /config/beets-flask/config.yaml
+              # Local beets plugin, loaded via the `pluginpath` setting in the
+              # beets config.
+              mkdir -p /config/beetsplug
+              cp /config-map/beets-flask-plugin-audiobook-genre.py /config/beetsplug/audiobook_genre.py
+              # Mandatory, not cosmetic: the application's entrypoint drops to
+              # the beetle user and then runs `mkdir -p /config/beets`, which
+              # fails outright on a root-owned volume.
+              chown -R 1000:1000 /config
+              # library.blb was created by the CronJob running as root, mode
+              # 0644, so beetle could read but not write it — every import
+              # failed with "attempt to write a readonly database". The
+              # directory being 0777 is not enough: SQLite needs write on the
+              # file itself, not just permission to create its journal.
+              chown -R 1000:1000 /library
+          volumeMounts:
+            - name: config-map
+              mountPath: /config-map
+              readOnly: true
+            - name: config
+              mountPath: /config
+            - name: library
+              mountPath: /library
+      containers:
+        - name: beets-flask
+          image: pspitzner/beets-flask:v2.0.0-rc5 # {"$imagepolicy": "apps:beets-flask"}
+          env:
+            # The container starts as root — its entrypoint needs groupmod,
+            # usermod and su — then drops to the beetle user for the
+            # application itself. 1000 is the uid the image already builds
+            # beetle with, so these are a no-op that documents the uid the
+            # audio mount is mapped to. See
+            # kubernetes/infrastructure/audio-rw-beets-pv.yaml.
+            #
+            # Do not add a securityContext pinning runAsUser: the entrypoint
+            # requires root to reach its `su`.
+            - name: USER_ID
+              value: "1000"
+            - name: GROUP_ID
+              value: "1000"
+            - name: TZ
+              value: America/Denver
+          ports:
+            - containerPort: 5001
+          # Readiness only. `/` is served by the SPA route, which answers only
+          # once uvicorn has bound, and the thresholds are generous because a
+          # cold start runs database migrations, redis and the worker launch
+          # before that happens.
+          #
+          # Deliberately no liveness probe: a long import can occupy the
+          # process, and a liveness probe would then kill the pod mid-import.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 5001
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 30
+          # Runs an in-process redis, four preview workers and a filesystem
+          # watchdog alongside uvicorn. No CPU limit: throttling would only
+          # slow imports down.
+          resources:
+            limits:
+              memory: "2Gi"
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: audio
+              mountPath: /audio
+            - name: library
+              mountPath: /library
+      volumes:
+        - name: config-map
+          configMap:
+            name: beets-config-map
+        - name: config
+          persistentVolumeClaim:
+            claimName: beets-flask-config-pvc
+        # The uid-mapped view of the audio share — not audio-rw-pvc, which
+        # presents as root:root and which this app cannot write to.
+        - name: audio
+          persistentVolumeClaim:
+            claimName: audio-rw-beets-pvc
+        # Shared with the suspended beets-import CronJob. ReadWriteOnce
+        # openebs-hostpath, and its PV is pinned by nodeAffinity to
+        # piraeus-worker-0, so this Deployment can only ever schedule there.
+        # ReadWriteOnce restricts to one node, not one pod, so an ad-hoc beets
+        # job can mount this alongside the Deployment: reads are safe,
+        # concurrent writes are not. See the comment in cron-job.yaml.
+        - name: library
+          persistentVolumeClaim:
+            claimName: beets-library-pvc

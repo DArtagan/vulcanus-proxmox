@@ -17,13 +17,16 @@ spec:
       serviceAccountName: default
       containers:
         - name: headscale
-          image: headscale/headscale:v0.28.0 # {"$imagepolicy": "apps:headscale"}
+          image: headscale/headscale:v0.29.3 # {"$imagepolicy": "apps:headscale"}
           command: ["headscale", "serve"]
           ports:
             - containerPort: 8080
           volumeMounts:
             - mountPath: /etc/headscale
               name: headscale-config
+              readOnly: true
+            - mountPath: /etc/headscale/policy
+              name: headscale-policy
               readOnly: true
             - mountPath: /var/lib/headscale
               name: headscale-data
@@ -51,10 +54,18 @@ spec:
             - mountPath: /etc/headscale
               name: headscale-config
               readOnly: true
+            # Headplane reads policy.path out of headscale's config.yaml to
+            # render its ACL view, so it needs the file on the same path.
+            - mountPath: /etc/headscale/policy
+              name: headscale-policy
+              readOnly: true
       volumes:
         - name: headscale-config
           configMap:
             name: headscale
+        - name: headscale-policy
+          configMap:
+            name: headscale-policy
         - name: headscale-data
           persistentVolumeClaim:
             claimName: headscale-data-pvc

@@ -79,12 +79,6 @@ variable "iso_image_location" {
   default = ""
 }
 
-variable "extra_args" {
-  description = "Additional QEMU args to append (e.g. for cdrom passthrough)."
-  type = string
-  default = ""
-}
-
 variable "start_at_node_boot" {
   description = "Whether the VM should start when the Proxmox node boots."
   type = bool
@@ -130,7 +124,6 @@ variable "host_cdrom_passthrough" {
 # --- VM Resource ---
 
 locals {
-  talos_cpu_args = "-cpu kvm64,+cx16,+lahf_lm,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2"
   # Proxmox does not support SCSI CD-ROM host passthrough via its API. Raw QEMU args bypass
   # the API and attach a scsi-generic device on a virtio-scsi-pci bus for full SCSI passthrough.
   # scsi-generic is required (over scsi-cd) because scsi-cd emulation does not implement DVD-
@@ -145,7 +138,6 @@ locals {
   # assigned through the Proxmox API. Since no such disk exists here, we must create the
   # controller ourselves so that scsi-generic has a bus to attach to.
   cdrom_args = var.host_cdrom_passthrough ? "-device virtio-scsi-pci,id=scsihw0 -drive file=/dev/optical-drive-sg,if=none,id=drive-cdrom0,format=raw -device scsi-generic,bus=scsihw0.0,channel=0,scsi-id=0,lun=0,drive=drive-cdrom0,id=cdrom0" : ""
-  full_args = join(" ", compact([local.talos_cpu_args, var.extra_args, local.cdrom_args]))
   hostname = var.hostname != null ? var.hostname : var.name
 }
 
@@ -157,7 +149,7 @@ resource "proxmox_vm_qemu" "main" {
   bios = var.uefi ? "ovmf" : "seabios"
   scsihw = "virtio-scsi-pci"
   memory = var.memory
-  args = local.full_args
+  args = local.cdrom_args
   agent = 1
   skip_ipv6 = true
   start_at_node_boot = var.start_at_node_boot
@@ -168,7 +160,18 @@ resource "proxmox_vm_qemu" "main" {
   }
   ipconfig0 = "[gw=${var.gateway}, ip=${var.ip_address}/24]"
   cpu {
-    type = "kvm64"
+    # The physical CPU, unmasked. There is one hypervisor, so the usual
+    # objection — a VM pinned to a host's CPU cannot live-migrate to a different
+    # one — does not apply, and anything less costs instructions the guests
+    # need: polars ships its compiled core as an x86-64-v3 wheel and SIGILLs on
+    # import without AVX2.
+    #
+    # Never express this as a `-cpu` entry in `args`. Proxmox appends `args`
+    # after the `-cpu` it generates from this block and QEMU takes the last one,
+    # so the raw arg wins silently and this setting becomes decoration. `args`
+    # also bypasses Proxmox's model translation: `x86-64-v3` is a Proxmox
+    # construct that QEMU has never heard of and would refuse to start.
+    type = "host"
     cores = var.cores
     sockets = 1
   }
@@ -195,12 +198,28 @@ resource "proxmox_vm_qemu" "main" {
         }
       }
     }
+    # discard passes the guest's TRIM through to ZFS. Without it a block freed
+    # inside the guest stays allocated on the zvol forever, so the zvol grows to
+    # the high-water mark and never shrinks: worker-0's OpenEBS volume holds
+    # 122 GB of live data against 786 GB referenced on rpool.
+    #
+    # The cost lands on backups. Whenever the QEMU process restarts, its PBS
+    # dirty bitmap goes with it and the next backup reads the whole disk, so
+    # those dead blocks are read too — 1.10 TiB over two hours on 2026-08-19,
+    # against ~10 GiB for an ordinary incremental. That saturates rpool and
+    # stalls etcd's WAL fsync for the duration.
+    #
+    # TRIM is not issued automatically: Talos runs no fstrim timer, and its
+    # machine.disks patch exposes a mountpoint but no mount options, so the
+    # discard mount option is not reachable. Run it by hand after enabling this
+    # — see docs/talos.md.
     virtio {
       virtio0 {
         disk {
           size = var.boot_disk_size
           storage = var.boot_disk_storage_pool
           backup = true
+          discard = true
         }
       }
       dynamic "virtio1" {
@@ -210,6 +229,7 @@ resource "proxmox_vm_qemu" "main" {
             size = virtio1.value.size
             storage = virtio1.value.storage_pool
             backup = true
+            discard = true
           }
         }
       }

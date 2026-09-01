@@ -1,0 +1,6 @@
+# The manifest and ledger are a catalogue of the library's contents and its
+# paths on the fileserver. This repository is public; they stay local.
+manifest.json
+manifest-full.json
+ledger.json
+covers/

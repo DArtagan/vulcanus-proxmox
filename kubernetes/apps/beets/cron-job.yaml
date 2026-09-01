@@ -3,6 +3,18 @@ kind: CronJob
 metadata:
   name: beets-import
 spec:
+  # Superseded by the beets-flask Deployment, which imports from the same inbox
+  # into the same library with a UI in front of it. Kept rather than deleted
+  # because it is a known-working fallback that can be run on demand with:
+  #
+  #   kubectl create job -n apps beets-manual --from=cronjob/beets-import
+  #
+  # Do NOT unsuspend it. It and beets-flask both write /library/library.blb,
+  # which is SQLite with no coordination between processes — concurrent writes
+  # hit `database is locked` and can leave an operation half-applied. The
+  # `beets-shell` devenv script scales beets-flask down before running an
+  # ad-hoc job for this reason.
+  suspend: true
   concurrencyPolicy: Forbid
   failedJobsHistoryLimit: 1
   successfulJobsHistoryLimit: 3
@@ -11,16 +23,30 @@ spec:
     spec:
       template:
         spec:
+          # Runs as beetle's uid, matching beets-flask, so both write
+          # library.blb as the same user. Without this the two disagree: the
+          # library is owned by 1000, and a root-run import would leave any
+          # SQLite journal it creates owned by root, which beets-flask then
+          # cannot clean up.
+          #
+          # Safe despite the linuxserver image normally wanting root: the
+          # `command` override below bypasses its s6 init entirely (which is
+          # also why PUID/PGID would do nothing here), and its BEETSDIR and
+          # HOME both point at /config, which is a read-only ConfigMap mount
+          # for every uid alike.
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
           containers:
             - name: beets-import
-              image: linuxserver/beets:2.12.0 # {"$imagepolicy": "apps:beets"}
+              image: linuxserver/beets:2.13.1 # {"$imagepolicy": "apps:beets"}
               command: ["beet"]
               args:
                 - import
                 - -q
                 - -l
-                - /media/audio/import/import.log
-                - /media/audio/import
+                - /audio/import/import.log
+                - /audio/import
               #env:
               #  - name: DOCKER_MODS
               #    value: linuxserver/mods:universal-package-install
@@ -32,8 +58,6 @@ spec:
                   readOnly: true
                 - name: audio-volume
                   mountPath: /audio/
-                - name: media-volume
-                  mountPath: /media/
                 - name: library-volume
                   mountPath: /library/
           restartPolicy: OnFailure
@@ -41,12 +65,33 @@ spec:
             - name: config-volume
               configMap:
                 name: beets-config-map
+                # beets expects to find its configuration at config.yaml. The
+                # ConfigMap key is named config-beets.yaml to distinguish it
+                # from beets-flask's GUI config, so project it back here.
+                items:
+                  - key: config-beets.yaml
+                    path: config.yaml
+                  - key: genre_whitelist.txt
+                    path: genre_whitelist.txt
+                  # The config declares `pluginpath: /config/beetsplug` and
+                  # loads audiobook_genre from it. Without this projection
+                  # every `beet` run here prints "** error loading plugin
+                  # audiobook_genre" — harmless, but it is noise on a fallback
+                  # path that only ever gets used when something has already
+                  # gone wrong.
+                  - key: beets-flask-plugin-audiobook-genre.py
+                    path: beetsplug/audiobook_genre.py
             - name: library-volume
               persistentVolumeClaim:
                 claimName: beets-library-pvc
-            - name: media-volume
-              persistentVolumeClaim:
-                claimName: media-pvc
+            # The uid-mapped view of the audio share, as beets-flask uses.
+            # audio-rw-pvc presents everything as root:root and would be
+            # unwritable now that this runs as uid 1000.
+            #
+            # media-pvc is gone with it: the inbox used to be reached as
+            # /media/audio/import, but the `media` share is /mnt/storage/media
+            # and `audio-rw` is /mnt/storage/media/audio, so that was always
+            # the same directory as /audio/import.
             - name: audio-volume
               persistentVolumeClaim:
-                claimName: audio-rw-pvc
+                claimName: audio-rw-beets-pvc

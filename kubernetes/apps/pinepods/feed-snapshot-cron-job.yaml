@@ -1,0 +1,51 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: podcast-feed-snapshot
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 1
+  successfulJobsHistoryLimit: 3
+  schedule: "0 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          securityContext:
+            # The SMB share exposes all files as root and applies no uid mapping,
+            # so the default non-root user in curlimages/curl cannot write to it.
+            runAsUser: 0
+          containers:
+            - name: feed-snapshot
+              image: curlimages/curl:8.21.0 # {"$imagepolicy": "apps:pinepods-curl"}
+              command: ["sh"]
+              args:
+                - /scripts/snapshot.sh
+              env:
+                - name: PINEPODS_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: pinepods
+                      key: api_key
+                - name: ARCHIVE_USER_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: pinepods
+                      key: archive_user_id
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                # Sibling of podcasts/, never inside it — PinePods owns its own
+                # download tree exclusively.
+                - name: audio
+                  mountPath: /archive
+                  subPath: podcasts-feeds/
+          restartPolicy: OnFailure
+          volumes:
+            - name: scripts
+              configMap:
+                name: pinepods-feed-snapshot
+            - name: audio
+              persistentVolumeClaim:
+                claimName: audio-rw-pvc

@@ -17,25 +17,56 @@ spec:
   chart:
     spec:
       chart: openebs
+      # This repository was abandoned at 3.10.0 (2023-12-18), so the previous
+      # unpinned constraint silently meant "3.10.0 forever". Pinned explicitly
+      # so the 4.x move is a decision rather than a surprise; see
+      # todos/openebs-4x-migration-prompt.md.
+      version: 3.10.0
       sourceRef:
         kind: HelmRepository
         name: openebs
       interval: 1h
   install:
     crds: CreateReplace
+    remediation:
+      retries: 3
   upgrade:
     crds: CreateReplace
+    remediation:
+      retries: 3
   values:
+    localprovisioner:
+      # The provisioner runs one replica with strategy Recreate, so there is
+      # never a second pod to hand the lock to and leader election buys nothing.
+      # It costs a great deal: this chart uses the legacy endpointsleases lock,
+      # writing both an Endpoints object and a Lease every ~2s, which is ~1.16
+      # writes/sec — roughly 28% of every write etcd performs on this cluster,
+      # against a provisioner that is idle except when a PVC is created. On
+      # spinning disks with no SLOG each of those is a synchronous WAL fsync.
+      #
+      # It is also the crash: on any etcd stall the container loses the lock and
+      # panics, 25 times during the 2026-08-19 backup and ~6 on an ordinary
+      # night. Scaling this Deployment above one replica would reintroduce the
+      # race leader election exists to prevent.
+      enableLeaderElection: false
+    # Node Disk Manager inventories raw block devices as BlockDevice objects so
+    # that an engine wanting a whole disk can claim one. Nothing here does:
+    # every PV is openebs-hostpath, the openebs-device StorageClass has none,
+    # and there are no BlockDeviceClaims. Mayastor, the engine that would make
+    # storage-attached pods movable between workers, names device paths in its
+    # DiskPool directly and never reads a BlockDevice — so this forecloses
+    # nothing. Only cStor and Jiva would want it back.
+    #
+    # What it costs while enabled is real. It re-probes every block device in a
+    # loop and applies its path-filter only *after* each probe has already read
+    # the device, so the filter that names /dev/sr0 does not spare it: an
+    # unreadable disc in the passed-through optical drive makes blkid take 5.9s
+    # per pass and pins the drive at 95% utilisation forever. Even a node with
+    # no optical drive pays ~2.8 MB/s of reads that nothing consumes.
     ndm:
-      resources:
-        # TODO: https://github.com/openebs/node-disk-manager/issues/673
-        limits:
-          cpu: 200m
-        requests:
-          cpu: 200m
-  #  # https://github.com/openebs/charts/issues/324
-  #  ndmExporter:
-  #    enabled: true
+      enabled: false
+    ndmOperator:
+      enabled: false
 
 
 ---

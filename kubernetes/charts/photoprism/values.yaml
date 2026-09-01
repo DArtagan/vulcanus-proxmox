@@ -1,6 +1,8 @@
 name: "photoprism"
 cacheSize: "50Gi"
 databaseSize: "10Gi"
+image: "photoprism/photoprism:260728"
 importPath: "photoprism/import"
 ingressClassName: "ingress-nginx-internal"
+mariadbImage: "mariadb:10.11.18"
 originalsPath: "photoprism/originals"

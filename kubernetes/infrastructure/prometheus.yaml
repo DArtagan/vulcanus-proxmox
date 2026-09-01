@@ -1,37 +1,43 @@
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
+kind: OCIRepository
 metadata:
-  name: prometheus-community
+  name: kube-prometheus
 spec:
-  interval: 15m  # 24h
-  url: https://prometheus-community.github.io/helm-charts
-  #type: oci
-  #url: oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack:latest # {"$imagepolicy": "infrastructure:kube-prometheus"}
-
-#---
-#apiVersion: image.toolkit.fluxcd.io/v1
-#kind: ImageRepository
-#metadata:
-#  name: kube-prometheus
-#spec:
-#  image: ghcr.io/prometheus-community/charts/kube-prometheus-stack
-#  interval: 15m0s
-#
-#---
-#apiVersion: image.toolkit.fluxcd.io/v1
-#kind: ImagePolicy
-#metadata:
-#  name: kube-prometheus
-#spec:
-#  imageRepositoryRef:
-#    name: kube-prometheus
-#  filterTags:
-#    pattern: '^(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$'
-#    extract: '$version'
-#  policy:
-#    semver:
-#      range: '>=47.0.0'
-
+  interval: 1h
+  url: oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    tag: 88.6.2 # {"$imagepolicy": "infrastructure:kube-prometheus:tag"}
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: kube-prometheus
+spec:
+  image: ghcr.io/prometheus-community/charts/kube-prometheus-stack
+  # This repository carries over 1100 tags, so scan it hourly rather than at the
+  # 15m used for application images.
+  interval: 1h
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: kube-prometheus
+spec:
+  imageRepositoryRef:
+    name: kube-prometheus
+  filterTags:
+    pattern: '^(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$'
+    extract: '$version'
+  policy:
+    semver:
+      # This chart cuts a major roughly monthly, and each one bumps
+      # prometheus-operator and therefore its CRDs. Crossing one means applying
+      # the CRDs first — see the upgrade note in UPGRADE.md upstream, or enable
+      # crds.upgradeJob once that leaves preview.
+      range: '>=88.1.5 <89.0.0'
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -39,25 +45,223 @@ metadata:
   name: kube-prometheus
 spec:
   interval: 5m
-  chart:
-    spec:
-      chart: kube-prometheus-stack
-      version: 75.0.0
-      sourceRef:
-        kind: HelmRepository
-        name: prometheus-community
-      #verify:
-      #  provider: cosign
-      interval: 60m
+  chartRef:
+    kind: OCIRepository
+    name: kube-prometheus
   install:
     crds: CreateReplace
+    remediation:
+      retries: 3
   upgrade:
     crds: CreateReplace
+    remediation:
+      retries: 3
   # https://github.com/prometheus-community/helm-charts/blob/main/charts/kube-prometheus-stack/values.yaml
   values:
+    # Rules had been evaluating into the void: without an Alertmanager, twelve
+    # alerts were firing and reaching nobody — including two genuinely failed
+    # rclone backup jobs, and PrometheusNotConnectedToAlertmanagers itself.
     alertmanager:
+      enabled: true
+      ingress:
+        enabled: true
+        annotations:
+          cert-manager.io/cluster-issuer: letsencrypt
+        ingressClassName: ingress-nginx-internal
+        hosts:
+          - alertmanager.immortalkeep.com
+        paths:
+          - /
+        tls:
+          - hosts:
+              - alertmanager.immortalkeep.com
+            secretName: alertmanager-ingress-tls
+      alertmanagerSpec:
+        # Mounted at /etc/alertmanager/secrets/<name>/<key>, so credentials are
+        # referenced by path below rather than inlined into this file.
+        secrets:
+          - notification-secrets
+        storage:
+          volumeClaimTemplate:
+            spec:
+              storageClassName: openebs-hostpath
+              accessModes:
+                - ReadWriteOnce
+              resources:
+                requests:
+                  storage: 2Gi
+      config:
+        global:
+          resolve_timeout: 5m
+        route:
+          # Grouping is the whole point: one node problem should be one
+          # notification, not forty. Six of the twelve alerts firing today
+          # shared a single root cause.
+          group_by: ["alertname", "namespace"]
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 12h
+          receiver: pushover
+          routes:
+            # Watchdog fires forever by design, so the useful signal is its
+            # absence. Pinging a dead-man's switch inverts it: the far end
+            # complains when the pings stop, which is how monitoring failing
+            # gets noticed rather than being silently dead.
+            - matchers:
+                - alertname = "Watchdog"
+              receiver: deadmans-switch
+              group_wait: 0s
+              group_interval: 5m
+              repeat_interval: 5m
+            - matchers:
+                - severity = "info"
+              receiver: "null"
+            # A meta-alert the chart fires purely to drive its own inhibit
+            # rules. It carries severity "none", so the info route misses it
+            # and it would otherwise page.
+            - matchers:
+                - alertname = "InfoInhibitor"
+              receiver: "null"
+        inhibit_rules:
+          # When something is critical, the matching warning adds nothing.
+          - source_matchers:
+              - severity = "critical"
+            target_matchers:
+              - severity =~ "warning|info"
+            equal: ["alertname", "namespace"]
+          - source_matchers:
+              - severity = "warning"
+            target_matchers:
+              - severity = "info"
+            equal: ["alertname", "namespace"]
+        receivers:
+          - name: "null"
+          - name: pushover
+            pushover_configs:
+              - user_key_file: /etc/alertmanager/secrets/notification-secrets/pushover-user-key
+                token_file: /etc/alertmanager/secrets/notification-secrets/pushover-token
+                # The default priority template is 2 — Pushover's "emergency",
+                # which retries until acknowledged. Explicitly avoided: 1 raises
+                # a critical above quiet hours, everything else stays normal.
+                priority: '{{ if eq .CommonLabels.severity "critical" }}1{{ else }}0{{ end }}'
+                title: '{{ .Status | toUpper }}: {{ .CommonLabels.alertname }}'
+                message: |-
+                  {{ range .Alerts }}{{ .Annotations.summary }}
+                  {{ if .Annotations.description }}{{ .Annotations.description }}
+                  {{ end }}{{ end }}
+                send_resolved: true
+          - name: deadmans-switch
+            webhook_configs:
+              - url_file: /etc/alertmanager/secrets/notification-secrets/deadmans-switch-url
+                send_resolved: false
+    defaultRules:
+      disabled:
+        # CronJobNotSucceeding in prometheus-rules.yaml covers this ground
+        # instead. KubeJobFailed is `kube_job_failed > 0`, and kube-state-metrics
+        # emits that series only for Jobs carrying a Failed condition. A Job is
+        # terminal, so the series is pinned at 1 for as long as the object
+        # exists — the alert's resolve condition is "someone deleted the Job",
+        # not "the workload recovered". Upstream's own annotation says so:
+        # "Removing failed job after investigation should clear this alert."
+        #
+        # That suits one-shot Jobs. For a CronJob it inverts: alert lifetime is
+        # governed by failedJobsHistoryLimit rather than by how long anything is
+        # actually broken, so one transient blip is indistinguishable from real
+        # breakage. rclone-dropbox runs every 15 minutes and demonstrated this
+        # twice — single Dropbox-side failures that alerted for seven days and
+        # four days respectively, each across runs that had already recovered.
+        KubeJobFailed: true
+        # Two questions welded together with `or`, only one of which applies
+        # here. Its first branch — do the declared requests fit at all — is the
+        # useful one, and is replaced by cluster-capacity in
+        # prometheus-rules.yaml. Its second asks whether everything would still
+        # fit after losing the largest node, and nothing guards that branch by
+        # cluster size, so it evaluates on a single-control-plane cluster and
+        # fires permanently.
+        #
+        # That second question cannot be answered usefully here. It counts the
+        # control plane's allocatable memory although NoSchedule keeps every
+        # ordinary workload off it, so the shortfall it reports is ~8x too
+        # small; it counts DaemonSet requests that vanish with the node rather
+        # than moving; and it ignores that all PVCs are openebs-hostpath, so
+        # worker-0's workloads cannot move regardless of memory. Adding ~300 MiB
+        # anywhere it counts would silence it while changing nothing — which is
+        # what raising the control plane to 4 GiB did to it.
+        KubeMemoryOvercommit: true
+    # The endpoint is explicit because the chart's default Service selects pods
+    # labelled `component: etcd`, and Talos runs etcd as a host service rather
+    # than a pod — the selector matches nothing, and a Service with no endpoints
+    # yields no targets and so no `up` series for TargetDown to report on. The
+    # listener itself is opened by the control-plane patch in
+    # terraform/modules/proxmox_talos_vm/templates/.
+    #
+    # Port 2381 and plain http are chart defaults. bearerTokenFile is cleared
+    # because the default sends Prometheus' ServiceAccount token in cleartext to
+    # an endpoint that does not read it.
+    kubeEtcd:
+      enabled: true
+      endpoints:
+        - 192.168.0.190
+      serviceMonitor:
+        bearerTokenFile: ""
+    # Scrapable because the same patch binds them to 0.0.0.0. Their static pods
+    # run with hostNetwork and carry the `component:` labels the chart's
+    # Services select on, so neither needs an explicit endpoint.
+    kubeScheduler:
+      enabled: true
+    kubeControllerManager:
+      enabled: true
+    # kube-proxy stays localhost-bound: Talos applies it as a bootstrap manifest
+    # rather than a control-plane static pod, so its bind address is a separate
+    # job — see todos/talos-terraform-migration-prompt.md.
+    kubeProxy:
       enabled: false
     grafana:
+      # Without this the password is the chart default, "prom-operator", which
+      # is published in the chart's own values.yaml. Chart 79.x also drops that
+      # default in favour of a random one, so pinning it here keeps the
+      # credential stable across the upgrade as well as making it not public.
+      admin:
+        existingSecret: grafana-admin
+        userKey: admin-user
+        passwordKey: admin-password
+      # Signed and in the official catalogue, so it needs no unsigned-plugin
+      # allowance. Grafana downloads it on start; that is a one-off now the
+      # persistence below keeps /var/lib/grafana across restarts.
+      plugins:
+        - victoriametrics-logs-datasource
+      # Logs have been collected since 2023 but were never queryable — until now
+      # the only provisioned datasources were Prometheus and Alertmanager, so
+      # nothing in Grafana could read them. This is new capability, not a
+      # like-for-like replacement of a Loki datasource that never existed.
+      additionalDataSources:
+        - name: VictoriaLogs
+          type: victoriametrics-logs-datasource
+          uid: victorialogs
+          url: http://victoria-logs.infrastructure.svc.cluster.local:9428
+          access: proxy
+      # /var/lib/grafana was an emptyDir, so every restart discarded the SQLite
+      # database: the admin password reverted to the secret, UI-created
+      # dashboards and users vanished, and the annotations the Flux Provider
+      # posts on each reconcile went with them. Dashboards are provisioned from
+      # config maps and survived, which is what made the rest easy to miss.
+      #
+      # Note this inverts how the password behaves. Grafana only honours
+      # GF_SECURITY_ADMIN_PASSWORD when creating the admin on a fresh database,
+      # so from here the secret no longer updates it — changing it means the UI,
+      # or deleting the PVC. Enabled now precisely because the database is
+      # currently fresh and was built from the secret, so the right credential
+      # is the one being captured.
+      #
+      # storageClassName is explicit because no StorageClass is marked default
+      # in this cluster; without it the claim would never bind.
+      persistence:
+        enabled: true
+        type: pvc
+        storageClassName: openebs-hostpath
+        accessModes:
+          - ReadWriteOnce
+        size: 10Gi
       ingress:
         enabled: true
         annotations:
@@ -108,7 +312,6 @@ spec:
               resources:
                 requests:
                   storage: 100Gi
-
 ---
 apiVersion: notification.toolkit.fluxcd.io/v1beta3
 kind: Alert
@@ -122,7 +325,6 @@ spec:
     - kind: GitRepository
       name: '*'
       namespace: flux-system
-
 ---
 apiVersion: notification.toolkit.fluxcd.io/v1beta3
 kind: Provider
