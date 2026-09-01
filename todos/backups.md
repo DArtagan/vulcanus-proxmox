@@ -22,13 +22,14 @@ Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
 | 2 | Application backups — K8up + restic | not started |
 | 2b | Delete the borg tree, after a restore is proven | not started |
 | 3 | Performance — drop the OpenEBS disks from vzdump | not started |
-| 4 | Platform images offsite — PBS #2 + sync | not started |
-| 5 | The offline copy — external disk | not started, needs a ~$200 purchase |
+| 4 | Platform images offsite — PBS #2 + sync | not started; **gated on the mini-nas disks** |
+| 5 | The offline copy — external disk | not started; needs a ~$200 purchase |
 | 6 | Verification, notification, runbook | not started |
 
-**Two disks for the mini-nas vdev expansion are deferred** — purchasing takes time,
-user's call 2026-09-01. See *Operating without the expansion* below for what changes.
-The expansion itself stays in the plan; only its timing moved.
+**Two purchases gate later phases.** 2x 4 TB for the mini-nas vdev expansion, which
+Phase 4 waits on; and one 14-16 TB external disk for Phase 5. Phases 0 through 3 need
+neither. Deferred 2026-09-01, user's call — purchasing takes time. See *Operating
+without the vdev expansion* for what changes meanwhile.
 
 ---
 
@@ -496,7 +497,7 @@ scripting.
 ## Operating without the vdev expansion
 
 The two disks that take mini-nas from 12.6 to 19.1 TiB are deferred — user's call
-2026-09-01, purchasing takes time. The work proceeds, with four adjustments.
+2026-09-01, purchasing takes time. The work proceeds, with three adjustments.
 
 **The steady state is fine; the transient is not.** mini-nas at 12.6 TiB supports
 vulcanus up to **14.8 TiB used** (12.6 / 0.85). vulcanus is at 13.9, so the
@@ -505,21 +506,32 @@ constraint holds with ~0.9 TiB of headroom. The standing rule until disks arrive
 
 But occupancy through the phases, at 12.6 TiB, would have peaked badly:
 
-| After | mini-nas holds | Occupancy |
+| After | mini-nas holds | Occupancy at 12.6 TiB |
 |---|---|---|
 | Phase 0 (sanoid finally prunes) | 10.3 | 82% |
-| Phase 2 (+ restic replica 0.65) | 10.95 | 87% |
-| Phase 4a (+ PBS #2, `rpool/data` still replicated) | 11.75 | **93%** |
+| Phase 2 (+ restic replica 0.65) | 10.95 | **87%** ← the peak |
+| Phase 3 | unchanged | 87% |
+| Phase 4a (+ PBS #2, `rpool/data` still replicated) | 11.75 | 93% |
 | Phase 4b (`vulcanus-data` retired, −1.8) | 9.95 | 79% |
 
-93% is not a threshold quibble — it is the range where ZFS allocation degrades.
+93% is not a threshold quibble — it is the range where ZFS allocation degrades, which
+is why Phase 4 does not run at 12.6 TiB.
 
-**Adjustment 1: PBS #2's datastore goes on `spool`.** It is 2x 2 TB raidz1, ~1.7 TiB
-usable, healthy, and unimported since the pool was built. This removes the 93% peak
-entirely (rpool tops out at 87%), puts the stranded capacity to work, and lands
-PBS #2 on different spindles from the ZFS replica — better failure isolation offsite
-than putting both on `rpool` would give. Confirm actual usable size on import;
-`spool` also carries two 16 GB swap partitions already in use.
+**Adjustment 1: Phase 4 waits for the disks.** The 93% peak comes from holding
+PBS #2 and a still-replicated `rpool/data` at the same time. Deferring Phase 4 until
+`rpool` is expanded avoids it outright, and avoids ever having to move a datastore:
+PBS #2 is built directly on the expanded pool, and `vulcanus-data` retires in the
+same phase. Occupancy afterwards is (10.95 + 1.2 − 1.8) / 17.6 ≈ **59%**.
+
+Deferring costs a format gap, not a coverage gap — once Phase 0 repairs it,
+`rpool/data` still carries the guests offsite, just as ZFS rather than as PBS chunks.
+Nothing in Phases 2 or 3 depends on Phase 4.
+
+*Fallback, if Phase 4 has to happen before the disks arrive:* put PBS #2's datastore
+on `spool`, which is why the pool is imported. That works and keeps `rpool` at 87%,
+but the datastore then has to move when `spool` is destroyed for its bays — either a
+`zfs send` or a full ~1.2 TiB re-sync over the WAN. Take it only if the wait becomes
+long.
 
 **Adjustment 2: retention depth only where it is cheap.** The 60-daily figure for
 mini-nas was sized against 19.1 TiB. At 12.6, apply it to `storage/*` — media barely
@@ -529,14 +541,8 @@ matching source, since those are high-churn zvols that retire in Phase 4 anyway.
 **Adjustment 3: mini-nas pool-health thresholds are 90% warning / 94% critical**
 until the expansion, not 80/90. A warning at 80% would fire continuously against a
 *predicted* 82-87% and train everyone to ignore it, which is the anti-pattern
-`docs/README.md` names directly. Restore 80/90 once the expansion lands and
-occupancy falls to ~53%. vulcanus keeps 80/90 throughout.
-
-**Adjustment 4 (optional): reorder to 0 -> 4 -> 2 -> 3** if 87% proves too tight in
-practice. That peaks at 82%, because retiring `vulcanus-data` frees 1.8 TiB before
-the restic replica arrives. Not taken as the default because it delays granular
-restore — the headline objective — behind the PBS work, and because PBS #2 would then
-sync a datastore that Phase 3 has not yet shrunk.
+`docs/README.md` names directly. Restore 80/90 once the expansion lands. vulcanus
+keeps 80/90 throughout.
 
 **Nothing here changes the purchase ceiling below.** The equation governs disk sizes
 at upgrade time; these adjustments govern how the work is sequenced while the pool is
@@ -731,11 +737,12 @@ first deploy.
 - Import `spool` and add the matching `fileSystems` entry — the gotcha mini-nas's own
   CLAUDE.md warns about.
 - ~~**Expand both mini-nas vdevs from 3 to 4 disks**~~ — **deferred 2026-09-01**,
-  pending disk purchase. Two disks, >= 3.64 TiB and >= 2.72 TiB respectively, via
-  `zpool attach`; takes usable from 12.7 to 19.1 TiB and occupancy from 80% to 53%.
-  See *Operating without the vdev expansion* for what changes meanwhile.
-- **Import `spool`** — now load-bearing rather than tidiness, since PBS #2's
-  datastore goes there.
+  pending disk purchase. Buy **2x 4 TB** and put them in `spool`'s bays; see
+  *`spool`: bays, not disks* for why its own disks cannot do the job, what the
+  expansion actually yields, and the swap that comes out with it. Meanwhile see
+  *Operating without the vdev expansion*.
+- **Import `spool`** — so its contents and true size are visible before it is
+  destroyed for its bays, and so it can host PBS #2 if that phase cannot wait.
 - `OnFailure=` plus a success ping on every sanoid and syncoid unit.
 - Pool-health timers on both hosts.
 
@@ -809,6 +816,12 @@ after Phase 2, which is what makes the sequencing non-negotiable: granularity fi
 then performance.
 
 ### Phase 4 — platform images offsite
+
+**Gated on the two mini-nas disks.** Building PBS #2 while `rpool` is unexpanded and
+`rpool/data` is still replicated puts the pool at 93%; waiting means the datastore is
+built once, on the expanded pool, rather than built on `spool` and moved later. See
+*Operating without the vdev expansion*, Adjustment 1, including the fallback if the
+wait becomes long.
 
 Second PBS VM on mini-nas's Proxmox VE — **not** the NixOS module. proxmox-nixos
 lists "Proxmox backup server" under its **Roadmap**, and the module is 101 lines
