@@ -8,6 +8,6 @@ resources:
   - feed-snapshot-cron-job.yaml
   - image.yaml
   - ingress.yaml
-  - secrets.yaml
+  - secrets.sops.yaml
   - service.yaml
   - valkey-pvc.yaml

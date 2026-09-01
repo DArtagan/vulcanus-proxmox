@@ -5,5 +5,5 @@ resources:
   - image.yaml
   - ingress.yaml
   - pvc.yaml
-  - secret.yaml
+  - secret.sops.yaml
   - service.yaml

@@ -25,7 +25,7 @@ spec:
               # Bootstrap the dropbox config/token the very first time, using a secret.
               #
               # On a local machine, log into dropbox using `rclone config`
-              # and then copy those config values to `rclone-conf-secret.yaml`.
+              # and then copy those config values to `rclone-conf-secret.sops.yaml`.
               #
               # This does mean that if changes are made to the rclone.conf config,
               # you'll need to drop the `rclone-dropbox-config` PV in Kubernetes.

@@ -3,7 +3,7 @@ keys:
   - &thenixbeast_will ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIyPkfTI0io9dZsJstcf29tddyrsHr9bnM8UXKtaVJwm
   - &flux age1rkkc3rmwczelakcy57fh3schs5qv6488hujf9c9s7zh3jpng6acsxuradu
 creation_rules:
-  - path_regex: .*.yaml
+  - path_regex: "[^/]+\\.sops\\.yaml$"
     encrypted_regex: ^(data|stringData)$
     key_groups:
       - age:

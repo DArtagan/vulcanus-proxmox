@@ -1,4 +1,3 @@
----
 # Makes the Proxmox host a Tailscale subnet router for the LAN.
 #
 # This is what lets internal names work off the LAN. Headscale's split-DNS
@@ -13,7 +12,7 @@
 #
 # What the tailnet may actually reach through here is NOT decided on this host.
 # It is set by the headscale policy in
-# kubernetes/apps/headscale/policy-config-map.yaml, which grants only CoreDNS
+# kubernetes/apps/headscale/policy-config-map.sops.yaml, which grants only CoreDNS
 # and the internal ingress. Advertising a route is not the same as granting
 # access to it.
 #
