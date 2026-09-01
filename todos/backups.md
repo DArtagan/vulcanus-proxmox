@@ -644,12 +644,14 @@ first deploy.
   goes through the `thenixbeast_will` ssh-ed25519 key, and Flux decrypts from the
   in-cluster `sops-age` Secret in `flux-system`, which still holds the key.
   Still outstanding: `.talosconfig` and the Talos machine secrets.
-- Repair the five diverged syncoid datasets. Method: `zfs rename` each stale target
-  aside, let syncoid do a full send, destroy the renamed copy once the new one
-  completes — so an old copy exists throughout. Re-seed is ~30 GB, not the 120 GB the
-  disk sizes suggest, because `referenced` is far below `used`.
-- Declare `services.sanoid.datasets` on mini-nas per the retention table.
-- Enable `services.zfs.autoScrub` on mini-nas.
+- Repair the five diverged syncoid datasets — the procedure is below.
+- Declare `services.sanoid.datasets` on mini-nas per the retention table. **Expect the
+  first run to be long and I/O-heavy**: it destroys roughly 27,000 snapshots in one
+  pass. Run it when nothing else needs the pool.
+- Enable `services.zfs.autoScrub` on mini-nas, and **start a scrub by hand once
+  deployed**. Until one completes, `pool-health-mini-nas` reports the pool as never
+  scrubbed and stays red — which is accurate rather than noisy, but it will take days
+  on 11 TiB of raidz1, so it is worth starting deliberately rather than discovering.
 - Import `spool` and add the matching `fileSystems` entry — the gotcha mini-nas's own
   CLAUDE.md warns about.
 - ~~**Expand both mini-nas vdevs from 3 to 4 disks**~~ — **deferred 2026-09-01**,
@@ -660,6 +662,36 @@ first deploy.
   datastore goes there.
 - `OnFailure=` plus a success ping on every sanoid and syncoid unit.
 - Pool-health timers on both hosts.
+
+#### Repairing the five diverged datasets
+
+syncoid refuses to replicate into a target with no matching snapshot, correctly — it
+would have to destroy the target to proceed. The repair sets the stale copy aside
+rather than destroying it, so a copy exists throughout:
+
+| Dataset under `rpool/foreign-backups/vulcanus/data/` | Offsite as of |
+|---|---|
+| `subvol-105-disk-0` (fileserver LXC rootfs) | 2026-05-26 |
+| `vm-910-disk-2` | 2026-01-12 |
+| `vm-911-disk-0` | 2026-01-16 |
+| `vm-911-disk-1` | 2026-01-16 |
+| `vm-911-disk-2` | 2026-01-16 |
+
+Per dataset, on mini-nas:
+
+1. `zfs rename <target> <target>-diverged`
+2. Let the hourly timer fire, or run the syncoid unit by hand. It does a full send.
+3. Confirm the new target has a snapshot from today.
+4. `zfs destroy -r <target>-diverged`
+
+Total re-seed is ~30 GB, not the ~120 GB the disk sizes suggest, because `referenced`
+is far below `used` on these zvols.
+
+Two things to expect. `-diverged` datasets have no source counterpart, so syncoid
+ignores them — but `zfs-replication-freshness` will report them as stale until step 4,
+which is correct and self-resolving. And the source-list comparison in that check is
+what would have caught this class of failure originally: a dataset that is *missing*
+rather than stale has no old snapshot to look wrong.
 
 ### Phase 1 — reclaim
 
