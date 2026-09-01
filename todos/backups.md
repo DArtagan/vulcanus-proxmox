@@ -297,25 +297,44 @@ offsite copy survive a deletion discovered late — which is the whole of object
 ### Schedule matrix
 
 The performance problem is partly a scheduling problem, so the schedule is part of
-the design. **04:00 is reserved for vzdump** and nothing else touches the spindles.
+the design — and **the estate runs four different clocks**, so the schedule is stated
+in UTC. Local time is what goes in each config; UTC is the only frame in which two
+rows on different hosts can be compared.
 
-| Time (MDT) | Job | Where |
+| Host | Zone | Offset |
 |---|---|---|
-| hourly `:00` | sanoid snapshot | vulcanus |
-| hourly `:15` | syncoid pull | mini-nas |
-| 00:00 / 06:00 / 12:00 / 18:00 | K8up database Schedules | cluster |
-| 01:00 | K8up volume Schedules | cluster |
-| 02:00 | restic mass-file backup | repo LXC |
-| **04:00** | **vzdump to PBS** | vulcanus |
-| 05:30 | PBS sync to PBS #2 | PBS |
-| 06:30 | freshness assertions (ZFS, PBS) | mini-nas / vulcanus |
-| 03:00 1st of month | `restic forget --prune` | repo LXC |
-| 07:00 Sat | PBS GC | PBS |
-| 08:00 Sun | PBS verify (both datastores) | PBS |
-| 09:00 Sun | `restic check` | repo LXC |
-| 10:00 Sun | restore drill | cluster |
-| 2nd Sun | ZFS scrub | vulcanus |
-| 3rd Sun | ZFS scrub | mini-nas |
+| vulcanus | `America/Denver` | UTC-6 (MDT) |
+| mini-nas | `America/New_York` | UTC-4 (EDT) |
+| Kubernetes CronJobs | **UTC** — no `timeZone` field is set anywhere in this repo | UTC |
+| PBS VM 107 | unverified; its GC schedule is in its own local time | ? |
+| repo LXC (new) | set it to `America/Denver` explicitly, matching its host | UTC-6 |
+
+**10:00 UTC is reserved for vzdump** and nothing else touches the spindles then.
+
+| UTC | Local as configured | Job | Where |
+|---|---|---|---|
+| hourly `:00` | — | sanoid snapshot | vulcanus |
+| hourly `:15` | — | syncoid pull | mini-nas |
+| 00:00 / 06:00 / 12:00 / 18:00 | same (UTC) | K8up database Schedules | cluster |
+| 01:00 | same (UTC) | K8up volume Schedules | cluster |
+| 08:00 | 02:00 MDT | restic mass-file backup | repo LXC |
+| **10:00** | **04:00 MDT** | **vzdump to PBS** | vulcanus |
+| 11:00 | 05:00 PBS-local | PBS sync to PBS #2 | PBS |
+| 12:30 | 06:30 MDT / 08:30 EDT | freshness assertions | vulcanus / mini-nas |
+| 09:00 1st of month | 03:00 MDT | `restic forget --prune` | repo LXC |
+| Sat 13:00 | Sat 07:00 PBS-local | PBS GC | PBS |
+| Sun 14:00 | Sun 08:00 PBS-local | PBS verify (both datastores) | PBS |
+| Sun 15:00 | Sun 09:00 MDT | `restic check` | repo LXC |
+| Sun 16:00 | same (UTC) | restore drill | cluster |
+| 2nd Sun 06:24 | 00:24 MDT | ZFS scrub | vulcanus |
+| 3rd Sun 07:00 | 03:00 EDT | ZFS scrub | mini-nas |
+
+Two things the UTC view makes visible that the local-time view hid. The restore
+drill was originally written as "Sun 10:00", which in Kubernetes means 10:00 **UTC**
+— exactly vzdump's window; it is moved to 16:00. And the hourly syncoid pull will
+always have one run inside the vzdump window whatever offset it is given, competing
+for the same reads. That is left alone deliberately: an hourly delta on `storage` is
+about a megabyte, and skipping a specific hour costs more complexity than it saves.
 
 **Phase 2 adds spindle load where Phase 3 removes more.** K8up walks ~34 PVCs on the
 OpenEBS zvol nightly and writes the delta to `rpool/backups/restic` on the same eight
@@ -577,6 +596,63 @@ monthly scrub Phase 0 adds, which is what stops a latent error surfacing during 
 vulcanus has the feature `disabled` — its pool has never been `zpool upgrade`d —
 which does not matter here.
 
+### `spool`: bays, not disks
+
+The 8-bay chassis is full, so `spool`'s two slots are the only expansion room mini-nas
+has. But **`spool`'s disks cannot themselves expand `rpool`.** `zpool attach` onto a
+raidz vdev requires the new disk to be at least as large as the smallest member, and
+the numbers do not allow it:
+
+| vdev | Members | Smallest | A 1.8 TiB `spool` disk? |
+|---|---|---|---|
+| `rpool` raidz1-0 | 3x 3.64 TiB | 3.64 TiB | too small |
+| `rpool` raidz1-1 | 3x 2.72 TiB | 2.72 TiB | too small |
+| `spool` | 2x 1.8 TiB | — | — |
+
+**The bays are the resource, not the disks in them.** Destroy `spool`, buy two disks,
+put them in those slots, and expand both `rpool` vdevs to 4-wide. The two 2 TB
+Toshibas come out and become cold spares on a shelf, which is a better use for them
+than a pool nothing reads.
+
+Buy **2x 4 TB**. One is the correct size for raidz1-0; the other strands ~0.9 TiB in
+raidz1-1 until that vdev's older members are replaced, which is worth it for having
+uniform disks when the cascade later delivers 4 TB drives.
+
+**This returns PBS #2's datastore to `rpool`**, which is fine precisely because
+`rpool` is no longer small. It also removes the reason `spool` had to be imported at
+all, so that decision is superseded rather than merely revised.
+
+Three things to expect, none of them obvious:
+
+- **Expansion does not improve the efficiency of existing data.** RAIDZ expansion
+  reflows blocks onto the new disk but preserves each block's original data-to-parity
+  ratio; only new writes use the wider stripe. So the gain is real but smaller than
+  the naive arithmetic: raidz1-0 goes from ~1.04 to ~3.9 TiB of writable space and
+  raidz1-1 from ~0.41 to ~2.5 TiB, a gain of **~5.0 TiB rather than 6.5**. Effective
+  capacity is ~17.6 TiB immediately, converging on 19.1 TiB as old data is rewritten
+  — which for media is essentially never, and that is acceptable.
+- **Expansion is slow.** It reflows the whole vdev. A single-disk resilver here took
+  2 d 21 h, so budget days per vdev and do them one at a time.
+- **All the swap is on the `spool` disks** — two 16 GiB partitions, 31 GiB active.
+  Removing them removes it. The replacements need swap partitions carved by hand
+  before joining the pool, and `disk-config.nix` updated to match, because disko does
+  not apply to a live system.
+
+### How the cascade physically happens
+
+Worth stating because the obvious reading is wrong: **a raidz vdev cannot be removed
+from a pool.** ZFS device removal covers top-level mirrors and single disks only. So
+each cascade round is not "retire a vdev and add another" — it is `zpool replace` on
+each of the four disks of mini-nas's oldest vdev in turn, after which the vdev
+autoexpands. The capacity figures in the four-round table are unaffected; only the
+method is.
+
+With all 8 bays full, a replace-in-place leaves the vdev **at zero parity for the
+duration of each resilver** — four resilvers of roughly three days each, per round, on
+single parity. Attach the replacement temporarily over USB or eSATA instead: with both
+disks present, `zpool replace` resilvers from the old member and the vdev is never
+degraded. Given these disk ages, that is worth the adapter.
+
 ### The purchase equation
 
 ```
@@ -606,9 +682,9 @@ TiB throughout; constraint is mini-nas usable >= 0.68 x vulcanus usable.
 |---|---|---|---|---|---|---|---|
 | 0 | today | 4, 10 TB | 25.5 | 3x4, 3x3 TB | 12.7 | 17.3 | fails |
 | 1 | +2 disks, expand both vdevs to 4-wide | 4, 10 TB | 25.5 | 4x4, 4x3 | **19.1** | 17.3 | ok |
-| 2 | 4 to **8 TB**; 4 TB to mini-nas, retire 3 TB | 8, 10 TB | 32.8 | 4x4, 4x4 | 21.8 | 22.3 | marginal |
-| 3 | 10 to **16 TB**; 10 TB to mini-nas | 8, 16 TB | 43.7 | 4x10, 4x4 | 38.2 | 29.7 | ok |
-| 4 | 8 to **20 TB**; 8 TB to mini-nas | 20, 16 TB | 54.7 | 4x10, 4x8 | 49.1 | 37.2 | ok |
+| 2 | 4 to **8 TB**; 4 TB replaces mini-nas's 3 TB members | 8, 10 TB | 32.8 | 4x4, 4x4 | 21.8 | 22.3 | marginal |
+| 3 | 10 to **16 TB**; 10 TB replaces mini-nas's 4 TB members | 8, 16 TB | 43.7 | 4x10, 4x4 | 38.2 | 29.7 | ok |
+| 4 | 8 to **20 TB**; 8 TB replaces the other vdev's members | 20, 16 TB | 54.7 | 4x10, 4x8 | 49.1 | 37.2 | ok |
 
 - **Round 0 already fails at u = 0.80.** Supported utilisation today is 58.7% and
   vulcanus sits at 56% — *at* the limit, not approaching it. Round 1 is not optional
@@ -619,8 +695,8 @@ TiB throughout; constraint is mini-nas usable >= 0.68 x vulcanus usable.
 - **After round 3 the constraint stops binding** — 38.2 TiB against 29.7 needed, and
   rounds 4+ allow ~22 TB disks. The discipline is entirely front-loaded.
 
-`spool`'s 2x 1.8 TB disks are too small to join either `rpool` vdev, so they are
-interim capacity or cold spares, not an expansion path.
+See *`spool`: bays, not disks* above for why its disks cannot join either vdev, and
+why its bays are wanted anyway.
 
 ---
 
