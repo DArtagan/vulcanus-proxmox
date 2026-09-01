@@ -94,12 +94,6 @@
       notify: reload samba config
 
     - name: start samba and enable on boot
-      #- name: start nfs and enable on boot
-      #  systemd:
-      #    name: nfs-ganesha
-      #    enabled: yes
-      #    state: started
-
       systemd:
         name: smbd
         enabled: yes
