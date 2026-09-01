@@ -30,7 +30,8 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 |---|---|---|
 | 0 | Unwedge the drive, close the cross-cutting defects | **done** — reconciled and verified in the container, 2026-08-25 |
 | 1 | Audio CD | **done** 2026-08-31 — one loose end, see below |
-| 2 | DVD | **done** 2026-09-01 — first video file ARM has ever produced |
+| 2 | DVD — movie | **done** 2026-09-01 — first video file ARM has ever produced |
+| 2b | DVD — TV series | **next**, needs a disc |
 | 3 | Blu-ray | not started |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
 
@@ -1369,3 +1370,44 @@ the April Blu-ray failures were on 2.23.2, and every one of them may have been
 this same MakeMKV expiry. The Rescuers' 43 GB raw backup is still on the share,
 so the transcode half can be exercised without re-reading the disc — but the
 rip half needs the disc, and is now worth retrying.
+
+## Phase 2b — a TV disc
+
+**Why it is 2b and not phase 5.** The numbered phases are physical formats —
+CD, DVD, Blu-ray, UHD. Movie versus series is a *content* axis that crosses DVD,
+Blu-ray and UHD alike, so it does not want its own place in that sequence.
+Running it on DVD, the format just proven, means any failure isolates to the
+multi-title path rather than to the format.
+
+**What ARM does differently**, read from the source rather than assumed:
+
+- `convert_job_type("series")` returns `"tv"`, so the output lands in
+  `completed/tv/<Title>/` — **not** `completed/movies/`.
+- `move_files_post` (`arm_ripper.py:198`) takes the series branch and calls
+  `move_files(..., is_main_feature=False)` for **every** track. There is no
+  largest-file selection, which is the behaviour a TV disc needs.
+- `move_files` (`utils.py:210`) sets `extras_path = movie_path` for a series —
+  "for series there are no extras" — so every episode lands flat in one
+  directory.
+- Because nothing is the main feature, nothing gets renamed to
+  `<Title> (<Year>).mkv`. **Every episode keeps its `title_N.mkv` name.**
+
+That last point is the one worth running the disc to confirm, because it decides
+[video-library-ingest.md](video-library-ingest.md): ARM knows the *show* but
+cannot know which title is which episode. A mover built on ARM's own metadata,
+which is enough for a film, cannot file TV. Only content matching — FileBot, or
+a person — can.
+
+**What to check:**
+
+1. Does `VIDEOTYPE: "auto"` actually resolve `series`? If it comes back `movie`,
+   everything above is moot and the disc files as one film plus extras.
+2. Do all episodes transcode? `MINLENGTH: 420` passes a 22-minute episode
+   comfortably; the risk is at the short end, not the long.
+3. Does `title_N` ordering match episode order? If it reliably does, a mover
+   could map positionally — worth knowing even though it is fragile.
+4. `completed/tv/` versus the library's `/video/shows/`. The names differ, which
+   is another thing any ingest has to reconcile.
+5. Time. The movie ran ~2× realtime on transcode; a 4-episode disc is roughly
+   90 minutes of video, so budget a couple of hours all-in and remember the
+   drive is held throughout (D8).

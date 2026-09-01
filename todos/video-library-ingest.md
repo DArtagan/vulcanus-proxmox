@@ -98,10 +98,26 @@ Note `/video/movies/` also contains stragglers that do not follow it —
 `2022 Laguna Seca`, a bare `GOPR3003.MP4` — so the convention is aspirational in
 places and a mover should not assume every existing entry parses.
 
-**TV is unsolved and worse.** Phase 2 of [disc-ripping.md](disc-ripping.md)
-established that ARM's `skip_transcode_movie` keeps only the largest title for a
-movie, which is right. For a TV disc every title matters, that path is untested,
-and episode-to-file mapping is exactly the problem FileBot exists to solve.
+**TV is unsolved and worse, and the source says why.** For a movie,
+`skip_transcode_movie` keeps the largest title and renames it
+`<Title> (<Year>).mkv`. For a series, `move_files_post` (`arm_ripper.py:198`)
+moves **every** track with `is_main_feature=False`, and `move_files`
+(`utils.py:210`) flattens them into one directory because "for series there are
+no extras". Nothing is the main feature, so nothing is renamed:
+
+```
+completed/tv/<Show Title>/title_0.mkv
+completed/tv/<Show Title>/title_1.mkv   ← no episode identity anywhere
+```
+
+ARM knows the *show* and cannot know which title is which episode. So a mover
+built on ARM's own metadata — which is sufficient for a film — **cannot file
+TV**. Only content matching can, which is FileBot's whole purpose. That is the
+strongest argument for route A, and it is why the recommendation defers rather
+than dismisses the licence.
+
+Note also the destination differs: `convert_job_type` returns `"tv"`, while the
+library is `/video/shows/`.
 
 ## Three routes
 
