@@ -10,13 +10,13 @@ spec:
         - sftpgo.immortalkeep.com
       secretName: sftpgo-ingress-tls
   rules:
-  - host: sftpgo.immortalkeep.com
-    http:
-      paths:
-      - pathType: Prefix
-        path: /
-        backend:
-          service:
-            name: sftpgo
-            port:
-              number: 8080
+    - host: sftpgo.immortalkeep.com
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: sftpgo
+                port:
+                  number: 8080

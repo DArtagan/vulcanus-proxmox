@@ -5,4 +5,4 @@ resources:
   - dropbox-cron-job.yaml
   - dropbox-config-pvc.yaml
   - image.yaml
-  - rclone-conf-secret.yaml
+  - rclone-conf-secret.sops.yaml

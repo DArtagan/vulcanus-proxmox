@@ -20,16 +20,33 @@ fallback must tolerate that rather than assume `originalLine` is always present.
 
 import unittest
 
-from review_threads import (GraphQLError, Thread, format_threads, parse_threads,
-                            raise_for_graphql_errors, unresolved)
+from review_threads import (
+    GraphQLError,
+    Thread,
+    format_threads,
+    parse_threads,
+    raise_for_graphql_errors,
+    unresolved,
+)
 
 
 def payload(*nodes):
-    return {"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": list(nodes)}}}}}
+    return {
+        "data": {
+            "repository": {"pullRequest": {"reviewThreads": {"nodes": list(nodes)}}}
+        }
+    }
 
 
-def node(thread_id="PRRT_x", resolved=False, outdated=False, path="a.yaml",
-         line=1, original_line=1, comments=(("will", "why?"),)):
+def node(
+    thread_id="PRRT_x",
+    resolved=False,
+    outdated=False,
+    path="a.yaml",
+    line=1,
+    original_line=1,
+    comments=(("will", "why?"),),
+):
     return {
         "id": thread_id,
         "isResolved": resolved,
@@ -37,7 +54,9 @@ def node(thread_id="PRRT_x", resolved=False, outdated=False, path="a.yaml",
         "path": path,
         "line": line,
         "originalLine": original_line,
-        "comments": {"nodes": [{"author": {"login": a}, "body": b} for a, b in comments]},
+        "comments": {
+            "nodes": [{"author": {"login": a}, "body": b} for a, b in comments]
+        },
     }
 
 
@@ -47,7 +66,9 @@ class ParseThreads(unittest.TestCase):
         self.assertEqual(threads[0].line, 12)
 
     def test_falls_back_to_original_line_when_outdated(self):
-        threads = parse_threads(payload(node(outdated=True, line=None, original_line=7)))
+        threads = parse_threads(
+            payload(node(outdated=True, line=None, original_line=7))
+        )
         self.assertEqual(threads[0].line, 7)
         self.assertTrue(threads[0].is_outdated)
 
@@ -72,8 +93,10 @@ class GraphQLErrors(unittest.TestCase):
     surfaces later as a confusing KeyError far from the cause."""
 
     def test_raises_when_the_body_carries_errors(self):
-        body = {"data": {"repository": None},
-                "errors": [{"message": "Could not resolve to a Repository"}]}
+        body = {
+            "data": {"repository": None},
+            "errors": [{"message": "Could not resolve to a Repository"}],
+        }
         with self.assertRaises(GraphQLError) as caught:
             raise_for_graphql_errors(body)
         self.assertIn("Could not resolve", str(caught.exception))
@@ -85,23 +108,33 @@ class GraphQLErrors(unittest.TestCase):
 
 class Unresolved(unittest.TestCase):
     def test_excludes_resolved_threads(self):
-        threads = parse_threads(payload(
-            node(thread_id="open", resolved=False),
-            node(thread_id="done", resolved=True),
-        ))
+        threads = parse_threads(
+            payload(
+                node(thread_id="open", resolved=False),
+                node(thread_id="done", resolved=True),
+            )
+        )
         self.assertEqual([t.identifier for t in unresolved(threads)], ["open"])
 
 
 class FormatThreads(unittest.TestCase):
     def test_marks_outdated_so_a_null_line_is_not_read_as_current(self):
-        text = format_threads(parse_threads(payload(
-            node(outdated=True, line=None, original_line=7, path="alloy.yaml"))))
+        text = format_threads(
+            parse_threads(
+                payload(
+                    node(outdated=True, line=None, original_line=7, path="alloy.yaml")
+                )
+            )
+        )
         self.assertIn("alloy.yaml:7", text)
         self.assertIn("outdated", text)
 
     def test_file_level_thread_renders_without_a_line_number(self):
-        text = format_threads(parse_threads(payload(
-            node(line=None, original_line=None, path="alloy.yaml"))))
+        text = format_threads(
+            parse_threads(
+                payload(node(line=None, original_line=None, path="alloy.yaml"))
+            )
+        )
         self.assertIn("alloy.yaml", text)
         self.assertNotIn("alloy.yaml:", text)
 

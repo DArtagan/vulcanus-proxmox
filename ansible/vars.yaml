@@ -1,4 +1,3 @@
----
 # proxmox and proxmox_kvm options
 api_user: "{{ lookup('env', 'PROXMOX_API_USER') }}"
 api_password: "{{ lookup('env', 'PROXMOX_API_PASSWORD') }}"
@@ -25,7 +24,7 @@ defaults:
   storage:
     ct: 'local-zfs'
     vm: 'local-zfs'
-  #virtio: '{"scsi0":"gluster:10,cache=writeback,discard=on"}'
+    #virtio: '{"scsi0":"gluster:10,cache=writeback,discard=on"}'
 
 ostemplate: 'local:vztmpl/ubuntu-21.10-standard_21.10-1_amd64.tar.gz'
 #ostemplate: 'local:vztmpl/debian-10-standard_10.7-1_amd64.tar.gz'
