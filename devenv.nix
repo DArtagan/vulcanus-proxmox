@@ -1,5 +1,6 @@
 {
   config,
+  lib,
   pkgs,
   ...
 }:
@@ -160,29 +161,118 @@
 
   dotenv.enable = true;
 
-  git-hooks.hooks = {
-    end-of-file-fixer.enable = true;
-    deadnix.enable = true;
-    flake-checker.enable = true;
-    nixfmt.enable = true;
-    shellcheck.enable = true;
-    statix.enable = true;
-    tflint.enable = true;
-    trim-trailing-whitespace.enable = true;
-    terraform-no-align-equals = {
-      enable = true;
-      name = "terraform-no-align-equals";
-      description = "Remove aligned equals signs from Terraform argument assignments";
-      entry = toString (
-        pkgs.writeShellScript "terraform-no-align-equals" ''
-          for file in "$@"; do
-            sed -i -E 's/^([[:space:]]+[a-zA-Z_][a-zA-Z0-9_-]*)[[:space:]]{2,}=[[:space:]]*/\1 = /g' "$file"
-          done
-        ''
-      );
-      files = "\\.tf$";
-      language = "system";
-      pass_filenames = true;
+  treefmt = {
+    enable = true;
+
+    config = {
+      settings.global.excludes = [
+        # SOPS-encrypted; reformatting risks invalidating the MAC.
+        "*.sops.yaml"
+        # Generated verbatim by `flux bootstrap`; formatting it only creates churn.
+        "kubernetes/cluster/flux-system/**"
+        # Vendored provider, including a ~511 MB binary.
+        "terraform/.terraform/**"
+        "terraform/.terraform.lock.hcl"
+        "devenv.lock"
+        "LICENSE"
+      ];
+
+      programs = {
+        deadnix.enable = true;
+        jsonfmt.enable = true;
+        nixfmt.enable = true;
+        ruff-format.enable = true;
+        statix.enable = true;
+        taplo.enable = true;
+        yamlfmt.enable = true;
+      };
+
+      programs.yamlfmt.settings.formatter = {
+        # Leave blank lines exactly as written. The `_single` variant collapses
+        # consecutive blank lines, which reaches inside `|` blocks and rewrites
+        # the embedded configs and scripts they hold.
+        retain_line_breaks = true;
+        # Don't re-fold `>` scalars.
+        scan_folded_as_literal = true;
+      };
+
+      settings.formatter = {
+        # Helm chart templates are Go templates, not valid YAML.
+        yamlfmt.excludes = [ "kubernetes/charts/*/templates/*.yaml" ];
+
+        # deadnix and statix rewrite, then nixfmt tidies up after them.
+        deadnix.priority = 0;
+        statix.priority = 0;
+        nixfmt.priority = 1;
+
+        # `tofu fmt` aligns `=`; this repo deliberately does not. Both happen in
+        # one pass, so each file is written at most once — a second write would
+        # bump the mtime and trip treefmt's --fail-on-change in the commit hook.
+        terraform = {
+          command = lib.getExe (
+            pkgs.writeShellApplication {
+              name = "tofu-fmt-no-align";
+              runtimeInputs = with pkgs; [
+                coreutils
+                diffutils
+                gnused
+                opentofu
+              ];
+              text = ''
+                for file in "$@"; do
+                  tmp="$(mktemp)"
+                  tofu fmt - < "$file" \
+                    | sed -E 's/^([[:space:]]+[a-zA-Z_][a-zA-Z0-9_-]*)[[:space:]]{2,}=[[:space:]]*/\1 = /g' \
+                    > "$tmp"
+                  cmp -s "$tmp" "$file" || cat "$tmp" > "$file"
+                  rm -f "$tmp"
+                done
+              '';
+            }
+          );
+          includes = [
+            "*.tf"
+            "*.tfvars"
+          ];
+          priority = 0;
+        };
+
+        # Covers the types treefmt has no formatter for (*.j2, *.cfg, *.conf,
+        # *.md, *.txt, *.yaml.tmpl, .envrc).
+        whitespace = {
+          command = lib.getExe (
+            pkgs.writeShellApplication {
+              name = "whitespace";
+              runtimeInputs = with pkgs; [
+                coreutils
+                diffutils
+                gnused
+              ];
+              text = ''
+                for file in "$@"; do
+                  tmp="$(mktemp)"
+                  # Strip trailing whitespace, and end on exactly one newline.
+                  printf '%s\n' "$(sed -e 's/[[:space:]]*$//' "$file")" > "$tmp"
+                  # `cat >` rather than `mv`, so the file's mode survives; and only
+                  # when something changed, so --fail-on-change stays honest.
+                  cmp -s "$tmp" "$file" || cat "$tmp" > "$file"
+                  rm -f "$tmp"
+                done
+              '';
+            }
+          );
+          includes = [ "*" ];
+          # Always last, so it tidies up after every other formatter.
+          priority = 2;
+        };
+      };
     };
+  };
+
+  git-hooks.hooks = {
+    # Formatting is all treefmt; these two are linters, not formatters.
+    shellcheck.enable = true;
+    tflint.enable = true;
+    treefmt.enable = true;
   };
 }
