@@ -34,7 +34,7 @@ spec:
               name: config-data
       containers:
         - name: automatic-ripping-machine
-          image: automaticrippingmachine/automatic-ripping-machine:2.23.2 # {"$imagepolicy": "automatic-ripping-machine:automatic-ripping-machine"}
+          image: automaticrippingmachine/automatic-ripping-machine:2.24.3 # {"$imagepolicy": "automatic-ripping-machine:automatic-ripping-machine"}
           env:
             - name: ARM_UID
               value: "0"
