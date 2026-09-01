@@ -10,13 +10,16 @@ sitting in this directory means the work has not been done.
 
 ## Infrastructure, in the order worth tackling
 
-**1. [backups.md](backups.md) — repair the backup stack**
-The Kubernetes-side backups do not work. Borgmatic fails on every run and no
-`openebs-hostpath` volume is covered by anything at cluster level. What actually
-protects data today is ZFS replication offsite plus a whole-VM Proxmox backup.
-First because it is the only item where the failure mode is losing data, and
-because borgmatic now reports its own failures via Pushover, so it announces
-itself until dealt with.
+**1. [backups.md](backups.md) — build a 3-2-1-0 backup architecture**
+The Kubernetes-side backups do not work, and reconnaissance found three live
+failures beyond that: offsite replication of the VM datasets has failed every run
+since 2026-01-14 leaving worker-1 seven months stale, sanoid on mini-nas has never
+once succeeded so nothing prunes the replication target, and that pool has never
+been scrubbed. PBS's datastore also sits on the same pool as the VMs it protects.
+First because it is the only item where the failure mode is losing data.
+
+Unlike the other specs here this one is **maintained through implementation** — it
+spans sessions and carries a status table. Slug `backups`, branch `backups`.
 
 **2. [ingress-nginx-migration-prompt.md](ingress-nginx-migration-prompt.md) — move to Gateway API**
 ingress-nginx is retired upstream: no releases, no bugfixes and **no security
