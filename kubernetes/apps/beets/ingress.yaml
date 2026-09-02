@@ -14,13 +14,13 @@ spec:
         - beets.immortalkeep.com
       secretName: beets-flask-ingress-tls
   rules:
-  - host: beets.immortalkeep.com
-    http:
-      paths:
-      - pathType: Prefix
-        path: /
-        backend:
-          service:
-            name: beets-flask
-            port:
-              number: 5001
+    - host: beets.immortalkeep.com
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: beets-flask
+                port:
+                  number: 5001

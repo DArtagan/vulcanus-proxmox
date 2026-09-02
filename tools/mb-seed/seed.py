@@ -252,8 +252,20 @@ def fetch_cover(book, root, pod, namespace="apps"):
         return None
 
     result = subprocess.run(
-        ["kubectl", "exec", "-n", namespace, "-c", "beets-flask", pod, "--",
-         "/venv/bin/python", "-c", reader, source],
+        [
+            "kubectl",
+            "exec",
+            "-n",
+            namespace,
+            "-c",
+            "beets-flask",
+            pod,
+            "--",
+            "/venv/bin/python",
+            "-c",
+            reader,
+            source,
+        ],
         capture_output=True,
         text=True,
     )
@@ -292,7 +304,7 @@ def seed_form(book, redirect=None):
         )
     return (
         f'<form id="seed" method="POST" action="{ADD_RELEASE}">{inputs}'
-        f'<noscript><p>JavaScript is off, so this did not submit itself.</p>'
+        f"<noscript><p>JavaScript is off, so this did not submit itself.</p>"
         f'<button type="submit">Continue to MusicBrainz</button></noscript>'
         f"</form><script>document.getElementById('seed').submit()</script>"
         f"<p>Opening MusicBrainz&hellip;</p>"
@@ -331,7 +343,9 @@ class Ledger:
     def record(self, book_path, mbid):
         self.entries[book_path] = mbid
         with open(self.path, "w") as handle:
-            json.dump(self.entries, handle, indent=1, ensure_ascii=False, sort_keys=True)
+            json.dump(
+                self.entries, handle, indent=1, ensure_ascii=False, sort_keys=True
+            )
             handle.write("\n")
 
 
@@ -537,9 +551,11 @@ class Handler(BaseHTTPRequestHandler):
 
         warnings = ""
         if book["warnings"]:
-            warnings = '<div class="warn"><b>Check before submitting:</b><ul>' + "".join(
-                f"<li>{html.escape(w)}</li>" for w in book["warnings"]
-            ) + "</ul></div>"
+            warnings = (
+                '<div class="warn"><b>Check before submitting:</b><ul>'
+                + "".join(f"<li>{html.escape(w)}</li>" for w in book["warnings"])
+                + "</ul></div>"
+            )
 
         dropped = dropped_narrators(book)
         if dropped:
@@ -565,7 +581,9 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
-    manifest_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(here, "manifest.json")
+    manifest_path = (
+        sys.argv[1] if len(sys.argv) > 1 else os.path.join(here, "manifest.json")
+    )
     with open(manifest_path) as handle:
         manifest = json.load(handle)
     books = manifest["books"]
@@ -581,7 +599,10 @@ def main():
         books = [
             b
             for b in books
-            if any(p in (b.get("path", "") + (b.get("title") or "")).lower() for p in patterns)
+            if any(
+                p in (b.get("path", "") + (b.get("title") or "")).lower()
+                for p in patterns
+            )
         ]
         if not books:
             sys.exit(f"No books matched {', '.join(patterns)}")
@@ -589,7 +610,9 @@ def main():
     Handler.books = books
     Handler.ledger = Ledger(os.path.join(os.path.dirname(manifest_path), "ledger.json"))
 
-    print(f"{len(Handler.books)} books; {len(Handler.ledger.entries)} already submitted")
+    print(
+        f"{len(Handler.books)} books; {len(Handler.ledger.entries)} already submitted"
+    )
     print(f"==> {ORIGIN}")
     try:
         webbrowser.open(ORIGIN)

@@ -150,9 +150,7 @@ class WrapperHarness:
         os.makedirs(self.lock_dir)
         self._write(
             self.script,
-            sandbox_wrapper(
-                load_wrapper(), self.entry_point, self.log, self.lock_dir
-            ),
+            sandbox_wrapper(load_wrapper(), self.entry_point, self.log, self.lock_dir),
         )
 
     @staticmethod
@@ -251,9 +249,7 @@ class ConcurrentEvents(unittest.TestCase):
 
     def test_only_one_of_two_simultaneous_events_reaches_arm(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            harness = WrapperHarness(
-                tmpdir, CDS_DISC_OK, BLURAY, arm_seconds=5
-            )
+            harness = WrapperHarness(tmpdir, CDS_DISC_OK, BLURAY, arm_seconds=5)
             env = dict(os.environ)
             env["PATH"] = harness.bindir + os.pathsep + env["PATH"]
             processes = [

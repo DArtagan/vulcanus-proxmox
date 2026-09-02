@@ -8,7 +8,7 @@ resources:
   - audio-rw-beets-pv.yaml
   - audio-rw-pv.yaml
   #- authentik.yaml
-  - basic-auth.yaml
+  - basic-auth.sops.yaml
   - books-pv.yaml
   - borg-backups-pv.yaml
   - cert-manager.yaml
@@ -17,22 +17,22 @@ resources:
   - devices.yaml
   - fstrim.yaml
   - games-pv.yaml
-  - grafana-admin-secret.yaml
-  - grafana-auth.yaml
+  - grafana-admin-secret.sops.yaml
+  - grafana-auth.sops.yaml
   - image-update-automation.yaml
   - ingress-nginx-reverse-proxy.yaml
   - media-pv.yaml
   - metallb.yaml
   - metrics-server.yaml
   - namespace.yaml
-  - notification-secrets.yaml
+  - notification-secrets.sops.yaml
   - openebs.yaml
   #- openvpn
   - photos-pv.yaml
   - prometheus-rules.yaml
   - prometheus.yaml
-  - rancher-key.yaml
-  - smb-credentials.yaml
+  - rancher-key.sops.yaml
+  - smb-credentials.sops.yaml
   - syncthing-pv.yaml
   - victoria-logs.yaml
   - video-arm-pv.yaml

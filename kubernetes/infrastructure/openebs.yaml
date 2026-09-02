@@ -69,7 +69,6 @@ spec:
       enabled: false
 
 
----
 # Not entirely sure this works, or what order it's applied in, but the Talos docs suggest it necessary
 #apiVersion: v1
 #kind: ConfigMap
@@ -81,3 +80,4 @@ spec:
 #    iscsid_pid=$(pgrep iscsid)
 #
 #    nsenter --mount="/proc/${iscsid_pid}/ns/mnt" --net="/proc/${iscsid_pid}/ns/net" -- /usr/local/sbin/iscsiadm "$@"
+---

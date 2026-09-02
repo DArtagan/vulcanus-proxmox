@@ -11,13 +11,13 @@ spec:
         - filebot.immortalkeep.com
       secretName: filebot-ingress-tls
   rules:
-  - host: filebot.immortalkeep.com
-    http:
-      paths:
-      - pathType: Prefix
-        path: /
-        backend:
-          service:
-            name: filebot
-            port:
-              number: 5452
+    - host: filebot.immortalkeep.com
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: filebot
+                port:
+                  number: 5452

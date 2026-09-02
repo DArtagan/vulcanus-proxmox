@@ -11,13 +11,13 @@ spec:
         - podgrab.immortalkeep.com
       secretName: podgrab-ingress-tls
   rules:
-  - host: podgrab.immortalkeep.com
-    http:
-      paths:
-      - pathType: Prefix
-        path: /
-        backend:
-          service:
-            name: podgrab
-            port:
-              number: 8080
+    - host: podgrab.immortalkeep.com
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: podgrab
+                port:
+                  number: 8080

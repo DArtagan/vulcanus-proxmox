@@ -11,13 +11,13 @@ spec:
         - youtube.immortalkeep.com
       secretName: youtube-ingress-tls
   rules:
-  - host: youtube.immortalkeep.com
-    http:
-      paths:
-      - pathType: Prefix
-        path: /
-        backend:
-          service:
-            name: youtube-dl
-            port:
-              number: 8080
+    - host: youtube.immortalkeep.com
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: youtube-dl
+                port:
+                  number: 8080

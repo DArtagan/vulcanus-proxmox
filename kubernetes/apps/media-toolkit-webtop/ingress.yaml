@@ -11,13 +11,13 @@ spec:
         - media-toolkit.immortalkeep.com
       secretName: media-toolkit-webtop-ingress-tls
   rules:
-  - host: media-toolkit.immortalkeep.com
-    http:
-      paths:
-      - pathType: Prefix
-        path: /
-        backend:
-          service:
-            name: media-toolkit-webtop
-            port:
-              number: 3000
+    - host: media-toolkit.immortalkeep.com
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: media-toolkit-webtop
+                port:
+                  number: 3000

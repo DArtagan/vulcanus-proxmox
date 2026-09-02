@@ -51,15 +51,15 @@ variable "proxmox_api_url" {
 }
 
 variable "proxmox_tls_insecure" {
-    description = "If the TLS connection is insecure (self-signed). This is usually the case."
-    type = bool
-    default = true
+  description = "If the TLS connection is insecure (self-signed). This is usually the case."
+  type = bool
+  default = true
 }
 
 variable "proxmox_debug" {
-    description = "If the debug flag should be set when interacting with the Proxmox API."
-    type = bool
-    default = false
+  description = "If the debug flag should be set when interacting with the Proxmox API."
+  type = bool
+  default = false
 }
 
 variable "public_key" {

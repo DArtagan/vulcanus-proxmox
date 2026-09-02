@@ -4,5 +4,5 @@ resources:
   - data-pvc.yaml
   - deployment.yaml
   - image.yaml
-  - secret.yaml
+  - secret.sops.yaml
   - service.yaml

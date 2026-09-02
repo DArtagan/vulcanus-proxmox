@@ -84,7 +84,7 @@ Prometheus retention is 30 days, so it answers nothing about April 2026.
 - `kubernetes/apps/automatic-ripping-machine/deployment.yaml` — mounts, resources
 - `kubernetes/apps/automatic-ripping-machine/init-scripts.yaml` — the udev rule
   and `arm-disc-wrapper.sh`
-- `kubernetes/apps/automatic-ripping-machine/api-keys.yaml` — SOPS; MakeMKV,
+- `kubernetes/apps/automatic-ripping-machine/api-keys.sops.yaml` — SOPS; MakeMKV,
   OMDb, and the Pushover pair once D5 is unblocked
 - `kubernetes/infrastructure/prometheus-rules.yaml` — the `disc-ripping` group
 - `kubernetes/infrastructure/devices.yaml` — how the drive is advertised
@@ -373,8 +373,8 @@ today trusts abcde's exit code alone.
 - `APPRISE: ""`, `PB_KEY`/`PO_USER_KEY`/`PO_APP_KEY` empty, `EMBY_REFRESH: false`.
   Every notification ARM generates goes to its own database table and nowhere
   else. The repo already runs Pushover for borgmatic
-  (`kubernetes/apps/borgmatic/pushover-secret.yaml`,
-  `kubernetes/infrastructure/notification-secrets.yaml`), so the credential and
+  (`kubernetes/apps/borgmatic/pushover-secret.sops.yaml`,
+  `kubernetes/infrastructure/notification-secrets.sops.yaml`), so the credential and
   the pattern exist.
 
   **`APPRISE` is not the route to use.** ARM has native Pushover:
@@ -385,7 +385,7 @@ today trusts abcde's exit code alone.
 
   `config-map.yaml` now reads `PO_USER_KEY: "${PUSHOVER_USER_KEY}"` and
   `PO_APP_KEY: "${PUSHOVER_APP_TOKEN}"`, so **the two must be added to
-  `api-keys.yaml` before this is pushed**. The `config-injector` init container
+  `api-keys.sops.yaml` before this is pushed**. The `config-injector` init container
   builds envsubst's shell-format from the names actually present in the
   environment, so a missing variable is left in the file *verbatim* rather than
   blanked — ARM would then treat the literal string `${PUSHOVER_USER_KEY}` as a
@@ -577,7 +577,7 @@ Prerequisite for everything else. Nothing here needs a disc.
    3000m / 4Gi.
 5. ~~**Wire notifications**~~ (D5). Done 2026-08-25 — `PO_USER_KEY` and
    `PO_APP_KEY` are substituted in the running container, from
-   `PUSHOVER_USER_KEY` / `PUSHOVER_APP_TOKEN` in `api-keys.yaml`. Two things
+   `PUSHOVER_USER_KEY` / `PUSHOVER_APP_TOKEN` in `api-keys.sops.yaml`. Two things
    worth keeping: `sops -d` cannot run unattended here, because the age
    recipient is a passphrase-protected SSH key and sops has no tty, so editing
    that file is always Will's to do. And the Secret is read by the

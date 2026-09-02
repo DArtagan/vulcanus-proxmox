@@ -93,8 +93,9 @@ def tags(**overrides):
     return base
 
 
-def record(root="/audio/import", path="/audio/import/Book/book.m4b", sidecars=None,
-           **overrides):
+def record(
+    root="/audio/import", path="/audio/import/Book/book.m4b", sidecars=None, **overrides
+):
     FakeAudio.registry[path] = FakeAudio(tags(**overrides))
     listing = ["book.m4b"] + (["cover.jpg"] if sidecars is None else list(sidecars))
     original = manifest.os.listdir
@@ -297,7 +298,9 @@ class TestManifestIsSerialisable(unittest.TestCase):
 
     def test_non_ascii_names_survive(self):
         book = record(author=["추공"])
-        self.assertEqual(json.loads(json.dumps(book, ensure_ascii=False))["author"], "추공")
+        self.assertEqual(
+            json.loads(json.dumps(book, ensure_ascii=False))["author"], "추공"
+        )
 
 
 if __name__ == "__main__":

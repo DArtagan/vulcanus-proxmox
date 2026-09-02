@@ -12,16 +12,16 @@ spec:
         - photoprism.immortalkeep.com
       secretName: photoprism-ingress-tls
   rules:
-  - host: photoprism.immortalkeep.com
-    http:
-      paths:
-      - pathType: Prefix
-        path: /
-        backend:
-          service:
-            name: photoprism
-            port:
-              number: 2342
+    - host: photoprism.immortalkeep.com
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: photoprism
+                port:
+                  number: 2342
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -38,13 +38,13 @@ spec:
         - photoprism.immortalkeep.com
       secretName: photoprism-ingress-tls
   rules:
-  - host: photoprism.immortalkeep.com
-    http:
-      paths:
-      - pathType: Prefix
-        path: /
-        backend:
-          service:
-            name: photoprism
-            port:
-              number: 2342
+    - host: photoprism.immortalkeep.com
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: photoprism
+                port:
+                  number: 2342

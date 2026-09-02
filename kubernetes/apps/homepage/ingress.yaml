@@ -11,13 +11,13 @@ spec:
         - immortalkeep.com
       secretName: homepage-ingress-tls
   rules:
-  - host: immortalkeep.com
-    http:
-      paths:
-      - pathType: Prefix
-        path: /
-        backend:
-          service:
-            name: homepage
-            port:
-              number: 3000
+    - host: immortalkeep.com
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: homepage
+                port:
+                  number: 3000

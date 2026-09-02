@@ -53,7 +53,7 @@ as a bridge rather than being routed, but a subnet router does need it.
 
 **Advertising a route is not granting access to it.** What the tailnet may
 actually reach is set by the Headscale policy in
-`kubernetes/apps/headscale/policy-config-map.yaml`, and it is deliberately
+`kubernetes/apps/headscale/policy-config-map.sops.yaml`, and it is deliberately
 narrow:
 
 | Source | Destination | Why |
@@ -107,7 +107,7 @@ When something on the LAN is unreachable and you think it should not be:
    tailscale debug netmap | jq '.PacketFilter'
    ```
    If the destination does not appear in any `Dsts`, it is the ACL.
-4. **Add the narrowest entry that covers it** to `policy-config-map.yaml` — a
+4. **Add the narrowest entry that covers it** to `policy-config-map.sops.yaml` — a
    specific IP and port, not a subnet and not `*` — with a comment saying what
    needed it.
 5. **Validate before applying.** `headscale policy check` connects to the server
