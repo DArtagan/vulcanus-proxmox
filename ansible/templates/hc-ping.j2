@@ -1,0 +1,30 @@
+#!/bin/sh
+# Ping a healthchecks.io check. Usage: hc-ping <check-name> [/fail]
+#
+# Managed by ansible/backup-monitoring.yaml. The mini-nas half of this lives in
+# ~/repositories/mini-nas/modules/backup_monitoring; the two hosts are managed
+# by different systems and cannot share a file, so a change here needs the same
+# change there.
+set -eu
+
+url_file="/etc/healthchecks/$1"
+if [ ! -r "$url_file" ]; then
+	echo "hc-ping: no URL at $url_file" >&2
+	exit 1
+fi
+url="$(cat "$url_file")"
+
+# A secret that is not a URL is a configuration error, and curl's complaint
+# about it is unhelpful: brackets are glob syntax, so a stray ENC[...] blob is
+# reported as "bad range in position 5" rather than as the wrong value it is.
+# Say so plainly, without echoing the secret.
+case "$url" in
+	https://*) ;;
+	*)
+		echo "hc-ping: $url_file does not contain an https:// URL" >&2
+		exit 1
+		;;
+esac
+
+# -g because a URL is data, not a glob pattern.
+curl -fsS -g -m 10 --retry 3 -o /dev/null "$url${2:-}"
