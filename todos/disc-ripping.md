@@ -31,7 +31,7 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 | 0 | Unwedge the drive, close the cross-cutting defects | **done** — reconciled and verified in the container, 2026-08-25 |
 | 1 | Audio CD | **done** 2026-08-31 — one loose end, see below |
 | 2 | DVD — movie | **done** 2026-09-01 — first video file ARM has ever produced |
-| 2b | DVD — TV series | **next**, needs a disc |
+| 2b | DVD — TV series | **blocked** — the fileserver cannot write the folder name |
 | 3 | Blu-ray | not started |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
 
@@ -1411,3 +1411,47 @@ a person — can.
 5. Time. The movie ran ~2× realtime on transcode; a 4-episode disc is roughly
    90 minutes of video, so budget a couple of hours all-in and remember the
    drive is held throughout (D8).
+
+### 2026-09-02 — two more discs, two unrelated failures
+
+Neither is a regression, and neither is the MakeMKV expiry fixed on 2026-09-01.
+
+**Job 20, The Sylvester and Tweety Mysteries — phase 2b, blocked by the
+fileserver.** ARM identified it correctly as `video_type: series`, which is the
+first confirmation that `VIDEOTYPE: "auto"` resolves a TV disc. It then failed
+creating its output directory:
+
+```
+OSError: [Errno 5] Input/output error:
+  '/root/video/transcode/tv/The-Sylvester-and-Tweety-Mysteries (1995–2002)'
+```
+
+Not ARM's fault. Samba runs `unix charset = ISO-8859-1`, so any character above
+U+00FF fails to write on every share — OMDb returns a series' year range with an
+**en dash**. Measured boundary and migration plan in
+[smb-charset-utf8.md](smb-charset-utf8.md). It also explains why `Mànran` worked
+earlier: `à` is inside Latin-1, by luck.
+
+The `tv/` destination predicted from the source is confirmed, so the rest of the
+phase 2b plan still stands — it just cannot run until the name can be written.
+A narrow alternative, noted in that spec, is sanitising what ARM puts in a path
+via `utils.clean_for_filename`, which would unblock this without touching the
+fileserver.
+
+**Job 19, An American Tail: Fievel Goes West — a bad disc, probably.**
+
+```
+MakeMKV v1.18.4 started        ← no version complaint; the 2.24.3 fix holds
+Failed to open disc
+Call to MakeMKV failed with code: 11
+```
+
+Different from every earlier failure. Identification succeeded, which means the
+disc mounted and `pydvdid` read `VIDEO_TS` — so it is readable as a filesystem
+and MakeMKV specifically could not open it for decryption. No `ata4` events on
+the host during the job, so the drive is not at fault.
+
+That leaves the disc: physical damage, or a protection scheme MakeMKV 1.18.4
+does not handle. Universal DVDs of that era used ARccOS deliberate-bad-sector
+protection. **Not yet diagnosed** — retry it, clean it, and if it fails again
+compare against another disc from the same studio before concluding anything.

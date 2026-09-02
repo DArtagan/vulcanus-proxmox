@@ -112,6 +112,7 @@ Separate track; these do not compete with the infrastructure ordering.
 | [audiobook-cover-art.md](audiobook-cover-art.md) | A unified system for sourcing, filing and refreshing cover art. `artpath` is empty on every audiobook while 95% of the inbox carries art `fetchart` cannot see |
 | [book-import-spec.md](book-import-spec.md) | Design for a CLI tool to be the single entry point into the Stump library |
 | [podcast-archive-context.md](podcast-archive-context.md) | Follow-up context from replacing Podgrab with Pinepods, including the feed snapshot job |
+| [smb-charset-utf8.md](smb-charset-utf8.md) | Samba runs `unix charset = ISO-8859-1`, so any filename above U+00FF fails with EIO on every share. Blocks a TV rip today; latent for any title with a curly apostrophe |
 | [video-library-ingest.md](video-library-ingest.md) | Ripped films stop in `import/` and never reach the library. Nothing watches the video inbox and FileBot, the one tool that could file them, reports `Bad License` |
 | [acoustid-identification.md](acoustid-identification.md) | Identifying discs MusicBrainz has no disc ID for, by fingerprinting the audio rather than the table of contents |
 | [disc-ripping.md](disc-ripping.md) | Getting ARM to rip audio CD, DVD, Blu-ray and 4K reliably into the `import/` folders. No job has ever produced a transcoded file; a one-year manual-identification wait wedges the drive on every disc |
