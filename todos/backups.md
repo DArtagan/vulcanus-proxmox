@@ -17,7 +17,7 @@ Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
 | Phase | What | State |
 |---|---|---|
 | A | Record the spec, open the review | **done** 2026-09-01 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3) |
-| 0 | Stop the bleeding — replication, retention, scrub | **in progress**; key escrow done 2026-09-01, vdev expansion deferred |
+| 0 | Stop the bleeding — replication, retention, scrub | **in progress**; key escrow, sanoid retention, scrub and monitoring done 2026-09-02. Outstanding: the five diverged datasets, and the vulcanus side |
 | 1 | Reclaim — dead guests, orphans | not started |
 | 2 | Application backups — K8up + restic | not started |
 | 2b | Delete the borg tree, after a restore is proven | not started |
@@ -745,6 +745,43 @@ first deploy.
   destroyed for its bays, and so it can host PBS #2 if that phase cannot wait.
 - `OnFailure=` plus a success ping on every sanoid and syncoid unit.
 - Pool-health timers on both hosts.
+
+#### Measured on 2026-09-02, after deploying
+
+Three numbers that correct estimates elsewhere in this spec.
+
+**The offsite bloat was never in `storage`.** Pruning `photos` from ~5,783 snapshots
+to 114 freed almost nothing. Snapshots of data that does not change cost essentially
+nothing, so the ~1.2 TiB of excess is all in the `data` zvols, which churn — and
+those are what Phase 4 retires. Any future estimate of what retention will reclaim
+should be made against `data` alone.
+
+Progress so far: rpool 89% → **86%**, 2.07 → **2.61 TiB free**, ~540 GB reclaimed
+with `data` at 2,155 snapshots and still falling. `media` is untouched at 6,019 and
+is expected to free little when it goes.
+
+**The first scrub in the pool's life came back clean** — `repaired 0B in 20:23:38
+with 0 errors`, 2026-09-02. 11 TiB of the only offsite copy, on raidz1 across drives
+up to thirteen years old. That was the largest unknown in the estate and it is now a
+known.
+
+**A scrub starves the prune.** Running concurrently, sanoid managed ~2 snapshot
+destroys per minute — a ten-day pace for the backlog. With the scrub finished the
+same work runs orders of magnitude faster. Sequence these rather than overlapping
+them.
+
+#### Do not run sanoid by hand while its timer is enabled
+
+Sanoid serialises on `/var/run/sanoid/sanoid_pruning.lock`. A run that finds a valid
+lock held by another process exits early and silently, which looks exactly like a run
+that decided there was nothing to do. Worse, the staleness check compares the
+lockfile's recorded command against `ps -p <pid> -o args=`, and when that comparison
+fails it *unlinks the lock* — so two concurrent runs can destroy each other, one
+exiting `RC=2` with `No valid lockfile found`.
+
+This cost a long detour: a manual prune and the hourly timer fought, the timer's runs
+exited in fifteen seconds each, and the fifteen-second exits were misread as sanoid
+refusing to prune at all. Let the timer do the work, or stop it first.
 
 #### Repairing the five diverged datasets
 
