@@ -774,6 +774,24 @@ destroys per minute — a ten-day pace for the backlog. With the scrub finished 
 same work runs orders of magnitude faster. Sequence these rather than overlapping
 them.
 
+#### Stale syncoid holds survive the prune
+
+Five snapshots under `storage` carry `syncoid_vulcanus` ZFS holds dated 5-6 January
+2026 — days before `syncoid-vulcanus-data` first failed on the 14th. They are
+leftovers from interrupted sends, `userrefs: 1`, and sanoid can never destroy them:
+
+```
+cannot destroy snapshot ...@autosnap_2026-01-05_03:00:06_hourly: it's being held
+```
+
+Harmless in themselves, but they are the oldest snapshots on those datasets, so they
+pin every block freed since January. On `storage`, where the data barely changes,
+that costs little. Release them with `zfs release syncoid_vulcanus <snapshot>` when
+convenient. None are on `data`, so they do not block the diverged-dataset repair.
+
+Note `zfs holds -r <dataset>` does not find them — that command takes snapshot names.
+`zfs get -r -t snapshot userrefs <dataset>` is the query that works.
+
 #### Do not run sanoid by hand while its timer is enabled
 
 Sanoid serialises on `/var/run/sanoid/sanoid_pruning.lock`. A run that finds a valid
