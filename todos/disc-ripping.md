@@ -30,7 +30,8 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 |---|---|---|
 | 0 | Unwedge the drive, close the cross-cutting defects | **done** — reconciled and verified in the container, 2026-08-25 |
 | 1 | Audio CD | **done** 2026-08-31 — one loose end, see below |
-| 2 | DVD | **in progress** — root cause found 2026-09-01, fix untested |
+| 2 | DVD — movie | **done** 2026-09-01 — first video file ARM has ever produced |
+| 2b | DVD — TV series | workaround shipped 2026-09-02, **needs the disc again** |
 | 3 | Blu-ray | not started |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
 
@@ -1290,9 +1291,10 @@ Fixed by giving ARM its own `ImageUpdateAutomation`, scoped to this app's
 directory so it cannot race the `apps` one, plus a manual bump to 2.24.3 so it is
 testable now rather than at the next reconcile.
 
-**What is not yet proven** is that the newer MakeMKV fixes the rip. That is the
-hypothesis — 2.23.2 bundles MakeMKV 1.18.3, and MakeMKV refuses disc access once
-a version ages out — but it needs a disc to confirm.
+**Confirmed.** Job 18 on 2.24.3 (MakeMKV 1.18.4) ripped and transcoded The
+Hallelujah Trail end to end — the first video file ARM has ever produced. A
+single patch release of MakeMKV was the whole difference; 1.18.3 refused every
+disc, 1.18.4 refuses none.
 
 ### What was ruled out first, so it is not re-tested
 
@@ -1323,3 +1325,152 @@ holds a real licence, so the intended fix is the newer version rather than
 falling back to beta keys; but if a current MakeMKV still rejects the stored
 key, the stored *value* is the next thing to check, since a purchased key is
 perpetual and should not be refused.
+
+### 2026-09-01 — phase 2 done: the first video file ARM has ever produced
+
+Job 18, The Hallelujah Trail (1965), on ARM 2.24.3 / MakeMKV 1.18.4.
+
+| stage | | |
+|---|---|---|
+| identified | 05:57 | OMDb, `tt0059250`, `hasnicetitle` |
+| manual wait | 05:57 → 06:07 | 600s, released on its own |
+| MakeMKV `backup_dvd` | 06:07 → 07:54 | 1h47m, 7.1 GB of `VIDEO_TS` |
+| HandBrake | 07:54 → 09:13 | 1h19m |
+| success | 09:14 | tray ejected on its own |
+
+**Three hours seventeen minutes from insert to done, and the drive was held for
+all of it** (D8). Verified rather than assumed, because status alone has lied
+before:
+
+```
+/root/video/completed/movies/The-Hallelujah-Trail (1965)_178824223068/The-Hallelujah-Trail (1965).mkv
+  1,293,281,925 bytes — av1 video, 2× opus stereo, dvd_subtitle, 9332s
+```
+
+`ffprobe` confirms it decodes. The 7.1 GB raw backup survives, so a bad
+transcode is recoverable without re-reading the disc.
+
+**The multi-title worry did not materialise.** Two tracks passed `MINLENGTH`,
+13 seconds apart — the same near-duplicate shape the Blu-ray showed. ARM's
+`skip_transcode_movie` picked the largest and moved only that, renaming it to
+`<Title> (<Year>).mkv`; the other was discarded with the transcode directory.
+For a movie that is the behaviour you want, and it is better than the Blu-ray
+note in D8 predicted. Whether it still holds for a TV disc, where every title
+matters, is untested.
+
+**Housekeeping left behind.** Eight empty directories under
+`completed/movies` and `transcode/movies`, from the failed jobs 15–17 and the
+April Rescuers/Le Mans runs. They also cause the `_<stage>` suffix on the
+output path, because `check_for_dupe_folder` finds the name taken. Harmless,
+untidy, and it means the tidy path `The-Hallelujah-Trail (1965)` is occupied by
+an empty directory while the real film sits in the suffixed one.
+
+**Phase 3 is Blu-ray**, and the case for it is now much stronger than it was:
+the April Blu-ray failures were on 2.23.2, and every one of them may have been
+this same MakeMKV expiry. The Rescuers' 43 GB raw backup is still on the share,
+so the transcode half can be exercised without re-reading the disc — but the
+rip half needs the disc, and is now worth retrying.
+
+## Phase 2b — a TV disc
+
+**Why it is 2b and not phase 5.** The numbered phases are physical formats —
+CD, DVD, Blu-ray, UHD. Movie versus series is a *content* axis that crosses DVD,
+Blu-ray and UHD alike, so it does not want its own place in that sequence.
+Running it on DVD, the format just proven, means any failure isolates to the
+multi-title path rather than to the format.
+
+**What ARM does differently**, read from the source rather than assumed:
+
+- `convert_job_type("series")` returns `"tv"`, so the output lands in
+  `completed/tv/<Title>/` — **not** `completed/movies/`.
+- `move_files_post` (`arm_ripper.py:198`) takes the series branch and calls
+  `move_files(..., is_main_feature=False)` for **every** track. There is no
+  largest-file selection, which is the behaviour a TV disc needs.
+- `move_files` (`utils.py:210`) sets `extras_path = movie_path` for a series —
+  "for series there are no extras" — so every episode lands flat in one
+  directory.
+- Because nothing is the main feature, nothing gets renamed to
+  `<Title> (<Year>).mkv`. **Every episode keeps its `title_N.mkv` name.**
+
+That last point is the one worth running the disc to confirm, because it decides
+[video-library-ingest.md](video-library-ingest.md): ARM knows the *show* but
+cannot know which title is which episode. A mover built on ARM's own metadata,
+which is enough for a film, cannot file TV. Only content matching — FileBot, or
+a person — can.
+
+**What to check:**
+
+1. Does `VIDEOTYPE: "auto"` actually resolve `series`? If it comes back `movie`,
+   everything above is moot and the disc files as one film plus extras.
+2. Do all episodes transcode? `MINLENGTH: 420` passes a 22-minute episode
+   comfortably; the risk is at the short end, not the long.
+3. Does `title_N` ordering match episode order? If it reliably does, a mover
+   could map positionally — worth knowing even though it is fragile.
+4. `completed/tv/` versus the library's `/video/shows/`. The names differ, which
+   is another thing any ingest has to reconcile.
+5. Time. The movie ran ~2× realtime on transcode; a 4-episode disc is roughly
+   90 minutes of video, so budget a couple of hours all-in and remember the
+   drive is held throughout (D8).
+
+### 2026-09-02 — two more discs, two unrelated failures
+
+Neither is a regression, and neither is the MakeMKV expiry fixed on 2026-09-01.
+
+**Job 20, The Sylvester and Tweety Mysteries — phase 2b, blocked by the
+fileserver.** ARM identified it correctly as `video_type: series`, which is the
+first confirmation that `VIDEOTYPE: "auto"` resolves a TV disc. It then failed
+creating its output directory:
+
+```
+OSError: [Errno 5] Input/output error:
+  '/root/video/transcode/tv/The-Sylvester-and-Tweety-Mysteries (1995–2002)'
+```
+
+Not ARM's fault. Samba runs `unix charset = ISO-8859-1`, so any character above
+U+00FF fails to write on every share — OMDb returns a series' year range with an
+**en dash**. Measured boundary and migration plan in
+[smb-charset-utf8.md](smb-charset-utf8.md). It also explains why `Mànran` worked
+earlier: `à` is inside Latin-1, by luck.
+
+The `tv/` destination predicted from the source is confirmed, so the rest of the
+phase 2b plan still stands — it just cannot run until the name can be written.
+**Worked around**, so phase 2b can proceed while the charset migration waits:
+`arm-title-charset.sh` in `init-scripts.yaml`, tested in
+`tools/arm-title-charset/`.
+
+`clean_for_filename` is not the tool for it, despite being the obvious candidate.
+It is applied to *titles* only (`identify.py:141`, `:274`) while the en dash
+arrives through `job.year`, which `fix_job_title` interpolates raw — and it
+*strips* rather than replaces, turning `1995–2002` into `19952002`, a different
+year.
+
+So the patch wraps `fix_job_title` itself, the one funnel every output path goes
+through, mapping the punctuation metadata providers actually emit and dropping
+what has no Latin-1 form. `1995–2002` becomes `1995-2002`; `Ocean's Eleven`
+keeps its apostrophe as ASCII; `Mànran` is untouched, because the share accepts
+Latin-1 and that name already exists in the library.
+
+It is appended rather than edited into the function body, since every call site
+resolves the name at call time, so rebinding the module global reaches all of
+them without depending on internals. **It refuses loudly and exits non-zero if
+`def fix_job_title` is not found** — ARM auto-updates now, and a patch that
+silently stops applying would present as a TV rip dying on EIO again with
+nothing pointing back to it.
+
+**Job 19, An American Tail: Fievel Goes West — a bad disc, probably.**
+
+```
+MakeMKV v1.18.4 started        ← no version complaint; the 2.24.3 fix holds
+Failed to open disc
+Call to MakeMKV failed with code: 11
+```
+
+Different from every earlier failure. Identification succeeded, which means the
+disc mounted and `pydvdid` read `VIDEO_TS` — so it is readable as a filesystem
+and MakeMKV specifically could not open it for decryption. No `ata4` events on
+the host during the job, so the drive is not at fault.
+
+That leaves the disc: physical damage, or a protection scheme MakeMKV 1.18.4
+does not handle. Universal DVDs of that era used ARccOS deliberate-bad-sector
+protection. **Not yet diagnosed** — retry it, clean it, and if it fails again
+compare against another disc from the same studio before concluding anything.

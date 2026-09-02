@@ -76,6 +76,12 @@ spec:
             - mountPath: /usr/local/bin/arm-audio-handoff.sh
               name: init-scripts
               subPath: arm-audio-handoff.sh
+            - mountPath: /usr/local/bin/arm-title-charset.sh
+              name: init-scripts
+              subPath: arm-title-charset.sh
+            - mountPath: /usr/local/bin/arm-title-charset.py
+              name: init-scripts
+              subPath: arm-title-charset.py
             - mountPath: /etc/service/armui/run
               name: init-scripts
               subPath: armui.sh
@@ -116,6 +122,10 @@ spec:
                 path: arm-disc-wrapper.sh
               - key: arm-audio-handoff.sh
                 path: arm-audio-handoff.sh
+              - key: arm-title-charset.sh
+                path: arm-title-charset.sh
+              - key: arm-title-charset.py
+                path: arm-title-charset.py
               - key: armui.sh
                 path: armui.sh
         - name: data
