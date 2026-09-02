@@ -38,6 +38,12 @@ data:
 
     ln -s /root/.MakeMKV/ /home/arm/.MakeMKV
 
+    # Patch fix_job_title so ARM cannot build a path this fileserver refuses to
+    # write. Deliberately not fatal: a failure here costs TV discs with a
+    # non-Latin-1 year, and it logs loudly, but it should not stop ARM starting.
+    /usr/local/bin/arm-title-charset.sh || \
+        echo "WARNING: arm-title-charset.sh failed; see /home/arm/logs/arm.log"
+
     # abcde.conf is expected in /etc by the abcde installation
     cp --no-clobber /opt/arm/setup/.abcde.conf /etc/arm/config/abcde.conf
     mkdir -p /etc/root/config/
@@ -228,6 +234,93 @@ data:
         # Always, so the next rip cannot merge into what is left here.
         rm -rf "${album}"
     done
+
+  arm-title-charset.sh: |
+    #!/bin/bash
+    # Makes ARM's output paths writable on this fileserver.
+    #
+    # Samba runs `unix charset = ISO-8859-1`, so creating any name containing a
+    # character above U+00FF fails with EIO on every share. Job 20 died on
+    # `.../tv/The-Sylvester-and-Tweety-Mysteries (1995-2002)` -- with an en dash --
+    # because OMDb returns a series' year range that way. The real fix is a charset
+    # migration; see todos/smb-charset-utf8.md, which explains why it is a migration
+    # and not a one-line config change. This is the workaround that keeps ripping.
+    #
+    # ARM's own clean_for_filename does not cover it. It is applied to titles only
+    # (identify.py:141, :274) while the en dash arrives through job.year, which
+    # fix_job_title interpolates raw -- and it strips rather than replaces, turning
+    # a year range into a single meaningless number.
+    #
+    # The patch body lives in arm-title-charset.py because a heredoc of top-level
+    # Python cannot be indented inside a YAML block scalar without breaking one or
+    # the other.
+    set -u
+
+    UTILS="/opt/arm/arm/ripper/utils.py"
+    PATCH="/usr/local/bin/arm-title-charset.py"
+    ARMLOG="/home/arm/logs/arm.log"
+    MARKER="_arm_charset_patch"
+
+    log() {
+        echo "$(date) [ARM] title-charset: $*" >> "${ARMLOG}"
+    }
+
+    if grep -q "${MARKER}" "${UTILS}" 2>/dev/null; then
+        exit 0
+    fi
+
+    # ARM auto-updates now, so a release that renames or moves this function must
+    # not fail quietly: the symptom would be a TV rip dying on EIO again with
+    # nothing pointing back here.
+    if ! grep -q "^def fix_job_title" "${UTILS}" 2>/dev/null; then
+        log "cannot patch ${UTILS}: no 'def fix_job_title' found."
+        log "  TV discs with a non-Latin-1 year will fail with EIO until this is fixed."
+        exit 1
+    fi
+
+    cat "${PATCH}" >> "${UTILS}"
+    log "patched fix_job_title in ${UTILS} for the ISO-8859-1 fileserver"
+
+  arm-title-charset.py: |
+    # --- _arm_charset_patch, appended by arm-title-charset.sh -------------------
+    # The fileserver's Samba runs `unix charset = ISO-8859-1`, so a path holding any
+    # character above U+00FF cannot be written and fails with EIO. Map the
+    # punctuation metadata providers actually emit, then drop whatever has no
+    # Latin-1 form. Latin-1 rather than ASCII on purpose: the share accepts it, and
+    # `Mànran` is already in the library under a Latin-1 name.
+    #
+    # Wrapping rather than editing fix_job_title's body, because every call site
+    # resolves the name at call time -- `utils.fix_job_title(...)` in arm_ripper.py
+    # and the bare name inside `move_files` -- so rebinding the module global
+    # reaches both without depending on the function's internals.
+    import unicodedata as _arm_ud  # noqa: E402
+
+    _arm_charset_map = {
+        0x2010: "-", 0x2011: "-", 0x2012: "-", 0x2013: "-", 0x2014: "-", 0x2015: "-",
+        0x2018: "'", 0x2019: "'", 0x201A: "'", 0x201B: "'",
+        0x201C: '"', 0x201D: '"', 0x201E: '"',
+        0x2026: "...", 0x2032: "'", 0x2033: '"', 0x00A0: " ",
+    }
+
+
+    def _arm_charset_patch(text):
+        text = str(text).translate(_arm_charset_map)
+        out = []
+        for ch in text:
+            if ord(ch) < 0x100:
+                out.append(ch)
+                continue
+            # NFKD first, so an accented character keeps its base letter rather than
+            # vanishing entirely; then drop what still has no Latin-1 form.
+            out.append("".join(c for c in _arm_ud.normalize("NFKD", ch) if ord(c) < 0x100))
+        return "".join(out)
+
+
+    _arm_charset_orig_fix_job_title = fix_job_title
+
+
+    def fix_job_title(job):
+        return _arm_charset_patch(_arm_charset_orig_fix_job_title(job))
 
   armui.sh: |
     #!/bin/bash

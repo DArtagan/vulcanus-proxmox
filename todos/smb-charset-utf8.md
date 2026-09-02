@@ -111,6 +111,14 @@ coordinated migration, and it keeps disc ripping moving.
 The general fix is still worth doing. The question is whether it blocks phase 2b
 or runs alongside it.
 
+**Decided 2026-09-02: it runs alongside.** The workaround shipped as
+`arm-title-charset.sh`, so ripping is unblocked and this migration is no longer
+urgent — but the landmine is untouched. Everything except ARM still writes
+provider-supplied names straight to the share, and `beets`, `photoprism` and
+`Stump` have no equivalent guard. Note the workaround targets **Latin-1**, not
+ASCII, precisely so it stays correct after this migration rather than needing
+undoing.
+
 **`dos charset = cp850` is a separate question** and matters far less: it applies
 to legacy SMB1 clients negotiating a codepage, and `min protocol = SMB2` is
 already set. Leave it or set it to UTF-8 with the same change; do not let it

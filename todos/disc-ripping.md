@@ -31,7 +31,7 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 | 0 | Unwedge the drive, close the cross-cutting defects | **done** — reconciled and verified in the container, 2026-08-25 |
 | 1 | Audio CD | **done** 2026-08-31 — one loose end, see below |
 | 2 | DVD — movie | **done** 2026-09-01 — first video file ARM has ever produced |
-| 2b | DVD — TV series | **blocked** — the fileserver cannot write the folder name |
+| 2b | DVD — TV series | workaround shipped 2026-09-02, **needs the disc again** |
 | 3 | Blu-ray | not started |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
 
@@ -1434,9 +1434,28 @@ earlier: `à` is inside Latin-1, by luck.
 
 The `tv/` destination predicted from the source is confirmed, so the rest of the
 phase 2b plan still stands — it just cannot run until the name can be written.
-A narrow alternative, noted in that spec, is sanitising what ARM puts in a path
-via `utils.clean_for_filename`, which would unblock this without touching the
-fileserver.
+**Worked around**, so phase 2b can proceed while the charset migration waits:
+`arm-title-charset.sh` in `init-scripts.yaml`, tested in
+`tools/arm-title-charset/`.
+
+`clean_for_filename` is not the tool for it, despite being the obvious candidate.
+It is applied to *titles* only (`identify.py:141`, `:274`) while the en dash
+arrives through `job.year`, which `fix_job_title` interpolates raw — and it
+*strips* rather than replaces, turning `1995–2002` into `19952002`, a different
+year.
+
+So the patch wraps `fix_job_title` itself, the one funnel every output path goes
+through, mapping the punctuation metadata providers actually emit and dropping
+what has no Latin-1 form. `1995–2002` becomes `1995-2002`; `Ocean's Eleven`
+keeps its apostrophe as ASCII; `Mànran` is untouched, because the share accepts
+Latin-1 and that name already exists in the library.
+
+It is appended rather than edited into the function body, since every call site
+resolves the name at call time, so rebinding the module global reaches all of
+them without depending on internals. **It refuses loudly and exits non-zero if
+`def fix_job_title` is not found** — ARM auto-updates now, and a patch that
+silently stops applying would present as a TV rip dying on EIO again with
+nothing pointing back to it.
 
 **Job 19, An American Tail: Fievel Goes West — a bad disc, probably.**
 
