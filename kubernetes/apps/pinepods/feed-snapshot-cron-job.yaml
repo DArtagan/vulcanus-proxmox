@@ -17,7 +17,7 @@ spec:
             runAsUser: 0
           containers:
             - name: feed-snapshot
-              image: curlimages/curl:8.21.0 # {"$imagepolicy": "apps:pinepods-curl"}
+              image: curlimages/curl:8.22.0 # {"$imagepolicy": "apps:pinepods-curl"}
               command: ["sh"]
               args:
                 - /scripts/snapshot.sh
