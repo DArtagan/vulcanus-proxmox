@@ -17,7 +17,7 @@ Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
 | Phase | What | State |
 |---|---|---|
 | A | Record the spec, open the review | **done** 2026-09-01 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3) |
-| 0 | Stop the bleeding — replication, retention, scrub | **in progress**; key escrow, sanoid retention, scrub and monitoring done 2026-09-02. Outstanding: the five diverged datasets, and the vulcanus side |
+| 0 | Stop the bleeding — replication, retention, scrub | **in progress**; key escrow, sanoid retention, scrub, and monitoring on both hosts done 2026-09-02. Outstanding: the five diverged datasets, once the prune backlog drains |
 | 1 | Reclaim — dead guests, orphans | not started |
 | 2 | Application backups — K8up + restic | not started |
 | 2b | Delete the borg tree, after a restore is proven | not started |
@@ -451,6 +451,10 @@ Watchdog · syncoid-storage · syncoid-root · sanoid vulcanus · sanoid mini-na
 health vulcanus · pool health mini-nas · ZFS freshness · vzdump · PBS GC · PBS verify
 · PBS sync · PBS #2 verify · PBS freshness · restic mass-file · restic forget/prune ·
 restic check · **cluster backup dead-man's switch** · restore drill · external disk
+
+**Eight exist as of 2026-09-02** — Watchdog, syncoid-storage, syncoid-root,
+syncoid-data, sanoid-mini-nas, sanoid-vulcanus, pool-health-mini-nas and
+pool-health-vulcanus. syncoid-data is temporary and frees a slot at Phase 4.
 
 The split is principled rather than a bundling compromise: checks are spent only on
 what Prometheus **cannot** see — the two hosts, PBS, and the disk. Everything
