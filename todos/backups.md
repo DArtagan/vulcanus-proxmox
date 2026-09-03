@@ -17,7 +17,7 @@ Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
 | Phase | What | State |
 |---|---|---|
 | A | Record the spec, open the review | **done** 2026-09-01 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3) |
-| 0 | Stop the bleeding — replication, retention, scrub | **in progress**; key escrow, sanoid retention, scrub, and monitoring on both hosts done 2026-09-02. Outstanding: the five diverged datasets, once the prune backlog drains |
+| 0 | Stop the bleeding — replication, retention, scrub | **in progress**; key escrow, retention, scrub and monitoring done. Prune complete 2026-09-03: 30,404 → 1,083 snapshots, 89% → 81%, **1.48 TiB reclaimed**. Outstanding: the five diverged datasets |
 | 1 | Reclaim — dead guests, orphans | not started |
 | 2 | Application backups — K8up + restic | not started |
 | 2b | Delete the borg tree, after a restore is proven | not started |
@@ -760,9 +760,9 @@ nothing, so the ~1.2 TiB of excess is all in the `data` zvols, which churn — a
 those are what Phase 4 retires. Any future estimate of what retention will reclaim
 should be made against `data` alone.
 
-Progress so far: rpool 89% → **86%**, 2.07 → **2.61 TiB free**, ~540 GB reclaimed
-with `data` at 2,155 snapshots and still falling. `media` is untouched at 6,019 and
-is expected to free little when it goes.
+Final: rpool 89% → **81%**, 2.07 → **3.55 TiB free**, **1.48 TiB reclaimed**, and
+30,404 → **1,083** snapshots. The count settled *below* the ~1,230 the retention
+policy allows, because several datasets do not have enough history to fill it.
 
 **The first scrub in the pool's life came back clean** — `repaired 0B in 20:23:38
 with 0 errors`, 2026-09-02. 11 TiB of the only offsite copy, on raidz1 across drives
