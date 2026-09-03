@@ -69,6 +69,14 @@
         group: root
         mode: '0755'
 
+    - name: 'install the outcome reporter'
+      template:
+        src: hc-report.j2
+        dest: /usr/local/bin/hc-report
+        owner: root
+        group: root
+        mode: '0755'
+
     - name: 'install the pool-health check'
       template:
         src: zfs-pool-health.j2
@@ -77,19 +85,6 @@
         group: root
         mode: '0755'
 
-    - name: 'install the failure-reporting unit'
-      copy:
-        content: |
-          [Unit]
-          Description=Report failure of %i to healthchecks.io
-
-          [Service]
-          Type=oneshot
-          ExecStart=/usr/local/bin/hc-ping %i /fail
-        dest: /etc/systemd/system/healthcheck-fail@.service
-        mode: '0644'
-      notify: reload systemd
-
     - name: 'create sanoid drop-in directories'
       file:
         path: "/etc/systemd/system/{{ item }}.service.d"
@@ -97,29 +92,25 @@
         mode: '0755'
       loop: "{{ sanoid_units }}"
 
-    - name: 'report sanoid failures'
+    - name: 'report sanoid outcomes'
       copy:
+        # ExecStopPost rather than ExecStartPost plus OnFailure: it runs once,
+        # after the process has exited, and carries $SERVICE_RESULT, so the ping
+        # reflects what actually happened rather than that the unit started.
+        #
+        # `-` because a backup that ran is not a backup that failed -- an
+        # unreachable monitor must not mark the unit failed. A ping that does not
+        # arrive turns the check red on its own period.
+        #
+        # Both units report to one check. Normally both succeed and send two
+        # identical pings, which healthchecks treats as one receipt; a config
+        # error fails both. The mixed case is rare enough not to design around.
         content: |
-          [Unit]
-          OnFailure=healthcheck-fail@sanoid-vulcanus.service
+          [Service]
+          ExecStopPost=-/usr/local/bin/hc-report sanoid-vulcanus
         dest: "/etc/systemd/system/{{ item }}.service.d/healthcheck.conf"
         mode: '0644'
       loop: "{{ sanoid_units }}"
-      notify: reload systemd
-
-    - name: 'report sanoid success'
-      copy:
-        # `-` because a backup that ran is not a backup that failed: without it
-        # an unreachable monitor fails ExecStartPost, which fails the unit,
-        # which fires OnFailure -- so a reporting outage becomes
-        # indistinguishable from a snapshot outage. A ping that does not arrive
-        # turns the check red on its own period, which is what the period is
-        # for.
-        content: |
-          [Service]
-          ExecStartPost=-/usr/local/bin/hc-ping sanoid-vulcanus
-        dest: /etc/systemd/system/sanoid-prune.service.d/healthcheck-success.conf
-        mode: '0644'
       notify: reload systemd
 
     - name: 'install the pool-health service'
@@ -150,6 +141,15 @@
           WantedBy=timers.target
         dest: /etc/systemd/system/zfs-pool-health.timer
         mode: '0644'
+      notify: reload systemd
+
+    - name: 'remove the superseded ExecStartPost drop-ins'
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/sanoid-prune.service.d/healthcheck-success.conf
+        - /etc/systemd/system/healthcheck-fail@.service
       notify: reload systemd
 
     - name: 'enable the pool-health timer'
