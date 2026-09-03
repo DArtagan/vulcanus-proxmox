@@ -17,7 +17,7 @@ Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
 | Phase | What | State |
 |---|---|---|
 | A | Record the spec, open the review | **done** 2026-09-01 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3) |
-| 0 | Stop the bleeding — replication, retention, scrub | **in progress**; key escrow, retention, scrub and monitoring done. Prune complete 2026-09-03: 30,404 → 1,083 snapshots, 89% → 81%, **1.48 TiB reclaimed**. Outstanding: the five diverged datasets |
+| 0 | Stop the bleeding — replication, retention, scrub | **done 2026-09-03.** Key escrow, retention, scrub, monitoring on both hosts, prune (30,404 → 1,083 snapshots, **1.48 TiB**), and the five diverged datasets re-seeded — `syncoid-vulcanus-data` completed with zero errors for the first time since 2026-01-14 |
 | 1 | Reclaim — dead guests, orphans | not started |
 | 2 | Application backups — K8up + restic | not started |
 | 2b | Delete the borg tree, after a restore is proven | not started |
@@ -869,6 +869,39 @@ ignores them — but `zfs-replication-freshness` will report them as stale until
 which is correct and self-resolving. And the source-list comparison in that check is
 what would have caught this class of failure originally: a dataset that is *missing*
 rather than stale has no old snapshot to look wrong.
+
+#### What the repair found, 2026-09-03
+
+The five datasets were re-seeded and the diverged copies destroyed, freeing ~624 GB.
+`syncoid-vulcanus-data` now exits 0.
+
+**The diverged `vm-911-*` datasets were not worker-1's.** A guest held VMID 911
+before worker-1 was created on 2026-04-06, with a Talos boot disk on `disk-0` and a
+**1 TB** OpenEBS volume on `disk-1` — where today's worker-1 runs boot on `disk-1`
+and a 100 GB OpenEBS volume on `disk-2`. Confirmed from partition tables, not
+inferred: `disk-0` carried Talos's EFI/BIOS/BOOT/META/STATE/EPHEMERAL layout, and
+`disk-1` a single partition spanning the whole volume.
+
+Its 543 GB held a January 2026 copy of the cluster's PVC data, of which **418 GB was
+`pvc-b52710af` — the Loki volume that had already been deliberately deleted.** The
+audit that opened this project recorded that deletion reclaiming 452 GB of chunks
+retention had never removed; this was the state before it. Roughly 85 GB more was
+derived or regenerable (photo thumbnails, Prometheus TSDB, borgmatic's cache), and
+about 10 GB was genuine application state — the databases, configs and identity
+material. Destroyed outright on the user's call: eight months stale, superseded by
+K8up within weeks.
+
+**Two lessons worth keeping.** The oldest surviving snapshot says nothing about when
+a dataset was created — sanoid's 30-day retention meant January snapshots on a
+filesystem dating to 2022, which was read here as a January-created guest. And a
+`compressratio` of 1.02x says only that content is already compressed; it was read as
+media when it was Loki chunks.
+
+**syncoid never removes datasets from the target.** Every guest ever deleted on
+vulcanus leaves its replica behind: `vm-107-disk-1`, `vm-200-disk-0/1` and
+`vm-901-disk-0` have no source counterpart at all (~8.3 GB), and nothing will ever
+clean them up. Phase 1's work, alongside `vm-100-disk-0` (235 GB, the stopped
+rancheros guest, which *is* still replicated because it still exists at source).
 
 ### Phase 1 — reclaim
 
