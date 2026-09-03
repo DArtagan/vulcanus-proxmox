@@ -818,8 +818,15 @@ different guest that held VMID 911 before worker-1 existed.
 | `vm-911-disk-2` volsize | 100 G (74.6 K) | 100 G (23.0 G) |
 
 `usedbysnapshots` is 234 K on the 1 T volume, so essentially all 543 G is live data
-in one snapshot rather than churn, and its 1.02x compressratio says the content is
-already-compressed media.
+in one snapshot rather than churn.
+
+The partition tables settle what each disk was, without inference:
+`vm-911-disk-0-diverged` carries Talos's boot layout (EFI / BIOS / BOOT / META /
+STATE / EPHEMERAL), and `vm-911-disk-1-diverged` is a single partition spanning the
+whole 1024 G — the OpenEBS volume. So the January guest ran boot on `disk-0` and its
+PV data on a **1 TB** `disk-1`, where today's worker-1 runs boot on `disk-1` and PV
+data on a 100 G `disk-2`. Those 543 G are **Kubernetes PVC data**, not media, and a
+1.02x compressratio only says the content was already compressed.
 
 The sequence: a guest is created at VMID 911 around 13 January with a 1 TB disk;
 `syncoid-vulcanus-data` fails for the first time on the 14th, on a 477 GB full send
