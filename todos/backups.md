@@ -805,6 +805,34 @@ This cost a long detour: a manual prune and the hourly timer fought, the timer's
 exited in fifteen seconds each, and the fifteen-second exits were misread as sanoid
 refusing to prune at all. Let the timer do the work, or stop it first.
 
+#### Why the datasets diverged: a reused VMID
+
+Worth recording, because the names actively mislead. The offsite
+`data/vm-911-*` datasets are **not** old copies of talos-worker-1. They belong to a
+different guest that held VMID 911 before worker-1 existed.
+
+| | Diverged copy | Source today |
+|---|---|---|
+| `vm-911-disk-0` volsize | **100 G** (80.5 G used) | **1 M** (372 K) |
+| `vm-911-disk-1` volsize | **1 T** (543 G used) | **100 G** (23.7 G) |
+| `vm-911-disk-2` volsize | 100 G (74.6 K) | 100 G (23.0 G) |
+
+`usedbysnapshots` is 234 K on the 1 T volume, so essentially all 543 G is live data
+in one snapshot rather than churn, and its 1.02x compressratio says the content is
+already-compressed media.
+
+The sequence: a guest is created at VMID 911 around 13 January with a 1 TB disk;
+`syncoid-vulcanus-data` fails for the first time on the 14th, on a 477 GB full send
+of `vm-911-disk-1` that dies mid-stream; the last snapshot is the 16th and the guest
+goes away. Terraform then creates the real worker-1 on **2026-04-06**, reusing VMID
+911 with 100 G / 100 G — `git log -S911 terraform/main.tf` shows that as the only
+commit ever to mention it.
+
+So the seven-month outage was one oversized initial send that failed, and the
+orphaned datasets were then camouflaged by the VMID reuse. Nothing in them relates
+to the node running today, and the mismatched `volsize` is a second reason syncoid
+could not reconcile them beyond the absent common snapshot.
+
 #### Repairing the five diverged datasets
 
 syncoid refuses to replicate into a target with no matching snapshot, correctly — it
