@@ -17,7 +17,7 @@ Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
 | Phase | What | State |
 |---|---|---|
 | A | Record the spec, open the review | **done** 2026-09-01 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3) |
-| 0 | Stop the bleeding — replication, retention, scrub | **done 2026-09-03.** Key escrow, retention, scrub, monitoring on both hosts, prune (30,404 → 1,083 snapshots, **1.48 TiB**), and the five diverged datasets re-seeded — `syncoid-vulcanus-data` completed with zero errors for the first time since 2026-01-14 |
+| 0 | Stop the bleeding — replication, retention, scrub | **done 2026-09-03.** Key escrow, retention, scrub, monitoring on both hosts, prune and diverged-dataset repair (30,404 → 1,083 snapshots, 89% → **76%**, **2.32 TiB reclaimed**), with the five datasets re-seeded — `syncoid-vulcanus-data` completed with zero errors for the first time since 2026-01-14 |
 | 1 | Reclaim — dead guests, orphans | not started |
 | 2 | Application backups — K8up + restic | not started |
 | 2b | Delete the borg tree, after a restore is proven | not started |
@@ -760,9 +760,15 @@ nothing, so the ~1.2 TiB of excess is all in the `data` zvols, which churn — a
 those are what Phase 4 retires. Any future estimate of what retention will reclaim
 should be made against `data` alone.
 
-Final: rpool 89% → **81%**, 2.07 → **3.55 TiB free**, **1.48 TiB reclaimed**, and
-30,404 → **1,083** snapshots. The count settled *below* the ~1,230 the retention
-policy allows, because several datasets do not have enough history to fill it.
+Final, after both the prune and the diverged-dataset repair: rpool 89% → **76%**,
+2.07 → **4.39 TiB free**, **2.32 TiB reclaimed**, and 30,404 → **1,083** snapshots.
+The count settled *below* the ~1,230 the retention policy allows, because several
+datasets do not have enough history to fill it.
+
+That is well ahead of the ~1.2-1.4 TiB projected, because 624 GB of it was in the
+diverged datasets and nothing had accounted for those. Occupancy also lands at 76%
+rather than the 82% predicted in *Operating without the vdev expansion*, which buys
+more headroom than that section assumes before the disks arrive.
 
 **The first scrub in the pool's life came back clean** — `repaired 0B in 20:23:38
 with 0 errors`, 2026-09-02. 11 TiB of the only offsite copy, on raidz1 across drives
