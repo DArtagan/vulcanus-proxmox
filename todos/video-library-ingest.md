@@ -116,6 +116,27 @@ TV**. Only content matching can, which is FileBot's whole purpose. That is the
 strongest argument for route A, and it is why the recommendation defers rather
 than dismisses the licence.
 
+**Measured on a real disc, 2026-09-03**, and it is worse than "no episode
+numbers". Job 21 produced nine files:
+
+```
+title_0.mkv   21m    239 MB   ← episode
+title_1.mkv  168m   1.88 GB   ← "play all": every episode concatenated
+title_2.mkv   21m    215 MB   ← episode
+…            21m             ← episodes through title_8
+```
+
+So the numbering is *episode, compilation, episode, episode…*. **Positional
+mapping is not fragile, it is wrong** — it would file seven of the eight
+episodes under the wrong number and a 2h48m compilation as a 21-minute episode.
+And a mover cannot detect the compilation by name or by size ratio alone without
+essentially reimplementing content matching.
+
+A heuristic does exist — a play-all's length is close to the sum of the others,
+and ARM's `track` table holds every length — but it identifies *which file to
+skip*, not *which episode each remaining file is*. That second half is the one
+that matters, and only FileBot answers it.
+
 Note also the destination differs: `convert_job_type` returns `"tv"`, while the
 library is `/video/shows/`.
 

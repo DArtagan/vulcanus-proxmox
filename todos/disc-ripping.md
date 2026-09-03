@@ -31,7 +31,7 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 | 0 | Unwedge the drive, close the cross-cutting defects | **done** — reconciled and verified in the container, 2026-08-25 |
 | 1 | Audio CD | **done** 2026-08-31 — one loose end, see below |
 | 2 | DVD — movie | **done** 2026-09-01 — first video file ARM has ever produced |
-| 2b | DVD — TV series | workaround shipped 2026-09-02, **needs the disc again** |
+| 2b | DVD — TV series | **done** 2026-09-03 — works, with two findings that change phase 3 and the ingest design |
 | 3 | Blu-ray | not started |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
 
@@ -1474,3 +1474,52 @@ That leaves the disc: physical damage, or a protection scheme MakeMKV 1.18.4
 does not handle. Universal DVDs of that era used ARccOS deliberate-bad-sector
 protection. **Not yet diagnosed** — retry it, clean it, and if it fails again
 compare against another disc from the same studio before concluding anything.
+
+### 2026-09-03 — phase 2b: a TV disc rips, and shows what TV costs
+
+Job 21, The Sylvester & Tweety Mysteries Season 1 Disc 1. The charset patch did
+its job — the folder is `tv/The-Sylvester-and-Tweety-Mysteries (1995-2002)` with
+an ASCII hyphen, where job 20 died on the en dash.
+
+**10 hours 47 minutes**, 15:44 → 02:31, with the drive locked throughout (D8).
+14.6 GB ripped in 3h48m, then 7 hours of transcoding.
+
+Nine files landed in `completed/tv/`, and eight of them are right:
+
+| file | duration | size |
+|---|---|---|
+| `title_0.mkv` | 21m | 239 MB |
+| **`title_1.mkv`** | **168m** | **1.88 GB** |
+| `title_2.mkv` … `title_8.mkv` | 20–21m | 215–252 MB |
+
+**`title_1.mkv` is the disc's "play all" title** — every episode concatenated,
+2h48m, transcoded in full at a cost of about three and a half hours and 1.88 GB
+that duplicates the other eight files exactly.
+
+`MINLENGTH: 420` passes it, `MAINFEATURE: false` transcodes it, and nothing in
+ARM distinguishes a compilation from an episode: both are simply titles over the
+threshold. The series branch of `move_files_post` has no equivalent of
+`skip_transcode_movie`'s largest-file selection, and it should not — for a TV
+disc every title genuinely might matter.
+
+**Two consequences.**
+
+**Phase 3 is affected.** A Blu-ray TV set will have the same shape with larger
+files, and 3.5 hours of wasted encoding per disc is worse there. Worth deciding
+whether to filter play-all titles before running many discs — a compilation is
+recognisable as *a title whose length is close to the sum of the others*, which
+ARM's track table has the data for even if ARM does not use it.
+
+**It settles [video-library-ingest.md](video-library-ingest.md).** Positional
+mapping is not merely fragile, it is wrong: `title_1` is the play-all, so the
+numbering is `episode 1, compilation, episode 2, episode 3…`. Any mover assuming
+`title_N` → episode N files seven of eight episodes under the wrong number and
+files a 2h48m compilation as an episode. Only content matching can sort this
+out.
+
+**Left as it is, deliberately.** The play-all is not deleted: it is a legitimate
+artefact of the disc, `DELRAWFILES: false` keeps the raw copy regardless, and
+deciding what to discard belongs with the ingest work rather than here.
+
+Also confirmed: the destination is `completed/tv/` while the Plex library is
+`/video/shows/`, so the ingest has a folder-name reconciliation to do as well.
