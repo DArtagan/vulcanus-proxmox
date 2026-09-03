@@ -909,11 +909,131 @@ vulcanus leaves its replica behind: `vm-107-disk-1`, `vm-200-disk-0/1` and
 clean them up. Phase 1's work, alongside `vm-100-disk-0` (235 GB, the stopped
 rancheros guest, which *is* still replicated because it still exists at source).
 
-### Phase 1 — reclaim
+### Phase 1 — reclaim, and stop the accumulation
 
-Destroy replicas of dead guests, orphan hostpath directories, orphan `traefik*`
-PVCs, orphan PBS groups (`vm/200`, `vm/101`, `vm/106`). **The borg tree is inspected
-here but deleted in Phase 2b.**
+Two halves: clear what has built up, and build the mechanism that stops it building
+up again. The second half matters more — Phase 0 showed this class of debris does not
+merely waste space, it silently blocks replication.
+
+**The borg tree is inspected here but deleted in Phase 2b**, after a restore proves
+the replacement works.
+
+#### What to clear
+
+*On mini-nas, no source counterpart at all — nothing will ever remove these:*
+
+| Dataset under `foreign-backups/vulcanus/data/` | Size |
+|---|---|
+| `vm-901-disk-0` | 6.60 G |
+| `vm-200-disk-1` | 1.72 G |
+| `vm-200-disk-0`, `vm-107-disk-1` | ~0 |
+
+*On vulcanus, dead guests still replicated daily because the guest still exists:*
+
+| Guest | Dataset | Size |
+|---|---|---|
+| 100 rancheros (stopped) | `vm-100-disk-0` | **235 G offsite, 256 G at source** |
+| 100 rancheros (stopped) | `rpool/rancheros` | 40 G, not replicated |
+| 101 disk-resizer (stopped) | `vm-101-disk-0` | 5.55 G |
+| 106 ubuntu-desktop (stopped) | `vm-106-disk-0` | ~0 |
+
+*Elsewhere:* three orphaned hostpath directories on worker-0 (25 G stale PhotoPrism
+storage, 434 M, 131 M), four orphaned `traefik*` PVCs in `infrastructure`, and PBS
+groups `vm/200`, `vm/101` and `vm/106` — pinned forever because vzdump prunes only
+the groups it backs up.
+
+#### Prevention belongs on vulcanus; retention belongs on mini-nas
+
+Archiving *on deletion* at the source is not possible, and it is worth writing down
+why so it is not re-proposed. PVE destroys a guest's zvols with `zfs destroy -r`,
+taking their snapshots with them, so nothing survives for a reaction to archive. PVE
+hookscripts fire on pre-start, post-start, pre-stop and post-stop only — there is no
+destroy phase to intercept.
+
+Two source-side measures do work, and both are cheaper than anything on the target:
+
+- **VMIDs are never reused.** The seven-month outage exists only because VMID 911 was
+  reassigned to a new guest. With a retired ID never reissued, a recreated guest gets
+  fresh dataset names and the old replica degrades from *superseded*, which blocks
+  replication silently, to merely *orphan*, which wastes space visibly. Same shape as
+  the never-reuse-a-slug registry in [`docs/project_log.md`](../docs/project_log.md).
+- **Retiring a guest is a two-sided rename.** Before `qm destroy`, move its datasets
+  to `rpool/attic/` on vulcanus *and* on mini-nas. The archive is then intentional,
+  the replicated tree stays clean, and nothing has to be inferred afterwards. Belongs
+  as a runbook next to "Removing a stateful workload" in
+  [`docs/kubernetes.md`](../docs/kubernetes.md).
+
+**Retention still belongs on the target.** An archive on vulcanus is in the same
+failure domain as the thing it protects against — it survives neither losing vulcanus
+nor an accidental `qm destroy` on it. The offsite copy is what does, which is why
+orphaned replicas are worth keeping there for a window rather than mirroring
+deletions promptly.
+
+So the target-side detection below is a **net for what escapes the process**, not the
+primary mechanism. With the two measures above in place it should almost never fire,
+and firing means something happened outside the intended path — which is itself worth
+knowing.
+
+#### The net: two failure modes, one quarantine
+
+syncoid never removes datasets from the replication target, which produces two
+distinct problems that look similar and are not:
+
+- **Orphan** — a target dataset whose source is gone. Wastes space indefinitely.
+- **Superseded** — source and target share a *name* but no snapshot, because a disk
+  was recreated or a VMID reused. **This blocks replication of the live guest**, and
+  is what cost seven months on worker-1.
+
+A deletion policy alone would not have prevented that. The mechanism has to break the
+name collision, so quarantine comes first and deletion second.
+
+**Detection** extends `zfs-replication-freshness`, which already fetches the source
+dataset list for its coverage assertion:
+
+| Condition | Classification |
+|---|---|
+| target exists, no source counterpart | orphan |
+| both exist, zero common snapshot names | superseded |
+
+Comparing snapshot *names* is the check that matters. Age alone cannot see either
+case: a superseded dataset has recent-looking snapshots of the wrong lineage, which
+is exactly how January went unnoticed.
+
+**Quarantine** is `zfs rename` into `rpool/attic/vulcanus/<tree>/<name>_<date>`.
+Non-destructive, immediately unblocks replication, and sits outside
+`foreign-backups/vulcanus` so both the freshness check and sanoid ignore it — its
+snapshots freeze rather than continuing to be pruned. Renaming in place with a suffix
+was considered and rejected: the `-diverged` datasets during Phase 0 stayed inside the
+replicated tree, where sanoid kept managing them and the freshness check kept
+reporting them.
+
+**Guards.** This runs unattended against the only offsite copy, and a naive version
+would quarantine the entire replica the first time an SSH connection dropped:
+
+- the source listing must succeed *and* return a plausible dataset count
+- the condition must persist across three consecutive daily runs
+- a circuit breaker — never quarantine more than three datasets in one run
+
+#### Open decision: what happens to the attic
+
+Left for whoever picks up Phase 1, because it is a data-destruction policy rather
+than a mechanism. The options, with the trade each makes:
+
+1. **Alert only, destroy by hand.** The check reports attic contents and their age so
+   they surface as outstanding work. Nothing is destroyed unattended. Fixes the
+   demonstrated defects — invisible accumulation and blocked replication — without
+   adding automated deletion of backup data.
+2. **Auto-destroy after 90 days**, with a `local:retain=true` ZFS property as opt-out
+   and an alert before expiry. Guarantees the attic cannot grow without bound. Mirrors
+   the `--keep-tag decommissioned` pattern planned for restic in Phase 2.
+3. **Auto-destroy after 30 days**, same mechanism. Phase 0's 624 GB sat on a pool at
+   89%, so a long window has real capacity cost.
+
+Worth weighing against what Phase 0 actually found when it opened one of these: 81%
+of the 543 GB was a Loki volume already deliberately deleted, and about 10 GB was
+irreplaceable. The attic is likelier to hold expired bulk than anything wanted — but
+it took an inspection to know that, which is an argument for the window being long
+enough to inspect rather than for it being long.
 
 ### Phase 2 — application backups
 
