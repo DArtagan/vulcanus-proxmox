@@ -14,7 +14,7 @@ Work that has not been done yet lives in [`todos/`](../todos/), not here.
 | [disk_management.md](disk_management.md) | Storage layout and resizing |
 | [logging.md](logging.md) | Alloy → OTLP → VictoriaLogs pipeline, field model, retention |
 | [automatic-ripping-machine.md](automatic-ripping-machine.md) | ARM setup and disc handling |
-| [beets.md](beets.md) | Music/audiobook library, beets-flask, import model, library concurrency |
+| [beets.md](beets.md) | Music/audiobook library, beets-flask, getting files in, import model, library concurrency |
 | [project_log.md](project_log.md) | Completed projects: slug, when it landed, where its review happened |
 
 [project_log.md](project_log.md) is the one file here that is **not** present

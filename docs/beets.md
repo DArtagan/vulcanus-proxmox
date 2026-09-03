@@ -205,6 +205,64 @@ of the album — which drops the database rows and leaves the files alone — is
 combination that actually returns the folder to "not yet imported". `beet remove`
 needs `beets-shell`, which scales the Deployment down for the write.
 
+## Getting files into the inbox
+
+The inbox is `/mnt/storage/media/audio/import/` on the fileserver — the ZFS path
+behind the `audio-rw` share that beets-flask mounts as `/audio/import`. New
+material goes there and is imported from the web UI. Nothing is written straight
+into `music/` or `audiobooks/`: [`paths:`](#where-files-land) decides layout, and
+the library has no record of a file it did not place itself.
+
+From the LAN, mounting the share and writing through it needs no further thought
+— Samba applies the identity below on its own. From the tailnet it is not an
+option, since only port 22 is granted ([`tailnet.md`](tailnet.md)), so the route
+is rsync over SSH, which has to set ownership itself:
+
+```sh
+rsync -avh --info=progress2 --chown=rancher --chmod=D755,F644 \
+  "$HOME/music/Artist - Album/" \
+  root@192.168.0.105:"/mnt/storage/media/audio/import/Artist - Album/"
+```
+
+`--chown` is the point of the command. `[audio-rw]` sets no `force user`, so
+Samba authorises as the real Unix user `rancher`, and a transfer that keeps its
+own uid lands a folder beets can read and cannot write — the failure under [the
+mount hides every permission the server
+enforces](#the-mount-hides-every-permission-the-server-enforces), which surfaces
+much later, as `delete_imported_folders` failing to clear a folder that imported
+cleanly. Setting the owner is sufficient and the group is left alone; the mode
+bits only match what a write through the share would have produced anyway.
+`--chown` needs super-user on the receiving side, hence `root@`.
+
+Confirm on the server, the only vantage point that reports real ownership:
+
+```sh
+ssh root@192.168.0.105 \
+  'stat -c "%a %U:%G %n" "/mnt/storage/media/audio/import/Artist - Album"'
+```
+
+### Source filenames have to be Latin-1
+
+Samba runs `unix charset = ISO-8859-1`, so a filename holding any character above
+U+00FF cannot be written to any share here and fails with `EIO`. A curly
+apostrophe, en dash or ellipsis in a track title is enough, which makes this an
+ordinary hazard for music rather than an exotic one. Screen a batch before
+sending it:
+
+```sh
+find "$src" -mindepth 1 -printf '%P\n' | while IFS= read -r n; do
+  printf '%s' "$n" | iconv -f UTF-8 -t ISO-8859-1 >/dev/null 2>&1 \
+    || echo "UNSTORABLE: $n"
+done
+```
+
+Renaming the offender is the whole fix, and it costs nothing downstream: the
+import destination is computed from tags rather than from the source filename,
+and `asciify_paths` transliterates it to ASCII regardless. The limit applies to
+what is copied *into* the inbox, not to what beets writes out of it.
+[`todos/smb-charset-utf8.md`](../todos/smb-charset-utf8.md) holds the measured
+boundary and what moving the fileserver to UTF-8 would cost.
+
 ## Imports are copies, not moves
 
 beets-flask supports `copy` only — it types `move` as `Literal[False]`, so
