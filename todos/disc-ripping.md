@@ -32,7 +32,7 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 | 1 | Audio CD | **done** 2026-08-31 — one loose end, see below |
 | 2 | DVD — movie | **done** 2026-09-01 — first video file ARM has ever produced |
 | 2b | DVD — TV series | **done** 2026-09-04 — two discs of one season; play-all and multi-disc findings drive the ingest design |
-| 3 | Blu-ray | **in progress** — job 23, The Rescuers, started 2026-09-04 01:11 UTC |
+| 3 | Blu-ray | **in progress** — rip proven (43 GB in 57m); transcode killed by node OOM, worker-1 resized to 16 GiB |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
 
 Phase 0 is a prerequisite for all of the others: until it is done, the drive
@@ -417,6 +417,17 @@ a 4-core node likewise never throttles.
 
 Bring both under the node's real capacity. This is a targeted fix for the
 mechanism in D3, not general hardening.
+
+**The first correction was also wrong, and the error is worth keeping.** Dropping
+the limit to 4Gi looked like it satisfied this, because 4Gi is comfortably under
+the VM's 8 GiB. It is not under *allocatable*, which was 5.26 GiB — and with the
+rest of the node's workload resident, ARM could never reach 4Gi before the node
+died. The lesson is that "the node's real capacity" means
+`kubectl get node -o jsonpath='{.status.allocatable.memory}'` minus what else is
+already resident on it, never the VM's RAM. Sized against the VM, a limit reads
+as generous while being unreachable, and the symptom is indistinguishable from
+having set no limit at all. See the 2026-09-04 entry in the progress log for the
+measurement that exposed it.
 
 ### D7 — `makemkvcon` **is** usable as a diagnostic. `docs/` says otherwise, and is wrong.
 
@@ -1613,3 +1624,110 @@ there the two parts must be concatenated or presented as one item, and the
 largest-file selection in `skip_transcode_movie` would pick a main feature per
 disc rather than recognising the pair. Worth ripping one when a phase has room;
 it is a movie-path question, so it does not block phase 3.
+
+### 2026-09-04 — phase 3: the Blu-ray rips, then the node kills the transcode
+
+Job 23, The Rescuers. MakeMKV backed the disc up cleanly — **43 GB of BDMV in
+57 minutes**, identified as `bluray`/`movie`, 71 titles found. Then the transcode
+died at 02:31:12, and the cause is one no earlier guess had reached.
+
+**Talos' node-level OOM controller killed three pod cgroups in 1.5 seconds** —
+ARM first (13 processes), then `victoria-logs`, then `metallb-speaker`. ARM
+restarted 18 seconds later with the transcode gone.
+
+**ARM never reached its own 4Gi limit.** It was at 2.9Gi. The *node* ran out:
+
+| time | node MemAvailable | ARM RSS | ARM page cache |
+|---|---|---|---|
+| 01:22–02:14 (MakeMKV backup) | ~3.1 GB steady | ~400 MiB | 1.6 GiB |
+| 02:16 (transcode starts) | 2.7 GB | 805 MiB | 1.2 GiB |
+| 02:26 | 994 MB | 2551 MiB | 130 MiB |
+| 02:30 | 699 MB | 2836 MiB | 89 MiB |
+| 02:31:11 | **SIGKILL to three cgroups** | | |
+
+It is genuine anonymous memory, not a page-cache accounting artefact — the third
+column is the proof. The kernel evicted ARM's page cache from 1.6 GiB to 89 MiB
+trying to feed the encoder, and still could not keep up.
+
+**The sizing error, which is D6 one level down.** `piraeus-worker-1` is an 8 GiB
+VM, but Talos reserves enough that only **5.26 GiB is allocatable**. The 4Gi
+container limit set when D6 was closed was chosen against the VM size, not
+against allocatable, and with ~3.4 GiB used by everything else on that node ARM
+could never reach 4Gi. An unreachable limit is not a limit: the node dies first,
+and the container OOM is never recorded — which is why the job sat marked
+`transcoding` with `errors: None` and nothing running. D3, produced by D6.
+
+**Why phases 1–2b passed.** The matched control, from the same metric over the
+two TV discs:
+
+| workload | resolution | peak container RSS |
+|---|---|---|
+| jobs 21+22, DVD | 720×480 | **1242 MiB** across two full jobs |
+| job 23, Blu-ray | 1920×1080 | **3008 MiB and still climbing** when killed |
+
+Six times the pixels, and `VideoOptionExtra` is empty so SVT-AV1 preset 4 10-bit
+runs with unbounded parallelism. DVD resolution kept every earlier phase under
+the ceiling; Blu-ray is the first workload that goes over it.
+
+**This is probably what killed the April Blu-rays, but that is not proven.** The
+signature matches closely: April's job 8 left `title_43.mkv` complete and
+`title_44.mkv` partial, and job 23 died at *exactly the same point* — same title
+complete, next one truncated, no error recorded, late in transcode. Same node,
+same 8 GiB, same encoder. April's ARM logs and Prometheus data are both long
+gone, so the match is a signature and not a cause. Recorded so it is not
+re-derived, and not stronger than the evidence.
+
+**The instrumentation worked.** `RipperRestarted` went pending 02:36 and fired
+02:41–03:26, which is how the restart was noticed at all. Phase 0 earning its
+keep, and the reason this was diagnosed the same morning rather than in April.
+
+#### The fix
+
+`piraeus-worker-1` goes from **8192 to 16384 MiB** (`terraform/main.tf`), taking
+allocatable from 5.26 GiB to **13.1 GiB**. The Proxmox host has room: 62 GiB
+total, 38 GiB committed to running VMs, and 19.2 GiB of ZFS ARC that gives way
+under pressure. The provider restarted the VM in place — `0 added, 1 changed,
+0 destroyed` — so the guest saw the new memory immediately.
+
+ARM's limits move with it: **request 1.5Gi → 4Gi, limit 4Gi → 8Gi**. Both halves
+matter. The limit is now a number the node can honour, so an over-running encode
+dies as a recorded container OOM instead of taking `victoria-logs` and
+`metallb-speaker` down with it. The request is sized to the encode rather than to
+the idle daemon, because the OOM controller picks victims by usage-over-request
+and ARM at 2.9 GiB against a 1.5 GiB request was the obvious candidate.
+
+#### What survives, and what phase 3 still owes
+
+The **43 GB raw BDMV backup is complete and intact**, so the disc does not need
+re-ripping — only the transcode. `title_43.mkv` finished at 149.5 MB (within
+0.2% of April's 149.3 MB, which is a pleasing sign the encode is deterministic);
+`title_44.mkv` is a 25 MB partial, another instance of D4.
+
+The track table confirms this section's original prediction exactly: **5 titles
+selected from 71**, being `title_70` (77.2m) and `title_71` (77.1m) — the same
+feature via two playlists — plus extras at 30.7m, 10.6m and 8.8m. So the
+duplicate-main-feature question is still open and still needs deciding, and
+neither feature title has been encoded yet.
+
+#### On 4K, asked while sizing the VM
+
+**16 GiB is right for Blu-ray and marginal for UHD.** SVT-AV1's own documentation
+says memory scales with `--lp` (cores targeted), resolution, bit depth, lookahead
+distance and hierarchical levels. The published figures for 4K 10-bit are 14 GB
+at 8 vCPU, 24 GB at 40 vCPU and 48 GB at 112 cores — the scaling with core count
+matters here, because worker-1 has only 4. Measured 1080p peak is >3 GiB, and 4K
+is 4× the pixels with linear scaling in the frame buffers, which extrapolates to
+roughly 12–16 GiB against 13.1 GiB allocatable.
+
+Two levers exist that cost no RAM, and phase 4 should choose deliberately rather
+than inherit the 1080p preset:
+
+- **Cap `--lp`** through `VideoOptionExtra`. The largest single memory lever, paid
+  for in encode speed.
+- **Do not transcode UHD at all.** Independent of memory, CRF 30 AV1 discards
+  most of what makes a UHD disc worth having, and HDR10+/Dolby Vision metadata
+  often does not survive HandBrake. A remux keeps the stream intact.
+
+The VM is not being sized for this today: phase 4 is still blocked on whether the
+BDR-212U can obtain volume keys at all, and the honest number comes from
+measuring a completed 1080p encode and scaling it.
