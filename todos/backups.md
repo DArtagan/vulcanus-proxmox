@@ -942,50 +942,69 @@ storage, 434 M, 131 M), four orphaned `traefik*` PVCs in `infrastructure`, and P
 groups `vm/200`, `vm/101` and `vm/106` — pinned forever because vzdump prunes only
 the groups it backs up.
 
-#### Prevention belongs on vulcanus; retention belongs on mini-nas
+#### Archival happens on vulcanus, before the guest is destroyed
 
-Archiving *on deletion* at the source is not possible, and it is worth writing down
-why so it is not re-proposed. PVE destroys a guest's zvols with `zfs destroy -r`,
-taking their snapshots with them, so nothing survives for a reaction to archive. PVE
-hookscripts fire on pre-start, post-start, pre-stop and post-stop only — there is no
-destroy phase to intercept.
+**Not after.** PVE frees a zvol with `zfs destroy -r`
+(`ZFSPoolPlugin.pm: zfs_request($scfg, undef, 'destroy', '-r', ...)`), so the
+snapshots go with it and nothing survives to archive. No holds exist under
+`rpool/data` to stop it either. The evidence is the asymmetry Phase 0 found:
+`vm-200-*`, `vm-901-*` and `vm-107-disk-1` exist on mini-nas, while **every** dataset
+under vulcanus's `rpool/data` maps to a live guest. Those snapshots survive only on
+the replica, because syncoid never prunes the target.
 
-Two source-side measures do work, and both are cheaper than anything on the target:
+Recorded so the obvious automation — react to a deletion — is not attempted. There is
+also no hook to react with: PVE hookscripts fire on pre-start, post-start, pre-stop
+and post-stop only.
 
-- **VMIDs are never reused.** The seven-month outage exists only because VMID 911 was
-  reassigned to a new guest. With a retired ID never reissued, a recreated guest gets
-  fresh dataset names and the old replica degrades from *superseded*, which blocks
-  replication silently, to merely *orphan*, which wastes space visibly. Same shape as
-  the never-reuse-a-slug registry in [`docs/project_log.md`](../docs/project_log.md).
-- **Retiring a guest is a two-sided rename.** Before `qm destroy`, move its datasets
-  to `rpool/attic/` on vulcanus *and* on mini-nas. The archive is then intentional,
-  the replicated tree stays clean, and nothing has to be inferred afterwards. Belongs
-  as a runbook next to "Removing a stateful workload" in
+**Retiring a guest is therefore a two-sided rename, done before `qm destroy`:**
+
+```
+vulcanus:  rpool/data/vm-911-disk-1              -> rpool/archive/vm-911-disk-1_2026-01
+mini-nas:  .../vulcanus/data/vm-911-disk-1       -> .../vulcanus/archive/vm-911-disk-1_2026-01
+```
+
+`zfs rename` is a metadata operation: snapshots move with the dataset and keep their
+GUIDs. So a syncoid command for `rpool/archive` finds matching snapshots on both
+sides and **continues incrementally** — no full re-send, no orphan left behind, and
+the existing prune and replication machinery applies to the archive with whatever
+retention is chosen for it. Doing it on both sides is what avoids the orphan; a
+source-only rename reads to the target as "old gone, new appeared".
+
+This also frees the name immediately, so a new disk may reuse it without colliding.
+
+**What this needs:**
+
+- `rpool/archive` on vulcanus, and a `vulcanus-archive` syncoid command on mini-nas,
+  so archived data keeps an offsite copy rather than existing only on one host.
+- A sanoid template for the archive tree. `autosnap = no` — the snapshots are already
+  there and nothing writes to an archived dataset — with retention set long.
+- A runbook, next to "Removing a stateful workload" in
   [`docs/kubernetes.md`](../docs/kubernetes.md).
 
-**Retention still belongs on the target.** An archive on vulcanus is in the same
-failure domain as the thing it protects against — it survives neither losing vulcanus
-nor an accidental `qm destroy` on it. The offsite copy is what does, which is why
-orphaned replicas are worth keeping there for a window rather than mirroring
-deletions promptly.
+**VMIDs are still never reused.** The rename frees the name, but a retired ID being
+reissued is what turned a routine orphan into seven months of silent blockage, and
+the discipline costs nothing. Same shape as the never-reuse-a-slug registry in
+[`docs/project_log.md`](../docs/project_log.md).
 
-So the target-side detection below is a **net for what escapes the process**, not the
-primary mechanism. With the two measures above in place it should almost never fire,
-and firing means something happened outside the intended path — which is itself worth
-knowing.
+**Retention of what escapes still belongs on the target.** An archive on vulcanus
+alone is in the same failure domain as the thing it protects against — it survives
+neither losing that host nor an accidental `qm destroy` on it. Replicating
+`rpool/archive` covers the deliberate case; the target-side net below covers guests
+destroyed without the runbook being followed.
 
 #### The net: two failure modes, one quarantine
 
+For guests destroyed without the runbook being followed. With the archival step above
+in place this should almost never fire, and firing means something happened outside
+the intended path — which is itself worth knowing.
+
 syncoid never removes datasets from the replication target, which produces two
-distinct problems that look similar and are not:
+problems that look alike and are not:
 
 - **Orphan** — a target dataset whose source is gone. Wastes space indefinitely.
 - **Superseded** — source and target share a *name* but no snapshot, because a disk
   was recreated or a VMID reused. **This blocks replication of the live guest**, and
   is what cost seven months on worker-1.
-
-A deletion policy alone would not have prevented that. The mechanism has to break the
-name collision, so quarantine comes first and deletion second.
 
 **Detection** extends `zfs-replication-freshness`, which already fetches the source
 dataset list for its coverage assertion:
@@ -999,13 +1018,9 @@ Comparing snapshot *names* is the check that matters. Age alone cannot see eithe
 case: a superseded dataset has recent-looking snapshots of the wrong lineage, which
 is exactly how January went unnoticed.
 
-**Quarantine** is `zfs rename` into `rpool/attic/vulcanus/<tree>/<name>_<date>`.
-Non-destructive, immediately unblocks replication, and sits outside
-`foreign-backups/vulcanus` so both the freshness check and sanoid ignore it — its
-snapshots freeze rather than continuing to be pruned. Renaming in place with a suffix
-was considered and rejected: the `-diverged` datasets during Phase 0 stayed inside the
-replicated tree, where sanoid kept managing them and the freshness check kept
-reporting them.
+**Quarantine** is `zfs rename` into
+`rpool/foreign-backups/vulcanus/archive/<name>_<date>` — the same tree the runbook
+uses, so there is one place to look regardless of how something got there.
 
 **Guards.** This runs unattended against the only offsite copy, and a naive version
 would quarantine the entire replica the first time an SSH connection dropped:
@@ -1014,24 +1029,24 @@ would quarantine the entire replica the first time an SSH connection dropped:
 - the condition must persist across three consecutive daily runs
 - a circuit breaker — never quarantine more than three datasets in one run
 
-#### Open decision: what happens to the attic
+#### Open decision: what happens to archived replicas
 
 Left for whoever picks up Phase 1, because it is a data-destruction policy rather
 than a mechanism. The options, with the trade each makes:
 
-1. **Alert only, destroy by hand.** The check reports attic contents and their age so
-   they surface as outstanding work. Nothing is destroyed unattended. Fixes the
+1. **Alert only, destroy by hand.** The check reports the archive's contents and their age
+   so they surface as outstanding work. Nothing is destroyed unattended. Fixes the
    demonstrated defects — invisible accumulation and blocked replication — without
    adding automated deletion of backup data.
 2. **Auto-destroy after 90 days**, with a `local:retain=true` ZFS property as opt-out
-   and an alert before expiry. Guarantees the attic cannot grow without bound. Mirrors
+   and an alert before expiry. Guarantees the archive cannot grow without bound. Mirrors
    the `--keep-tag decommissioned` pattern planned for restic in Phase 2.
 3. **Auto-destroy after 30 days**, same mechanism. Phase 0's 624 GB sat on a pool at
    89%, so a long window has real capacity cost.
 
 Worth weighing against what Phase 0 actually found when it opened one of these: 81%
 of the 543 GB was a Loki volume already deliberately deleted, and about 10 GB was
-irreplaceable. The attic is likelier to hold expired bulk than anything wanted — but
+irreplaceable. The archive is likelier to hold expired bulk than anything wanted — but
 it took an inspection to know that, which is an argument for the window being long
 enough to inspect rather than for it being long.
 
