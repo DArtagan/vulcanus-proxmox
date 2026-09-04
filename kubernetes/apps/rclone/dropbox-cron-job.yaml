@@ -39,7 +39,7 @@ spec:
                   name: config-data
           containers:
             - name: rclone
-              image: rclone/rclone:1.75.0 # {"$imagepolicy": "apps:rclone"}
+              image: rclone/rclone:1.75.1 # {"$imagepolicy": "apps:rclone"}
               args:
                 - "bisync"
                 - "/dropbox/"
