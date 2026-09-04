@@ -152,15 +152,21 @@ vantage point, indifferent to *why* the record is wrong.
 
 ```
 kube_deployment_status_replicas_available{namespace="apps", deployment="cloudflare-ddns"} == 0
+or absent(kube_deployment_status_replicas_available{namespace="apps", deployment="cloudflare-ddns"})
 ```
 
-Verified in both directions against the live cluster on 2026-09-04, per the
-house rule in `docs/README.md`: 43 series exist for that metric, `dnsomatic`
-reads `1`, and `podgrab` reads `0`. So it demonstrably reaches zero and the rule
-can fire. Scope it to the one deployment by name — `podgrab` is intentionally
-scaled to zero and a rule matching any zero-replica Deployment would fire on it
-forever. Routing through Alertmanager gives `repeat_interval: 12h`, so it
-notifies once and then stays quiet.
+Verified against the live cluster on 2026-09-04, all three directions: healthy
+(`dnsomatic`) returns empty, scaled-to-zero (`podgrab`) fires, and the absent
+case fires — confirmed by running the expression as written, which matched
+because `cloudflare-ddns` did not exist yet. 43 series exist for the metric, so
+the kube-state-metrics collector is enabled.
+
+`absent` is the half that matters most: the Deployment being removed outright
+leaves no series, and `== 0` has nothing to compare, so the loudest form of this
+failure is the one the bare comparison cannot see. Scope it to the one
+deployment by name — `podgrab` is intentionally scaled to zero and a rule
+matching any zero-replica Deployment would fire on it forever. Routing through
+Alertmanager gives `repeat_interval: 12h`, so it notifies once and stays quiet.
 
 **Known gap, accepted.** A process that is Ready but failing every Cloudflare
 call — a revoked token is the realistic case — is not covered. The record stays
@@ -178,7 +184,7 @@ there is no conflict and no window with nothing updating. Flux reconciles from
 
 1. Create the Cloudflare token, *Edit zone DNS* template, scoped to
    `immortalkeep.com` only, **no expiry**. Put it in
-   `kubernetes/apps/cloudflare-ddns/credentials.yaml` with `sops`.
+   `kubernetes/apps/cloudflare-ddns/credentials.sops.yaml` with `sops`.
 2. Deploy with `DOMAINS=ddns-canary.immortalkeep.com` and nothing else. Nothing
    resolves through that name, so a misconfiguration has no blast radius.
    Confirm the record appears with the current WAN IP.

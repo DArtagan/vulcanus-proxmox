@@ -1,0 +1,75 @@
+# Keeps the public A records for immortalkeep.com pointed at a WAN IP that the
+# ISP changes without warning. Headscale, the WireGuard break-glass tunnel and
+# cert-manager's HTTP-01 renewals all resolve through those records, so this is
+# load-bearing for getting back in at all — see docs/network.md.
+#
+# This is a Deployment and must stay one. UPDATE_CRON=@once exists, and a */5
+# CronJob would land in the 5400s bucket of cronjob:max_seconds_without_success
+# and appear to inherit CronJobNotSucceeding for free. It does not: in @once
+# mode the updater returns 0 unconditionally, consulting the update result only
+# for the heartbeat and notifier, so a revoked token would produce a Successful
+# Job every five minutes forever. The alert would be structurally blind.
+# DDNSUpdaterDown in prometheus-rules.yaml watches this instead.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflare-ddns
+  labels:
+    app: cloudflare-ddns
+spec:
+  selector:
+    matchLabels:
+      app: cloudflare-ddns
+  template:
+    metadata:
+      labels:
+        app: cloudflare-ddns
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: cloudflare-ddns
+          image: favonia/cloudflare-ddns:1.17.0 # {"$imagepolicy": "apps:cloudflare-ddns"}
+          env:
+            - name: CLOUDFLARE_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: cloudflare-ddns
+                  key: CLOUDFLARE_API_TOKEN
+            # Enumerate the zone before widening this. An explicit A record
+            # hiding behind the wildcard resolves identically to it, so dig
+            # cannot distinguish the two; one left unmanaged goes stale
+            # silently. status.immortalkeep.com is proxied and stays out.
+            - name: DOMAINS
+              value: "ddns-canary.immortalkeep.com"
+            # Cloudflare's proxy breaks headscale — cloudflared strips the
+            # Upgrade header on POST and Tailscale's TS2021 handshake is a
+            # WebSocket over POST — and cannot carry the L4 services at all.
+            # Only applies to records the updater creates; it will not flip the
+            # proxy status of a record that already exists.
+            - name: PROXIED
+              value: "false"
+            # The zone holds no AAAA records. Left enabled, the updater chases a
+            # record family that does not exist and reports failures for it.
+            - name: IP6_PROVIDER
+              value: "none"
+            - name: TTL
+              value: "300"
+            - name: UPDATE_CRON
+              value: "@every 5m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi

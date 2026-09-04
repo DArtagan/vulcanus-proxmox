@@ -9,6 +9,7 @@ resources:
   - borgmatic
   #- botamusique
   - beets
+  - cloudflare-ddns
   - demo
   - dnsomatic
   - filebot
