@@ -1731,3 +1731,54 @@ than inherit the 1080p preset:
 The VM is not being sized for this today: phase 4 is still blocked on whether the
 BDR-212U can obtain volume keys at all, and the honest number comes from
 measuring a completed 1080p encode and scaling it.
+
+### D12 — a disc with no volume label is confidently misidentified, and only the person holding it can tell
+
+A Blu-ray whose UDF label was never set reports the literal placeholder string
+`LOGICAL_VOLUME_ID`. ARM passes that to its identification step, which fuzzy-matches
+it against OMDb and returns a real film — in the observed case *The Adventures of
+Mary-Kate and Ashley: The Case of the Logical i Ranch* (1994, `tt0282341`),
+presumably off the word "Logical". The job is then created with
+`hasnicetitle: 1`, meaning ARM considers the identification good and will rip,
+transcode, name and file the disc under that title without hesitating.
+
+**Why this is worse than an ordinary failure.** The Pushover notification reads
+`Found disc: The-Adventures-of-Mary-Kate-and-Ashley--The-Case-of-the-Logical-i-Ranch.
+Disc type is bluray.` — well-formed, plausible, and indistinguishable from a
+correct identification. Nothing about it signals a problem. **Only the person who
+physically put the disc in the tray can tell it is wrong**, and only if they read
+the notification and recognise the title as not theirs. That makes it the sharpest
+failure mode yet for the self-service goal, because the whole point of the
+notification is that Will's brother can load discs without anyone watching the
+cluster.
+
+The ten-minute `MANUAL_WAIT` is the existing remedy, and it does work — the job
+sits in `waiting` and the title can be corrected in the web UI at
+`/jobdetail?job_id=<id>` before the rip starts. But it only helps someone who
+already suspects the identification is wrong.
+
+**The signal ARM has and does not use.** A label that is exactly a known
+placeholder is not weak evidence, it is *no* evidence, and the two are being
+treated identically. `LOGICAL_VOLUME_ID`, `DVD_VIDEO`, `LOGICAL_VOLUME_ID`-style
+authoring defaults and bare `44069507_VOLUME_ID` numeric IDs should suppress
+`hasnicetitle` and force the unidentified path rather than seeding a title search.
+That is a small, well-bounded change: a deny-list check before identification runs,
+setting the job to unidentified instead of accepting whatever OMDb returns.
+
+Worth noting the two UDF fields disagree, which is its own small trap for anyone
+diagnosing this: `blkid` reads the *Logical Volume Identifier* and reported
+`LOGICAL_VOLUME_ID`, while the kernel's UDF driver reads the *Volume Identifier*
+and logged `Mounting volume '44069507_VOLUME_ID'`. Both are placeholders, but a
+check written against one field will not see the other.
+
+**Related but distinct: the disc was not the one expected.** The volume timestamp
+reads 2007/09/04, and The Rescuers 35th Anniversary is a 2012 release, so the
+disc in the tray is independently confirmed as a different one. That is a physical
+swap during the hours the tray sat open, not a misread — worth separating from
+D12 itself, which is about what ARM does with an unlabelled disc however it got
+there.
+
+Direct reads of the BDMV return `Illegal Request / Invalid field in cdb` and
+`critical target error`. That is ordinary AACS protection refusing plain reads,
+not disc damage; MakeMKV decrypts and is unaffected. Recorded because the kernel
+log looks alarming and will otherwise be re-investigated.
