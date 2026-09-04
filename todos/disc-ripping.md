@@ -1808,3 +1808,33 @@ Direct reads of the BDMV return `Illegal Request / Invalid field in cdb` and
 `critical target error`. That is ordinary AACS protection refusing plain reads,
 not disc damage; MakeMKV decrypts and is unaffected. Recorded because the kernel
 log looks alarming and will otherwise be re-investigated.
+
+#### How it resolved, and the cheap check that falls out
+
+The disc was **The Polar Express** (2004) — a Warner Blu-ray released
+2007-10-30, authored 2007-09-04, eight weeks before release. Every measured
+property agrees: 1:39:56 against a stated 1h40m runtime, 1080p **VC-1** exactly as
+Warner encoded it, 2.40:1 scope, and standard-definition extras as early Warner
+discs carried. It had been sitting in the wrong case, which is why it arrived
+labelled as a Rescuers disc.
+
+**The authoring timestamp is not the release date, and searching it as one finds
+nothing.** Eight weeks separated the two here. The timestamp is still useful — it
+bounds the release from below and pins the era — but only as a range.
+
+**A human misidentified this disc too, and the same check caught both.** The
+title offered from the physical case was *The Rescuers Down Under*, which runs
+77 minutes against this disc's 99:56, and no 77-minute title existed anywhere on
+it. That is the same evidence that exposed OMDb's guess, applied to a human's.
+Worth stating plainly because it generalises:
+
+> **Compare the main title's runtime against the runtime of the film it is
+> claimed to be.** A disc holding a 100-minute feature is not a 77-minute film,
+> whoever says otherwise. The check costs one lookup, needs no disc metadata, and
+> is independent of whatever produced the title — OMDb, a label, or a person
+> reading a sleeve.
+
+This belongs with the placeholder deny-list rather than replacing it: the
+deny-list stops a bad title being *generated*, and the runtime check catches a
+bad title from any source, including the manual-override path the deny-list would
+push unlabelled discs onto. Neither subsumes the other.
