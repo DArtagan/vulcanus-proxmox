@@ -31,8 +31,8 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 | 0 | Unwedge the drive, close the cross-cutting defects | **done** — reconciled and verified in the container, 2026-08-25 |
 | 1 | Audio CD | **done** 2026-08-31 — one loose end, see below |
 | 2 | DVD — movie | **done** 2026-09-01 — first video file ARM has ever produced |
-| 2b | DVD — TV series | **done** 2026-09-03 — works, with two findings that change phase 3 and the ingest design |
-| 3 | Blu-ray | not started |
+| 2b | DVD — TV series | **done** 2026-09-04 — two discs of one season; play-all and multi-disc findings drive the ingest design |
+| 3 | Blu-ray | **in progress** — job 23, The Rescuers, started 2026-09-04 01:11 UTC |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
 
 Phase 0 is a prerequisite for all of the others: until it is done, the drive
@@ -867,6 +867,35 @@ job it first looks like. That is well within a pod's uptime — which is why D3
 (silent death) matters more than encoder speed. It is also why D8 matters: the
 disc is locked in the drive for all of it.
 
+**The code path, read from the source and cross-checked against the DVD runs.**
+Worth writing down because it is not what the config file suggests. `RIPMETHOD`
+reads `backup_dvd`, and `rip_with_mkv` (`arm_ripper.py:235`) turns that into
+"always use MakeMKV" for *every* disc type — the DVD comment about `mkv` mode
+never applies. What differs is the MakeMKV *mode*, chosen at `makemkv.py:753`:
+
+- **Blu-ray** → `makemkv_backup`, a full BDMV backup (~43 GB). HandBrake then
+  title-scans that structure natively.
+- **DVD** → `makemkv_mkv`, extracting each title to its own MKV. HandBrake then
+  scans the *directory*, treating each file as a title.
+
+Both then land in `handbrake_all`, because the `handbrake_mkv` branch requires
+`RIPMETHOD == "mkv"` exactly and `backup_dvd` does not match. So the Blu-ray is
+not entering untested code — it reaches the same transcode function the two TV
+discs and the phase 2 movie already proved, by a different route.
+
+**April got much further than "MakeMKV failed" suggests.** The leftover transcode
+directories show titles 43, 44, 46 and 70 encoded on 2026-04-22 before the job
+died, and 43 and 44 on 2026-04-21. That matches this section's predicted
+selection of five titles from 71 almost exactly, and means the failure was late
+in transcode rather than at the rip. It also left a partial `title_44.mkv`
+(150 MB on the 21st, 539 MB when redone on the 22nd) — an instance of D4, a
+half-written file with nothing marking it incomplete.
+
+Three stale `The Rescuers` raw backups (129 GB) and four stale transcode
+directories are still on the share from those attempts. The share has 11 TB free
+so they are not urgent, but they are why this job's folders carry a stage suffix,
+and any cleanup should happen after this phase closes, not during it.
+
 Two things to settle here:
 
 - **The duplicate main feature.** Two near-identical 77-minute titles is
@@ -1523,3 +1552,64 @@ deciding what to discard belongs with the ingest work rather than here.
 
 Also confirmed: the destination is `completed/tv/` while the Plex library is
 `/video/shows/`, so the ingest has a folder-name reconciliation to do as well.
+
+### 2026-09-04 — disc 2 of the same season, and the play-all heuristic measured
+
+Job 22, `SYLVESTER_TWEETY_MYSTERY_D2`, 04:29 → 11:36 UTC (**7h07m**), six titles,
+success with no errors. The format itself raised nothing new — the value of this
+disc is that it is the *second* of a set, which tests two things one disc cannot.
+
+**The play-all heuristic is now measured, not proposed.** Phase 2b suggested a
+compilation is recognisable as a title whose length is close to the sum of the
+others. Across both discs it holds to within a tenth of a minute:
+
+| disc | play-all | sum of the other titles | delta | episodes |
+|---|---|---|---|---|
+| 1 | 168.8 min | 168.9 min | 0.1 min | 8 |
+| 2 | 105.7 min | 105.8 min | 0.1 min | 5 |
+
+Two discs is a small sample and the rule needs a guard — a disc holding exactly
+one episode makes "the sum of the others" meaningless, and a genuine feature-length
+title on a mixed disc could sit near the sum by coincidence. But the separation is
+wide enough to act on: the play-all is ~8× the length of any single episode, and
+the agreement with the sum is three orders of magnitude tighter than the gap to
+the next-longest title. Filtering it would have saved **3h30m on disc 1 and
+roughly 2h10m on disc 2** — around 40% of each job's transcode time, for output
+that duplicates the rest of the disc exactly.
+
+**Multi-disc sets do not merge, and the numbering restarts.** This is the finding
+that matters for ingest. Disc 2 did not join disc 1's folder; `have_dupes` was
+true, so `check_for_dupe_folder` appended the job's stage to make a second
+directory:
+
+```
+completed/tv/The-Sylvester-and-Tweety-Mysteries (1995-2002)                 <- disc 1, title_0..title_8
+completed/tv/The-Sylvester-and-Tweety-Mysteries (1995-2002)_178840975618    <- disc 2, title_0..title_5
+```
+
+Both discs number from `title_0`, so the season now has two `title_0.mkv`, two
+`title_1.mkv` and so on, in sibling directories distinguished only by an opaque
+stage number. Nothing in the tree records that these are discs 1 and 2 of one
+season, or which came first — the stage integer happens to sort correctly, but it
+is a timestamp of when the job ran, not a disc ordinal, and re-ripping disc 1
+tomorrow would sort it last.
+
+The disc *label* is the only place the ordinal survives: `SYLVESTER_TWEETY_MYSTERY_D1`
+and `..._D2`, held on the job row, not in the filesystem. Any ingest that wants to
+reassemble a season has to read it from the database, and even then `D1`/`D2` is a
+convention of this particular publisher rather than something that can be relied on
+generally.
+
+This compounds the positional-mapping conclusion rather than changing it. It was
+already true that `title_N` does not map to episode N within a disc, because the
+play-all sits at `title_1`. It is now also true that the same filename means
+different episodes in different folders of the same season. **Content matching is
+not one option among several for TV ingest; it is the only thing that can work.**
+Recorded in [video-library-ingest.md](video-library-ingest.md).
+
+**Still unproven: multi-disc *movies*.** A Lord of the Rings Extended Edition
+spans two discs holding halves of *one* film, which is a different problem again —
+there the two parts must be concatenated or presented as one item, and the
+largest-file selection in `skip_transcode_movie` would pick a main feature per
+disc rather than recognising the pair. Worth ripping one when a phase has room;
+it is a movie-path question, so it does not block phase 3.
