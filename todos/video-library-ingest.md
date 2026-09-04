@@ -42,10 +42,49 @@ file worth filing. One now exists.
 ```
 /video/import/automatic-ripping-machine/completed/movies/
   The-Hallelujah-Trail (1965)_178824223068/The-Hallelujah-Trail (1965).mkv   1.29 GB
+
+/video/import/automatic-ripping-machine/completed/tv/
+  The-Sylvester-and-Tweety-Mysteries (1995-2002)/               disc 1: title_0 … title_8
+  The-Sylvester-and-Tweety-Mysteries (1995-2002)_178840975618/  disc 2: title_0 … title_5
 ```
 
 Plus **8 empty directories** in that same tree, left by failed jobs — see the
 naming traps below, they are not merely untidy.
+
+### The TV tree is harder than the movie tree, and measurably so
+
+Two discs of one season have now been ripped, and between them they rule out
+every mapping that does not look at the video itself.
+
+**Within a disc, `title_N` is not episode N.** Disc 1 holds nine titles, of which
+`title_1` is a 168-minute "play all" compilation of the other eight. So the
+numbering runs *episode, compilation, episode, episode…* — a mover assuming
+position files seven of eight episodes wrongly and files a 2h48m compilation as a
+21-minute one.
+
+The compilation is at least *detectable* without content matching: its length
+matches the sum of the other titles to within a tenth of a minute on both discs
+(168.8 vs 168.9; 105.7 vs 105.8), and it is ~8× any single episode. That is a
+reliable enough signal to drop it, and dropping it would also save around 40% of
+each disc's transcode time. It does not, however, help identify what remains.
+
+**Across discs, the same filename means different episodes.** Disc 2 did not join
+disc 1's folder — `check_for_dupe_folder` gave it a sibling directory suffixed
+with the job's stage number — and it numbers from `title_0` again. The season
+therefore has two `title_0.mkv`, two `title_1.mkv` and so on, in directories
+distinguished only by an opaque integer that records *when the job ran*, not which
+disc it was. Re-ripping disc 1 tomorrow would sort it after disc 2.
+
+The disc ordinal survives only in the label on the job row —
+`SYLVESTER_TWEETY_MYSTERY_D1` and `..._D2` — which is a convention of one
+publisher, not something to build on.
+
+**Conclusion: content matching is the only thing that can file TV.** For a film,
+ARM's own metadata is enough — it knows the title, the year and which file is the
+main feature. For a series it knows the show and nothing else, and no amount of
+filesystem or database inspection recovers the episode numbers. This is the
+strongest argument for resolving the FileBot licence question below, because the
+alternative is a person watching the opening of each file.
 
 ## FileBot cannot do this today
 
@@ -115,6 +154,27 @@ built on ARM's own metadata — which is sufficient for a film — **cannot file
 TV**. Only content matching can, which is FileBot's whole purpose. That is the
 strongest argument for route A, and it is why the recommendation defers rather
 than dismisses the licence.
+
+**Measured on a real disc, 2026-09-03**, and it is worse than "no episode
+numbers". Job 21 produced nine files:
+
+```
+title_0.mkv   21m    239 MB   ← episode
+title_1.mkv  168m   1.88 GB   ← "play all": every episode concatenated
+title_2.mkv   21m    215 MB   ← episode
+…            21m             ← episodes through title_8
+```
+
+So the numbering is *episode, compilation, episode, episode…*. **Positional
+mapping is not fragile, it is wrong** — it would file seven of the eight
+episodes under the wrong number and a 2h48m compilation as a 21-minute episode.
+And a mover cannot detect the compilation by name or by size ratio alone without
+essentially reimplementing content matching.
+
+A heuristic does exist — a play-all's length is close to the sum of the others,
+and ARM's `track` table holds every length — but it identifies *which file to
+skip*, not *which episode each remaining file is*. That second half is the one
+that matters, and only FileBot answers it.
 
 Note also the destination differs: `convert_job_type` returns `"tv"`, while the
 library is `/video/shows/`.
