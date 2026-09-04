@@ -44,12 +44,12 @@ PATCH_PY = "/usr/local/bin/arm-title-charset.py"
 ARM_LOG = "/home/arm/logs/arm.log"
 
 # Enough of ARM's utils.py to patch against.
-STUB_UTILS = '''\
+STUB_UTILS = """\
 def fix_job_title(job):
     if job.year:
         return "%s (%s)" % (job.title, job.year)
     return job.title
-'''
+"""
 
 
 class Job:
@@ -161,9 +161,7 @@ class Sanitising(unittest.TestCase):
 
     def test_latin1_is_preserved(self):
         # The share accepts it, and Mànran is already in the library this way.
-        self.assertEqual(
-            self.h.fix_job_title(Job("Mànran", "2013")), "Mànran (2013)"
-        )
+        self.assertEqual(self.h.fix_job_title(Job("Mànran", "2013")), "Mànran (2013)")
 
     def test_characters_with_no_latin1_form_are_dropped_not_left(self):
         got = self.h.fix_job_title(Job("Tokyo 中文", "2020"))
@@ -209,9 +207,7 @@ class PatchSafety(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             h = Harness(tmp)
             h.run()
-            self.assertEqual(
-                h.fix_job_title(Job("Le Mans", "1971")), "Le Mans (1971)"
-            )
+            self.assertEqual(h.fix_job_title(Job("Le Mans", "1971")), "Le Mans (1971)")
 
 
 if __name__ == "__main__":

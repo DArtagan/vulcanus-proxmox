@@ -61,7 +61,7 @@ spec:
               mountPath: /library
       containers:
         - name: beets-flask
-          image: pspitzner/beets-flask:v2.0.0-rc5 # {"$imagepolicy": "apps:beets-flask"}
+          image: metasauce/beets-flask:v2.0.0-rc6 # {"$imagepolicy": "apps:beets-flask"}
           env:
             # The container starts as root — its entrypoint needs groupmod,
             # usermod and su — then drops to the beetle user for the

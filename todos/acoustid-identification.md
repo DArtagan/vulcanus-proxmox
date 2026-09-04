@@ -10,7 +10,7 @@
 > the one that needs no container change. Decide the route with Will before
 > building, because two of the three touch the beets-flask image.
 
-Everything below verified **2026-08-29** against `pspitzner/beets-flask:v2.0.0-rc5`
+Everything below verified **2026-08-29** against `metasauce/beets-flask:v2.0.0-rc5`
 and ARM `2.23.2`.
 
 ## The case that prompted it
@@ -110,7 +110,7 @@ beets 2.11 wants honours the `FPCALC` environment variable, and whether `chroma`
 behaves inside beets-flask's import flow rather than the beets CLI. Check both
 before committing to this.
 
-**C. A custom image.** `FROM pspitzner/beets-flask`, `apt-get install
+**C. A custom image.** `FROM metasauce/beets-flask`, `apt-get install
 libchromaprint-tools`, `pip install pyacoustid`. Correct and durable, and new
 ground: no Dockerfile exists in this repo, it needs somewhere to push to, and it
 takes beets-flask off the ImagePolicy that currently tracks upstream — which
