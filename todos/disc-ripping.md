@@ -1757,6 +1757,32 @@ sits in `waiting` and the title can be corrected in the web UI at
 `/jobdetail?job_id=<id>` before the rip starts. But it only helps someone who
 already suspects the identification is wrong.
 
+**The exact mechanism**, read from `arm/ripper/identify.py`, because it is more
+actionable than the symptom.
+
+`identify_bluray` (line 96) reads the disc's own metadata from
+`BDMV/META/DL/bdmt_eng.xml`. **This disc has an empty `META/DL/` directory**, so
+the open raises `OSError` and control reaches the fallback at line 106 — which
+upstream itself marks with `# Maybe call OMdb with label when we can't find any
+ident on disc ?`. That fallback takes `job.label`, replaces underscores with
+spaces and title-cases it, giving `Logical Volume Id`, then **returns `True`**.
+Returning true is the defect: the caller cannot distinguish *identified from disc
+metadata* from *guessed from a label*, so `hasnicetitle` is set either way and the
+OMDb search that follows matches on the word "Logical".
+
+**Blu-rays have no content-based fallback at all, and DVDs do.** `identify_dvd`
+(line 149) computes `pydvdid.compute()` over the mounted disc and queries
+`1337server.pythonanywhere.com` with the CRC64, which maps a disc *hash* to a
+title and is immune to labels entirely. Nothing equivalent runs for Blu-ray.
+So the disc type least likely to carry a useful label is the one with no fallback
+when the label is useless — which is why this surfaced on a Blu-ray and never on
+a DVD.
+
+Worth noting a second oddity found while reading this: on the successful path,
+`bluray_year` is taken from the **file mtime of `bdmt_eng.xml`** (line 130), not
+from any metadata field. That is the disc's authoring date standing in for the
+film's release year, and it will be wrong for every catalogue re-issue.
+
 **The signal ARM has and does not use.** A label that is exactly a known
 placeholder is not weak evidence, it is *no* evidence, and the two are being
 treated identically. `LOGICAL_VOLUME_ID`, `DVD_VIDEO`, `LOGICAL_VOLUME_ID`-style
