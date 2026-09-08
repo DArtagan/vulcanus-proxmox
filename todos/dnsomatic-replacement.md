@@ -193,10 +193,16 @@ there is no conflict and no window with nothing updating. Flux reconciles from
    falsifiable test available: the ISP cannot be made to change the WAN IP on
    demand, and "the record is still correct" proves nothing while dnsomatic is
    also running.
-4. Enumerate the zone and expand `DOMAINS` to the real record set:
+4. Enumerate the zone and expand `DOMAINS` to the real record set. The token
+   resolves its own zone ID, so nothing has to be looked up by hand — and no
+   account ID is involved anywhere:
    ```
+   TOKEN=...
+   ZONE=$(curl -s -H "Authorization: Bearer $TOKEN" \
+     "https://api.cloudflare.com/client/v4/zones?name=immortalkeep.com" \
+     | jq -r '.result[0].id')
    curl -s -H "Authorization: Bearer $TOKEN" \
-     "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&per_page=100" \
+     "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records?type=A&per_page=100" \
      | jq -r '.result[] | "\(.name)\t\(.content)\tproxied=\(.proxied)"'
    ```
    Exclude `status`. Both updaters now agree. Confirm from off-network.
