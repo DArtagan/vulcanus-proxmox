@@ -35,6 +35,10 @@ API Key** — full account access, every zone, including the power to change
 nameservers — and writes the record on our behalf. That credential lives in a
 third party's database and is not in this repo.
 
+The WAN IP changed from 174.29.1.69 to 71.218.26.45 between 2026-09-04 and
+2026-09-08, and dnsomatic tracked it — so the update path works today, and four
+days is a realistic interval between changes rather than a hypothetical one.
+
 Live state at the pod, 2026-09-04:
 
 ```
@@ -187,12 +191,28 @@ there is no conflict and no window with nothing updating. Flux reconciles from
    `kubernetes/apps/cloudflare-ddns/credentials.sops.yaml` with `sops`.
 2. Deploy with `DOMAINS=ddns-canary.immortalkeep.com` and nothing else. Nothing
    resolves through that name, so a misconfiguration has no blast radius.
-   Confirm the record appears with the current WAN IP.
+
+   **Confirm via the API, not `dig`.** The `*` wildcard already answers for
+   `ddns-canary.immortalkeep.com` with the correct WAN IP, so a dig returns the
+   right answer whether or not the updater created anything — a check that
+   cannot fail. List the records instead and look for an explicit `ddns-canary`
+   entry:
+   ```
+   curl -s -H "Authorization: Bearer $TOKEN" \
+     "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records?type=A&name=ddns-canary.immortalkeep.com" \
+     | jq -r '.result[] | "\(.name)\t\(.content)"'
+   ```
 3. **The acceptance test.** Set the canary to `192.0.2.1` (TEST-NET-1) by hand
    in the dashboard and watch it heal within one 5m cycle. This is the only
    falsifiable test available: the ISP cannot be made to change the WAN IP on
    demand, and "the record is still correct" proves nothing while dnsomatic is
    also running.
+
+   Read the result from the API here too. An explicit record beats the wildcard,
+   so `dig` does distinguish `192.0.2.1` from the healthy answer — but if the
+   updater were to *delete* the record rather than correct it, the wildcard
+   would answer with the right IP and the test would appear to pass. The record
+   listing tells the two apart.
 4. Enumerate the zone and expand `DOMAINS` to the real record set. The token
    resolves its own zone ID, so nothing has to be looked up by hand — and no
    account ID is involved anywhere:
