@@ -450,3 +450,57 @@ spec:
               cycle if that fails. If the devices are present, the device plugin
               is the suspect; see docs/automatic-ripping-machine.md and
               todos/generic-device-plugin-hang.md.
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: public-dns
+spec:
+  groups:
+    - name: public-dns
+      rules:
+        # The public A records for immortalkeep.com point at a WAN IP the ISP
+        # changes without warning, and cloudflare-ddns is the only thing that
+        # corrects them. A stale record costs more than the affected services:
+        # headscale.immortalkeep.com is pinned to public DNS on purpose (see
+        # docs/tailnet.md), the WireGuard break-glass tunnel is reached at the
+        # same address, and cert-manager renews every certificate over HTTP-01.
+        # Losing the record eventually removes the ability to fix the record.
+        #
+        # Scoped to the one deployment by name rather than matching any
+        # zero-replica Deployment: podgrab is intentionally scaled to zero, so
+        # the general form would fire on it permanently.
+        #
+        # `absent` covers the Deployment being removed outright — dropped from
+        # the apps kustomization, or pruned by Flux. With no object there is no
+        # series, and `== 0` has nothing to compare, so the loudest version of
+        # this failure is the one the bare comparison cannot see.
+        #
+        # This catches the updater being gone, not the updater being wrong. A
+        # revoked token leaves it Running and Ready while every API call fails,
+        # which nothing here sees — the record stays correct until the next IP
+        # change, and UptimeRobot's external probes of immortalkeep.com,
+        # plex and mumble are what catch it then. Closing that gap needs a
+        # heartbeat service or an exporter comparing the published record to the
+        # detected WAN IP; the token is set non-expiring in the meantime.
+        - alert: DDNSUpdaterDown
+          expr: |
+            kube_deployment_status_replicas_available{namespace="apps", deployment="cloudflare-ddns"} == 0
+            or absent(kube_deployment_status_replicas_available{namespace="apps", deployment="cloudflare-ddns"})
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: The dynamic DNS updater has no running replica.
+            description: >-
+              Nothing is updating the public A records for immortalkeep.com, so
+              they go stale at the next WAN IP change and remote access goes
+              with them. The records are correct until that happens, which is
+              the grace period available to fix this. Check why it is not
+              running with:
+              kubectl describe deploy -n apps cloudflare-ddns
+              and read the last logs in VictoriaLogs, since the pod is likely
+              gone — see docs/logging.md. The records can be corrected by hand
+              in the Cloudflare dashboard, which does not depend on the house
+              being reachable.
