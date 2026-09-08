@@ -57,8 +57,6 @@ spec:
             # record family that does not exist and reports failures for it.
             - name: IP6_PROVIDER
               value: "none"
-            - name: TTL
-              value: "300"
             - name: UPDATE_CRON
               value: "@every 5m"
           securityContext:
