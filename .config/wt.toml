@@ -53,6 +53,16 @@ if ! git switch main 2>/dev/null; then
   echo "main is checked out in another worktree - run deploy from there." >&2
   exit 1
 fi
+
+# Flux Bot pushes to main between deploys, so the main this worktree last left
+# behind is routinely stale and the push below is rejected. A merge rather than
+# a fast-forward, because a deploy whose push was rejected leaves main both
+# ahead (its own merge commit) and behind (Flux Bot's), and --ff-only refuses
+# exactly the state this exists to recover from. --no-rebase because main is
+# reconciled by Flux and shared across machines: its merge commits are history
+# to keep, not to replay.
+git pull --no-rebase --no-edit origin main
+
 git merge --no-ff {{ branch }} -m "Merge {{ branch }} for cluster test."
 git push origin main
 git switch {{ branch }}
