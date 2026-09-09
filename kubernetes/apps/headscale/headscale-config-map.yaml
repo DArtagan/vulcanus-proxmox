@@ -232,6 +232,17 @@ data:
       # List of DNS servers to expose to clients.
       nameservers:
         global:
+          # DoH first, deliberately. Some networks blackhole UDP/53 outright
+          # (measured on one: every resolver timed out over UDP -- the local
+          # router's included -- while TCP/443 was fine, and tailscale itself
+          # fell back to DERP relays for want of UDP). DoH rides TCP/443, so it
+          # survives that; a plain resolver address does not.
+          - https://dns.google/dns-query
+          # Same provider by address, for tailscale's automatic DoH upgrade.
+          - 8.8.8.8
+          - 8.8.4.4
+          # Cloudflare last: it is a common target for blanket blocking. On the
+          # network above, 1.1.1.1 was unreachable on every port, not just 53.
           - 1.1.1.1
           - 1.0.0.1
           - 2606:4700:4700::1111
@@ -256,6 +267,13 @@ data:
           # must resolve without the tailnet -- otherwise clients need the
           # tailnet to reach the control server that brings up the tailnet.
           headscale.immortalkeep.com:
+            # Must not depend on Cloudflare alone: a network that blocks it
+            # leaves clients unable to resolve the control server that brings
+            # up the tailnet -- exactly the bootstrap the comment above warns
+            # about. DoH first, for networks that also drop UDP/53.
+            - https://dns.google/dns-query
+            - 8.8.8.8
+            - 8.8.4.4
             - 1.1.1.1
             - 1.0.0.1
 
