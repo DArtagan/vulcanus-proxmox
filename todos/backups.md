@@ -175,6 +175,9 @@ performance.
 - **mini-nas moves to 4-disk raidz1 vdevs** — the only geometry under which a 2x
   disk upgrade on vulcanus is sustainable.
 - **Backup coverage is opt-out, not opt-in** (K8up's own default).
+- **A deleted guest's disks retain exactly as a live guest's would**, on both layers,
+  with nothing destroyed automatically — freeing that space is a deliberate act after
+  inspecting what is there.
 
 ### Why K8up, against Stash and Velero
 
@@ -1150,8 +1153,11 @@ expansion*. That keeps `rpool` off 93% while the expansion is pending, and puts 
 offsite VM images on different spindles from the offsite ZFS replica.
 
 Remote plus scheduled sync job, and **a verify job on the target, because PBS sync
-does not verify chunks on arrival.** Add the verify and prune jobs the primary
-datastore also lacks. Retire `vulcanus-data` from syncoid.
+does not verify chunks on arrival.** Add the verify job the primary datastore also
+lacks — but **not a prune job on PBS #2**: see *Retention for deleted guests*, which
+has it sync with `remove-vanished` and no prune of its own, so it tracks the primary
+exactly and a retired guest's frozen group is preserved rather than expired. Retire
+`vulcanus-data` from syncoid.
 
 **On the apparent contradiction:** a VM was ruled out for the restic repo because a
 zvol datastore is opaque to the host and cannot be verified from outside. PBS #2 is a
