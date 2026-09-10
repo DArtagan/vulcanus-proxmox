@@ -288,7 +288,7 @@ It also silently sizes the restic repository and mini-nas's snapshot space.
 | **sanoid mini-nas `data/*`, `ROOT`** | 30 daily | 30 d, matching source |
 | **restic** (app + mass files) | keep-last 10, hourly 24, daily 30, weekly 8, monthly 24, `--keep-tag decommissioned` | 2 y |
 | PBS primary | keep-last 31 | 31 d *(unchanged)* |
-| **PBS #2** | keep-daily 30, weekly 8, monthly 12 | 1 y |
+| **PBS #2** | none of its own — sync with `remove-vanished`, mirroring the primary | tracks primary |
 | **External disk** | keep-monthly 12, keep-yearly 3 | 3 y |
 
 mini-nas's daily depth deliberately exceeds vulcanus's. syncoid uses
@@ -1062,26 +1062,43 @@ pruned.** Their names do not match sanoid's `autosnap_<date>_<type>` pattern, so
 fall outside every retention rule and accumulate — two per dataset, which is why
 `vm-100-disk-0` shows 32 snapshots under a 30-daily policy.
 
-#### Open decision: what happens to archived replicas
+#### Retention for deleted guests — decided 2026-09-10
 
-Left for whoever picks up Phase 1, because it is a data-destruction policy rather
-than a mechanism. The options, with the trade each makes:
+**A deleted machine's disks retain exactly as a live machine's would**, following the
+declared retention rules, and nothing is destroyed automatically. Freeing that space
+is a deliberate act: inspect the retained disk, decide whether it is worth keeping,
+remove it by hand. User's call, verbatim: *"if I/someone wants to free up more backup
+space, they can inspect the retained disk and determine whether it's worth deleting."*
 
-1. **Alert only, destroy by hand.** The check reports the archive's contents and their age
-   so they surface as outstanding work. Nothing is destroyed unattended. Fixes the
-   demonstrated defects — invisible accumulation and blocked replication — without
-   adding automated deletion of backup data.
-2. **Auto-destroy after 90 days**, with a `local:retain=true` ZFS property as opt-out
-   and an alert before expiry. Guarantees the archive cannot grow without bound. Mirrors
-   the `--keep-tag decommissioned` pattern planned for restic in Phase 2.
-3. **Auto-destroy after 30 days**, same mechanism. Phase 0's 624 GB sat on a pool at
-   89%, so a long window has real capacity cost.
+**Set identically on both layers.** Otherwise the effective retention is the longer of
+the two and the shorter policy is fiction.
 
-Worth weighing against what Phase 0 actually found when it opened one of these: 81%
-of the 543 GB was a Loki volume already deliberately deleted, and about 10 GB was
-irreplaceable. The archive is likelier to hold expired bulk than anything wanted — but
-it took an inspection to know that, which is an argument for the window being long
-enough to inspect rather than for it being long.
+What that means mechanically is different on each side, and on one of them it is
+already true:
+
+- **ZFS — already correct, keep it.** sanoid prunes by count rather than age, so a
+  dataset that stops receiving keeps its N most recent snapshots and nothing ages them
+  out. The archive tree therefore takes the same `replica-shallow` template as
+  `data/*`, and a retired guest sits at 30 snapshots indefinitely. No auto-destroy, no
+  `local:retain` property, no expiry timer — the earlier options 2 and 3 are dropped.
+  The freshness check still reports archive contents and their age, so they surface as
+  work rather than vanishing.
+- **PBS — needs one change and one reversal.** The primary already behaves this way by
+  the same accident: vzdump prunes only the groups it backs up, so a destroyed guest's
+  group freezes at 31. To make PBS #2 identical, sync it with **`remove-vanished`**
+  (off by default; needs `Datastore.Prune` on the local datastore) and give it **no
+  prune job of its own**. It then tracks the primary exactly, frozen groups included.
+
+**This reverses a planned setting.** Phase 4 previously gave PBS #2
+`keep-daily 30, weekly 8, monthly 12` — a *datastore-wide* prune, which would have
+expired precisely the frozen groups this decision preserves, and broken parity with
+the ZFS side.
+
+**Residual risk worth naming.** With `remove-vanished`, a deliberate deletion on the
+primary propagates to PBS #2. After Phase 4 retires `vulcanus-data` from syncoid, PBS
+is the only lineage holding VM images, so a propagated deletion has no counterweight
+within that lineage. The offline disk in Phase 5 is the mitigation, which is an
+argument against letting it slip.
 
 ### Phase 2 — application backups
 
