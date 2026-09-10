@@ -259,8 +259,22 @@ there is no conflict and no window with nothing updating. Flux reconciles from
    ```
    The expected end state is the table above, unchanged except that `dynamic`
    is now maintained by `cloudflare-ddns`.
-5. Prove `DDNSUpdaterDown` fires — scale to zero, wait past `for: 15m`, confirm
-   Pushover, scale back, confirm it resolves.
+5. **`DDNSUpdaterDown` proved in both directions — run 2026-09-10, passed.**
+   Scaled to zero at 19:35:52Z; pending 19:36:14Z; firing 19:51:41Z, 899s later
+   and so matching `for: 15m`; reached Alertmanager `active`, `severity:
+   warning`, receiver `pushover`. Scaled back at 19:51:55Z and inactive by
+   19:52:36Z with no active alerts left.
+
+   Run this **before** step 6, not after: dnsomatic still holds the record while
+   `cloudflare-ddns` is at zero replicas, so the test costs nothing. Once
+   dnsomatic is gone the same test leaves the record unattended for the fifteen
+   minutes the alert needs to trip.
+
+   `kube_deployment_status_replicas_available` is emitted as `0` by
+   kube-state-metrics even though `availableReplicas` is absent from the
+   Deployment status at zero replicas, so the `== 0` branch is what matched.
+   The `absent()` branch is for the different case of the Deployment being
+   deleted outright and was not exercised here.
 6. Remove `kubernetes/apps/dnsomatic/` and its kustomization line.
 7. **Revoke the Cloudflare Global API Key** in the DNS-O-Matic account, then
    delete the account. Easiest step to forget and the one with the most security
