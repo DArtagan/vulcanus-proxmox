@@ -54,6 +54,14 @@ if ! git switch main 2>/dev/null; then
   exit 1
 fi
 
+# Everything below this line can fail: a rejected push, a conflicted merge, a
+# dropped network. Under `set -e` that exits with the worktree still on main,
+# and the next commit lands on main instead of the branch — silently, because
+# nothing about the prompt says which branch a worktree is on. The review then
+# never sees that work, and main carries commits that were never reviewed.
+# The trap makes the return to the branch unconditional; it is not a tidy-up.
+trap 'git switch {{ branch }} 2>/dev/null || true' EXIT
+
 # Flux Bot pushes to main between deploys, so the main this worktree last left
 # behind is routinely stale and the push below is rejected. A merge rather than
 # a fast-forward, because a deploy whose push was rejected leaves main both
@@ -65,7 +73,6 @@ git pull --no-rebase --no-edit origin main
 
 git merge --no-ff {{ branch }} -m "Merge {{ branch }} for cluster test."
 git push origin main
-git switch {{ branch }}
 '''
 
 # Complete the review. Merging into the frozen base marks the PR genuinely
