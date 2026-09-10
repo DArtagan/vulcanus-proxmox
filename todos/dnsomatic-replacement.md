@@ -215,17 +215,32 @@ there is no conflict and no window with nothing updating. Flux reconciles from
      "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records?type=A&name=ddns-canary.immortalkeep.com" \
      | jq -r '.result[] | "\(.name)\t\(.content)"'
    ```
-3. **The acceptance test.** Set the canary to `192.0.2.1` (TEST-NET-1) by hand
-   in the dashboard and watch it heal within one 5m cycle. This is the only
-   falsifiable test available: the ISP cannot be made to change the WAN IP on
-   demand, and "the record is still correct" proves nothing while dnsomatic is
-   also running.
+3. **The acceptance test — run 2026-09-10, passed.** Break the canary
+   (`192.0.2.1`) and confirm the updater corrects it.
 
-   Read the result from the API here too. An explicit record beats the wildcard,
-   so `dig` does distinguish `192.0.2.1` from the healthy answer — but if the
-   updater were to *delete* the record rather than correct it, the wildcard
-   would answer with the right IP and the test would appear to pass. The record
-   listing tells the two apart.
+   Result: `📡 Updated an outdated A record for ddns-canary.immortalkeep.com`.
+   That is the *update* path on an existing record, which is what taking over
+   `dynamic` requires — the earlier creation of the canary only proved it could
+   add a record that was not there.
+
+   **What the run revealed about caching, which matters more than the test.**
+   The first cycle after the break reported `already up to date (cached)` and
+   did not look at the record at all. `internal/api/cloudflare.go` keeps
+   `listRecords` in a `ttlcache` keyed on domain name with TTL
+   `CACHE_EXPIRATION`, default 6h. So:
+
+   - **Out-of-band drift is not corrected for up to 6 hours.** If something
+     other than the updater changes the record, it will not notice until that
+     cache entry expires.
+   - **An actual WAN IP change is always tracked within one cycle.** The
+     detected address is compared against the cached record value, so a new IP
+     mismatches immediately and triggers the update. The cache never delays the
+     case this project exists for.
+
+   Because of that first point, the break test only completes promptly after a
+   `kubectl rollout restart`, which empties the cache and forces a fresh read.
+   That is how it was run, and it is worth knowing before anyone repeats it and
+   concludes from a quiet five minutes that the updater is broken.
 4. Point `DOMAINS` at `dynamic.immortalkeep.com` — the one record that holds
    the WAN IP. Both updaters now write the same value to the same record. Read
    the result back from the API, and re-list the whole zone afterwards: the
