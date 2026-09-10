@@ -49,29 +49,38 @@ IP is still the same, not updating
 
 ## What the zone looks like
 
-Measured from **off-network** (an on-LAN query is answered by CoreDNS and says
-nothing about the public record — see the vantage-point rule in CLAUDE.md):
+Enumerated through the Cloudflare API on 2026-09-08. **The zone is a CNAME
+chain over a single A record**, not the set of A records an external `dig`
+suggests:
 
-| Query | Answer | TTL |
+| Type | Name | Target |
 |---|---|---|
-| `immortalkeep.com A` | 174.29.1.69 | 300 |
-| `<anything>.immortalkeep.com A` | 174.29.1.69 | 300 |
-| `immortalkeep.com AAAA` | *(none)* | — |
-| `status.immortalkeep.com A` | 104.21.42.59, 172.67.201.90 | 300 |
+| A | `dynamic.immortalkeep.com` | the WAN IP — **the only record that holds it** |
+| CNAME | `immortalkeep.com` | `dynamic.immortalkeep.com` |
+| CNAME | `*.immortalkeep.com` | `immortalkeep.com` |
+| CNAME | `demo.immortalkeep.com` | `immortalkeep.com` |
+| A | `status.immortalkeep.com` | 192.0.2.1, **proxied** — a placeholder for a redirect rule |
 
-So: an apex A record plus a `*` wildcard, unproxied, no IPv6 anywhere.
-`status.immortalkeep.com` is **proxied** (those are Cloudflare anycast
-addresses) and must stay out of whatever the updater manages.
+This is what `HOST=dynamic` in the dnsomatic secret means: DNS-O-Matic updates
+`dynamic` and the rest of the zone follows. Cloudflare answers with flattened A
+records, so from outside every name resolves to an address and the indirection
+is invisible — `dig` cannot see it at all.
+
+**So `DOMAINS` is `dynamic.immortalkeep.com`, and nothing else.** Pointing the
+updater at `immortalkeep.com` or `*.immortalkeep.com` would have it create A
+records over those CNAMEs, collapsing the indirection the zone is built on.
+`status` is proxied and belongs to a redirect rule; it stays out.
+
+There are no AAAA records, so `IP6_PROVIDER=none`.
 
 Nameservers are `brad.ns.cloudflare.com` / `nina.ns.cloudflare.com` — Cloudflare
 is already authoritative. Nothing in this repo touches the Cloudflare API today;
 there is no token, no `external-dns`, no terraform provider.
 
-**Not verified:** whether explicit A records exist behind the wildcard.
-`headscale.immortalkeep.com` answers identically either way, so `dig` cannot
-tell. The zone must be enumerated through the API before `DOMAINS` is written —
-an explicit `headscale` record left unmanaged would go stale silently, in the
-one service where that matters most.
+`headscale.immortalkeep.com` has no record of its own; it reaches the WAN IP
+through the wildcard like everything else, so the single A record carries it
+too. This was the open question the enumeration answered, and it answered it
+the opposite way to what `dig` implied.
 
 ## Why this is not a routine swap
 
@@ -189,6 +198,10 @@ there is no conflict and no window with nothing updating. Flux reconciles from
 1. Create the Cloudflare token, *Edit zone DNS* template, scoped to
    `immortalkeep.com` only, **no expiry**. Put it in
    `kubernetes/apps/cloudflare-ddns/credentials.sops.yaml` with `sops`.
+
+   Check it by listing the zone, not with `/user/tokens/verify`. That endpoint
+   is user-scoped and returns `success: false` for a token restricted to a
+   single zone, which reads as a broken token when nothing is wrong.
 2. Deploy with `DOMAINS=ddns-canary.immortalkeep.com` and nothing else. Nothing
    resolves through that name, so a misconfiguration has no blast radius.
 
@@ -202,32 +215,50 @@ there is no conflict and no window with nothing updating. Flux reconciles from
      "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records?type=A&name=ddns-canary.immortalkeep.com" \
      | jq -r '.result[] | "\(.name)\t\(.content)"'
    ```
-3. **The acceptance test.** Set the canary to `192.0.2.1` (TEST-NET-1) by hand
-   in the dashboard and watch it heal within one 5m cycle. This is the only
-   falsifiable test available: the ISP cannot be made to change the WAN IP on
-   demand, and "the record is still correct" proves nothing while dnsomatic is
-   also running.
+3. **The acceptance test — run 2026-09-10, passed.** Break the canary
+   (`192.0.2.1`) and confirm the updater corrects it.
 
-   Read the result from the API here too. An explicit record beats the wildcard,
-   so `dig` does distinguish `192.0.2.1` from the healthy answer — but if the
-   updater were to *delete* the record rather than correct it, the wildcard
-   would answer with the right IP and the test would appear to pass. The record
-   listing tells the two apart.
-4. Enumerate the zone and expand `DOMAINS` to the real record set. The token
-   resolves its own zone ID, so nothing has to be looked up by hand — and no
-   account ID is involved anywhere:
+   Result: `📡 Updated an outdated A record for ddns-canary.immortalkeep.com`.
+   That is the *update* path on an existing record, which is what taking over
+   `dynamic` requires — the earlier creation of the canary only proved it could
+   add a record that was not there.
+
+   **What the run revealed about caching, which matters more than the test.**
+   The first cycle after the break reported `already up to date (cached)` and
+   did not look at the record at all. `internal/api/cloudflare.go` keeps
+   `listRecords` in a `ttlcache` keyed on domain name with TTL
+   `CACHE_EXPIRATION`, default 6h. So:
+
+   - **Out-of-band drift is not corrected for up to 6 hours.** If something
+     other than the updater changes the record, it will not notice until that
+     cache entry expires.
+   - **An actual WAN IP change is always tracked within one cycle.** The
+     detected address is compared against the cached record value, so a new IP
+     mismatches immediately and triggers the update. The cache never delays the
+     case this project exists for.
+
+   Because of that first point, the break test only completes promptly after a
+   `kubectl rollout restart`, which empties the cache and forces a fresh read.
+   That is how it was run, and it is worth knowing before anyone repeats it and
+   concludes from a quiet five minutes that the updater is broken.
+4. Point `DOMAINS` at `dynamic.immortalkeep.com` — the one record that holds
+   the WAN IP. Both updaters now write the same value to the same record. Read
+   the result back from the API, and re-list the whole zone afterwards: the
+   updater **creates** records it cannot find, so a name that does not exist
+   yields a new junk A record rather than an error, and over a CNAME it would
+   shadow the indirection instead.
    ```
-   TOKEN=...
+   TOKEN=$(kubectl get secret cloudflare-ddns -n apps \
+     -o jsonpath='{.data.CLOUDFLARE_API_TOKEN}' | base64 -d)
    ZONE=$(curl -s -H "Authorization: Bearer $TOKEN" \
      "https://api.cloudflare.com/client/v4/zones?name=immortalkeep.com" \
      | jq -r '.result[0].id')
    curl -s -H "Authorization: Bearer $TOKEN" \
-     "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records?type=A&per_page=100" \
-     | jq -r '.result[] | "\(.name)\t\(.content)\tproxied=\(.proxied)"'
+     "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records?per_page=200" \
+     | jq -r '.result[] | "\(.type)\t\(.name)\t-> \(.content)"' | sort
    ```
-   Exclude `status`. Both updaters now agree. Confirm from off-network.
-   Re-run the listing afterwards: favonia **creates** records it cannot find, so
-   a typo in `DOMAINS` yields a junk record rather than an error.
+   The expected end state is the table above, unchanged except that `dynamic`
+   is now maintained by `cloudflare-ddns`.
 5. Prove `DDNSUpdaterDown` fires — scale to zero, wait past `for: 15m`, confirm
    Pushover, scale back, confirm it resolves.
 6. Remove `kubernetes/apps/dnsomatic/` and its kustomization line.

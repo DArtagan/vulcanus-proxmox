@@ -40,12 +40,21 @@ spec:
                 secretKeyRef:
                   name: cloudflare-ddns
                   key: CLOUDFLARE_API_TOKEN
-            # Enumerate the zone before widening this. An explicit A record
-            # hiding behind the wildcard resolves identically to it, so dig
-            # cannot distinguish the two; one left unmanaged goes stale
-            # silently. status.immortalkeep.com is proxied and stays out.
+            # dynamic.immortalkeep.com is the only record holding the WAN IP.
+            # The apex CNAMEs to it, the wildcard CNAMEs to the apex, and
+            # Cloudflare answers flattened, so every name resolves to an address
+            # and the indirection is invisible to dig. Naming immortalkeep.com
+            # or *.immortalkeep.com here would create A records over those
+            # CNAMEs and collapse the structure the zone is built on — the
+            # updater creates whatever it cannot find rather than erroring.
+            #
+            # ddns-canary is a deliberately worthless record kept so the updater
+            # can be proved end-to-end without touching one that matters:
+            # set it wrong, restart the pod to clear the 6h record cache, and
+            # watch it corrected. Breaking dynamic to run the same test would
+            # take the whole zone down for a cycle.
             - name: DOMAINS
-              value: "ddns-canary.immortalkeep.com"
+              value: "dynamic.immortalkeep.com,ddns-canary.immortalkeep.com"
             # Cloudflare's proxy breaks headscale — cloudflared strips the
             # Upgrade header on POST and Tailscale's TS2021 handshake is a
             # WebSocket over POST — and cannot carry the L4 services at all.
@@ -57,8 +66,6 @@ spec:
             # record family that does not exist and reports failures for it.
             - name: IP6_PROVIDER
               value: "none"
-            - name: TTL
-              value: "300"
             - name: UPDATE_CRON
               value: "@every 5m"
           securityContext:
