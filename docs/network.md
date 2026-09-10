@@ -102,6 +102,61 @@ back to Cloudflare during a CoreDNS outage will hit the external ingress, which
 is the correct degraded behavior.
 
 
+## Public DNS
+
+Cloudflare is authoritative for `immortalkeep.com`. The whole zone hangs off a
+single A record:
+
+| Type | Name | Target |
+|---|---|---|
+| A | `dynamic.immortalkeep.com` | the WAN IP |
+| CNAME | `immortalkeep.com` | `dynamic.immortalkeep.com` |
+| CNAME | `*.immortalkeep.com` | `immortalkeep.com` |
+| CNAME | `demo.immortalkeep.com` | `immortalkeep.com` |
+| A | `status.immortalkeep.com` | a proxied placeholder for a redirect rule |
+
+Cloudflare answers flattened, so every name returns a plain A record at TTL 300
+and the indirection is invisible from outside — `dig` cannot see it, even
+against the authoritative nameservers. **The record set can only be read through
+the API.** `headscale.immortalkeep.com` has no record of its own; it reaches the
+WAN IP through the wildcard like everything else.
+
+One record means the update is atomic: there is never a window where some names
+carry a new address and others the old one. It is also why `DOMAINS` in
+`kubernetes/apps/cloudflare-ddns/` names `dynamic.immortalkeep.com` and not the
+apex or the wildcard — those are CNAMEs, and the updater creates whatever it
+cannot find, so naming them would lay A records over the top and collapse the
+indirection.
+
+`ddns-canary.immortalkeep.com` is a deliberately worthless record nothing
+resolves through, kept so the updater can be proved end to end without touching
+one that matters. Set it wrong, restart the pod, watch it corrected.
+
+### What keeps it current
+
+`cloudflare-ddns` in `apps` polls every 5 minutes with a Cloudflare API token
+scoped to this zone alone. Two behaviours worth knowing, neither obvious from
+the logs:
+
+- **A WAN IP change is tracked within one cycle.** The detected address is
+  compared against the cached record value, so a new address mismatches at once.
+- **Drift is not.** Record state is cached for 6 hours, so a record changed by
+  anything other than the updater reads as `already up to date (cached)` until
+  that expires. A pod restart empties the cache and forces a fresh read.
+
+`DDNSUpdaterDown` in `prometheus-rules.yaml` reports the updater having no
+running replica. It cannot see a token that has been revoked, which leaves the
+updater Running and Ready while every API call fails — the records stay correct
+until the WAN IP next changes, and UptimeRobot's external probes are what catch
+it then. The token is created without an expiry to make that unlikely.
+
+A stale record is not a cosmetic outage. `headscale.immortalkeep.com` is pinned
+to public DNS on purpose (see [tailnet.md](tailnet.md)), the WireGuard
+break-glass tunnel is reached at the same address, and cert-manager renews every
+certificate over HTTP-01. Losing the record removes the means of fixing it, so
+the recovery path is the Cloudflare dashboard, which does not depend on the
+house being reachable.
+
 ## Service Exposure
 
 All services use `*.immortalkeep.com` hostnames. The ingress class determines
@@ -195,7 +250,7 @@ internal ingress via the wildcard; sync traffic uses `syncthing-sync`.
 |---------|-------|
 | borgmatic | Backup orchestration |
 | rclone | Cloud sync (Dropbox, B2) |
-| dnsomatic | DDNS updater |
+| cloudflare-ddns | DDNS updater, see Public DNS above |
 | beets | Music library CronJob |
 | tinyproxy | HTTP proxy (disabled) |
 
