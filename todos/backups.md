@@ -1029,6 +1029,39 @@ would quarantine the entire replica the first time an SSH connection dropped:
 - the condition must persist across three consecutive daily runs
 - a circuit breaker — never quarantine more than three datasets in one run
 
+#### Deleted guests are currently kept forever, by accident
+
+Both layers retain a destroyed guest indefinitely, and neither was designed to.
+Measured 2026-09-10:
+
+- **sanoid prunes by count, not age.** A replica that stops receiving keeps its N
+  most recent snapshots permanently. `vm-200-disk-1` holds exactly 30 dailies with
+  the oldest from 12 March, months after replication stopped; `vm-901-disk-0` has
+  held a single January snapshot since. An age-based policy would have emptied both.
+- **The vzdump job prunes only the groups it backs up.** A destroyed guest's PBS
+  group is never revisited, so it freezes — `vm/200` still holds 31 backups from
+  March and April.
+
+They are complements rather than alternatives. PBS is the better *recovery* path for
+an accidental `qm destroy` — local to vulcanus, `qm restore`, no WAN transfer. The
+ZFS replica is the better *survival* copy — offsite, a different failure domain, and
+mountable for file-level inspection.
+
+**The plan ends both protections, in two places.** Whatever retention the archive
+above is given puts a clock on the ZFS side, and Phase 4's PBS #2 policy
+(`keep-daily 30, weekly 8, monthly 12`) is a *datastore-wide* prune, which unlike
+today's client-side prune would expire a frozen group.
+
+So decide what a deleted guest deserves rather than inheriting infinity: the same
+window as a live one, something longer, or genuinely forever at unbounded cost. Set
+the same value on both sides — otherwise the effective retention is the longer of the
+two and the shorter policy is fiction.
+
+Adjacent, from the same measurement: **syncoid's own bookmark snapshots are never
+pruned.** Their names do not match sanoid's `autosnap_<date>_<type>` pattern, so they
+fall outside every retention rule and accumulate — two per dataset, which is why
+`vm-100-disk-0` shows 32 snapshots under a 30-daily policy.
+
 #### Open decision: what happens to archived replicas
 
 Left for whoever picks up Phase 1, because it is a data-destruction policy rather
