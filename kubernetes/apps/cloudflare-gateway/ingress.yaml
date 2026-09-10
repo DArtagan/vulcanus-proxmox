@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cloudflare-gateway-profile
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: ingress-nginx-internal
+  tls:
+    - hosts:
+        - dns.immortalkeep.com
+      secretName: cloudflare-gateway-profile-tls
+  rules:
+    - host: dns.immortalkeep.com
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: cloudflare-gateway-profile
+                port:
+                  number: 80
