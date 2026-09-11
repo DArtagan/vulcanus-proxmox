@@ -5,7 +5,17 @@ cluster, the tailnet, family iPhones when they are away from home, and four
 relatives' houses. Auto-updating blocklists, and exceptions that can be added
 without ceremony.
 
-Branch `filtering-dns`. Two commits are on it already; see **Where this stands**.
+Branch `filtering-dns`. See **Where this stands**.
+
+**Topology, because it drives the risk model.** `vulcanus` — the Proxmox host,
+the Talos cluster, CoreDNS on `192.168.0.202`, the `192.168.0.0/24` LAN that
+`docs/network.md` describes — is housed **at Will's brother's house, many states
+away**. `mini-nas`, the offsite ZFS replication target, is the machine housed
+**with Will**. The two Gateway locations are named for the two sites.
+
+Everything that follows about CoreDNS therefore changes DNS for a household
+nobody involved can walk into. A wrong upstream there is not an inconvenience;
+it is someone else's internet, fixed remotely or not at all.
 
 ## Why this is not simply a NextDNS subscription
 
@@ -99,8 +109,9 @@ where support calls come from, so the router only covers the residue.
 
 | What | How | Exceptions work? |
 |---|---|---|
-| Home LAN | CoreDNS → Gateway DoT | Yes |
+| `vulcanus` LAN (brother's house) | CoreDNS → Gateway DoT | Yes |
 | Cluster and infra VMs | Same CoreDNS | Yes |
+| Will's own LAN (`boston`) | Router → box → Gateway DoH | Yes, plus local overrides |
 | Tailnet devices, on and off LAN | Headscale global nameserver → Gateway DoH | Yes |
 | Family iPhones, anywhere | `.mobileconfig` → Gateway DoH | Yes |
 | A house with an AdGuard Home box | Router → box → Gateway DoH | Yes, plus local overrides |
@@ -284,13 +295,19 @@ public wildcard and lands on the external ingress.
 
 **The iOS profile app** is the primary delivery mechanism for family devices, so
 it deserves the most care. Hardening and the MIME registration are done. One
-fix remains and is blocked on decryption: **captive-portal exclusions** in the
-profile's `ProhibitedDomains` — `captive.apple.com`, `mask.icloud.com`,
-`mask-h2.icloud.com`. Since iOS 15.5 Apple exempts captive-portal detection from
-encrypted-DNS rules, and these are what make hotel and airline portals load.
-Until they are added, the landing page's manual "switch DNS to Automatic"
-instructions are the only recourse, and they are what a relative will hit in an
-airport.
+fix remains: **captive-portal exclusions**. Earlier versions of this spec called
+for a `ProhibitedDomains` key. There is no such key — that was invented. Apple's
+`com.apple.dnsSettings.managed` payload excludes domains through an
+`OnDemandRules` entry with `Action: EvaluateConnection` and
+`DomainAction: NeverConnect`, followed by a catch-all `Connect` rule without
+which nothing uses the DoH server at all.
+
+`adblock.mobileconfig.template` in the app directory is the drafted profile,
+with `DOH-SUBDOMAIN` to substitute. It also sets `AllowFailover` true — an ad
+blocker should fail open, because the alternative is a relative with no working
+internet who deletes the profile and is never covered again — and leaves
+`ProhibitDisablement` false so a portal the exclusions miss still has an escape
+hatch.
 
 `dns.immortalkeep.com` needs **no** CoreDNS carve-out — an earlier version of
 this spec said it did, wrongly. The zone file's `*.immortalkeep.com` wildcard
@@ -330,8 +347,10 @@ stood up anywhere** — `~/dotfiles` is a flake with three personal hosts and no
 Colmena config — and a DNS project should not be the reason a fleet manager gets
 bootstrapped; the module ports over unchanged when that lands. The box needs a
 tagged-node grant in `policy-config-map.yaml`, where every rule is `src: will@`
-today. Check the spare hardware's architecture early: NixOS on x86_64 is
-unremarkable, on an ARM SBC it is a much larger job.
+today. Whether the remote boxes end up bare metal, VMs or containers is an open
+implementation detail; the NixOS module is portable across all three, so it is
+not worth deciding now. Architecture still is: NixOS on x86_64 is unremarkable,
+on an ARM SBC it is a much larger job.
 
 **Monitoring.** The failure that matters is not "the box is down" but "this house
 stopped being filtered", and a dead box looks healthy from inside the house

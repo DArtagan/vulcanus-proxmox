@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Source of truth for the Apple configuration profile served at
+  dns.immortalkeep.com. The rendered copy lives in the adblock.mobileconfig key
+  of secret.sops.yaml, because the DoH hostname identifies a Gateway location
+  and anyone holding it can resolve through this account's policies.
+
+  This template is kept in plaintext deliberately: the encrypted copy is a
+  single opaque blob whose diffs are meaningless, so without it there is no
+  reviewable record of what the family is actually installing.
+
+  To render: replace DOH-SUBDOMAIN below with the subdomain of the location the
+  profile should use, then paste the result into the secret. Keep both PayloadUUID
+  values as they are — iOS treats a profile with a new UUID as a different
+  profile and installs it alongside the old one instead of replacing it.
+-->
+<plist version="1.0">
+<dict>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>PayloadType</key>
+      <string>com.apple.dnsSettings.managed</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+      <key>PayloadIdentifier</key>
+      <string>com.immortalkeep.dns.adblock</string>
+      <key>PayloadUUID</key>
+      <string>1258D328-B04C-4CCE-AB6E-DB33721C5CF5</string>
+      <key>PayloadDisplayName</key>
+      <string>Ad-Blocking DNS</string>
+
+      <key>DNSSettings</key>
+      <dict>
+        <key>DNSProtocol</key>
+        <string>HTTPS</string>
+        <key>ServerURL</key>
+        <string>https://DOH-SUBDOMAIN.cloudflare-gateway.com/dns-query</string>
+      </dict>
+
+      <!--
+        Fail open. If Gateway is unreachable the device falls back to whatever
+        resolver the network handed it, unfiltered. This is an ad blocker, not a
+        security control, and the alternative failure mode is a family member
+        with no working internet and no idea why, who deletes the profile and is
+        never covered again. Availability wins here.
+      -->
+      <key>AllowFailover</key>
+      <true/>
+
+      <!--
+        Leave the profile switchable from Settings. A relative behind a hotel or
+        airline portal that the exclusions below do not cover needs an escape
+        hatch that does not involve phoning for help.
+      -->
+      <key>ProhibitDisablement</key>
+      <false/>
+
+      <!--
+        Captive portals. Since iOS 15.5 Apple exempts its own captive-network
+        detection from encrypted DNS, so most portals simply work; these cover
+        the cases where it does not. There is no key for excluding domains —
+        the mechanism is an OnDemand rule that evaluates the connection and
+        refuses to use encrypted DNS for these names, which sends them to the
+        network's own resolver so the portal can hijack them as it intends.
+
+        The final catch-all Connect rule is required. Rules are evaluated in
+        order and the first match wins, so without it no other traffic would
+        ever use the DoH server at all.
+      -->
+      <key>OnDemandRules</key>
+      <array>
+        <dict>
+          <key>Action</key>
+          <string>EvaluateConnection</string>
+          <key>ActionParameters</key>
+          <array>
+            <dict>
+              <key>DomainAction</key>
+              <string>NeverConnect</string>
+              <key>Domains</key>
+              <array>
+                <!-- Apple's captive-network assistant -->
+                <string>captive.apple.com</string>
+                <!-- iCloud Private Relay; blocked ingress breaks portal detection -->
+                <string>mask.icloud.com</string>
+                <string>mask-h2.icloud.com</string>
+                <string>mask-api.icloud.com</string>
+              </array>
+            </dict>
+          </array>
+        </dict>
+        <dict>
+          <key>Action</key>
+          <string>Connect</string>
+        </dict>
+      </array>
+    </dict>
+  </array>
+
+  <key>PayloadType</key>
+  <string>Configuration</string>
+  <key>PayloadVersion</key>
+  <integer>1</integer>
+  <key>PayloadIdentifier</key>
+  <string>com.immortalkeep.dns</string>
+  <key>PayloadUUID</key>
+  <string>4AB2720E-F970-49F9-97D8-600074D1490C</string>
+  <key>PayloadDisplayName</key>
+  <string>Ad-Blocking DNS</string>
+  <key>PayloadDescription</key>
+  <string>Blocks ads, trackers and malware on this device, including inside apps. Works on any network, including cellular.</string>
+  <key>PayloadOrganization</key>
+  <string>immortalkeep.com</string>
+  <key>PayloadRemovalDisallowed</key>
+  <false/>
+</dict>
+</plist>
