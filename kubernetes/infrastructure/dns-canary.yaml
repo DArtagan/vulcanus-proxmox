@@ -1,0 +1,108 @@
+# Proves that DNS filtering is actually happening, which nothing else here does.
+# CronJobNotSucceeding tells you the sync job ran; the Gateway dashboard tells
+# you a policy exists. Neither notices a wrong upstream hostname, a revoked
+# token, an emptied list, or a Gateway outage — all of which present as "every
+# object is healthy and the ads are back".
+#
+# Deliberately not a new alerting mechanism. It exits non-zero on failure, and
+# CronJobNotSucceeding in prometheus-rules.yaml keys on the schedule label of
+# kube_cronjob_info rather than on CronJob names, so a */15 schedule lands in the
+# 5400s bucket and pages without a rule being written for it.
+#
+# It queries 192.168.0.202 — the LoadBalancer address, not the in-cluster
+# Service name — because that is the path LAN clients and the tailnet actually
+# take. A pod reaching it exercises MetalLB as well.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: dns-canary
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  successfulJobsHistoryLimit: 1
+  schedule: "*/15 * * * *"
+  jobTemplate:
+    spec:
+      # Do not retry. A retry that succeeds hides a flap, and this job exists to
+      # notice flaps. One failure should be visible as a failure.
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: canary
+              image: busybox:1.37
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  memory: 32Mi
+              env:
+                - name: RESOLVER
+                  value: "192.168.0.202"
+                # A resolver known not to filter, used as the control. Without
+                # it there is no way to tell "blocked" from "does not exist".
+                - name: CONTROL_RESOLVER
+                  value: "1.1.1.1"
+                # Must be blocked. Chosen because it is pure ad-serving
+                # infrastructure on every mainstream list, so if this one is
+                # ever unblocked the blocklist is not loaded at all.
+                - name: BLOCKED_DOMAIN
+                  value: "doubleclick.net"
+                # Must resolve. If this fails, DNS is broken rather than strict.
+                - name: CONTROL_DOMAIN
+                  value: "cloudflare.com"
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -u
+                  # Addresses only, with the "Server:"/"Address: <ip>:53" header
+                  # lines dropped. Parsing this way rather than matching busybox's
+                  # label format, which differs between versions.
+                  answers() {
+                    nslookup "$1" "$2" 2>/dev/null \
+                      | sed -n '/^Name:/,$p' \
+                      | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' \
+                      | sort -u | tr '\n' ' '
+                  }
+
+                  fail=0
+
+                  ctrl=$(answers "$CONTROL_DOMAIN" "$RESOLVER")
+                  if [ -z "$ctrl" ]; then
+                    echo "FAIL: $CONTROL_DOMAIN did not resolve via $RESOLVER — DNS is down, not filtering."
+                    fail=1
+                  else
+                    echo "ok: $CONTROL_DOMAIN -> $ctrl"
+                  fi
+
+                  got=$(answers "$BLOCKED_DOMAIN" "$RESOLVER")
+                  ref=$(answers "$BLOCKED_DOMAIN" "$CONTROL_RESOLVER")
+                  # Gateway's block response format is a policy setting (0.0.0.0
+                  # or NXDOMAIN), so compare against an unfiltered resolver
+                  # instead of hardcoding what a block looks like. Equal and
+                  # non-empty means nothing filtered it.
+                  if [ -n "$got" ] && [ "$got" = "$ref" ]; then
+                    echo "FAIL: $BLOCKED_DOMAIN resolved to '$got' via $RESOLVER, identical to unfiltered $CONTROL_RESOLVER — filtering is not in effect."
+                    fail=1
+                  elif [ -z "$ref" ]; then
+                    echo "INCONCLUSIVE: $BLOCKED_DOMAIN did not resolve via $CONTROL_RESOLVER either; cannot tell blocked from gone. Not failing on this."
+                  else
+                    echo "ok: $BLOCKED_DOMAIN -> '${got:-NXDOMAIN}' via $RESOLVER, '$ref' unfiltered"
+                  fi
+
+                  exit $fail
