@@ -274,5 +274,69 @@
     shellcheck.enable = true;
     tflint.enable = true;
     treefmt.enable = true;
+
+    # This repository is public, and a secret committed in plaintext is
+    # exposed the moment it is pushed -- rewriting history does not unpublish
+    # it. Nothing else catches this: `*.sops.yaml` is excluded from treefmt,
+    # and a plaintext one is valid YAML that Kustomize builds happily.
+    sops-encrypted = {
+      enable = true;
+      name = "sops-encrypted";
+      description = "Refuse to commit a *.sops.yaml that is not encrypted";
+      files = "\\.sops\\.yaml$";
+      language = "system";
+      entry = lib.getExe (
+        pkgs.writeShellApplication {
+          name = "sops-encrypted";
+          runtimeInputs = with pkgs; [
+            gnugrep
+            python3
+          ];
+          text = ''
+            status=0
+            for file in "$@"; do
+              # An encrypted file carries a top-level `sops:` block and a `mac:`
+              # over its values. A plaintext one carries neither.
+              if ! grep -q '^sops:' "$file" ||
+                 ! grep -qE '^[[:space:]]+mac: ENC\[' "$file"; then
+                echo "$file is not encrypted. Before committing:" >&2
+                echo "    sops -e -i $file" >&2
+                status=1
+                continue
+              fi
+
+              # An already-encrypted file can still gain a plaintext key by
+              # hand. Checking only the `sops:` block would call that file safe,
+              # and a guard that is confidently wrong about a secret is worse
+              # than none. Key names only in the output -- the value is the
+              # secret, and hook output lands in terminals and CI logs.
+              plaintext=$(python3 - "$file" <<'PY'
+            import re, sys
+
+            inside = False
+            for line in open(sys.argv[1]).read().splitlines():
+                if re.match(r"^(data|stringData):\s*$", line):
+                    inside = True
+                elif inside and re.match(r"^\S", line):
+                    inside = False
+                elif inside:
+                    match = re.match(r"^\s+([\w.-]+):\s*(\S.*)$", line)
+                    if match and not match.group(2).startswith("ENC["):
+                        print(match.group(1))
+            PY
+            )
+              if [ -n "$plaintext" ]; then
+                echo "$file has unencrypted values under data/stringData:" >&2
+                while IFS= read -r key; do
+                  echo "    $key" >&2
+                done <<< "$plaintext"
+                status=1
+              fi
+            done
+            exit "$status"
+          '';
+        }
+      );
+    };
   };
 }
