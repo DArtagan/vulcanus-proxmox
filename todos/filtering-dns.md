@@ -80,6 +80,16 @@ earns its place at the edge, not the centre.
 - **The DoH subdomain is stored SOPS-encrypted and consumed via the HelmRelease's
   `valuesFrom`.** See the wrong turn below for what this replaced and what it
   costs.
+- **The public resolver is AdGuard's**, `94.140.14.14` / `94.140.15.15`. Chosen
+  for low false-positive rate over maximum blocking: at a house with no box there
+  is no way to allowlist anything, and a breakage ends with someone switching
+  their DNS back to automatic and losing all filtering. It is also the only
+  free no-account candidate that actually blocks ads.
+- **Two Gateway locations exist**, `vulcanus` and `boston`, rather than the one
+  the earlier plan assumed. Per-location DoH endpoints give per-site attribution
+  in Gateway's logs for free.
+- **The CGPS fork stays**, and the image-tag automation is to be offered upstream
+  as a pull request rather than carried privately forever.
 
 ## The coverage model
 
@@ -98,18 +108,28 @@ where support calls come from, so the router only covers the residue.
 
 ## Where this stands
 
-Two commits on `filtering-dns`:
+Four commits on `filtering-dns`, plus one of Will's:
 
 1. **Recovered the stashed work.** The app was built April–May 2026 and never
    committed; all of it lived in `stash@{0}`, referenced by nothing and one
    `git stash drop` from being lost. Nine files, committed unmodified so later
-   edits read as a diff against the original design. The stash still exists as a
-   backup and can be dropped once this branch is pushed.
+   edits read as a diff against the original design.
 2. **Dropped the post-build substitution scaffolding**, for the reason below.
+3. **Wrote this spec.**
+4. **Fixed the allowlist and hardened the profile server** — two defects that
+   would each have presented as the feature quietly not existing. See below.
+
+Will has since created the Zero Trust token, renamed the secret to
+`secret.sops.yaml`, and created **two** Gateway DNS locations, `vulcanus` and
+`boston`. The `adblock.mobileconfig` inside the secret already carries the
+`vulcanus` DoH endpoint.
 
 Nothing is wired up. `kubernetes/apps/cloudflare-gateway/` is not in
 `kubernetes/apps/kustomization.yaml`, and `coredns.yaml` is untouched — so
-merging this branch to `main` today deploys nothing and breaks nothing.
+merging this branch to `main` today deploys nothing and breaks nothing. Wiring
+the app in is safe and independent of the CoreDNS work: it would deploy the
+profile server and fix the homepage tile. The CoreDNS change is the one that
+must not reach `main` before the Secret holds a real subdomain.
 
 ## Wrong turns, recorded so they are not repeated
 
@@ -145,6 +165,34 @@ moved 104 insertions and 16 deletions since, including the
 stale Corefile that no back-merge is permitted to repair. The branch is based on
 `main`; only the nine new files came across verbatim.
 
+**The allowlist could never have worked, and failed silently in two ways at
+once.** The CronJob mounted the ConfigMap's `allowlist.txt` read-only at
+`/app/allowlist.txt` — exactly the path `download_lists.js` unlinks and rewrites
+at the start of every run. `unlink` against a bind-mounted file returns `EBUSY`,
+so `npm start` would have aborted before touching Cloudflare; and had it
+succeeded, the download would have replaced the mounted file seconds later. The
+file was empty, so nothing was ever exempted and nothing failed loudly.
+Upstream's actual mechanism is the `ALLOWLIST_URLS` env var, which *replaces*
+the recommended lists rather than extending them — hence the twelve URLs now
+repeated verbatim in `cron-job.yaml` with the household's own file appended,
+served over HTTP by the profile pod.
+
+**Two things in the app read as removable and are not.** `command:` overrides an
+ENTRYPOINT that ignores its arguments, writes a crontab and runs `crond` in the
+foreground forever; under `concurrencyPolicy: Forbid` that Job never completes
+and every later run is skipped in silence. And the `.mobileconfig` MIME type in
+the nginx config is what makes iOS offer the profile at all — nginx's stock
+`mime.types` has no entry for it. Both now carry comments saying so.
+
+**The sync CronJob runs as root and that is deliberate.** Its image is
+`FROM node:alpine` with no `USER`, `WORKDIR /app` owned by root, and npm runs
+scripts from the package root regardless of `workingDir`, so the lists it
+downloads have nowhere to go but a root-owned directory. `runAsNonRoot` or
+`readOnlyRootFilesystem` there yields a job that cannot write its own inputs;
+an `emptyDir` over `/app` shadows the application code. Capabilities are dropped
+regardless. The real fix is a `USER` and a writable working directory upstream —
+worth bundling into the same pull request as the tag automation.
+
 ## Verified on 2026-09-10
 
 - `stash@{0}` exists, based on `1e282ca`, 13 files. Branch `cloudflare-gateway`
@@ -165,17 +213,38 @@ stale Corefile that no back-merge is permitted to repair. The branch is based on
   to 2-space indent while leaving every ciphertext value byte-identical. Harmless
   to SOPS, whose MAC covers values rather than layout, but it will fight with
   sops' own output format and produce noise. Not investigated further.
+- `*.immortalkeep.com` in the CoreDNS zone file answers `192.168.0.203`, so
+  `dns.immortalkeep.com` already routes to the internal ingress. No carve-out is
+  needed; the tile 404s only because the app is undeployed.
+- `CronJobNotSucceeding` keys on `kube_cronjob_info`'s schedule label rather than
+  on names, so the sync job is alerted on automatically once deployed.
+- `kubernetes/apps/kustomization.yaml` sets `namespace: apps`, so the CronJob
+  reaches the profile Service as `http://cloudflare-gateway-profile/`.
+- `kubectl kustomize kubernetes/apps/cloudflare-gateway/` builds clean. Nothing
+  here has been run against a live cluster or a real Cloudflare account.
+- `origin/review/filtering-dns-base` is at `878bcad`, but the branch's own first
+  parent is `95ebb58`. Because `dnsomatic-replacement` landed on `main` before
+  the PR was opened, the review diff currently includes two commits belonging to
+  that project. Repointing the base ref to `95ebb58` makes the diff exactly this
+  project's work.
 
 ## What is blocked, and on what
 
-Everything below needs a Cloudflare Zero Trust account and a token with
-`Account: Zero Trust: Edit` + `Account Settings: Read`. The existing
-`cloudflare-ddns` token is zone-scoped to `immortalkeep.com` and cannot do this —
-do not widen it; that token belongs to `dnsomatic-replacement.md`, which has an
-external deadline of roughly 2026-10-04 and should land first.
+The token now exists, but **an agent session cannot read it.** `sops -d` is
+refused by the harness, there is no `~/.config/sops/age` key file and no
+`SOPS_AGE_*` in the environment, so the token, the account ID and the
+`adblock.mobileconfig` are all unreadable from here. Two consequences: the
+measurements below need either Will running them or the token placed somewhere
+readable — `.env` already carries the Proxmox credentials and is the established
+spot — and **the captive-portal exclusions cannot be added to the profile**,
+because editing them means decrypting it.
 
-1. **Create a Gateway DNS location and record its DoH subdomain.** Everything
-   downstream is a string substitution away once this exists.
+Separately, `git fetch` and `git push` need `ssh-agent` loaded
+(`eval (ssh-agent -c) && ssh-add ~/.ssh/id_ed25519`). Without it the CGPS fork
+cannot be synced with upstream either — both its remotes are SSH.
+
+1. **Record the DoH subdomains** for the `vulcanus` and `boston` locations. Only
+   `vulcanus` is needed for the cluster-side work; `boston` is for a box.
 2. **Measure the real list cap.** Documented as 100 lists × 1,000 entries. The
    recovered CronJob sets `CLOUDFLARE_LIST_ITEM_LIMIT: "300000"` — 300 lists,
    triple the documented cap — and CGPS users report ~187 lists working
@@ -214,17 +283,21 @@ hosts during a cluster outage, since it answers `*.immortalkeep.com` from the
 public wildcard and lands on the external ingress.
 
 **The iOS profile app** is the primary delivery mechanism for family devices, so
-it deserves the most care. The MIME registration already in `config-map.yaml` is
-load-bearing — without `application/x-apple-aspen-config` iOS will not offer to
-install. Three fixes it needs: captive-portal exclusions in the profile's
-`ProhibitedDomains` (`captive.apple.com`, `mask.icloud.com`, `mask-h2.icloud.com`
-— since iOS 15.5 Apple exempts captive-portal detection from encrypted-DNS rules,
-and these are what make hotel and airline portals load); a
-`status.immortalkeep.com`-style CoreDNS carve-out for `dns.immortalkeep.com`, so
-the already-live homepage tile at `kubernetes/apps/homepage/config-map.yaml:138`
-stops 404ing; and `securityContext`, `resources` and probes on `deployment.yaml`
-to match `cloudflare-ddns/deployment.yaml`, which set the house standard after
-this was written.
+it deserves the most care. Hardening and the MIME registration are done. One
+fix remains and is blocked on decryption: **captive-portal exclusions** in the
+profile's `ProhibitedDomains` — `captive.apple.com`, `mask.icloud.com`,
+`mask-h2.icloud.com`. Since iOS 15.5 Apple exempts captive-portal detection from
+encrypted-DNS rules, and these are what make hotel and airline portals load.
+Until they are added, the landing page's manual "switch DNS to Automatic"
+instructions are the only recourse, and they are what a relative will hit in an
+airport.
+
+`dns.immortalkeep.com` needs **no** CoreDNS carve-out — an earlier version of
+this spec said it did, wrongly. The zone file's `*.immortalkeep.com` wildcard
+already answers 192.168.0.203, which is the internal ingress the app's Ingress
+binds to. The homepage tile 404s only because the app is not deployed; wiring it
+into `kubernetes/apps/kustomization.yaml` is the whole fix. Carve-outs are for
+names that must reach *public* DNS, like `status.immortalkeep.com`.
 
 **The four routers** get the same conservative public filtering resolver, chosen
 for low false-positive rate rather than maximum blocking — without a box there is
@@ -273,17 +346,22 @@ that before designing around it.
 
 **The blocklist sync.** The recovered CronJob runs
 `mrrfv/cloudflare-gateway-pihole-scripts` daily against the Zero Trust token.
-`allowlist.txt` is currently `""`, so no domain is ever exempted — seed it from
-upstream's `get_recommended_whitelist.sh`. The exception loop is git → Flux →
-next run, so run it more often than daily and write the manual-trigger command
+The allowlist mechanism is fixed and seeded; exceptions go in the
+`allowlist.txt` key of `config-map.yaml`. The loop is git → Flux → next run, so
+consider running it more often than daily and write the manual-trigger command
 somewhere findable under pressure. The image comes from a personal fork at
 `~/repositories/cloudflare-gateway-pihole-scripts` whose only purpose is three
 lines adding a `YYYYMMDDHHmmss` tag for the Flux ImagePolicy to sort on; it is
 four commits ahead of upstream `c32bbe0` and needs re-syncing, upstream being
 active as of 2026-09-03. Consider dropping the fork and pinning upstream by
-digest instead. Add a Prometheus rule for absence of recent success —
-`CronJobHasNeverSucceeded` is the pattern, and there is no DNS alert of any kind
-in `prometheus-rules.yaml` today.
+digest instead — though Will's preference is to keep the fork and offer the tag
+automation upstream as a pull request.
+
+**No new alert rule is needed.** `CronJobNotSucceeding` in `prometheus-rules.yaml`
+keys on the schedule label of `kube_cronjob_info` rather than on CronJob names,
+deliberately, so a newly added CronJob lands in a bucket without being named.
+`30 10 * * *` falls in the daily catch-all and pages 26 hours after a missed
+success. It covers this job the moment it deploys.
 
 ## Out of scope
 
@@ -297,11 +375,21 @@ the DDNS token is one permission short, but it belongs to
 
 > Continue the `filtering-dns` project on its branch. Read
 > `todos/filtering-dns.md` first — the vendor decision, the rejected
-> alternatives and one unsafe mechanism that was removed are all recorded there,
-> and none of it should be reopened.
+> alternatives, and three mechanisms that were removed because they could not
+> work are all recorded there, and none of it should be reopened.
 >
-> I have created a Cloudflare Gateway DNS location; its DoH subdomain is <...>.
+> The Zero Trust token lives in `kubernetes/apps/cloudflare-gateway/secret.sops.yaml`,
+> which an agent session cannot decrypt; I have also put `CLOUDFLARE_API_TOKEN`
+> and `CLOUDFLARE_ACCOUNT_ID` in `.env`. My Gateway DoH subdomains are:
+> `vulcanus` = <...>, `boston` = <...>.
+>
 > Start from "What is blocked, and on what": measure the real list and location
 > caps against the account rather than trusting the documented numbers, then do
-> the cluster-side plumbing. Note that merging to `main` deploys, so the CoreDNS
-> change must not reach `main` until the Secret holds a real subdomain.
+> the cluster-side plumbing — the `servers:` block into a SOPS Secret behind
+> `valuesFrom`, and the Headscale nameserver swap.
+>
+> Two things to keep in mind. Merging to `main` deploys, so the CoreDNS change
+> must not reach `main` until the Secret holds a real subdomain — wiring the app
+> into `kubernetes/apps/kustomization.yaml` is separately safe and fixes the
+> homepage tile. And run `eval (ssh-agent -c) && ssh-add ~/.ssh/id_ed25519`
+> first if anything needs to fetch or push.
