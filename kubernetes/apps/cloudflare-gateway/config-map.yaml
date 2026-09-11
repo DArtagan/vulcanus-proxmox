@@ -3,12 +3,28 @@ kind: ConfigMap
 metadata:
   name: cloudflare-gateway
 data:
-  allowlist.txt: ""
+  # Domains that must never be blocked, served to the sync job over HTTP by the
+  # nginx pod in this app. It is fetched rather than mounted because
+  # download_lists.js unlinks and rewrites ./allowlist.txt on every run, which
+  # fails outright against a read-only ConfigMap mount. ALLOWLIST_URLS in
+  # cron-job.yaml names this file alongside the upstream recommended lists.
+  #
+  # Add exceptions here, one domain per line. They reach the cluster on the next
+  # Flux reconcile and Cloudflare on the next sync run.
+  allowlist.txt: |
+    # Household exceptions. Upstream's recommended allowlists cover banks,
+    # URL shorteners, Discord, Firefox sync and platform telemetry already.
   nginx-default.conf: |
     server {
-        listen 80;
+        # 8080, not 80: the pod runs unprivileged and drops every capability,
+        # so it cannot bind a port below 1024. See deployment.yaml.
+        listen 8080;
         root /usr/share/nginx/html;
 
+        # Load-bearing. iOS decides whether to offer a profile for installation
+        # from the Content-Type alone, and nginx's stock mime.types has no entry
+        # for .mobileconfig, so without this the file downloads as plain text
+        # and the Settings hand-off never triggers.
         types {
             text/html                            html;
             application/x-apple-aspen-config     mobileconfig;

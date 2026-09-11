@@ -1,3 +1,21 @@
+# Rebuilds the Cloudflare Gateway block lists and the DNS policy that uses them.
+# Everything it needs comes from the Secret: the account ID and a token scoped
+# to Zero Trust.
+#
+# `command` overrides the image's ENTRYPOINT, and that is the point. The
+# entrypoint ignores its arguments, writes a crontab and runs crond in the
+# foreground forever — sensible for `docker run`, fatal here, because the Job
+# would never complete and concurrencyPolicy: Forbid would then skip every
+# subsequent run in silence. Do not remove it in favour of the image default.
+#
+# Runs as root, unlike everything else in this repo. The image is built FROM
+# node:alpine with no USER, WORKDIR /app owned by root, and download_lists.js
+# writes allowlist.txt and blocklist.txt into that working directory — npm runs
+# scripts from the package root regardless of workingDir, so there is nowhere
+# else for them to go. runAsNonRoot or readOnlyRootFilesystem here produces a
+# CronJob that cannot write its own inputs. Capabilities are still dropped
+# entirely and privilege escalation is off. Fixing this properly means a USER
+# and a writable working directory upstream.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -11,6 +29,9 @@ spec:
     spec:
       template:
         spec:
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
           containers:
             - name: sync
               image: ghcr.io/dartagan/cloudflare-gateway-pihole-scripts:20260101000000 # {"$imagepolicy": "apps:cloudflare-gateway-sync"}
@@ -18,18 +39,43 @@ spec:
               env:
                 - name: CLOUDFLARE_LIST_ITEM_LIMIT
                   value: "300000"
+                # Setting this replaces upstream's recommended allowlists rather
+                # than extending them, so they are repeated verbatim and the
+                # household's own file is appended last. Re-check them against
+                # lib/constants.js on an image bump: upstream changing its own
+                # defaults is invisible from here.
+                #
+                # The household file is fetched from the profile Service rather
+                # than mounted, because download_lists.js unlinks and rewrites
+                # ./allowlist.txt before anything reads it, which fails outright
+                # against a read-only ConfigMap mount.
+                - name: ALLOWLIST_URLS
+                  value: |-
+                    https://raw.githubusercontent.com/im-sm/Pi-hole-Torrent-Blocklist/main/all-torrent-trackres.txt
+                    https://raw.githubusercontent.com/AdguardTeam/HttpsExclusions/master/exclusions/banks.txt
+                    https://raw.githubusercontent.com/Dogino/Discord-Phishing-URLs/main/official-domains.txt
+                    https://raw.githubusercontent.com/AdguardTeam/HttpsExclusions/master/exclusions/mac.txt
+                    https://raw.githubusercontent.com/AdguardTeam/HttpsExclusions/master/exclusions/windows.txt
+                    https://raw.githubusercontent.com/boutetnico/url-shorteners/master/list.txt
+                    https://raw.githubusercontent.com/AdguardTeam/HttpsExclusions/master/exclusions/firefox.txt
+                    https://raw.githubusercontent.com/AdguardTeam/HttpsExclusions/master/exclusions/android.txt
+                    https://raw.githubusercontent.com/TogoFire-Home/AD-Settings/main/Filters/whitelist.txt
+                    https://raw.githubusercontent.com/DandelionSprout/AdGuard-Home-Whitelist/master/whitelist.txt
+                    https://raw.githubusercontent.com/AdguardTeam/AdGuardSDNSFilter/master/Filters/exclusions.txt
+                    https://raw.githubusercontent.com/AdguardTeam/HttpsExclusions/master/exclusions/issues.txt
+                    http://cloudflare-gateway-profile/allowlist.txt
               envFrom:
                 - secretRef:
                     name: cloudflare-gateway-credentials
-              volumeMounts:
-                - name: allowlist
-                  mountPath: /app/allowlist.txt
-                  subPath: allowlist.txt
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  memory: 512Mi
           restartPolicy: OnFailure
-          volumes:
-            - name: allowlist
-              configMap:
-                name: cloudflare-gateway
-                items:
-                  - key: allowlist.txt
-                    path: allowlist.txt

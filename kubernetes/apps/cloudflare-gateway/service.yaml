@@ -8,3 +8,5 @@ spec:
   ports:
     - protocol: TCP
       port: 80
+      # The pod listens on 8080 because it runs unprivileged; see deployment.yaml.
+      targetPort: http
