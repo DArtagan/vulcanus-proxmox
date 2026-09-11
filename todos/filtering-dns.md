@@ -100,6 +100,13 @@ earns its place at the edge, not the centre.
   in Gateway's logs for free.
 - **The CGPS fork stays**, and the image-tag automation is to be offered upstream
   as a pull request rather than carried privately forever.
+- **Will has remote access to his brother's router**, so the DHCP secondary can
+  be changed without anyone being on site. That is what makes the CoreDNS change
+  safe to attempt at all.
+- **A third Gateway location, `phones`, for the config profile.** A roaming
+  iPhone pointed at the `vulcanus` endpoint files its queries under that site and
+  destroys the per-site attribution the locations exist for. Locations are
+  documented as 250 per account, so this is free.
 
 ## The coverage model
 
@@ -259,8 +266,11 @@ cannot be synced with upstream either — both its remotes are SSH.
 2. **Measure the real list cap.** Documented as 100 lists × 1,000 entries. The
    recovered CronJob sets `CLOUDFLARE_LIST_ITEM_LIMIT: "300000"` — 300 lists,
    triple the documented cap — and CGPS users report ~187 lists working
-   undocumented. Push lists until it errors and size the blocklist to the
-   measured ceiling, not to a number from a README.
+   undocumented. `measure-gateway-limits.sh` settles it: it creates probe lists
+   under a marker prefix, finds the ceiling, and deletes everything it made on
+   exit. With one shared ruleset and oisd small at roughly 50,000 domains the
+   limit barely binds, so this is about not shipping an invented number rather
+   than about capacity.
 3. **Measure the real location cap.** Documented as 250 account-wide; third-party
    sources claim 3 on the free plan, and those sources are AI-generated and
    contradict each other. Five locations — home plus four houses — would give
@@ -272,6 +282,26 @@ cannot be synced with upstream either — both its remotes are SSH.
    takes a URL; confirm Cloudflare's form resolves.
 
 ## Then, in order
+
+**Ordering is a safety property here, not tidiness.** `vulcanus` is at Will's
+brother's house, so these steps run in this order or not at all:
+
+1. **Router secondary DNS → `94.140.14.14` / `94.140.15.15`**, at the brother's
+   house, over the remote access Will has. This is the backstop for every step
+   that follows: if CoreDNS ends up with an upstream it cannot resolve, the
+   secondary is the only reason that household still has working — and still
+   filtered — DNS. It must be in place *before* CoreDNS changes, not after.
+2. **Confirm the canary passes** against the unmodified setup. A check first
+   observed at the moment you need it is not a check; it should be seen going
+   green before it is trusted to go red. Expect the blocked-domain assertion to
+   report inconclusive at this point — nothing is filtering yet — which is itself
+   the confirmation that it would notice.
+3. **Render the Secret and flip `coredns.yaml`** to `valuesFrom`, deleting its
+   inline `servers:` block. One commit.
+4. **Watch the canary turn from inconclusive to blocking.** That transition is
+   the end-to-end proof, and it is the only one in this project.
+
+Then the rest:
 
 **Cluster side.** Move the `servers:` block of `kubernetes/infrastructure/coredns.yaml`
 into a SOPS Secret consumed by `valuesFrom`, with server block 1's forward
