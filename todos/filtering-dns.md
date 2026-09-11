@@ -238,8 +238,12 @@ worth bundling into the same pull request as the tag automation.
   on names, so the sync job is alerted on automatically once deployed.
 - `kubernetes/apps/kustomization.yaml` sets `namespace: apps`, so the CronJob
   reaches the profile Service as `http://cloudflare-gateway-profile/`.
-- `kubectl kustomize kubernetes/apps/cloudflare-gateway/` builds clean. Nothing
-  here has been run against a live cluster or a real Cloudflare account.
+- **Entries per list is 1,000**, measured 2026-09-11: 1,000 accepted, 1,001
+  rejected with "list size is limited to 1000 items". The account is therefore on
+  a Standard plan, since Enterprise is documented at 5,000.
+- `kubectl kustomize` builds clean for both `kubernetes/apps/cloudflare-gateway/`
+  and `kubernetes/infrastructure/`. Beyond the list measurement above, nothing
+  here has been run against a live cluster.
 - `origin/review/filtering-dns-base` is at `878bcad`, but the branch's own first
   parent is `95ebb58`. Because `dnsomatic-replacement` landed on `main` before
   the PR was opened, the review diff currently includes two commits belonging to
@@ -263,14 +267,16 @@ cannot be synced with upstream either — both its remotes are SSH.
 
 1. **Record the DoH subdomains** for the `vulcanus` and `boston` locations. Only
    `vulcanus` is needed for the cluster-side work; `boston` is for a box.
-2. **Measure the real list cap.** Documented as 100 lists × 1,000 entries. The
-   recovered CronJob sets `CLOUDFLARE_LIST_ITEM_LIMIT: "300000"` — 300 lists,
-   triple the documented cap — and CGPS users report ~187 lists working
-   undocumented. `measure-gateway-limits.sh` settles it: it creates probe lists
-   under a marker prefix, finds the ceiling, and deletes everything it made on
-   exit. With one shared ruleset and oisd small at roughly 50,000 domains the
-   limit barely binds, so this is about not shipping an invented number rather
-   than about capacity.
+2. **Lists per account.** Entries per list is settled at **1,000** — measured
+   2026-09-11 against the account: 1,000 accepted, 1,001 rejected with *"list
+   size is limited to 1000 items"*, which also confirms this is a Standard plan
+   rather than Enterprise. What remains is how many lists an account may hold:
+   documented as 100, reported by CGPS users at ~187.
+   `measure-list-count.sh` settles it. Whatever it returns, multiply by 1,000 and
+   set `CLOUDFLARE_LIST_ITEM_LIMIT` to that — the recovered `300000` presumes 300
+   lists and is an invented number. With one shared ruleset and oisd small at
+   roughly 50,000 domains the ceiling barely binds; this is about not shipping a
+   figure nobody checked.
 3. **Measure the real location cap.** Documented as 250 account-wide; third-party
    sources claim 3 on the free plan, and those sources are AI-generated and
    contradict each other. Five locations — home plus four houses — would give
