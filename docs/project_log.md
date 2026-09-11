@@ -14,6 +14,7 @@ a spec to retire, the commit that retired it follows the date. Entries with no
 review link predate the workflow. Sub-bullets carry whatever does not fit the
 one-line shape.
 
+- dnsomatic-replacement (2026-09-10): Replaced DNS-O-Matic with `cloudflare-ddns` talking to the Cloudflare API directly, on a token scoped to the one zone. See [network.md](network.md). [PR #5](https://github.com/DArtagan/vulcanus-proxmox/pull/5)
 - treefmt (2026-09-01): Put every formatter behind one `treefmt` command, and named encrypted files `*.sops.yaml` so it can skip them. See [CLAUDE.md](../CLAUDE.md). [PR #4](https://github.com/DArtagan/vulcanus-proxmox/pull/4)
 - review-workflow (2026-08-29): Branch-per-project reviews, on a pull request against a base frozen at the fork point. See [CLAUDE.md](../CLAUDE.md). [PR #1](https://github.com/DArtagan/vulcanus-proxmox/pull/1)
 - disc-ripping-reliability (2026-08-25, `f85c527`): Gated the ripper on udev media properties rather than drive status.

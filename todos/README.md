@@ -10,44 +10,35 @@ sitting in this directory means the work has not been done.
 
 ## Infrastructure, in the order worth tackling
 
-**1. [dnsomatic-replacement.md](dnsomatic-replacement.md) — replace the DDNS updater before DNS-O-Matic shuts down**
-DNS-O-Matic shuts down on roughly 2026-10-04 and is the only thing updating the
-public A records for `immortalkeep.com`. First because it is the only item with
-an external deadline, and because the failure mode is losing remote access
-entirely: Headscale is pinned to public DNS deliberately, the WireGuard
-break-glass tunnel is reached at the same WAN IP, and cert-manager renews every
-certificate over HTTP-01. Nothing currently alerts on any of it.
-
-**2. [backups.md](backups.md) — repair the backup stack**
+**1. [backups.md](backups.md) — repair the backup stack**
 The Kubernetes-side backups do not work. Borgmatic fails on every run and no
 `openebs-hostpath` volume is covered by anything at cluster level. What actually
 protects data today is ZFS replication offsite plus a whole-VM Proxmox backup.
-Highest of the standing items because it is the only one where the failure
-mode is losing data, and
+First because it is the only item where the failure mode is losing data, and
 because borgmatic now reports its own failures via Pushover, so it announces
 itself until dealt with.
 
-**3. [ingress-nginx-migration-prompt.md](ingress-nginx-migration-prompt.md) — move to Gateway API**
+**2. [ingress-nginx-migration-prompt.md](ingress-nginx-migration-prompt.md) — move to Gateway API**
 ingress-nginx is retired upstream: no releases, no bugfixes and **no security
 patches** since March 2026. It is the internet-facing entry point, and it had an
 unauthenticated RCE as recently as CVE-2025-1974. Its announced successor,
 InGate, is archived. Traefik is ruled out on prior experience; the doc records
 why so it does not get proposed again.
 
-**4. [version-notification-prompt.md](version-notification-prompt.md) — notice when a version stops tracking**
+**3. [version-notification-prompt.md](version-notification-prompt.md) — notice when a version stops tracking**
 23 of 34 ImagePolicies will silently stop advancing when a new major appears
 outside their range, and two are already stuck. This is the work that makes the
 other items visible rather than needing to be rediscovered by audit. It also
 closes the separate gap where no metric can express a Flux object being unready.
 
-**5. [talos-terraform-migration-prompt.md](talos-terraform-migration-prompt.md) — Talos versions under Terraform**
+**4. [talos-terraform-migration-prompt.md](talos-terraform-migration-prompt.md) — Talos versions under Terraform**
 kube-proxy ran eight minor versions behind the control plane for roughly three
 years, because Talos refreshes bootstrap manifests only via `upgrade-k8s`, which
 the documented upgrade path here never ran. Fixed by hand on 2026-08-07; this is
 about making it not recur. Newer provider versions also make the factory image
 schematic declarative.
 
-**6. [config-change-rollouts.md](config-change-rollouts.md) — make a ConfigMap change reach the running process**
+**5. [config-change-rollouts.md](config-change-rollouts.md) — make a ConfigMap change reach the running process**
 Flux applies an updated ConfigMap without restarting the workload that reads it,
 so the cluster can run configuration that no longer matches the repo with
 nothing to indicate it — `flux get kustomizations` reports healthy, correctly,
@@ -56,13 +47,13 @@ the beets stack on 2026-08-13 and eight Deployments are exposed. Here because
 the failure mode is invisible rather than loud, which is the same reason the
 alerting work sits where it does.
 
-**7. [openebs-4x-migration-prompt.md](openebs-4x-migration-prompt.md) — OpenEBS 3.10 to 4.x**
+**6. [openebs-4x-migration-prompt.md](openebs-4x-migration-prompt.md) — OpenEBS 3.10 to 4.x**
 The chart repository in use was abandoned in December 2023, so the unpinned
 version silently meant "3.10.0 forever". 4.x is an architectural change touching
 every PVC in the cluster. Last not because it matters least but because it
-carries the most risk and needs a verified restore path first — which is item 2.
+carries the most risk and needs a verified restore path first — which is item 1.
 
-**8. [tailnet-multi-user.md](tailnet-multi-user.md) — family on the tailnet**
+**7. [tailnet-multi-user.md](tailnet-multi-user.md) — family on the tailnet**
 Every policy rule is `src: will@`, so a second Headscale user currently gets no
 access at all — their devices would register and then reach nothing, which
 presents as a broken tunnel rather than an intentional deny. Needs a tag scheme,
@@ -103,7 +94,7 @@ Nothing to do here but re-check the price. The alert is silenced until
 **[vzdump-job-in-terraform.md](vzdump-job-in-terraform.md) — the backup job into IaC**
 The nightly Proxmox backup exists only in `/etc/pve/jobs.cfg`, including two
 settings applied by hand on 2026-08-23 that decide how hard it hits `rpool`. It
-is also the only thing protecting the OpenEBS PVC data, which makes item 2 above
+is also the only thing protecting the OpenEBS PVC data, which makes item 1 above
 its neighbour. `telmate/proxmox` has no backup-job resource at all;
 `bpg/proxmox` has one but no *released* version implements `exclude`, and the
 alternative it does offer inverts the safety property so a new guest would be
