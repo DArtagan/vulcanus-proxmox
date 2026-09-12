@@ -54,13 +54,6 @@ sops --encrypt --input-type yaml --output-type yaml \
 mv "$out_tmp" "$OUT"
 echo "Wrote $OUT"
 echo
-echo "Next, if it is not already wired up, add to the CoreDNS HelmRelease in"
-echo "kubernetes/infrastructure/coredns.yaml, and delete its inline 'servers:' block:"
-echo
-echo "  valuesFrom:"
-echo "    - kind: Secret"
-echo "      name: coredns-servers"
-echo "      valuesKey: servers.yaml"
-echo
-echo "Merging that to main changes DNS for the vulcanus LAN. Set the router's"
-echo "secondary DNS to 94.140.14.14 first."
+echo "This decides DNS for the vulcanus LAN, which is a household several states"
+echo "away. Merging it to main deploys it. dns-canary reports whether filtering"
+echo "survived; watch it rather than assuming."

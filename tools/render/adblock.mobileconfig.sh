@@ -74,6 +74,6 @@ sops --encrypt --input-type yaml --output-type yaml \
 mv "$out_tmp" "$OUT"
 echo "Wrote $OUT (Secret/$SECRET_NAME)"
 echo
-echo "Still to do by hand, because it needs the private key:"
-echo "  sops kubernetes/apps/cloudflare-gateway/secret.sops.yaml"
-echo "  ...and delete the now-duplicated adblock.mobileconfig key."
+echo "Devices that already carry the profile keep the old endpoint: iOS has no"
+echo "way to be told a profile changed. Each one has to install it again from"
+echo "https://dns.immortalkeep.com to pick this up."
