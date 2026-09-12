@@ -48,6 +48,24 @@ spec:
   upgrade:
     remediation:
       retries: 3
+  # The `servers` value -- the whole Corefile -- comes from a SOPS-encrypted
+  # Secret rather than living here, because the forward upstream embeds the
+  # Cloudflare Gateway DoH subdomain, and anyone holding that can resolve
+  # through this account's policies.
+  #
+  # coredns-servers.yaml.template is the reviewable original and the thing to
+  # edit; the Secret is a build artefact rendered from it by
+  # tools/coredns/render-servers-secret.sh. Editing the Secret directly is how
+  # the two silently diverge.
+  #
+  # Helm replaces lists rather than merging them, so `servers` must appear in
+  # exactly one place. It is deliberately absent from `values` below: were it
+  # present it would win, since inline values are merged last, and the encrypted
+  # copy would be dead weight that looks live.
+  valuesFrom:
+    - kind: Secret
+      name: coredns-servers
+      valuesKey: servers.yaml
   values:
     isClusterService: false
     prometheus:
@@ -56,78 +74,6 @@ spec:
     service:
       loadBalancerIP: "192.168.0.202"
     serviceType: LoadBalancer
-    servers:
-      - zones:
-          - zone: .
-            # Without this the chart renders a UDP port only. The live Service has
-            # carried both udp-53 and tcp-53 since chart 1.29.0, and resolvers fall
-            # back to TCP for responses that do not fit in a UDP datagram.
-            use_tcp: true
-        port: 53
-        plugins:
-          - name: errors
-          - name: health
-            configBlock: |-
-              lameduck 5s
-          - name: ready
-          - name: prometheus
-            parameters: 0.0.0.0:9153
-          - name: any
-          - name: bufsize
-            parameters: 1232
-          - name: cache
-            parameters: 30
-          - name: loop
-          - name: reload
-          - name: loadbalance
-          - name: forward
-            parameters: . tls://1.1.1.1
-            configBlock: |-
-              tls_servername cloudflare-dns.com
-              health_check 5s
-            # Hairpinning is not a concern: tailnet devices resolve immortalkeep.com
-            # via Headscale split DNS → CoreDNS, infrastructure VMs use CoreDNS
-            # directly, and LAN devices use CoreDNS via router DHCP (primary) with
-            # Cloudflare (secondary) as fallback.
-      - zones:
-          - zone: immortalkeep.com
-            use_tcp: true
-        port: 53
-        plugins:
-          - name: errors
-          - name: log
-          - name: health
-            configBlock: |-
-              lameduck 5s
-          - name: file
-            parameters: /etc/coredns/db.immortalkeep.com
-          - name: ready
-          - name: prometheus
-            parameters: 0.0.0.0:9153
-          - name: reload
-      # status.immortalkeep.com is a Cloudflare DNS entry that redirects to
-      # the Uptime Robot status page — it is not served by the internal
-      # ingress. This zone is more specific than immortalkeep.com above, so
-      # CoreDNS answers it via public DNS instead of falling through to the
-      # wildcard record, which would otherwise point it at the internal
-      # ingress (no rule there for this host). Covers LAN clients (CoreDNS
-      # via router DHCP) and tailnet clients (CoreDNS via Headscale split
-      # DNS) with one change.
-      - zones:
-          - zone: status.immortalkeep.com
-            use_tcp: true
-        port: 53
-        plugins:
-          - name: errors
-          - name: health
-            configBlock: |-
-              lameduck 5s
-          - name: ready
-          - name: forward
-            parameters: . tls://1.1.1.1
-            configBlock: |-
-              tls_servername cloudflare-dns.com
-              health_check 5s
     zoneFiles:
       - filename: db.immortalkeep.com
         domain: immortalkeep.com

@@ -12,6 +12,7 @@ resources:
   - books-pv.yaml
   - borg-backups-pv.yaml
   - cert-manager.yaml
+  - coredns-servers.sops.yaml
   - coredns.yaml
   - dns-canary.yaml
   - csi-driver-smb.yaml
