@@ -284,3 +284,12 @@ YAML, so `yamlfmt` alone skips them.
 
 `tflint` and `shellcheck` also run on `git commit`. They are linters, so they
 report rather than rewrite and stay outside treefmt.
+
+`sops-encrypted` runs there too, and refuses any `*.sops.yaml` that is not
+encrypted — either missing its `sops:` block entirely, or carrying a plaintext
+value under `data`/`stringData` that was added by hand after encryption. It is a
+commit hook rather than a formatter because the repository is public and a
+plaintext secret is exposed the moment it is pushed; rewriting history does not
+unpublish it. Note the overlap with the exclusion above: `*.sops.yaml` is kept
+away from treefmt precisely so formatting cannot invalidate a MAC, which leaves
+these files unexamined by everything else.
