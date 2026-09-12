@@ -43,13 +43,21 @@ spec:
               env:
                 - name: RESOLVER
                   value: "192.168.0.202"
-                # Must be blocked. Chosen because it is pure ad-serving
-                # infrastructure present on every mainstream list, so if this one
-                # resolves the blocklist is not loaded at all. It must also be a
-                # domain that genuinely exists, or "no answer" would mean "gone"
-                # rather than "blocked".
-                - name: BLOCKED_DOMAIN
-                  value: "doubleclick.net"
+                # Three ad networks, not one, and the run fails only if none of
+                # them is blocked -- so a single domain leaving a blocklist
+                # cannot blind the check, while filtering stopping entirely
+                # still trips it. Each was verified blocked through Gateway
+                # before being put here; verify any replacement the same way
+                # rather than assuming, with:
+                #   curl -H 'accept: application/dns-json' \
+                #     "https://<sub>.cloudflare-gateway.com/dns-query?name=<d>&type=A"
+                #
+                # doubleclick.net was the original choice and was wrong: oisd
+                # deliberately does not block the apex, because it breaks Google
+                # services. The canary reported "filtering is not in effect" for
+                # seventeen hours while filtering worked correctly.
+                - name: BLOCKED_DOMAINS
+                  value: "pagead2.googlesyndication.com ib.adnxs.com ads.pubmatic.com"
                 # Must resolve. If this fails, DNS is broken rather than strict,
                 # and the run says so instead of blaming the filter.
                 - name: CONTROL_DOMAIN
@@ -81,15 +89,29 @@ spec:
 
                   # Nothing routable means blocked. Do NOT rewrite this to
                   # compare against an unfiltered resolver and treat a difference
-                  # as success: doubleclick.net rotates its answer set, so that
-                  # version passed while nothing was filtered at all.
-                  got=$(answers "$BLOCKED_DOMAIN" "$RESOLVER")
-                  routable=$(echo "$got" | tr ' ' '\n' | grep -vE '^(0\.0\.0\.0)?$' | tr '\n' ' ')
-                  if [ -n "$routable" ]; then
-                    echo "FAIL: $BLOCKED_DOMAIN resolved to '$routable' via $RESOLVER — filtering is not in effect."
+                  # as success: ad domains are geo-distributed and rotate, so
+                  # that version passed while nothing was filtered at all.
+                  blocked=0
+                  leaked=""
+                  for d in $BLOCKED_DOMAINS; do
+                    got=$(answers "$d" "$RESOLVER")
+                    routable=$(echo "$got" | tr ' ' '\n' | grep -vE '^(0\.0\.0\.0)?$' | tr '\n' ' ')
+                    if [ -n "$routable" ]; then
+                      leaked="$leaked $d"
+                    else
+                      blocked=$((blocked + 1))
+                      echo "ok: $d blocked via $RESOLVER (answer: '${got:-NXDOMAIN}')"
+                    fi
+                  done
+
+                  if [ "$blocked" -eq 0 ]; then
+                    echo "FAIL: none of $BLOCKED_DOMAINS was blocked via $RESOLVER — filtering is not in effect."
                     fail=1
-                  else
-                    echo "ok: $BLOCKED_DOMAIN blocked via $RESOLVER (answer: '${got:-NXDOMAIN}')"
+                  elif [ -n "$leaked" ]; then
+                    # Not a failure: one list dropping a domain is ordinary. Said
+                    # out loud so a slow drift toward zero is visible in the logs
+                    # before it becomes an outage.
+                    echo "note:$leaked resolved rather than blocked; $blocked of the set still blocked."
                   fi
 
                   exit $fail
