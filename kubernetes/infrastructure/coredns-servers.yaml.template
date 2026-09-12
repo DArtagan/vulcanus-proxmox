@@ -1,7 +1,7 @@
 # The `servers` value for the CoreDNS HelmRelease, and the reviewable original
 # behind coredns-servers.sops.yaml. See docs/dns-filtering.md.
 #
-# To render: tools/coredns/render-servers-secret.sh <doh-subdomain>
+# To render: tools/render/coredns-servers.sh <doh-subdomain>
 #
 # Edit this file, never the encrypted copy — that is how the two drift apart.
 servers:

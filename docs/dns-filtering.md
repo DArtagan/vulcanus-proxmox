@@ -110,8 +110,8 @@ plaintext template beside it and is rendered by a script rather than edited:
 
 | Template | Rendered | Script |
 |---|---|---|
-| `kubernetes/infrastructure/coredns-servers.yaml.template` | `coredns-servers.sops.yaml` | `tools/coredns/render-servers-secret.sh` |
-| `kubernetes/apps/cloudflare-gateway/adblock.mobileconfig.template` | `adblock.mobileconfig.sops.yaml` | `tools/cloudflare-gateway/render-profile-secret.sh` |
+| `kubernetes/infrastructure/coredns-servers.yaml.template` | `coredns-servers.sops.yaml` | `tools/render/coredns-servers.sh` |
+| `kubernetes/apps/cloudflare-gateway/adblock.mobileconfig.template` | `adblock.mobileconfig.sops.yaml` | `tools/render/adblock.mobileconfig.sh` |
 
 **Edit the template, never the `.sops.yaml`.** Two copies of the same content
 drifting apart is the failure this arrangement invites, which is why rendering

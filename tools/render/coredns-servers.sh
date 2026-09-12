@@ -6,7 +6,7 @@
 # the artefact by hand is how the two silently diverge, and the file decides
 # whether a household several states away has working DNS.
 #
-#   tools/coredns/render-servers-secret.sh <doh-subdomain>
+#   tools/render/coredns-servers.sh <doh-subdomain>
 #
 # <doh-subdomain> is the bare label from the Gateway location's DoH hostname:
 # for https://65y9p2vm1u.cloudflare-gateway.com/dns-query it is 65y9p2vm1u.

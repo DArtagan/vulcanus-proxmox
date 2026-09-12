@@ -2,7 +2,7 @@
 # Renders adblock.mobileconfig.template into the SOPS-encrypted Secret the
 # profile server mounts and serves to family devices.
 #
-#   tools/cloudflare-gateway/render-profile-secret.sh <doh-subdomain>
+#   tools/render/adblock.mobileconfig.sh <doh-subdomain>
 #
 # <doh-subdomain> is the bare label from the Gateway location's DoH hostname:
 # for https://65y9p2vm1u.cloudflare-gateway.com/dns-query it is 65y9p2vm1u.
