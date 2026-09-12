@@ -42,13 +42,21 @@ spec:
                 - name: CLOUDFLARE_LIST_ITEM_LIMIT
                   value: "300000"
                 # This replaces upstream's recommended allowlists rather than
-                # extending them, so they are repeated verbatim here and the
-                # household's own file appended last. Re-check them against
-                # lib/constants.js on an image bump — upstream editing its own
-                # defaults is invisible from here. See docs/dns-filtering.md.
+                # extending them, so they are repeated verbatim here, then the
+                # two additions, then the household's own file.
+                #
+                # Re-check the first twelve against lib/constants.js on an image
+                # bump. Upstream editing its own defaults is invisible from here,
+                # and it has already happened once: the torrent-tracker list was
+                # carried for months as a 404 after upstream moved it to a new
+                # owner and corrected a typo in the filename. A dead allowlist
+                # URL fails silently -- the sync completes, the list simply
+                # contributes nothing.
+                #
+                # See docs/dns-filtering.md.
                 - name: ALLOWLIST_URLS
                   value: |-
-                    https://raw.githubusercontent.com/im-sm/Pi-hole-Torrent-Blocklist/main/all-torrent-trackres.txt
+                    https://raw.githubusercontent.com/sakib-m/Pi-hole-Torrent-Blocklist/refs/heads/main/all-torrent-trackers.txt
                     https://raw.githubusercontent.com/AdguardTeam/HttpsExclusions/master/exclusions/banks.txt
                     https://raw.githubusercontent.com/Dogino/Discord-Phishing-URLs/main/official-domains.txt
                     https://raw.githubusercontent.com/AdguardTeam/HttpsExclusions/master/exclusions/mac.txt
@@ -60,6 +68,7 @@ spec:
                     https://raw.githubusercontent.com/DandelionSprout/AdGuard-Home-Whitelist/master/whitelist.txt
                     https://raw.githubusercontent.com/AdguardTeam/AdGuardSDNSFilter/master/Filters/exclusions.txt
                     https://raw.githubusercontent.com/AdguardTeam/HttpsExclusions/master/exclusions/issues.txt
+                    https://raw.githubusercontent.com/AdguardTeam/HttpsExclusions/master/exclusions/sensitive.txt
                     http://cloudflare-gateway-profile/allowlist.txt
               envFrom:
                 - secretRef:

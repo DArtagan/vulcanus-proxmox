@@ -63,6 +63,12 @@ spec:
     prometheus:
       service:
         enabled: true
+      # Without this the metrics Service above is exposed and scraped by nobody.
+      # The only CoreDNS the stack watches by default is the cluster's kube-dns
+      # in kube-system, so every DNS latency figure in Grafana describes pod
+      # lookups rather than the resolver the LAN and the tailnet actually use.
+      monitor:
+        enabled: true
     service:
       loadBalancerIP: "192.168.0.202"
     serviceType: LoadBalancer
