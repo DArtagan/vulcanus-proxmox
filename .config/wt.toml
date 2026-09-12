@@ -8,6 +8,19 @@
 # Every alias here pushes, so the user runs them: the SSH key is
 # passphrase-protected and an agent cannot unlock it.
 
+# Trust the new worktree's .envrc so its own environment loads on first cd.
+# direnv keys its allow list by absolute path, so a fresh worktree is blocked
+# even though the file is identical to one already allowed, and until it loads,
+# treefmt and the rest resolve from whichever checkout the shell came from --
+# which is how 21,940 lines of generated flux-system YAML nearly got reformatted.
+#
+# Deliberately stops at `allow` rather than entering the environment. Entering it
+# reinstalls .git/hooks/pre-commit, and worktrees share .git: the hook carries an
+# absolute --config path, so installing it here would point every other
+# worktree's commits at this one. That collision needs a root-agnostic hook or a
+# per-worktree core.hooksPath, not a race to be installed last.
+post-start = "direnv allow"
+
 [aliases]
 
 # Open the review. Freezes a base at the fork point and opens a draft PR against
