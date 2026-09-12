@@ -32,7 +32,7 @@ spec:
               type: RuntimeDefault
           containers:
             - name: sync
-              image: ghcr.io/dartagan/cloudflare-gateway-pihole-scripts:20260412185755 # {"$imagepolicy": "apps:cloudflare-gateway-sync"}
+              image: ghcr.io/dartagan/cloudflare-gateway-pihole-scripts:20260912045410 # {"$imagepolicy": "apps:cloudflare-gateway-sync"}
               command: ["npm", "start", "--prefix", "/app/"]
               env:
                 # 300 lists x 1,000 entries, measured. Cloudflare's
