@@ -190,6 +190,16 @@ Applies to comments and config as much as to prose here.
   [`docs/project_log.md`](docs/project_log.md), which is past tense by design —
   see [`docs/README.md`](docs/README.md) for why an index of pointers is not a
   file narrating its own edit history.
+- **Write it once, and point at it.** A fact belongs in exactly one place;
+  everywhere else refers to that place. Duplicating an explanation into a
+  manifest comment beside the doc that already holds it doubles the maintenance
+  and guarantees the two drift, at which point a reader cannot tell which is
+  current. Where the file lives decides what it may say: `docs/` carries the
+  explanation, and a comment carries only what a reader of *that file* needs and
+  could not infer — most often the warning that stops them reintroducing a bug,
+  which is the one thing worth repeating because its whole value is being where
+  the mistake would be made. "See `docs/network.md`" is a complete comment.
+
 - **Never expose an option whose other setting is simply wrong.** That is not
   configuration, it is a way to break things plus an untested evaluation path.
   Inline the value and comment why it is fixed; keep only what genuinely differs

@@ -128,10 +128,6 @@ apex or the wildcard — those are CNAMEs, and the updater creates whatever it
 cannot find, so naming them would lay A records over the top and collapse the
 indirection.
 
-`ddns-canary.immortalkeep.com` is a deliberately worthless record nothing
-resolves through, kept so the updater can be proved end to end without touching
-one that matters. Set it wrong, restart the pod, watch it corrected.
-
 ### What keeps it current
 
 `cloudflare-ddns` in `apps` polls every 5 minutes with a Cloudflare API token
@@ -144,11 +140,18 @@ the logs:
   anything other than the updater reads as `already up to date (cached)` until
   that expires. A pod restart empties the cache and forces a fresh read.
 
-`DDNSUpdaterDown` in `prometheus-rules.yaml` reports the updater having no
-running replica. It cannot see a token that has been revoked, which leaves the
-updater Running and Ready while every API call fails — the records stay correct
-until the WAN IP next changes, and UptimeRobot's external probes are what catch
-it then. The token is created without an expiry to make that unlikely.
+Two checks, watching different things. `DDNSUpdaterDown` in
+`prometheus-rules.yaml` reports the updater having no running replica: a leading
+indicator, because the record stays correct until the WAN IP next moves. The
+record-check CronJob beside the Deployment compares the published record against
+the WAN IP every 15 minutes and exits non-zero on a mismatch, so
+`CronJobNotSucceeding` reports it; that one is indifferent to cause and catches a
+revoked token, a wrong `DOMAINS` and a wedged process alike. UptimeRobot's
+external probes remain the outermost backstop.
+
+Both lookups in the CronJob deliberately bypass cluster DNS — the record is read
+over DoH from 1.1.1.1, because CoreDNS answers `immortalkeep.com` with the
+internal ingress and would report success whatever the public record said.
 
 A stale record is not a cosmetic outage. `headscale.immortalkeep.com` is pinned
 to public DNS on purpose (see [tailnet.md](tailnet.md)), the WireGuard

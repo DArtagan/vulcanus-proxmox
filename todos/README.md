@@ -69,6 +69,13 @@ rules for them, and a less manual way to issue keys. Last in the ordering
 because nothing is broken until someone is actually added, and it is the only
 item here driven by a new want rather than an existing defect.
 
+**9. [pod-security-namespace-level.md](pod-security-namespace-level.md) — put pod security at the namespace**
+`apps` carries no Pod Security Admission labels at all, so workloads that want
+the restricted profile restate it individually and the rest are simply
+unexamined. Last because nothing is broken today: the
+cluster-level fallback admits these pods, and the work is auditing what each
+workload actually needs rather than setting a label.
+
 ## Waiting on a decision
 
 **[generic-device-plugin-hang.md](generic-device-plugin-hang.md) — file the upstream report, then watch**

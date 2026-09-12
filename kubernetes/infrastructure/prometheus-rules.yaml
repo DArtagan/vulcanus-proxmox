@@ -460,30 +460,14 @@ spec:
   groups:
     - name: public-dns
       rules:
-        # The public A records for immortalkeep.com point at a WAN IP the ISP
-        # changes without warning, and cloudflare-ddns is the only thing that
-        # corrects them. A stale record costs more than the affected services:
-        # headscale.immortalkeep.com is pinned to public DNS on purpose (see
-        # docs/tailnet.md), the WireGuard break-glass tunnel is reached at the
-        # same address, and cert-manager renews every certificate over HTTP-01.
-        # Losing the record eventually removes the ability to fix the record.
+        # A leading indicator: the record stays correct until the WAN IP next
+        # moves, so this is the warning that arrives while there is still time.
+        # Whether the published record is actually right is a separate question,
+        # answered by the record-check CronJob in kubernetes/apps/cloudflare-ddns.
         #
-        # Scoped to the one deployment by name rather than matching any
-        # zero-replica Deployment: podgrab is intentionally scaled to zero, so
-        # the general form would fire on it permanently.
-        #
-        # `absent` covers the Deployment being removed outright — dropped from
-        # the apps kustomization, or pruned by Flux. With no object there is no
-        # series, and `== 0` has nothing to compare, so the loudest version of
-        # this failure is the one the bare comparison cannot see.
-        #
-        # This catches the updater being gone, not the updater being wrong. A
-        # revoked token leaves it Running and Ready while every API call fails,
-        # which nothing here sees — the record stays correct until the next IP
-        # change, and UptimeRobot's external probes of immortalkeep.com,
-        # plex and mumble are what catch it then. Closing that gap needs a
-        # heartbeat service or an exporter comparing the published record to the
-        # detected WAN IP; the token is set non-expiring in the meantime.
+        # `absent` covers the Deployment being removed outright. With no object
+        # there is no series, and `== 0` has nothing to compare — the loudest
+        # version of this failure is the one a bare comparison cannot see.
         - alert: DDNSUpdaterDown
           expr: |
             kube_deployment_status_replicas_available{namespace="apps", deployment="cloudflare-ddns"} == 0

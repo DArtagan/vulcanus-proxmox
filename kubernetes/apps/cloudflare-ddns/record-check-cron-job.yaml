@@ -1,0 +1,65 @@
+# Answers the question DDNSUpdaterDown cannot: is the published record actually
+# right? That alert sees the updater missing, which is a leading indicator — the
+# record stays correct until the WAN IP next moves. This is the lagging one, and
+# it is indifferent to cause: a revoked token, a wrong DOMAINS, a Cloudflare
+# problem and a silently wedged process all present identically here.
+#
+# No new alert rule. A mismatch exits non-zero, so CronJobNotSucceeding in
+# prometheus-rules.yaml covers it on the schedule bucket it already computes —
+# and unlike the updater's own @once mode, this exit code is ours and can fail.
+#
+# Both lookups deliberately bypass cluster DNS. The record is read over DoH
+# straight from 1.1.1.1, because CoreDNS answers immortalkeep.com with the
+# internal ingress and would report success whatever the public record says.
+# The WAN IP comes from Cloudflare's trace endpoint over the pod's own egress,
+# which is the same NAT the updater sees.
+#
+# The 90-minute budget CronJobNotSucceeding derives from a */15 schedule is what
+# makes this quiet during a genuine IP change, when the record is legitimately
+# stale for one update cycle plus the record's TTL.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cloudflare-ddns-record-check
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      # One retry, not the default six: a mismatch is a standing condition, not
+      # a flake, and six attempts only delay the report.
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: record-check
+              image: curlimages/curl:8.18.0
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  published=$(curl -sf --max-time 15 \
+                    -H 'accept: application/dns-json' \
+                    'https://1.1.1.1/dns-query?name=dynamic.immortalkeep.com&type=A' \
+                    | grep -o '"data":"[0-9.]*"' | head -1 | cut -d'"' -f4)
+                  actual=$(curl -sf --max-time 15 https://1.1.1.1/cdn-cgi/trace \
+                    | sed -n 's/^ip=//p')
+                  if [ -z "$published" ] || [ -z "$actual" ]; then
+                    echo "lookup failed: published='$published' actual='$actual'" >&2
+                    exit 1
+                  fi
+                  if [ "$published" != "$actual" ]; then
+                    echo "STALE: dynamic.immortalkeep.com is $published, WAN is $actual" >&2
+                    exit 1
+                  fi
+                  echo "ok: dynamic.immortalkeep.com is $published"
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  memory: 32Mi

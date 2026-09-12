@@ -275,10 +275,6 @@
     tflint.enable = true;
     treefmt.enable = true;
 
-    # This repository is public, and a secret committed in plaintext is
-    # exposed the moment it is pushed -- rewriting history does not unpublish
-    # it. Nothing else catches this: `*.sops.yaml` is excluded from treefmt,
-    # and a plaintext one is valid YAML that Kustomize builds happily.
     sops-encrypted = {
       enable = true;
       name = "sops-encrypted";
