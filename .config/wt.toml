@@ -44,6 +44,15 @@ own-hooks = """
 set -e
 git config extensions.worktreeConfig true
 git config --worktree core.hooksPath "$(git rev-parse --absolute-git-dir)/hooks"
+
+# Install immediately rather than leaving it to the first direnv activation.
+# Pointing core.hooksPath at a directory with no hooks in it does not fall back
+# to the shared ones -- it runs nothing at all, so commits would quietly skip
+# every check including sops-encrypted, which is the one standing between a
+# plaintext secret and a public repository. A missing check is worse than a
+# failing one. Installed without -c so the shim discovers the config from the
+# working tree at commit time instead of baking a path.
+command -v prek >/dev/null 2>&1 && prek install || true
 """
 
 [aliases]
