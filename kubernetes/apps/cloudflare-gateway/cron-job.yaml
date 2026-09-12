@@ -1,21 +1,13 @@
-# Rebuilds the Cloudflare Gateway block lists and the DNS policy that uses them.
-# Everything it needs comes from the Secret: the account ID and a token scoped
-# to Zero Trust.
+# Rebuilds the Gateway block lists and the policy that uses them.
+# See docs/dns-filtering.md.
 #
-# `command` overrides the image's ENTRYPOINT, and that is the point. The
-# entrypoint ignores its arguments, writes a crontab and runs crond in the
-# foreground forever — sensible for `docker run`, fatal here, because the Job
-# would never complete and concurrencyPolicy: Forbid would then skip every
-# subsequent run in silence. Do not remove it in favour of the image default.
+# `command` overrides the image's ENTRYPOINT deliberately. That entrypoint
+# ignores its arguments and runs crond in the foreground forever, so the Job
+# would never complete and concurrencyPolicy: Forbid would skip every later run
+# in silence. Do not remove it in favour of the image default.
 #
-# Runs as root, unlike everything else in this repo. The image is built FROM
-# node:alpine with no USER, WORKDIR /app owned by root, and download_lists.js
-# writes allowlist.txt and blocklist.txt into that working directory — npm runs
-# scripts from the package root regardless of workingDir, so there is nowhere
-# else for them to go. runAsNonRoot or readOnlyRootFilesystem here produces a
-# CronJob that cannot write its own inputs. Capabilities are still dropped
-# entirely and privilege escalation is off. Fixing this properly means a USER
-# and a writable working directory upstream.
+# Runs as root because the image gives no alternative — it has no USER and writes
+# into a root-owned WORKDIR. Capabilities are dropped regardless.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -27,17 +19,10 @@ spec:
   schedule: "30 10 * * *"
   jobTemplate:
     spec:
-      # Bounded on purpose. fetchRetry in the upstream script retries fifty
-      # times and, on a 429, waits two minutes between attempts — so a single
-      # attempt can legitimately occupy about a hundred minutes, and a genuinely
-      # hung request occupies forever. With concurrencyPolicy: Forbid, a job that
-      # never ends means no further run ever starts, and the only signal left is
-      # CronJobNotSucceeding noticing 26 hours later that nothing has succeeded.
-      #
-      # An hour is well past a healthy run, which is minutes. Two attempts rather
-      # than the default six, because six attempts at up to an hour each is most
-      # of a day spent retrying a failure that is not going to fix itself, and
-      # the alert would rather fire.
+      # Bounded because the upstream script retries fifty times and waits two
+      # minutes between attempts on a 429, so one attempt can run for hours and a
+      # hung one forever — and under Forbid, a job that never ends means no later
+      # run ever starts. A healthy run takes minutes.
       activeDeadlineSeconds: 3600
       backoffLimit: 2
       template:
@@ -50,28 +35,17 @@ spec:
               image: ghcr.io/dartagan/cloudflare-gateway-pihole-scripts:20260101000000 # {"$imagepolicy": "apps:cloudflare-gateway-sync"}
               command: ["npm", "start", "--prefix", "/app/"]
               env:
-                # 300 lists x 1,000 entries, measured against the account on
-                # 2026-09-11: the 1,001st entry is refused with "list size is
-                # limited to 1000 items" and the 301st list with "2017 Maximum
-                # number of lists reached".
-                #
-                # Cloudflare's account-limits page says "Lists: 100", which would
-                # make this 100000. It is wrong. Do not lower this to match the
-                # documentation without re-measuring first — that trade would
-                # give up two thirds of the capacity on the strength of a page
-                # that has already been checked and found incorrect.
+                # 300 lists x 1,000 entries, measured. Cloudflare's
+                # account-limits page says "Lists: 100" and is wrong; do not
+                # lower this to match it without re-measuring first. See
+                # docs/dns-filtering.md.
                 - name: CLOUDFLARE_LIST_ITEM_LIMIT
                   value: "300000"
-                # Setting this replaces upstream's recommended allowlists rather
-                # than extending them, so they are repeated verbatim and the
-                # household's own file is appended last. Re-check them against
-                # lib/constants.js on an image bump: upstream changing its own
-                # defaults is invisible from here.
-                #
-                # The household file is fetched from the profile Service rather
-                # than mounted, because download_lists.js unlinks and rewrites
-                # ./allowlist.txt before anything reads it, which fails outright
-                # against a read-only ConfigMap mount.
+                # This replaces upstream's recommended allowlists rather than
+                # extending them, so they are repeated verbatim here and the
+                # household's own file appended last. Re-check them against
+                # lib/constants.js on an image bump — upstream editing its own
+                # defaults is invisible from here. See docs/dns-filtering.md.
                 - name: ALLOWLIST_URLS
                   value: |-
                     https://raw.githubusercontent.com/im-sm/Pi-hole-Torrent-Blocklist/main/all-torrent-trackres.txt

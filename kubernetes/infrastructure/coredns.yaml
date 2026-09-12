@@ -48,20 +48,12 @@ spec:
   upgrade:
     remediation:
       retries: 3
-  # The `servers` value -- the whole Corefile -- comes from a SOPS-encrypted
-  # Secret rather than living here, because the forward upstream embeds the
-  # Cloudflare Gateway DoH subdomain, and anyone holding that can resolve
-  # through this account's policies.
+  # The whole Corefile comes from a SOPS-encrypted Secret; edit
+  # coredns-servers.yaml.template, not the Secret. See docs/dns-filtering.md.
   #
-  # coredns-servers.yaml.template is the reviewable original and the thing to
-  # edit; the Secret is a build artefact rendered from it by
-  # tools/coredns/render-servers-secret.sh. Editing the Secret directly is how
-  # the two silently diverge.
-  #
-  # Helm replaces lists rather than merging them, so `servers` must appear in
-  # exactly one place. It is deliberately absent from `values` below: were it
-  # present it would win, since inline values are merged last, and the encrypted
-  # copy would be dead weight that looks live.
+  # `servers` must not be added back to `values` below. Helm replaces lists
+  # rather than merging them and inline values are merged last, so an inline
+  # copy would silently win and the encrypted one would be dead weight.
   valuesFrom:
     - kind: Secret
       name: coredns-servers

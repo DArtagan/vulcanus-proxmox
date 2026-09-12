@@ -10,10 +10,15 @@
   single opaque blob whose diffs are meaningless, so without it there is no
   reviewable record of what the family is actually installing.
 
-  To render: replace DOH-SUBDOMAIN below with the subdomain of the location the
-  profile should use, then paste the result into the secret. Keep both PayloadUUID
-  values as they are — iOS treats a profile with a new UUID as a different
-  profile and installs it alongside the old one instead of replacing it.
+  To render: tools/cloudflare-gateway/render-profile-secret.sh <doh-subdomain>
+
+  That substitutes DOH-SUBDOMAIN, parses the result as a plist, and writes
+  adblock.mobileconfig.sops.yaml beside this file. Pass the subdomain of the
+  `mobile` Gateway location, not vulcanus's.
+
+  Keep both PayloadUUID values as they are — iOS treats a profile with a new
+  UUID as a different profile and installs it alongside the old one instead of
+  replacing it.
 -->
 <plist version="1.0">
 <dict>

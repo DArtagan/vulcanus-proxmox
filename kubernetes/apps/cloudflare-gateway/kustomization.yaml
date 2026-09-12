@@ -6,6 +6,6 @@ resources:
   - deployment.yaml
   - image.yaml
   - ingress.yaml
-  - profile.sops.yaml
+  - adblock.mobileconfig.sops.yaml
   - secret.sops.yaml
   - service.yaml

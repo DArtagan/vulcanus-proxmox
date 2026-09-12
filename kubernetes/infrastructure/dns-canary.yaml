@@ -1,17 +1,8 @@
-# Proves that DNS filtering is actually happening, which nothing else here does.
-# CronJobNotSucceeding tells you the sync job ran; the Gateway dashboard tells
-# you a policy exists. Neither notices a wrong upstream hostname, a revoked
-# token, an emptied list, or a Gateway outage — all of which present as "every
-# object is healthy and the ads are back".
+# Proves that DNS filtering is actually happening. See docs/dns-filtering.md.
 #
-# Deliberately not a new alerting mechanism. It exits non-zero on failure, and
-# CronJobNotSucceeding in prometheus-rules.yaml keys on the schedule label of
-# kube_cronjob_info rather than on CronJob names, so a */15 schedule lands in the
-# 5400s bucket and pages without a rule being written for it.
-#
-# It queries 192.168.0.202 — the LoadBalancer address, not the in-cluster
-# Service name — because that is the path LAN clients and the tailnet actually
-# take. A pod reaching it exercises MetalLB as well.
+# Queries 192.168.0.202, the LoadBalancer address, rather than the in-cluster
+# Service name: that is the path LAN and tailnet clients take, and a pod
+# reaching it exercises MetalLB too.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -23,8 +14,7 @@ spec:
   schedule: "*/15 * * * *"
   jobTemplate:
     spec:
-      # Do not retry. A retry that succeeds hides a flap, and this job exists to
-      # notice flaps. One failure should be visible as a failure.
+      # Do not retry: a retry that succeeds hides the flap this exists to notice.
       backoffLimit: 0
       template:
         spec:
@@ -89,19 +79,10 @@ spec:
                     *) echo "ok: $CONTROL_DOMAIN -> $ctrl" ;;
                   esac
 
-                  # A blocked domain must come back with nothing routable: either
-                  # no answer at all, or the 0.0.0.0 sentinel that Gateway and
-                  # AdGuard both return. Anything else is a real address and means
-                  # the query was answered rather than blocked.
-                  #
-                  # Do NOT reinstate the earlier version of this test, which
-                  # compared the answer against an unfiltered resolver and called
-                  # them differing a pass. doubleclick.net is geo-distributed and
-                  # rotates its answer set, so two resolvers disagree about it
-                  # constantly while nothing is filtered — measured 2026-09-12,
-                  # six addresses from one resolver against one from the other,
-                  # with no filtering in place at all. That check passed at
-                  # exactly the moment it was supposed to fail.
+                  # Nothing routable means blocked. Do NOT rewrite this to
+                  # compare against an unfiltered resolver and treat a difference
+                  # as success: doubleclick.net rotates its answer set, so that
+                  # version passed while nothing was filtered at all.
                   got=$(answers "$BLOCKED_DOMAIN" "$RESOLVER")
                   routable=$(echo "$got" | tr ' ' '\n' | grep -vE '^(0\.0\.0\.0)?$' | tr '\n' ' ')
                   if [ -n "$routable" ]; then

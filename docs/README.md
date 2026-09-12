@@ -8,6 +8,7 @@ Work that has not been done yet lives in [`todos/`](../todos/), not here.
 | Doc | Contents |
 |---|---|
 | [network.md](network.md) | IP inventory, DNS architecture, service exposure, router port forwarding |
+| [dns-filtering.md](dns-filtering.md) | Cloudflare Gateway filtering: the CoreDNS forward, blocklists and exceptions, the Apple profile, how it is verified |
 | [tailnet.md](tailnet.md) | Headscale/Tailscale: nodes, the subnet router, the access policy and how to widen it |
 | [kubernetes.md](kubernetes.md) | Workload conventions: probes, config rollouts, chart automation, safe teardown |
 | [talos.md](talos.md) | Talos cluster operations and upgrades |

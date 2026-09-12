@@ -1,15 +1,9 @@
-# The `servers` value for the CoreDNS HelmRelease, kept in plaintext as the
-# reviewable original. The rendered copy lives in coredns-servers.sops.yaml and
-# is what Flux applies, because DOH-SUBDOMAIN identifies a Cloudflare Gateway
-# location and anyone holding it can resolve through this account's policies.
+# The `servers` value for the CoreDNS HelmRelease, and the reviewable original
+# behind coredns-servers.sops.yaml. See docs/dns-filtering.md.
 #
-# Do not edit the encrypted copy by hand. Edit this file and re-render:
+# To render: tools/coredns/render-servers-secret.sh <doh-subdomain>
 #
-#     tools/coredns/render-servers-secret.sh <doh-subdomain>
-#
-# Two copies of a 70-line Corefile drifting apart is the obvious failure of this
-# arrangement, so rendering is a script rather than a procedure. The encrypted
-# file is a build artefact; this one is the source.
+# Edit this file, never the encrypted copy — that is how the two drift apart.
 servers:
   - zones:
       - zone: .
@@ -34,31 +28,14 @@ servers:
       - name: loop
       - name: reload
       - name: loadbalance
-      # Forwards through Cloudflare Gateway so every device answered by this
-      # server gets DNS-level ad, tracker and malware blocking. The unique
-      # subdomain identifies the Gateway location, so there is no source-IP
-      # dependency and a dynamic WAN IP does not matter.
+      # Gateway first, AdGuard as a filtering fallback. See docs/dns-filtering.md.
       #
-      # AdGuard's public resolver is a second upstream, not a decoration. This
-      # server answers a household several states away; without a fallback, an
-      # unreachable Gateway means nobody there has DNS and nobody involved can
-      # walk in to fix it. AdGuard filters too, so failing over degrades to a
-      # generic blocklist rather than to nothing.
-      #
-      # `policy sequential` is load-bearing. The default is random, which would
-      # send roughly half of all queries to AdGuard — where the household's
-      # allowlist does not exist — so exceptions would appear to work only half
-      # the time. Sequential makes AdGuard a failover instead of a coin flip.
-      #
-      # The per-destination `%servername` form is what allows two DoT upstreams
-      # with different names in one block. A block-level tls_servername applies
-      # to every upstream at once and must not be set alongside it.
-      #
-      # The Gateway upstream is a hostname, and CoreDNS resolves upstream
-      # hostnames once at startup: a restart while DNS is already broken cannot
-      # resolve it and the server will not come up. The router's secondary DNS
-      # entry is the backstop for that, which is why it points at AdGuard rather
-      # than at an unfiltered resolver.
+      # Three things here break something if changed. `policy sequential` must
+      # stay: the default is random, which would send half of all queries to the
+      # resolver that does not have this household's allowlist. The
+      # `%servername` form must not be combined with a block-level
+      # tls_servername. And the fallback must stay an IP, because CoreDNS
+      # resolves upstream hostnames once at startup.
       - name: forward
         parameters: . tls://DOH-SUBDOMAIN.cloudflare-gateway.com%DOH-SUBDOMAIN.cloudflare-gateway.com tls://94.140.14.14%dns.adguard-dns.com
         configBlock: |-

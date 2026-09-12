@@ -20,7 +20,7 @@
 set -euo pipefail
 
 TEMPLATE="kubernetes/apps/cloudflare-gateway/adblock.mobileconfig.template"
-OUT="kubernetes/apps/cloudflare-gateway/profile.sops.yaml"
+OUT="kubernetes/apps/cloudflare-gateway/adblock.mobileconfig.sops.yaml"
 SECRET_NAME="cloudflare-gateway-mobileconfig"
 
 [[ $# -eq 1 ]] || { sed -n '2,12p' "$0" | sed 's/^# \?//'; exit 64; }
