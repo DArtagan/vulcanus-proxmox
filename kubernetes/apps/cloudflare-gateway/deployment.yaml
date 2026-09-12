@@ -81,9 +81,16 @@ spec:
             - name: tmp
               mountPath: /tmp
       volumes:
+        # Its own Secret, separate from the API credentials. The profile is a
+        # build artefact rendered from adblock.mobileconfig.template by
+        # tools/cloudflare-gateway/render-profile-secret.sh, so it is rewritten
+        # whenever the Gateway location changes; the credentials are hand-managed
+        # and should not be touched to do that. Keeping them apart also keeps the
+        # sync CronJob's envFrom clean, since "adblock.mobileconfig" is not a
+        # valid environment variable name.
         - name: profile-secret
           secret:
-            secretName: cloudflare-gateway-credentials
+            secretName: cloudflare-gateway-mobileconfig
         - name: config
           configMap:
             name: cloudflare-gateway
