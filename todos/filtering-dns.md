@@ -103,7 +103,7 @@ earns its place at the edge, not the centre.
 - **Will has remote access to his brother's router**, so the DHCP secondary can
   be changed without anyone being on site. That is what makes the CoreDNS change
   safe to attempt at all.
-- **A third Gateway location, `phones`, for the config profile.** A roaming
+- **A third Gateway location, `mobile`, for the config profile.** A roaming
   iPhone pointed at the `vulcanus` endpoint files its queries under that site and
   destroys the per-site attribution the locations exist for.
 
