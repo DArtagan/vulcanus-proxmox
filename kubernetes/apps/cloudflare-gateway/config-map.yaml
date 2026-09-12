@@ -1,0 +1,85 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudflare-gateway
+data:
+  # Domains that must never be blocked. Add exceptions here, one per line; they
+  # reach Cloudflare on the next sync run. Served to the sync job over HTTP
+  # rather than mounted into it -- see docs/dns-filtering.md for why mounting
+  # cannot work.
+  allowlist.txt: |
+    # Household exceptions. Upstream's recommended allowlists cover banks,
+    # URL shorteners, Discord, Firefox sync and platform telemetry already.
+  nginx-default.conf: |
+    server {
+        # 8080, not 80: the pod runs unprivileged. See deployment.yaml.
+        listen 8080;
+        root /usr/share/nginx/html;
+
+        # Load-bearing: iOS decides whether to offer a profile from the
+        # Content-Type alone, and nginx's stock mime.types has no entry for
+        # .mobileconfig. Without this the hand-off to Settings never triggers.
+        types {
+            text/html                            html;
+            application/x-apple-aspen-config     mobileconfig;
+        }
+
+        location / {
+            index index.html;
+        }
+    }
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Ad-Blocking DNS</title>
+      <style>
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          max-width: 580px;
+          margin: 60px auto;
+          padding: 0 24px;
+          color: #1a1a1a;
+          line-height: 1.6;
+        }
+        h1 { font-size: 1.6rem; margin-bottom: 0.4rem; }
+        .btn {
+          display: inline-block;
+          background: #f48120;
+          color: white;
+          padding: 14px 28px;
+          text-decoration: none;
+          border-radius: 8px;
+          font-size: 1rem;
+          font-weight: 600;
+          margin-top: 20px;
+        }
+        hr { border: none; border-top: 1px solid #e5e5e5; margin: 32px 0; }
+        small { color: #666; }
+      </style>
+    </head>
+    <body>
+      <h1>Ad-Blocking DNS</h1>
+      <p>
+        Install this DNS profile to block ads, trackers, and malware on this
+        device — including in apps, not just in the browser.
+      </p>
+      <p>
+        Works on <strong>iOS</strong> and <strong>macOS</strong>. After installing,
+        open <strong>Settings &rarr; General &rarr; VPN &amp; Device Management</strong>
+        and tap the profile to finish activating it.
+      </p>
+      <a class="btn" href="/adblock.mobileconfig">Download DNS Profile</a>
+      <hr>
+      <p>
+        <small>
+          Powered by <a href="https://www.cloudflare.com/products/zero-trust/gateway/">Cloudflare Gateway</a>.
+          If you need to log in to a captive portal (hotel or airplane WiFi),
+          go to <strong>Settings &rarr; General &rarr; VPN &amp; Device Management &rarr; DNS</strong>
+          and temporarily switch to <strong>Automatic</strong>, then switch back when done.
+        </small>
+      </p>
+    </body>
+    </html>

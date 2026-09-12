@@ -1,0 +1,78 @@
+# Rebuilds the Gateway block lists and the policy that uses them.
+# See docs/dns-filtering.md.
+#
+# `command` overrides the image's ENTRYPOINT deliberately. That entrypoint
+# ignores its arguments and runs crond in the foreground forever, so the Job
+# would never complete and concurrencyPolicy: Forbid would skip every later run
+# in silence. Do not remove it in favour of the image default.
+#
+# Runs as root because the image gives no alternative — it has no USER and writes
+# into a root-owned WORKDIR. Capabilities are dropped regardless.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cloudflare-gateway-sync
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 1
+  successfulJobsHistoryLimit: 3
+  schedule: "30 10 * * *"
+  jobTemplate:
+    spec:
+      # Bounded because the upstream script retries fifty times and waits two
+      # minutes between attempts on a 429, so one attempt can run for hours and a
+      # hung one forever — and under Forbid, a job that never ends means no later
+      # run ever starts. A healthy run takes minutes.
+      activeDeadlineSeconds: 3600
+      backoffLimit: 2
+      template:
+        spec:
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: sync
+              image: ghcr.io/dartagan/cloudflare-gateway-pihole-scripts:20260101000000 # {"$imagepolicy": "apps:cloudflare-gateway-sync"}
+              command: ["npm", "start", "--prefix", "/app/"]
+              env:
+                # 300 lists x 1,000 entries, measured. Cloudflare's
+                # account-limits page says "Lists: 100" and is wrong; do not
+                # lower this to match it without re-measuring first. See
+                # docs/dns-filtering.md.
+                - name: CLOUDFLARE_LIST_ITEM_LIMIT
+                  value: "300000"
+                # This replaces upstream's recommended allowlists rather than
+                # extending them, so they are repeated verbatim here and the
+                # household's own file appended last. Re-check them against
+                # lib/constants.js on an image bump — upstream editing its own
+                # defaults is invisible from here. See docs/dns-filtering.md.
+                - name: ALLOWLIST_URLS
+                  value: |-
+                    https://raw.githubusercontent.com/im-sm/Pi-hole-Torrent-Blocklist/main/all-torrent-trackres.txt
+                    https://raw.githubusercontent.com/AdguardTeam/HttpsExclusions/master/exclusions/banks.txt
+                    https://raw.githubusercontent.com/Dogino/Discord-Phishing-URLs/main/official-domains.txt
+                    https://raw.githubusercontent.com/AdguardTeam/HttpsExclusions/master/exclusions/mac.txt
+                    https://raw.githubusercontent.com/AdguardTeam/HttpsExclusions/master/exclusions/windows.txt
+                    https://raw.githubusercontent.com/boutetnico/url-shorteners/master/list.txt
+                    https://raw.githubusercontent.com/AdguardTeam/HttpsExclusions/master/exclusions/firefox.txt
+                    https://raw.githubusercontent.com/AdguardTeam/HttpsExclusions/master/exclusions/android.txt
+                    https://raw.githubusercontent.com/TogoFire-Home/AD-Settings/main/Filters/whitelist.txt
+                    https://raw.githubusercontent.com/DandelionSprout/AdGuard-Home-Whitelist/master/whitelist.txt
+                    https://raw.githubusercontent.com/AdguardTeam/AdGuardSDNSFilter/master/Filters/exclusions.txt
+                    https://raw.githubusercontent.com/AdguardTeam/HttpsExclusions/master/exclusions/issues.txt
+                    http://cloudflare-gateway-profile/allowlist.txt
+              envFrom:
+                - secretRef:
+                    name: cloudflare-gateway-credentials
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  memory: 512Mi
+          restartPolicy: OnFailure

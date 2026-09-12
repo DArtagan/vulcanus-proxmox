@@ -65,9 +65,9 @@ carries the most risk and needs a verified restore path first — which is item 
 Every policy rule is `src: will@`, so a second Headscale user currently gets no
 access at all — their devices would register and then reach nothing, which
 presents as a broken tunnel rather than an intentional deny. Needs a tag scheme,
-rules for them, and a less manual way to issue keys. Last in the ordering
-because nothing is broken until someone is actually added, and it is the only
-item here driven by a new want rather than an existing defect.
+rules for them, and a less manual way to issue keys. Low in the ordering
+because nothing is broken until someone is actually added — it and the item
+below are the two here driven by a new want rather than an existing defect.
 
 **9. [pod-security-namespace-level.md](pod-security-namespace-level.md) — put pod security at the namespace**
 `apps` carries no Pod Security Admission labels at all, so workloads that want
@@ -75,6 +75,17 @@ the restricted profile restate it individually and the rest are simply
 unexamined. Last because nothing is broken today: the
 cluster-level fallback admits these pods, and the work is auditing what each
 workload actually needs rather than setting a label.
+
+**10. [filtering-dns.md](filtering-dns.md) — ad-blocking and privacy DNS for the family**
+Cloudflare Zero Trust Gateway as the central filter, reaching the LAN, the
+cluster, the tailnet and family iPhones anywhere via an Apple config profile,
+with an AdGuard Home box at relatives' houses that need per-house exceptions.
+Assessed against NextDNS, Control D, AdGuard DNS and uBlockDNS on 2026-09-10;
+the decision and the rejected alternatives are recorded so they are not
+reopened. Last because nothing depends on it and the branch currently deploys
+nothing — but the work is part-done, and the design it recovered contained a
+mechanism that would have silently blanked every alert annotation in the
+cluster, which is written up rather than left to be rediscovered.
 
 ## Waiting on a decision
 

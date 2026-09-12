@@ -45,7 +45,7 @@ Check the router's DHCP range before widening the pool past .210.
                             └──────┬──────┘
                                    │ Hands out DNS:
                                    │  Primary:   192.168.0.202 (CoreDNS)
-                                   │  Secondary: 1.1.1.1       (Cloudflare)
+                                   │  Secondary: 94.140.14.14  (AdGuard)
                                    │
               ┌────────────────────┼────────────────────┐
               │                    │                    │
@@ -65,7 +65,8 @@ Check the router's DHCP range before widening the pool past .210.
         │    (+ explicit infra host records)   │
         │                                      │
         │  Everything else:                    │
-        │    Forward to Cloudflare (1.1.1.1)   │
+        │    Forward to Cloudflare Gateway     │
+        │    (DoT), AdGuard as fallback        │
         └──────────────────────────────────────┘
 ```
 
@@ -73,10 +74,11 @@ Check the router's DHCP range before widening the pool past .210.
 
 **LAN devices** (via router DHCP): CoreDNS is the primary DNS server. All
 `*.immortalkeep.com` queries resolve to the internal ingress (192.168.0.203).
-If CoreDNS is down (cluster restart), devices fall back to Cloudflare — internet
-keeps working, but `*.immortalkeep.com` resolves to the public IP and hits the
-external ingress instead. Internal-only services become unreachable by name,
-which is expected since the cluster hosting them is also down.
+If CoreDNS is down (cluster restart), devices fall back to AdGuard — internet
+keeps working and stays filtered, but `*.immortalkeep.com` resolves to the public
+IP and hits the external ingress instead. Internal-only services become
+unreachable by name, which is expected since the cluster hosting them is also
+down.
 
 **Tailnet devices** (via Headscale): Headscale's split DNS configuration routes
 `immortalkeep.com` queries to CoreDNS (192.168.0.202), ensuring tailnet clients
@@ -98,8 +100,8 @@ the CoreDNS LoadBalancer service.
 Hairpinning (traffic looping out to the public IP and back in) is not a concern
 because every client type that resolves `*.immortalkeep.com` does so through
 CoreDNS, which returns the internal ingress IP directly. LAN devices that fall
-back to Cloudflare during a CoreDNS outage will hit the external ingress, which
-is the correct degraded behavior.
+back to AdGuard during a CoreDNS outage will hit the external ingress, which is
+the correct degraded behavior.
 
 
 ## Public DNS
@@ -261,10 +263,19 @@ internal ingress via the wildcard; sync traffic uses `syncthing-sync`.
 ## Decisions and Rationale
 
 **CoreDNS as primary LAN DNS (not sole DNS):** CoreDNS is handed out as the
-primary DNS server via router DHCP, with Cloudflare (1.1.1.1) as secondary.
-This gives consistent `*.immortalkeep.com` resolution for all LAN devices while
-providing a safety net — if the Kubernetes cluster restarts, general internet
-DNS continues working via the Cloudflare fallback.
+primary DNS server via router DHCP, with AdGuard's public resolver
+(`94.140.14.14`) as secondary. This gives consistent `*.immortalkeep.com`
+resolution for all LAN devices while providing a safety net — if the Kubernetes
+cluster restarts, general internet DNS continues working.
+
+The secondary is a filtering resolver rather than a plain one so that the
+fallback path blocks ads and malware too. A resolver that answers everything is
+a hole in whatever the primary is doing, and this one is reached exactly when
+nobody is watching. It does not resolve internal-only hosts: those follow the
+public `*.immortalkeep.com` wildcard to the WAN IP, where the external ingress
+has no rule for them. That is why both slots must not be set to the secondary —
+doing so takes CoreDNS out of the path and makes internal names unreachable by
+name from the LAN.
 
 **No immortalkeep.local rewrite:** An earlier TODO proposed rewriting
 `immortalkeep.com` to `immortalkeep.local` inside CoreDNS to prevent

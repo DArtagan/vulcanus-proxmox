@@ -1,0 +1,86 @@
+# The `servers` value for the CoreDNS HelmRelease, and the reviewable original
+# behind coredns-servers.sops.yaml. See docs/dns-filtering.md.
+#
+# To render: tools/render/coredns-servers.sh <doh-subdomain>
+#
+# Edit this file, never the encrypted copy — that is how the two drift apart.
+servers:
+  - zones:
+      - zone: .
+        # Without this the chart renders a UDP port only. The live Service has
+        # carried both udp-53 and tcp-53 since chart 1.29.0, and resolvers fall
+        # back to TCP for responses that do not fit in a UDP datagram.
+        use_tcp: true
+    port: 53
+    plugins:
+      - name: errors
+      - name: health
+        configBlock: |-
+          lameduck 5s
+      - name: ready
+      - name: prometheus
+        parameters: 0.0.0.0:9153
+      - name: any
+      - name: bufsize
+        parameters: 1232
+      - name: cache
+        parameters: 30
+      - name: loop
+      - name: reload
+      - name: loadbalance
+      # Gateway first, AdGuard as a filtering fallback. See docs/dns-filtering.md.
+      #
+      # Three things here break something if changed. `policy sequential` must
+      # stay: the default is random, which would send half of all queries to the
+      # resolver that does not have this household's allowlist. The
+      # `%servername` form must not be combined with a block-level
+      # tls_servername. And the fallback must stay an IP, because CoreDNS
+      # resolves upstream hostnames once at startup.
+      - name: forward
+        parameters: . tls://DOH-SUBDOMAIN.cloudflare-gateway.com%DOH-SUBDOMAIN.cloudflare-gateway.com tls://94.140.14.14%dns.adguard-dns.com
+        configBlock: |-
+          policy sequential
+          health_check 5s
+        # Hairpinning is not a concern: tailnet devices resolve immortalkeep.com
+        # via Headscale split DNS → CoreDNS, infrastructure VMs use CoreDNS
+        # directly, and LAN devices use CoreDNS via router DHCP (primary) with
+        # Cloudflare (secondary) as fallback.
+  - zones:
+      - zone: immortalkeep.com
+        use_tcp: true
+    port: 53
+    plugins:
+      - name: errors
+      - name: log
+      - name: health
+        configBlock: |-
+          lameduck 5s
+      - name: file
+        parameters: /etc/coredns/db.immortalkeep.com
+      - name: ready
+      - name: prometheus
+        parameters: 0.0.0.0:9153
+      - name: reload
+  # status.immortalkeep.com is a Cloudflare DNS entry that redirects to
+  # the Uptime Robot status page — it is not served by the internal
+  # ingress. This zone is more specific than immortalkeep.com above, so
+  # CoreDNS answers it via public DNS instead of falling through to the
+  # wildcard record, which would otherwise point it at the internal
+  # ingress (no rule there for this host). Covers LAN clients (CoreDNS
+  # via router DHCP) and tailnet clients (CoreDNS via Headscale split
+  # DNS) with one change.
+  - zones:
+      - zone: status.immortalkeep.com
+        use_tcp: true
+    port: 53
+    plugins:
+      - name: errors
+      - name: health
+        configBlock: |-
+          lameduck 5s
+      - name: ready
+      - name: forward
+        parameters: . tls://1.1.1.1
+        configBlock: |-
+          tls_servername cloudflare-dns.com
+          health_check 5s

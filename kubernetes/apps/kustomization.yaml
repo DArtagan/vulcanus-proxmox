@@ -10,6 +10,7 @@ resources:
   #- botamusique
   - beets
   - cloudflare-ddns
+  - cloudflare-gateway
   - demo
   - filebot
   - games-pvc.yaml

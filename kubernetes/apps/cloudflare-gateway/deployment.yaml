@@ -1,0 +1,89 @@
+# Serves the Apple configuration profile. See docs/dns-filtering.md.
+#
+# nginx-unprivileged on 8080, not stock nginx on 80: the pod runs non-root with
+# every capability dropped, so it cannot bind a port below 1024, and this image
+# keeps its pid and temp paths under /tmp where readOnlyRootFilesystem allows
+# them. The Service still publishes 80, so the Ingress is unaffected.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflare-gateway-profile
+  labels:
+    app: cloudflare-gateway-profile
+spec:
+  selector:
+    matchLabels:
+      app: cloudflare-gateway-profile
+  template:
+    metadata:
+      labels:
+        app: cloudflare-gateway-profile
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        # 101 is the image's nginx user; fsGroup chowns the writable mounts to it.
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nginx
+          image: nginxinc/nginx-unprivileged:1-alpine
+          ports:
+            - name: http
+              containerPort: 8080
+          # Readiness only: nginx serving static files cannot be alive but not
+          # serving, and a dead process exits on its own.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: profile-secret
+              mountPath: /usr/share/nginx/html/adblock.mobileconfig
+              subPath: adblock.mobileconfig
+              readOnly: true
+            - name: config
+              mountPath: /usr/share/nginx/html/index.html
+              subPath: index.html
+              readOnly: true
+            - name: config
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: nginx-default.conf
+              readOnly: true
+            # Fetched by the sync CronJob over HTTP, not by any browser.
+            - name: config
+              mountPath: /usr/share/nginx/html/allowlist.txt
+              subPath: allowlist.txt
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # Its own Secret, separate from the API credentials, and a build artefact
+        # rendered from adblock.mobileconfig.template. Do not move it back
+        # alongside the credentials: the CronJob reads those with envFrom, and
+        # "adblock.mobileconfig" is not a valid environment variable name. See
+        # docs/dns-filtering.md.
+        - name: profile-secret
+          secret:
+            secretName: cloudflare-gateway-mobileconfig
+        - name: config
+          configMap:
+            name: cloudflare-gateway
+        - name: tmp
+          emptyDir: {}
