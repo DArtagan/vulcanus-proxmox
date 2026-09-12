@@ -105,8 +105,21 @@ earns its place at the edge, not the centre.
   safe to attempt at all.
 - **A third Gateway location, `phones`, for the config profile.** A roaming
   iPhone pointed at the `vulcanus` endpoint files its queries under that site and
-  destroys the per-site attribution the locations exist for. Locations are
-  documented as 250 per account, so this is free.
+  destroys the per-site attribution the locations exist for.
+
+  **It has to be created through the API, not the dashboard.** The UI prefills
+  the source IPv4 of whatever network you are sitting on, and refuses with *"A
+  network overlapping the requested IP range is in use by another location
+  belonging to this account"* when one of your own locations already holds that
+  address — which `boston` does, since that is where you create things from.
+  Note the wording: Cloudflare's other variant of this error says "another
+  gateway customer" and means a stranger on your ISP range. This one means you.
+
+  A source IP is not needed at all here. `name` is the only required field, and
+  `networks` is documented as taking effect *"only if it is non-empty and the
+  IPv4 endpoint is enabled for this location"*, so a location created without
+  networks is attributed purely by its own DoH hostname — which is all a roaming
+  phone ever uses.
 
 ## The coverage model
 
