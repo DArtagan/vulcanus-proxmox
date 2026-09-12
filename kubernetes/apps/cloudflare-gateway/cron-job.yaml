@@ -27,6 +27,19 @@ spec:
   schedule: "30 10 * * *"
   jobTemplate:
     spec:
+      # Bounded on purpose. fetchRetry in the upstream script retries fifty
+      # times and, on a 429, waits two minutes between attempts — so a single
+      # attempt can legitimately occupy about a hundred minutes, and a genuinely
+      # hung request occupies forever. With concurrencyPolicy: Forbid, a job that
+      # never ends means no further run ever starts, and the only signal left is
+      # CronJobNotSucceeding noticing 26 hours later that nothing has succeeded.
+      #
+      # An hour is well past a healthy run, which is minutes. Two attempts rather
+      # than the default six, because six attempts at up to an hour each is most
+      # of a day spent retrying a failure that is not going to fix itself, and
+      # the alert would rather fire.
+      activeDeadlineSeconds: 3600
+      backoffLimit: 2
       template:
         spec:
           securityContext:

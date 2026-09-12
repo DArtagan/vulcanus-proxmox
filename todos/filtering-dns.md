@@ -236,6 +236,20 @@ worth bundling into the same pull request as the tag automation.
   needed; the tile 404s only because the app is undeployed.
 - `CronJobNotSucceeding` keys on `kube_cronjob_info`'s schedule label rather than
   on names, so the sync job is alerted on automatically once deployed.
+- **A tightened Cloudflare limit would be noticed, in about 26 hours.** Traced
+  through the upstream code on 2026-09-11: a 400 from the API fails
+  `response.ok`, `fetchRetry` rethrows once its attempts are exhausted,
+  `createZeroTrustListsOneByOne` logs the list name and rethrows, and the
+  top-level `await` in `cf_list_create.js` rejects, so node exits non-zero, the
+  `npm start` `&&` chain stops and the Job fails. A partial failure — eighty
+  lists created, then the cap — throws the same way.
+
+  What this does *not* do is stop filtering. A failed sync leaves the existing
+  lists and the Gateway policy in place, so the blocklist merely goes stale and
+  `dns-canary` keeps passing. That is the correct severity, and it means the
+  canary and the CronJob alert cover genuinely different failures: the canary
+  catches filtering that has stopped, the CronJob alert catches a blocklist that
+  has stopped being maintained. Neither substitutes for the other.
 - `kubernetes/apps/kustomization.yaml` sets `namespace: apps`, so the CronJob
   reaches the profile Service as `http://cloudflare-gateway-profile/`.
 - **The list ceiling is 300 lists × 1,000 entries = 300,000 domains**, measured
