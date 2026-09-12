@@ -1,15 +1,11 @@
-# Keeps the public A records for immortalkeep.com pointed at a WAN IP that the
-# ISP changes without warning. Headscale, the WireGuard break-glass tunnel and
-# cert-manager's HTTP-01 renewals all resolve through those records, so this is
-# load-bearing for getting back in at all — see docs/network.md.
+# Keeps the public DNS for immortalkeep.com pointed at a changing WAN IP. What
+# depends on that, and why the zone is shaped the way it is, is in
+# docs/network.md.
 #
-# This is a Deployment and must stay one. UPDATE_CRON=@once exists, and a */5
-# CronJob would land in the 5400s bucket of cronjob:max_seconds_without_success
-# and appear to inherit CronJobNotSucceeding for free. It does not: in @once
-# mode the updater returns 0 unconditionally, consulting the update result only
-# for the heartbeat and notifier, so a revoked token would produce a Successful
-# Job every five minutes forever. The alert would be structurally blind.
-# DDNSUpdaterDown in prometheus-rules.yaml watches this instead.
+# This is a Deployment and must stay one. UPDATE_CRON=@once plus a */5 CronJob
+# would appear to inherit CronJobNotSucceeding for free, but in @once mode the
+# updater returns 0 unconditionally — a revoked token would log a Successful Job
+# every five minutes forever, and the alert would be structurally blind.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -29,8 +25,6 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         runAsGroup: 1000
-        seccompProfile:
-          type: RuntimeDefault
       containers:
         - name: cloudflare-ddns
           image: favonia/cloudflare-ddns:1.17.0 # {"$imagepolicy": "apps:cloudflare-ddns"}
@@ -40,26 +34,13 @@ spec:
                 secretKeyRef:
                   name: cloudflare-ddns
                   key: CLOUDFLARE_API_TOKEN
-            # dynamic.immortalkeep.com is the only record holding the WAN IP.
-            # The apex CNAMEs to it, the wildcard CNAMEs to the apex, and
-            # Cloudflare answers flattened, so every name resolves to an address
-            # and the indirection is invisible to dig. Naming immortalkeep.com
-            # or *.immortalkeep.com here would create A records over those
-            # CNAMEs and collapse the structure the zone is built on — the
-            # updater creates whatever it cannot find rather than erroring.
-            #
-            # ddns-canary is a deliberately worthless record kept so the updater
-            # can be proved end-to-end without touching one that matters:
-            # set it wrong, restart the pod to clear the 6h record cache, and
-            # watch it corrected. Breaking dynamic to run the same test would
-            # take the whole zone down for a cycle.
+            # Not the apex or the wildcard: those are CNAMEs, and the
+            # updater creates whatever it cannot find rather than erroring, so
+            # naming them lays A records over the chain. See docs/network.md.
             - name: DOMAINS
-              value: "dynamic.immortalkeep.com,ddns-canary.immortalkeep.com"
-            # Cloudflare's proxy breaks headscale — cloudflared strips the
-            # Upgrade header on POST and Tailscale's TS2021 handshake is a
-            # WebSocket over POST — and cannot carry the L4 services at all.
-            # Only applies to records the updater creates; it will not flip the
-            # proxy status of a record that already exists.
+              value: "dynamic.immortalkeep.com"
+            # The zone is unproxied by necessity, not preference — see
+            # docs/network.md. Applies only to records the updater creates.
             - name: PROXIED
               value: "false"
             # The zone holds no AAAA records. Left enabled, the updater chases a
@@ -68,12 +49,6 @@ spec:
               value: "none"
             - name: UPDATE_CRON
               value: "@every 5m"
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop:
-                - ALL
           resources:
             requests:
               cpu: 10m
