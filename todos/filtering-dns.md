@@ -328,11 +328,27 @@ cannot be synced with upstream either — both its remotes are SSH.
 **Ordering is a safety property here, not tidiness.** `vulcanus` is at Will's
 brother's house, so these steps run in this order or not at all:
 
-1. **Router secondary DNS → `94.140.14.14` / `94.140.15.15`**, at the brother's
-   house, over the remote access Will has. This is the backstop for every step
-   that follows: if CoreDNS ends up with an upstream it cannot resolve, the
-   secondary is the only reason that household still has working — and still
-   filtered — DNS. It must be in place *before* CoreDNS changes, not after.
+1. **Router DNS at the brother's house**, over the remote access Will has, set
+   to exactly:
+
+       Primary DNS:   192.168.0.202    (CoreDNS — unchanged)
+       Secondary DNS: 94.140.14.14     (AdGuard, replacing 1.1.1.1)
+
+   **Only the secondary changes.** An earlier revision of this spec wrote the
+   value as "94.140.14.14 / 94.140.15.15", meaning AdGuard's pair, and it was
+   read as "put AdGuard in the DNS slots" — which was tried, and takes CoreDNS
+   out of the path entirely: `*.immortalkeep.com` then follows the public
+   wildcard to the WAN IP, so internal-only hosts have no rule to land on and
+   everything else depends on hairpin NAT.
+
+   The secondary's job is narrow. It is the backstop for CoreDNS being *down*,
+   including the bootstrap case where CoreDNS restarts while DNS is already
+   broken and cannot resolve its own Gateway upstream hostname. Moving it off
+   `1.1.1.1` means that fallback is still filtered rather than wide open. It is
+   not meant to carry normal traffic, and the allowlist does not apply to
+   anything that goes through it.
+
+   It must be in place *before* CoreDNS changes, not after.
 2. **Confirm the canary passes** against the unmodified setup. A check first
    observed at the moment you need it is not a check; it should be seen going
    green before it is trusted to go red. Expect the blocked-domain assertion to
