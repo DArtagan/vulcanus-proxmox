@@ -238,9 +238,28 @@ worth bundling into the same pull request as the tag automation.
   on names, so the sync job is alerted on automatically once deployed.
 - `kubernetes/apps/kustomization.yaml` sets `namespace: apps`, so the CronJob
   reaches the profile Service as `http://cloudflare-gateway-profile/`.
-- **Entries per list is 1,000**, measured 2026-09-11: 1,000 accepted, 1,001
-  rejected with "list size is limited to 1000 items". The account is therefore on
-  a Standard plan, since Enterprise is documented at 5,000.
+- **The list ceiling is 300 lists × 1,000 entries = 300,000 domains**, measured
+  against the account on 2026-09-11. 1,001 entries is rejected with *"list size
+  is limited to 1000 items"*; the 301st list is rejected with *"2017 Maximum
+  number of lists reached"*. Both probes cleaned up after themselves.
+
+  **Cloudflare's own documentation is wrong about this.** `account-limits`
+  states "Lists: 100", which would make the ceiling 100,000. The account
+  enforces 300. The 1,000-entry figure is right, and the rejection of 1,001
+  confirms a Standard plan, since Enterprise is documented at 5,000.
+
+  So `CLOUDFLARE_LIST_ITEM_LIMIT: "300000"` in the recovered CronJob is exactly
+  correct and stays. Earlier revisions of this spec called it speculative and
+  invented, and three commit messages repeat that. They were wrong: the value
+  came from CGPS's README, which had measured the real ceiling, and the doubt
+  came from trusting vendor documentation over a figure someone had actually
+  tested. Worth remembering the next time the two disagree.
+
+  Headroom is academic either way: oisd small is roughly 50,000 domains, about
+  50 lists, so the sync will sit near 17% of the cap. The one brittleness is
+  that 300000 leaves no room for any other list in the account — nothing else
+  uses Gateway lists today, and `CronJobNotSucceeding` catches it if that
+  changes.
 - `kubectl kustomize` builds clean for both `kubernetes/apps/cloudflare-gateway/`
   and `kubernetes/infrastructure/`. Beyond the list measurement above, nothing
   here has been run against a live cluster.
@@ -267,22 +286,12 @@ cannot be synced with upstream either — both its remotes are SSH.
 
 1. **Record the DoH subdomains** for the `vulcanus` and `boston` locations. Only
    `vulcanus` is needed for the cluster-side work; `boston` is for a box.
-2. **Lists per account.** Entries per list is settled at **1,000** — measured
-   2026-09-11 against the account: 1,000 accepted, 1,001 rejected with *"list
-   size is limited to 1000 items"*, which also confirms this is a Standard plan
-   rather than Enterprise. What remains is how many lists an account may hold:
-   documented as 100, reported by CGPS users at ~187.
-   `measure-list-count.sh` settles it. Whatever it returns, multiply by 1,000 and
-   set `CLOUDFLARE_LIST_ITEM_LIMIT` to that — the recovered `300000` presumes 300
-   lists and is an invented number. With one shared ruleset and oisd small at
-   roughly 50,000 domains the ceiling barely binds; this is about not shipping a
-   figure nobody checked.
-3. **Measure the real location cap.** Documented as 250 account-wide; third-party
+2. **Measure the real location cap.** Documented as 250 account-wide; third-party
    sources claim 3 on the free plan, and those sources are AI-generated and
    contradict each other. Five locations — home plus four houses — would give
    per-house attribution in Gateway's logs. Fall back to one shared endpoint if
    the cap is really 3.
-4. **Confirm Headscale accepts a Gateway DoH URL** in `nameservers.global`. The
+3. **Confirm Headscale accepts a Gateway DoH URL** in `nameservers.global`. The
    commented-out NextDNS equivalent at
    `kubernetes/apps/headscale/headscale-config-map.yaml:240-242` shows the field
    takes a URL; confirm Cloudflare's form resolves.

@@ -37,6 +37,16 @@ spec:
               image: ghcr.io/dartagan/cloudflare-gateway-pihole-scripts:20260101000000 # {"$imagepolicy": "apps:cloudflare-gateway-sync"}
               command: ["npm", "start", "--prefix", "/app/"]
               env:
+                # 300 lists x 1,000 entries, measured against the account on
+                # 2026-09-11: the 1,001st entry is refused with "list size is
+                # limited to 1000 items" and the 301st list with "2017 Maximum
+                # number of lists reached".
+                #
+                # Cloudflare's account-limits page says "Lists: 100", which would
+                # make this 100000. It is wrong. Do not lower this to match the
+                # documentation without re-measuring first — that trade would
+                # give up two thirds of the capacity on the strength of a page
+                # that has already been checked and found incorrect.
                 - name: CLOUDFLARE_LIST_ITEM_LIMIT
                   value: "300000"
                 # Setting this replaces upstream's recommended allowlists rather
