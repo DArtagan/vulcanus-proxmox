@@ -349,11 +349,20 @@ brother's house, so these steps run in this order or not at all:
    anything that goes through it.
 
    It must be in place *before* CoreDNS changes, not after.
-2. **Confirm the canary passes** against the unmodified setup. A check first
-   observed at the moment you need it is not a check; it should be seen going
-   green before it is trusted to go red. Expect the blocked-domain assertion to
-   report inconclusive at this point — nothing is filtering yet — which is itself
-   the confirmation that it would notice.
+2. **Confirm the canary fails** against the unmodified setup, for the right
+   reason. Baseline taken 2026-09-12 over the WireGuard tunnel: the control
+   domain resolves through CoreDNS, and `doubleclick.net` comes back with six
+   routable Google addresses, so the run fails saying filtering is not in effect.
+   That is correct — nothing is filtering yet. Seeing it fail now is what makes
+   its later pass mean something.
+
+   This step earned its keep: running it exposed a false pass in the canary's
+   first version, which compared the blocked domain's answer against an
+   unfiltered resolver and treated *differing* as success. `doubleclick.net` is
+   geo-distributed and rotates, so the two resolvers disagreed constantly while
+   nothing was filtered, and the check reported healthy at exactly the moment it
+   existed to fail. The assertion is now "resolves to nothing routable" — empty,
+   NXDOMAIN, or the `0.0.0.0` sentinel that Gateway and AdGuard both return.
 3. **Render the Secret and flip `coredns.yaml`** to `valuesFrom`, deleting its
    inline `servers:` block. One commit.
 4. **Watch the canary turn from inconclusive to blocking.** That transition is

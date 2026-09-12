@@ -53,16 +53,15 @@ spec:
               env:
                 - name: RESOLVER
                   value: "192.168.0.202"
-                # A resolver known not to filter, used as the control. Without
-                # it there is no way to tell "blocked" from "does not exist".
-                - name: CONTROL_RESOLVER
-                  value: "1.1.1.1"
                 # Must be blocked. Chosen because it is pure ad-serving
-                # infrastructure on every mainstream list, so if this one is
-                # ever unblocked the blocklist is not loaded at all.
+                # infrastructure present on every mainstream list, so if this one
+                # resolves the blocklist is not loaded at all. It must also be a
+                # domain that genuinely exists, or "no answer" would mean "gone"
+                # rather than "blocked".
                 - name: BLOCKED_DOMAIN
                   value: "doubleclick.net"
-                # Must resolve. If this fails, DNS is broken rather than strict.
+                # Must resolve. If this fails, DNS is broken rather than strict,
+                # and the run says so instead of blaming the filter.
                 - name: CONTROL_DOMAIN
                   value: "cloudflare.com"
               command:
@@ -83,26 +82,33 @@ spec:
                   fail=0
 
                   ctrl=$(answers "$CONTROL_DOMAIN" "$RESOLVER")
-                  if [ -z "$ctrl" ]; then
-                    echo "FAIL: $CONTROL_DOMAIN did not resolve via $RESOLVER — DNS is down, not filtering."
-                    fail=1
-                  else
-                    echo "ok: $CONTROL_DOMAIN -> $ctrl"
-                  fi
+                  case " $ctrl " in
+                    *" 0.0.0.0 "*|"  ")
+                      echo "FAIL: $CONTROL_DOMAIN did not resolve via $RESOLVER — DNS is down, not filtering."
+                      fail=1 ;;
+                    *) echo "ok: $CONTROL_DOMAIN -> $ctrl" ;;
+                  esac
 
+                  # A blocked domain must come back with nothing routable: either
+                  # no answer at all, or the 0.0.0.0 sentinel that Gateway and
+                  # AdGuard both return. Anything else is a real address and means
+                  # the query was answered rather than blocked.
+                  #
+                  # Do NOT reinstate the earlier version of this test, which
+                  # compared the answer against an unfiltered resolver and called
+                  # them differing a pass. doubleclick.net is geo-distributed and
+                  # rotates its answer set, so two resolvers disagree about it
+                  # constantly while nothing is filtered — measured 2026-09-12,
+                  # six addresses from one resolver against one from the other,
+                  # with no filtering in place at all. That check passed at
+                  # exactly the moment it was supposed to fail.
                   got=$(answers "$BLOCKED_DOMAIN" "$RESOLVER")
-                  ref=$(answers "$BLOCKED_DOMAIN" "$CONTROL_RESOLVER")
-                  # Gateway's block response format is a policy setting (0.0.0.0
-                  # or NXDOMAIN), so compare against an unfiltered resolver
-                  # instead of hardcoding what a block looks like. Equal and
-                  # non-empty means nothing filtered it.
-                  if [ -n "$got" ] && [ "$got" = "$ref" ]; then
-                    echo "FAIL: $BLOCKED_DOMAIN resolved to '$got' via $RESOLVER, identical to unfiltered $CONTROL_RESOLVER — filtering is not in effect."
+                  routable=$(echo "$got" | tr ' ' '\n' | grep -vE '^(0\.0\.0\.0)?$' | tr '\n' ' ')
+                  if [ -n "$routable" ]; then
+                    echo "FAIL: $BLOCKED_DOMAIN resolved to '$routable' via $RESOLVER — filtering is not in effect."
                     fail=1
-                  elif [ -z "$ref" ]; then
-                    echo "INCONCLUSIVE: $BLOCKED_DOMAIN did not resolve via $CONTROL_RESOLVER either; cannot tell blocked from gone. Not failing on this."
                   else
-                    echo "ok: $BLOCKED_DOMAIN -> '${got:-NXDOMAIN}' via $RESOLVER, '$ref' unfiltered"
+                    echo "ok: $BLOCKED_DOMAIN blocked via $RESOLVER (answer: '${got:-NXDOMAIN}')"
                   fi
 
                   exit $fail
