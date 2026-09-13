@@ -65,9 +65,27 @@ narrow:
 | `will@` | `192.168.0.190:50000` | Talos API, so `talosctl` works while roaming — the tool needed when the cluster is the thing that is broken |
 | `will@` | `192.168.0.202:53` | CoreDNS, or no internal name resolves |
 | `will@` | `192.168.0.203:80,443` | Internal ingress — one door to every HTTP service |
+| `will@` | `192.168.0.205:64738` | Mumble, TCP and UDP. Split DNS answers this address, so a roaming client cannot fall back to the public port forward |
 
-Everything else on the LAN is routed but denied. Mumble, RustDesk and Syncthing
-sync keep using their public port forwards rather than the tailnet.
+Everything else on the LAN is routed but denied. RustDesk and Syncthing sync
+keep using their public port forwards rather than the tailnet.
+
+Mumble is the one L4 service on the list, and it is there because split DNS makes
+the public path unreachable rather than merely redundant. CoreDNS answers
+`mumble.immortalkeep.com` with `192.168.0.205`, which beats the public record for
+any client using it, so a roaming client never sees the WAN address the router
+forwards to the same Service. Without this entry the tailnet and Mumble are
+mutually exclusive on one machine — the client resolves an internal address the
+policy denies, and has no way to ask for the public one instead.
+
+The subnet router SNATs, which `tailscale set --advertise-routes` leaves on by
+default, so Mumble logs a client arriving this way as the router rather than as
+itself. That is the same loss of per-client identification that
+`kubernetes/infrastructure/coredns.yaml` records for the apex Service, and it is
+tolerable here only because the grant is `will@`-scoped: it collapses one
+person's devices, which stay distinguishable by certificate anyway. Granting
+64738 to a wider source would reintroduce the problem the apex was removed to
+avoid.
 
 It is narrow on purpose. Opening a policy up and tightening it later is a thing
 that does not actually get done, so this one grows one entry at a time, each
