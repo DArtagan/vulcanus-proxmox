@@ -157,10 +157,23 @@ Two alerts cover genuinely different failures and neither substitutes for the
 other.
 
 **`dns-canary`** asks whether filtering is happening at all. Every 15 minutes it
-resolves a control domain through CoreDNS and expects an answer, and a known ad
-domain and expects nothing routable — no answer, or the `0.0.0.0` sentinel that
-Gateway and AdGuard both return. It exits non-zero on either failure and so
-rides `CronJobNotSucceeding` without needing a rule of its own.
+resolves a control domain through CoreDNS and expects an answer, then checks two
+independent sets and fails if either produces no block at all:
+
+- **the blocklist**, against ad domains from three different networks
+- **the category policy**, against `malware.testcategory.com` and
+  `phishing.testcategory.com` — safe domains Cloudflare operates for this, absent
+  from hagezi NORMAL, so a pass can only come from the category policy
+
+Each set fails only when *none* of its members is blocked: one domain leaving a
+list is ordinary, the mechanism stopping is not. It exits non-zero and so rides
+`CronJobNotSucceeding` without needing a rule of its own.
+
+What counts as blocked differs by path, and getting it wrong reads as a broken
+filter. A blocklist match returns `0.0.0.0`. A category match returns REFUSED, or
+NOERROR with `162.159.36.12` / `162.159.46.12` when the block page is enabled —
+routable addresses, so treating any routable answer as unblocked would call a
+working category policy broken.
 
 The assertion is absolute rather than comparative on purpose. An earlier version
 compared the ad domain's answer against an unfiltered resolver and treated a

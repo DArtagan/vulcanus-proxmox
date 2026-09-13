@@ -62,6 +62,15 @@ spec:
                 # and the run says so instead of blaming the filter.
                 - name: CONTROL_DOMAIN
                   value: "cloudflare.com"
+                # Cloudflare's own test domains, which exercise the security
+                # *categories* rather than the blocklist. They are safe: real
+                # domains operated by Cloudflare for exactly this, not live
+                # malware. Neither appears anywhere in hagezi NORMAL, so a pass
+                # here can only come from the category policy the
+                # cloudflare-gateway-policy CronJob maintains -- which is the
+                # point, since nothing else notices if that policy is deleted.
+                - name: CATEGORY_DOMAINS
+                  value: "malware.testcategory.com phishing.testcategory.com"
               command:
                 - /bin/sh
                 - -c
@@ -87,31 +96,49 @@ spec:
                     *) echo "ok: $CONTROL_DOMAIN -> $ctrl" ;;
                   esac
 
-                  # Nothing routable means blocked. Do NOT rewrite this to
-                  # compare against an unfiltered resolver and treat a difference
-                  # as success: ad domains are geo-distributed and rotate, so
-                  # that version passed while nothing was filtered at all.
-                  blocked=0
-                  leaked=""
-                  for d in $BLOCKED_DOMAINS; do
-                    got=$(answers "$d" "$RESOLVER")
-                    routable=$(echo "$got" | tr ' ' '\n' | grep -vE '^(0\.0\.0\.0)?$' | tr '\n' ' ')
-                    if [ -n "$routable" ]; then
-                      leaked="$leaked $d"
-                    else
-                      blocked=$((blocked + 1))
-                      echo "ok: $d blocked via $RESOLVER (answer: '${got:-NXDOMAIN}')"
-                    fi
-                  done
+                  # What counts as blocked. An empty answer covers NXDOMAIN and
+                  # REFUSED; 0.0.0.0 is what a blocklist match returns; and
+                  # 162.159.36.12 / 162.159.46.12 are Cloudflare's block-page
+                  # addresses, returned for a *category* match when the block
+                  # page is enabled. Those last two are routable, so treating any
+                  # routable answer as unblocked would call a working category
+                  # policy broken.
+                  #
+                  # Do NOT rewrite this to compare against an unfiltered resolver
+                  # and treat a difference as success: ad domains are
+                  # geo-distributed and rotate, so that version passed while
+                  # nothing was filtered at all.
+                  is_blocked() {
+                    echo "$1" | tr ' ' '\n' \
+                      | grep -vE '^(0\.0\.0\.0|162\.159\.36\.12|162\.159\.46\.12)?$' \
+                      | grep -q . && return 1
+                    return 0
+                  }
 
-                  if [ "$blocked" -eq 0 ]; then
-                    echo "FAIL: none of $BLOCKED_DOMAINS was blocked via $RESOLVER — filtering is not in effect."
-                    fail=1
-                  elif [ -n "$leaked" ]; then
-                    # Not a failure: one list dropping a domain is ordinary. Said
-                    # out loud so a slow drift toward zero is visible in the logs
-                    # before it becomes an outage.
-                    echo "note:$leaked resolved rather than blocked; $blocked of the set still blocked."
-                  fi
+                  # $1 = label for the failure message, $2 = domains to try.
+                  # Fails only when none of the set is blocked: one domain leaving
+                  # a list is ordinary, the mechanism stopping is not.
+                  check_set() {
+                    label=$1; set_domains=$2
+                    n=0; leaked=""
+                    for d in $set_domains; do
+                      got=$(answers "$d" "$RESOLVER")
+                      if is_blocked "$got"; then
+                        n=$((n + 1))
+                        echo "ok: $d blocked via $RESOLVER (answer: '${got:-NXDOMAIN/REFUSED}')"
+                      else
+                        leaked="$leaked $d"
+                      fi
+                    done
+                    if [ "$n" -eq 0 ]; then
+                      echo "FAIL: $label — none of$leaked was blocked via $RESOLVER."
+                      return 1
+                    fi
+                    [ -n "$leaked" ] && echo "note:$leaked resolved rather than blocked; $n of the set still blocked."
+                    return 0
+                  }
+
+                  check_set "blocklist is not in effect" "$BLOCKED_DOMAINS" || fail=1
+                  check_set "security category policy is not in effect" "$CATEGORY_DOMAINS" || fail=1
 
                   exit $fail
