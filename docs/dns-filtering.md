@@ -10,9 +10,9 @@ everything here is about how queries reach it.
 |---|---|---|
 | `vulcanus` LAN | CoreDNS → Gateway over DoT | yes |
 | Cluster, infra VMs | the same CoreDNS | yes |
-| Tailnet devices, on or off LAN | Headscale global nameserver → Gateway DoH | yes |
+| Tailnet devices | whatever their local network gives them | depends |
 | Family iPhones, anywhere | Apple configuration profile → Gateway DoH | yes |
-| Relatives' routers | AdGuard's public resolver | no |
+| Routers, at every site | Gateway resolver IPs, AdGuard as secondary | via Gateway |
 
 A phone carrying the profile is covered on any network, including cellular,
 which is why the profile rather than the router is the primary delivery
@@ -43,6 +43,27 @@ CoreDNS itself is down — see [network.md](network.md).
 A fallback to a *filtering* resolver rather than an unfiltered one means an
 unreachable Gateway degrades to a generic blocklist instead of to no filtering.
 `vulcanus` is several states away, so the degraded mode matters more than usual.
+
+## Router DNS settings
+
+Every site's router hands out two addresses:
+
+| Slot | Address | Why |
+|---|---|---|
+| Primary | Cloudflare Gateway's resolver IPs, or a site's own resolver | the filtered path, with this household's allowlist |
+| Secondary | **`94.140.14.14`** (AdGuard public; `94.140.15.15` is its pair) | filtered fallback |
+
+**The secondary is AdGuard rather than an unfiltered resolver on purpose.** It is
+reached exactly when the primary is unavailable — a cluster restart, or CoreDNS
+failing to resolve its own upstream hostname at startup — which is when nobody
+is watching. A resolver that answers everything would be a hole in whatever the
+primary is doing. AdGuard blocks ads and malware on its own, so the degraded
+path is weaker rather than absent.
+
+**Both slots must not be set to the secondary.** On the vulcanus LAN that takes
+CoreDNS out of the path entirely: internal names then follow the public
+`*.immortalkeep.com` wildcard to the WAN IP, where the external ingress has no
+rule for the internal-only hosts, so they stop resolving by name at all.
 
 ## Gateway locations
 
@@ -157,6 +178,44 @@ A CronJob reconciles the policy rather than it being created once, so a rule
 deleted in the dashboard comes back. It is a *second* policy: the sync job owns
 and rewrites its own rule on every run, and anything added there would not
 survive.
+
+## The tailnet carries no DNS of its own
+
+Headscale sets `override_local_dns: false` and hands out no global nameservers,
+so nodes keep their own resolver. Split DNS is unaffected: `immortalkeep.com`
+still goes to CoreDNS, and `headscale.immortalkeep.com` is still pinned to public
+DNS to break the bootstrap deadlock described in [tailnet.md](tailnet.md).
+
+Everywhere that matters the local resolver is already filtered — the routers
+above — and a device using the tailnet's exit node resolves *through that node*,
+inheriting its filtered settings, because a client using an exit node uses it as
+its resolver for all domains by default. What this gives up is a roaming device
+on an untrusted network with no exit node selected. Phones carry the
+configuration profile and are covered regardless; a laptop in a hotel is not.
+
+The alternative was a global nameserver pointing at the Gateway DoH endpoint,
+which would mean writing the subdomain into `headscale-config-map.yaml` —
+plaintext, in a public repository, having been encrypted everywhere else.
+Scoping Flux substitution to that app alone does not rescue it: its manifests
+carry `{"$imagepolicy"}` markers and `extract: '$version'`, and envsubst would
+eat both and break image automation silently.
+
+## When a house needs its own box
+
+None does yet, and none should get one speculatively. The trigger is a house that
+**repeatedly reports breakage it cannot fix** — the routers above give a site
+Gateway filtering but no way to allowlist anything locally, so every false
+positive there is a phone call. A second trigger is wanting per-site query
+visibility that Gateway's 24h log and single location cannot give.
+
+The approach, should it come to that: a small always-on machine running AdGuard
+Home, with `upstream_dns` set to that site's Gateway DoH endpoint and
+`bootstrap_dns` set to the public resolver — the box must resolve the Gateway
+hostname before it can speak DoH to it. No local blocklists: blocking stays
+central, and AdGuard Home is there for its per-house allow rules, its query log,
+and local caching. The router points its primary at the box and keeps AdGuard as
+secondary, so a dead box degrades to filtered-without-exceptions rather than to
+nothing.
 
 ## Knowing it works
 

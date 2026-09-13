@@ -481,6 +481,9 @@ success. It covers this job the moment it deploys.
 
 ## Out of scope
 
+- **The remaining relatives' routers.** Two are done; Will is handling the rest
+  outside this project and they are not tracked here.
+
 Per-person rulesets; boxes two through four until a house earns one; serving
 `immortalkeep.com` to the relatives (needs family-user ACL work — that is
 `tailnet-multi-user.md`); standing up Colmena; DNS-01 for cert-manager (adjacent,

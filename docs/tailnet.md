@@ -157,6 +157,8 @@ Three things keep a cluster outage survivable, and none of them should be
   tailnet and the tailnet needs the control server — a deadlock that strands
   any node whose netmap blips, permanently.
 
+Headscale hands out **no global nameservers** and leaves `override_local_dns` off, so nodes keep their own resolver and only the two split-DNS entries above are imposed. See [dns-filtering.md](dns-filtering.md) for why, and for what a device using an exit node resolves through.
+
 Running headscale outside the cluster would remove the circular dependency
 properly. It is not done because WireGuard already covers the case, and moving
 it is a larger change than the problem justifies.

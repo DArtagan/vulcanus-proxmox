@@ -23,8 +23,15 @@ servers:
       - name: any
       - name: bufsize
         parameters: 1232
+      # A cap on TTLs, not a fixed lifetime: entries still expire on whatever
+      # the authoritative server said, and only answers claiming longer than an
+      # hour get shortened. The previous value of 30 seconds overrode nearly
+      # every upstream TTL downward, and at roughly one query every six seconds
+      # almost nothing survived long enough to be reused -- a 7% hit rate, with
+      # 93% of queries paying the 62ms round trip out to Gateway. Measured p90
+      # was 133ms against a 25ms target.
       - name: cache
-        parameters: 30
+        parameters: 3600
       - name: loop
       - name: reload
       - name: loadbalance
