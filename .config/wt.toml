@@ -8,6 +8,53 @@
 # Every alias here pushes, so the user runs them: the SSH key is
 # passphrase-protected and an agent cannot unlock it.
 
+# Trust the new worktree's .envrc so its own environment loads on first cd.
+# direnv keys its allow list by absolute path, so a fresh worktree is blocked
+# even though the file is identical to one already allowed, and until it loads,
+# treefmt and the rest resolve from whichever checkout the shell came from --
+# which is how 21,940 lines of generated flux-system YAML nearly got reformatted.
+#
+# Deliberately stops at `allow` rather than entering the environment. Entering it
+# reinstalls .git/hooks/pre-commit, and worktrees share .git: the hook carries an
+# absolute --config path, so installing it here would point every other
+# worktree's commits at this one. That collision needs a root-agnostic hook or a
+# per-worktree core.hooksPath, not a race to be installed last.
+[post-start]
+
+# Trust the new worktree's .envrc so its own environment loads on first cd.
+# direnv keys its allow list by absolute path, so a fresh worktree is blocked
+# even though the file is identical to one already allowed.
+trust-envrc = "direnv allow"
+
+# Give this worktree its own hooks directory.
+#
+# Worktrees otherwise share .git/hooks, and devenv reinstalls the pre-commit
+# shim on every direnv activation with the activating root's config baked in.
+# Ordinary navigation between worktrees is therefore enough to leave the primary
+# checkout running a worktree's config, at which point treefmt rejects every
+# path as outside its tree root and commits fail -- or worse, succeed against
+# excludes that no longer match, which is how generated files get reformatted.
+#
+# prek installs into git's *effective* hooks directory and refuses only a
+# core.hooksPath pointing outside the repository, so a per-worktree path inside
+# .git is honoured: each root then installs its own shim and none overwrite each
+# other. Unconfigured worktrees keep using the shared directory, so this is safe
+# to adopt gradually.
+own-hooks = """
+set -e
+git config extensions.worktreeConfig true
+git config --worktree core.hooksPath "$(git rev-parse --absolute-git-dir)/hooks"
+
+# Install immediately rather than leaving it to the first direnv activation.
+# Pointing core.hooksPath at a directory with no hooks in it does not fall back
+# to the shared ones -- it runs nothing at all, so commits would quietly skip
+# every check including sops-encrypted, which is the one standing between a
+# plaintext secret and a public repository. A missing check is worse than a
+# failing one. Installed without -c so the shim discovers the config from the
+# working tree at commit time instead of baking a path.
+command -v prek >/dev/null 2>&1 && prek install || true
+"""
+
 [aliases]
 
 # Open the review. Freezes a base at the fork point and opens a draft PR against
