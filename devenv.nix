@@ -279,6 +279,7 @@
       enable = true;
       name = "sops-encrypted";
       description = "Refuse to commit a *.sops.yaml that is not encrypted";
+      excludes = [ "^\\.sops.yaml$" ];
       files = "\\.sops\\.yaml$";
       language = "system";
       entry = lib.getExe (
