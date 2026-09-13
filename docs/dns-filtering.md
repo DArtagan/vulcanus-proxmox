@@ -60,6 +60,13 @@ by its hostname.
 
 ## Blocklists and exceptions
 
+The blocklist is **hagezi Multi PRO**, about 211,900 domains after deduplication
+and roughly 70% of the ceiling. hagezi describes PRO as having rare restrictions
+that "work best if you've got an admin nearby"; the relatives' houses have no
+admin and cannot allowlist anything themselves, so a false positive there is a
+phone call rather than a self-service fix. The tier was chosen knowing that.
+NORMAL, at 174,100, is the step back if breakage reports start arriving.
+
 A daily CronJob rebuilds the lists with
 [cloudflare-gateway-pihole-scripts](https://github.com/mrrfv/cloudflare-gateway-pihole-scripts).
 
@@ -130,9 +137,9 @@ Gateway's **Security threats** category and all fourteen of its subcategories ar
 `class=free` on this account. A category is a policy selector rather than a list,
 so blocking them costs none of the 300,000 entries — which is why there is no
 threat-intelligence blocklist here. hagezi's TIF-mini would have cost 170,000 and
-does not fit alongside Multi NORMAL: that pairing truncates at exactly the cap
-and silently discards around 29,000 domains, because the sync stops adding at
-`CLOUDFLARE_LIST_ITEM_LIMIT` rather than failing.
+does not fit alongside a main tier: pairing it with Multi NORMAL truncates at
+exactly the cap and silently discards around 29,000 domains, because the sync
+stops adding at `CLOUDFLARE_LIST_ITEM_LIMIT` rather than failing.
 
 Thirteen of the fourteen are blocked. **Anonymizer is deliberately excluded** — it
 covers VPN, Tor and proxy sites, which are wanted here.
@@ -163,7 +170,7 @@ independent sets and fails if either produces no block at all:
 - **the blocklist**, against ad domains from three different networks
 - **the category policy**, against `malware.testcategory.com` and
   `phishing.testcategory.com` — safe domains Cloudflare operates for this, absent
-  from hagezi NORMAL, so a pass can only come from the category policy
+  from the blocklist, so a pass can only come from the category policy
 
 Each set fails only when *none* of its members is blocked: one domain leaving a
 list is ordinary, the mechanism stopping is not. It exits non-zero and so rides

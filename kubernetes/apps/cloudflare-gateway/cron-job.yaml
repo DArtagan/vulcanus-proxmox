@@ -61,19 +61,21 @@ spec:
                 # that NORMAL does not already cover, and oisd small contributes
                 # 1,019, which is 0.3% of the cap.
                 #
-                # NORMAL is hagezi's balanced tier -- "mostly won't cause
-                # restrictions either, good pick if you don't have an admin handy
-                # to unblock anything", which describes four households that
-                # cannot allowlist anything themselves. PRO is the tier that
-                # assumes an admin is nearby.
+                # PRO rather than NORMAL, by Will's decision. hagezi describes
+                # PRO as rare restrictions that "work best if you've got an admin
+                # nearby", and the four relatives' houses have no admin and no way
+                # to allowlist anything themselves -- a false positive there is a
+                # phone call, not a self-service fix. The tier was chosen knowing
+                # that; if breakage reports start arriving from one house rather
+                # than from everywhere, NORMAL is the step back.
                 #
-                # 180,141 entries, roughly 58% of the 300,000 ceiling. Threat
-                # intelligence is deliberately absent: Cloudflare's own Security
-                # threats categories cover it for no list capacity at all, where
-                # hagezi's TIF-mini would cost 170,000 and not fit alongside this.
+                # 211,888 domains after deduplication, roughly 70% of the 300,000
+                # ceiling. Threat intelligence is deliberately absent: Cloudflare's
+                # own Security threats categories cover it for no list capacity at
+                # all, where hagezi's TIF-mini would cost 170,000 and not fit.
                 - name: BLOCKLIST_URLS
                   value: |-
-                    https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/multi-onlydomains.txt
+                    https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/pro-onlydomains.txt
                 - name: ALLOWLIST_URLS
                   value: |-
                     https://raw.githubusercontent.com/sakib-m/Pi-hole-Torrent-Blocklist/refs/heads/main/all-torrent-trackers.txt
