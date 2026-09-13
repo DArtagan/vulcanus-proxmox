@@ -54,6 +54,26 @@ spec:
                 # contributes nothing.
                 #
                 # See docs/dns-filtering.md.
+                # Like ALLOWLIST_URLS, this replaces upstream's defaults rather
+                # than extending them. Upstream's were oisd small plus adaway;
+                # both are gone because they are redundant here, measured against
+                # this list rather than assumed: adaway contributes 0 domains
+                # that NORMAL does not already cover, and oisd small contributes
+                # 1,019, which is 0.3% of the cap.
+                #
+                # NORMAL is hagezi's balanced tier -- "mostly won't cause
+                # restrictions either, good pick if you don't have an admin handy
+                # to unblock anything", which describes four households that
+                # cannot allowlist anything themselves. PRO is the tier that
+                # assumes an admin is nearby.
+                #
+                # 180,141 entries, roughly 58% of the 300,000 ceiling. Threat
+                # intelligence is deliberately absent: Cloudflare's own Security
+                # threats categories cover it for no list capacity at all, where
+                # hagezi's TIF-mini would cost 170,000 and not fit alongside this.
+                - name: BLOCKLIST_URLS
+                  value: |-
+                    https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/multi-onlydomains.txt
                 - name: ALLOWLIST_URLS
                   value: |-
                     https://raw.githubusercontent.com/sakib-m/Pi-hole-Torrent-Blocklist/refs/heads/main/all-torrent-trackers.txt

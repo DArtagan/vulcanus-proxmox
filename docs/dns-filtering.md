@@ -124,6 +124,33 @@ with `envFrom`, which turns every key into an environment variable —
 `adblock.mobileconfig` is not a valid name, so kubelet skips it and logs
 `InvalidEnvironmentVariableNames`.
 
+## Threat protection comes from Cloudflare, not a blocklist
+
+Gateway's **Security threats** category and all fourteen of its subcategories are
+`class=free` on this account. A category is a policy selector rather than a list,
+so blocking them costs none of the 300,000 entries — which is why there is no
+threat-intelligence blocklist here. hagezi's TIF-mini would have cost 170,000 and
+does not fit alongside Multi NORMAL: that pairing truncates at exactly the cap
+and silently discards around 29,000 domains, because the sync stops adding at
+`CLOUDFLARE_LIST_ITEM_LIMIT` rather than failing.
+
+Thirteen of the fourteen are blocked. **Anonymizer is deliberately excluded** — it
+covers VPN, Tor and proxy sites, which are wanted here.
+
+**Child Abuse needs no policy.** It is subcategory 170 of category 31, whose
+class is `blocked`: Cloudflare enforces it for every account and no policy can
+express it.
+
+The `Security Risks` group — New Domains, Newly Seen Domains, Parked & For Sale —
+is `class=premium` and unavailable. So is almost everything else: 30 of the 34
+top-level categories are premium, including `Ads`. Content filtering is a paid
+feature; threat blocking is not.
+
+A CronJob reconciles the policy rather than it being created once, so a rule
+deleted in the dashboard comes back. It is a *second* policy: the sync job owns
+and rewrites its own rule on every run, and anything added there would not
+survive.
+
 ## Knowing it works
 
 Two alerts cover genuinely different failures and neither substitutes for the

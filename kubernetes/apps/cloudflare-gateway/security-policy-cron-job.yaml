@@ -1,0 +1,59 @@
+# Keeps a second Gateway DNS policy in place, blocking Cloudflare's own security
+# categories. See docs/dns-filtering.md.
+#
+# Separate from cloudflare-gateway-sync because CGPS owns and rewrites its rule
+# on every run; a policy added to that rule would not survive. Reconciling on a
+# schedule rather than creating once means a rule deleted in the dashboard comes
+# back, which is the whole reason this is a CronJob and not a runbook step.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cloudflare-gateway-policy
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  successfulJobsHistoryLimit: 1
+  schedule: "15 11 * * *"
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 300
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: policy
+              image: python:3.13-alpine
+              command: ["python3", "/app/ensure-security-policy.py"]
+              # Only the account id and the token live in this Secret now, so
+              # envFrom pulls exactly what the script reads.
+              envFrom:
+                - secretRef:
+                    name: cloudflare-gateway-credentials
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 64Mi
+              volumeMounts:
+                - name: script
+                  mountPath: /app/ensure-security-policy.py
+                  subPath: ensure-security-policy.py
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: cloudflare-gateway

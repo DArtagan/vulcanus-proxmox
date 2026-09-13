@@ -3,6 +3,7 @@ kind: Kustomization
 resources:
   - config-map.yaml
   - cron-job.yaml
+  - security-policy-cron-job.yaml
   - deployment.yaml
   - image.yaml
   - ingress.yaml

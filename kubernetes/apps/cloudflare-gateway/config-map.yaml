@@ -10,6 +10,104 @@ data:
   allowlist.txt: |
     # Household exceptions. Upstream's recommended allowlists cover banks,
     # URL shorteners, Discord, Firefox sync and platform telemetry already.
+  # Reconciled into Cloudflare by the cloudflare-gateway-policy CronJob.
+  ensure-security-policy.py: |
+    """Reconcile the Gateway DNS policy that blocks Cloudflare's security categories.
+
+    CGPS rewrites its own rule on every sync and will not carry this one, so it
+    lives alongside as a second policy. Reconciling rather than creating once means
+    a rule deleted in the dashboard comes back on the next run.
+
+    Categories are policy selectors, not lists: this costs none of the account's
+    300,000 list entries, which is why it replaces a threat-intelligence blocklist
+    rather than sitting beside one.
+
+    Anonymizer (68) is deliberately absent from an otherwise complete set of the
+    free Security threats subcategories -- it blocks VPN, Tor and proxy sites, which
+    are wanted here. Child Abuse needs no entry: it belongs to category 31, whose
+    class is "blocked", meaning Cloudflare enforces it for every account and no
+    policy can express it.
+    """
+    import json
+    import os
+    import sys
+    import urllib.error
+    import urllib.request
+
+    API = "https://api.cloudflare.com/client/v4"
+    NAME = "Security threats"
+    CATEGORIES = [80, 83, 117, 131, 134, 151, 153, 175, 176, 178, 187, 188, 191]
+    TRAFFIC = "any(dns.security_category[*] in {%s})" % " ".join(str(c) for c in CATEGORIES)
+
+
+    def http(method, url, token, body=None):
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(url, data=data, method=method)
+        req.add_header("Authorization", "Bearer %s" % token)
+        req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            try:
+                return json.load(e)
+            except Exception:
+                return {"success": False, "errors": [{"message": "HTTP %s" % e.code}]}
+
+
+    def fail(resp, what):
+        print("FAIL: %s" % what)
+        for e in resp.get("errors") or []:
+            print("  %s %s" % (e.get("code", ""), e.get("message", "")))
+        sys.exit(1)
+
+
+    def main(request=None):
+        request = request or http
+        token = os.environ["CLOUDFLARE_API_TOKEN"]
+        account = os.environ["CLOUDFLARE_ACCOUNT_ID"]
+        base = "%s/accounts/%s/gateway/rules" % (API, account)
+
+        desired = {
+            "name": NAME,
+            "description": "Cloudflare's own threat intelligence. Managed by cloudflare-gateway-policy.",
+            "action": "block",
+            "enabled": True,
+            "filters": ["dns"],
+            "traffic": TRAFFIC,
+        }
+
+        listing = request("GET", base, token)
+        if not listing.get("success"):
+            fail(listing, "could not list DNS policies")
+
+        mine = [r for r in (listing.get("result") or []) if r.get("name") == NAME]
+
+        if not mine:
+            resp = request("POST", base, token, desired)
+            if not resp.get("success"):
+                fail(resp, "could not create the policy")
+            print("created %r blocking %d categories" % (NAME, len(CATEGORIES)))
+            return 0
+
+        current = mine[0]
+        drift = [
+            k for k in ("traffic", "action", "enabled")
+            if current.get(k) != desired[k]
+        ]
+        if not drift:
+            print("%r already correct: %d categories, enabled" % (NAME, len(CATEGORIES)))
+            return 0
+
+        resp = request("PUT", "%s/%s" % (base, current["id"]), token, desired)
+        if not resp.get("success"):
+            fail(resp, "could not update the policy")
+        print("updated %r (drifted: %s)" % (NAME, ", ".join(drift)))
+        return 0
+
+
+    if __name__ == "__main__":
+        sys.exit(main())
   nginx-default.conf: |
     server {
         # 8080, not 80: the pod runs unprivileged. See deployment.yaml.
