@@ -227,7 +227,22 @@ data:
       # `hostname.base_domain` (e.g., _myhost.example.com_).
       base_domain: forge.local
 
-      override_local_dns: true
+      # Nodes keep their own DNS rather than having Headscale's forced on them.
+      # Everywhere that matters, the local resolver is already filtered: the
+      # vulcanus LAN answers from CoreDNS, and the other houses' routers point at
+      # Cloudflare Gateway and AdGuard. A device using the tailnet's exit node
+      # resolves through that node, which inherits the same filtered router
+      # settings. What this gives up is filtering for a roaming device on an
+      # untrusted network with no exit node selected; phones carry the Apple
+      # configuration profile and are covered regardless.
+      #
+      # The alternative was a global nameserver pointing at the Gateway DoH
+      # endpoint, which would mean writing the subdomain into this file --
+      # plaintext, in a public repository, after being encrypted everywhere else.
+      # Scoping Flux substitution to this app alone does not rescue it: these
+      # manifests carry {"$imagepolicy"} markers and `extract: '$version'`, and
+      # envsubst would eat both and silently break image automation.
+      override_local_dns: false
 
       # List of DNS servers to expose to clients.
       nameservers:
