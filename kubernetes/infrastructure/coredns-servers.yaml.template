@@ -30,8 +30,19 @@ servers:
       # almost nothing survived long enough to be reused -- a 7% hit rate, with
       # 93% of queries paying the 62ms round trip out to Gateway. Measured p90
       # was 133ms against a 25ms target.
+      #
+      # prefetch refreshes an entry before it expires, so a recurring lookup
+      # never pays the round trip. The 10m window is the part that matters: the
+      # default is one minute, and at roughly 11 queries a minute across every
+      # name, almost nothing is asked for twice that fast, so prefetch would
+      # never fire. Ten minutes catches the regular pollers -- push endpoints,
+      # telemetry, Plex, NTP -- which are short-TTL names queried forever. An
+      # AMOUNT of 2 is the smallest value that means "recurring"; 1 would keep
+      # refreshing names nobody wants again.
       - name: cache
         parameters: 3600
+        configBlock: |-
+          prefetch 2 10m
       - name: loop
       - name: reload
       - name: loadbalance
