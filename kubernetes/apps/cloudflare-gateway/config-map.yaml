@@ -24,9 +24,7 @@ data:
 
     Anonymizer (68) is deliberately absent from an otherwise complete set of the
     free Security threats subcategories -- it blocks VPN, Tor and proxy sites, which
-    are wanted here. Child Abuse needs no entry: it belongs to category 31, whose
-    class is "blocked", meaning Cloudflare enforces it for every account and no
-    policy can express it.
+    are wanted here.
     """
     import json
     import os
@@ -36,7 +34,21 @@ data:
 
     API = "https://api.cloudflare.com/client/v4"
     NAME = "Security threats"
-    CATEGORIES = [80, 83, 117, 131, 134, 151, 153, 175, 176, 178, 187, 188, 191]
+    CATEGORIES = [
+        80,   # Command and Control & Botnet
+        83,   # Cryptomining
+        117,  # Malware
+        131,  # Phishing
+        134,  # Private IP Address
+        151,  # Spam
+        153,  # Spyware
+        175,  # DNS Tunneling
+        176,  # DGA Domains
+        178,  # Brand Embedding
+        187,  # Compromised Domain
+        188,  # Potentially Unwanted Software
+        191,  # Scam
+    ]
     TRAFFIC = "any(dns.security_category[*] in {%s})" % " ".join(str(c) for c in CATEGORIES)
 
 

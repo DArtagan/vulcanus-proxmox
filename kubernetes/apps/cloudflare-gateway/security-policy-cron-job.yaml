@@ -31,8 +31,6 @@ spec:
             - name: policy
               image: python:3.13-alpine
               command: ["python3", "/app/ensure-security-policy.py"]
-              # Only the account id and the token live in this Secret now, so
-              # envFrom pulls exactly what the script reads.
               envFrom:
                 - secretRef:
                     name: cloudflare-gateway-credentials
