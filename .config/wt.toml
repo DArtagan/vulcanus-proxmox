@@ -124,7 +124,10 @@ git push origin main
 
 # Complete the review. Merging into the frozen base marks the PR genuinely
 # merged and leaves main untouched, because the code reached main incrementally
-# long before. The base branch is kept, not deleted, so the PR renders forever.
+# long before. The base branch is then deleted: GitHub retains a merged pull
+# request's diff and merge commit through its own refs, not through the branch,
+# so nothing is lost. Measured on PR #4 - every file, commit and line count
+# identical after deleting review/treefmt-base.
 review-close = '''
 set -e
 
@@ -166,4 +169,10 @@ if [ -n "$project_worktree" ] &&
   echo "worktree left behind, now stranded on the review base:"
   echo "  wt remove $project_worktree"
 fi
+
+# The base branch has done its job: it kept the pull request open across every
+# deploy. Deleting it keeps the branch list from accruing one dead entry per
+# project.
+gh api -X DELETE "repos/{owner}/{repo}/git/refs/heads/review/{{ branch }}-base" --silent ||
+  echo "could not delete review/{{ branch }}-base; remove it by hand." >&2
 '''
