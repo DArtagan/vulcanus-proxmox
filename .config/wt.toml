@@ -143,9 +143,27 @@ if ! git merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
   fi
 fi
 
+# Resolve before merging: --delete-branch removes the branch, which strands its
+# worktree on the review base and loses the association with the project.
+project_worktree=$(git worktree list --porcelain |
+  awk -v b="branch refs/heads/{{ branch }}" '/^worktree /{wt=substr($0,10)} $0==b{print wt}')
+
 # Drafts cannot be merged from the web UI; whether the API refuses one is not
 # worth depending on either way, and closing the review is exactly the moment the
 # work stops being a draft.
 gh pr ready {{ branch }}
 gh pr merge {{ branch }} --merge --delete-branch
+
+# Printed rather than run. Removing a worktree destroys any untracked file in it,
+# and whether closing and removing always go together is still being observed.
+# A linked worktree has git-dir differing from git-common-dir, so the primary
+# worktree - normally the repo root, and occasionally where a project was worked
+# on - is never offered up for deletion.
+if [ -n "$project_worktree" ] &&
+   [ "$(git -C "$project_worktree" rev-parse --git-dir)" \
+     != "$(git -C "$project_worktree" rev-parse --git-common-dir)" ]; then
+  echo
+  echo "worktree left behind, now stranded on the review base:"
+  echo "  wt remove $project_worktree"
+fi
 '''
