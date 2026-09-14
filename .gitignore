@@ -185,12 +185,12 @@ devenv.local.nix
 # pre-commit
 .pre-commit-config.yaml
 
-# Generated per directory, so none of these can be shared: .claude/settings.json
-# is a nix store symlink whose target encodes the worktree path, .mcp.json is a
-# symlink in some worktrees and a plain file in others, and settings.local.json
-# is this machine's permission allowlist. They appear in every worktree, and an
-# untracked file there is what makes `wt remove` refuse.
-# Only these paths - .claude/commands/ and the like stay committable.
+# devenv generates .claude/settings.json and .mcp.json from claude.code.enable
+# in devenv.nix. That file is committed, so this configuration already reaches
+# every machine in source form; tracking the output too would duplicate it and
+# let the two drift. Add servers, hooks or commands under claude.code.* there.
+# settings.local.json is this machine's own permission allowlist, not generated.
+# Only these paths: .claude/commands/ and the like stay committable.
 .claude/settings.json
 .claude/settings.local.json
 .mcp.json
