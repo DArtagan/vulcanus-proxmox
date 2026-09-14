@@ -76,17 +76,6 @@ unexamined. Last because nothing is broken today: the
 cluster-level fallback admits these pods, and the work is auditing what each
 workload actually needs rather than setting a label.
 
-**10. [filtering-dns.md](filtering-dns.md) — ad-blocking and privacy DNS for the family**
-Cloudflare Zero Trust Gateway as the central filter, reaching the LAN, the
-cluster, the tailnet and family iPhones anywhere via an Apple config profile,
-with an AdGuard Home box at relatives' houses that need per-house exceptions.
-Assessed against NextDNS, Control D, AdGuard DNS and uBlockDNS on 2026-09-10;
-the decision and the rejected alternatives are recorded so they are not
-reopened. Last because nothing depends on it and the branch currently deploys
-nothing — but the work is part-done, and the design it recovered contained a
-mechanism that would have silently blanked every alert annotation in the
-cluster, which is written up rather than left to be rediscovered.
-
 ## Waiting on a decision
 
 **[generic-device-plugin-hang.md](generic-device-plugin-hang.md) — file the upstream report, then watch**
