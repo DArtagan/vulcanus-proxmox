@@ -99,6 +99,10 @@ spec:
                 - secretRef:
                     name: cloudflare-gateway-credentials
               securityContext:
+                # No readOnlyRootFilesystem, alone among the workloads here. npm
+                # runs scripts from the package root regardless of workingDir, so
+                # the lists download into /app, which no volume covers. Setting it
+                # gives a job that cannot fetch the lists it exists to upload.
                 allowPrivilegeEscalation: false
                 capabilities:
                   drop:
