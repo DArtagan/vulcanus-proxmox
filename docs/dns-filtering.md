@@ -105,12 +105,15 @@ supported mechanism is the `ALLOWLIST_URLS` environment variable, and setting it
 *replaces* upstream's recommended allowlists rather than extending them — which
 is why they are repeated verbatim in the CronJob and re-checked on an image bump.
 
-**The sync job runs as root**, alone among workloads here. Its image is
-`FROM node:alpine` with no `USER` and a root-owned `WORKDIR /app`, and npm runs
+**The sync runs unprivileged**, as the image's `node` user, uid 1000. npm runs
 scripts from the package root regardless of `workingDir`, so the lists it
-downloads have nowhere else to go. `runAsNonRoot` or a read-only root filesystem
-there produces a job that cannot write its own inputs. Capabilities are dropped
-regardless.
+downloads are written into `/app` — a read-only root filesystem there produces a
+job that cannot write its own inputs. Capabilities are dropped.
+
+It runs through the image's entrypoint via `args` rather than replacing it with
+`command`. `args` substitutes the image's `CMD`, which is `crond`; without it the
+container runs cron in the foreground forever, the Job never completes, and under
+`concurrencyPolicy: Forbid` every later run is skipped in silence.
 
 ## The Apple configuration profile
 
