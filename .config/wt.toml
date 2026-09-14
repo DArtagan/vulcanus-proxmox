@@ -133,7 +133,10 @@ git -C "$main_worktree" push origin main
 
 # Complete the review. Merging into the frozen base marks the PR genuinely
 # merged and leaves main untouched, because the code reached main incrementally
-# long before. The base branch is kept, not deleted, so the PR renders forever.
+# long before. The base branch is then deleted: GitHub retains a merged pull
+# request's diff and merge commit through its own refs, not through the branch,
+# so nothing is lost. Measured on PR #4 - every file, commit and line count
+# identical after deleting review/treefmt-base.
 review-close = '''
 set -e
 
@@ -152,9 +155,38 @@ if ! git merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
   fi
 fi
 
+# Resolve before merging: --delete-branch removes the branch, which strands its
+# worktree on the review base and loses the association with the project.
+project_worktree=$(git worktree list --porcelain |
+  awk -v b="branch refs/heads/{{ branch }}" '/^worktree /{wt=substr($0,10)} $0==b{print wt}')
+
 # Drafts cannot be merged from the web UI; whether the API refuses one is not
 # worth depending on either way, and closing the review is exactly the moment the
 # work stops being a draft.
 gh pr ready {{ branch }}
 gh pr merge {{ branch }} --merge --delete-branch
+
+# The base branch has done its job: it kept the pull request open across every
+# deploy. Deleting it keeps the branch list from accruing one dead entry per
+# project. Remote only - wt remove below deletes the local ref, which it grades
+# as safe because merging the base into main adds nothing main does not have.
+gh api -X DELETE "repos/{owner}/{repo}/git/refs/heads/review/{{ branch }}-base" --silent ||
+  echo "could not delete review/{{ branch }}-base; remove it by hand." >&2
+
+# Last, because removal renames the directory this alias may be running in, and
+# because worktrunk switches to main's worktree afterwards. --foreground so the
+# alias does not return while removal is still in flight.
+#
+# Only a linked worktree: git-dir differs from git-common-dir there, so a project
+# worked on in the repo root - as this workflow itself was - is never removed.
+#
+# Reports rather than aborting. wt refuses a worktree holding uncommitted or
+# untracked files, and by this point the review is closed either way, so a
+# worktree worth keeping is not a failed close.
+if [ -n "$project_worktree" ] &&
+   [ "$(git -C "$project_worktree" rev-parse --git-dir)" \
+     != "$(git -C "$project_worktree" rev-parse --git-common-dir)" ]; then
+  wt remove --foreground "$project_worktree" ||
+    echo "worktree kept: $project_worktree - remove it with wt remove -f once saved." >&2
+fi
 '''
