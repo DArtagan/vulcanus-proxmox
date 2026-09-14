@@ -185,9 +185,12 @@ devenv.local.nix
 # pre-commit
 .pre-commit-config.yaml
 
-# home-manager generates .claude/settings.json per directory, as a nix store
-# symlink whose target encodes the worktree path, so it cannot be shared.
-# settings.local.json is this machine's permission allowlist. Both appear in
-# every worktree, and an untracked file there is what makes `wt remove` refuse.
+# Generated per directory, so none of these can be shared: .claude/settings.json
+# is a nix store symlink whose target encodes the worktree path, .mcp.json is a
+# symlink in some worktrees and a plain file in others, and settings.local.json
+# is this machine's permission allowlist. They appear in every worktree, and an
+# untracked file there is what makes `wt remove` refuse.
+# Only these paths - .claude/commands/ and the like stay committable.
 .claude/settings.json
 .claude/settings.local.json
+.mcp.json
