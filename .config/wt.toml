@@ -167,7 +167,16 @@ if [ -n "$project_worktree" ] &&
      != "$(git -C "$project_worktree" rev-parse --git-common-dir)" ]; then
   echo
   echo "worktree left behind, now stranded on the review base:"
-  echo "  wt remove $project_worktree"
+  # Bare `wt remove` acts on the current worktree, so it is right only when the
+  # close was run from inside the one being removed - the usual case, and much
+  # the shortest thing to read. Otherwise the path, because worktrunk identifies
+  # a worktree by its branch and `wt remove {{ branch }}` cannot work here: the
+  # branch was deleted moments ago, which is what stranded the worktree.
+  if [ "$project_worktree" = "$(git rev-parse --show-toplevel)" ]; then
+    echo "  wt remove"
+  else
+    echo "  wt remove $project_worktree"
+  fi
 fi
 
 # The base branch has done its job: it kept the pull request open across every
