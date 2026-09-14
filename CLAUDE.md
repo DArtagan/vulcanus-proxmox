@@ -79,7 +79,7 @@ treefmt            # Format the whole tree
 kubernetes/
 ├── cluster/          # Flux Kustomization objects (bootstraps infrastructure & apps)
 ├── infrastructure/   # Platform components: metallb, openebs, cert-manager, coredns, prometheus, loki, grafana, etc.
-├── apps/             # 23 application deployments (plex, photoprism, mumble, syncthing, headscale, etc.)
+├── apps/             # Application deployments (plex, photoprism, mumble, syncthing, headscale, etc.)
 ├── charts/           # Custom Helm charts
 └── flux-customizations/  # Flux webhooks and image automation
 ```
@@ -102,17 +102,17 @@ sops kubernetes/apps/<app>/secrets.sops.yaml
 
 ### Practices that exist because they were learned the hard way
 
-- **Establish what actually depends on a thing before designing for compatibility with it.** Ask what reads this, and check. The promtail-to-Alloy migration was first planned around reproducing promtail's exact label set, until listing Grafana's datasources showed there had never been a Loki datasource at all — nothing had queried those logs in three years. One command, and it invalidated the whole design premise. Do that check before building for compatibility, not after.
+- **Establish what actually depends on a thing before designing for compatibility with it.** The promtail-to-Alloy migration was planned around reproducing promtail's exact label set until listing Grafana's datasources showed no Loki datasource had ever existed — nothing had queried those logs in three years. Check who reads a thing before building for compatibility with it, not after.
 
-- **Establish what produces an artifact before changing what consumes it.** The mirror of the rule above, and it fails the same way. The blocklist sync's manifest was rewritten to use its image's new entrypoint before anyone asked how that image is built — a workflow that checks out `v1` while `metadata-action` labels the image from the ref that triggered it. The fork's `v1` had not moved since upstream `c32bbe0`, so every image it had ever published was months-old source wearing a fresh timestamp tag and a `revision` label pointing at a commit it did not contain. A green workflow run, a current tag and a plausible label all agreed, and all three described something different. Ask what builds this, and from which ref, before trusting what a tag says is inside it.
+- **Establish what produces an artifact before changing what consumes it.** The mirror of the rule above. The blocklist sync's manifest was rewritten to use its image's new entrypoint before anyone checked how that image is built — a workflow pinned to a fork tag that had not moved in months, so every image it published was old source wearing a fresh timestamp and a plausible-looking revision label. A green build, a current tag and a matching label all agreed, and all three were wrong. Ask what builds an artifact, and from which ref, before trusting what its tag claims.
 
-- **When the system is running, measure it rather than reasoning about it.** A claim that can be queried should be. Predicting from a rule's structure that `KubeMemoryOvercommit` could not clear took longer than the query that showed it clearing, and was wrong because it never checked how close the value sat to the threshold. Metric *names* deserve the same treatment: `kube_endpoint_address_available` does not exist, and `kube_endpoint_info` exists as a name while kube-state-metrics emits zero series for it here, because the `endpoints` collector is not in its `--resources`. Confirm the series has data before building on it.
+- **When the system is running, measure it rather than reasoning about it.** A claim that can be queried should be. Predicting from a rule's structure that `KubeMemoryOvercommit` could not clear took longer than the query proving it had, and was wrong regardless. Metric names deserve the same check — `kube_endpoint_info` exists as a name here but kube-state-metrics emits zero series for it, since its `endpoints` collector isn't enabled. Confirm a series has data before building on it.
 
-- **A verification step is part of the change and earns the same scrutiny.** State where each check runs from and why the number it reports moves for the reason claimed. Both halves have failed here in one sitting: `kubectl top node` was offered as proof a memory fix worked, when it counts page cache and so reads ~84% on a node with 2 GiB genuinely free; and `nc -zv` was offered against ports the tailnet policy does not grant, which fails from a roaming client no matter how healthy the service. Vantage point matters throughout this repo — LAN, tailnet and in-cluster reach different things, and the tailnet reaches only what [`docs/tailnet.md`](docs/tailnet.md) lists. A third instance: `transferred` in a vzdump log was written down as the test that trimming the OpenEBS volume had worked, when it reports the device's logical size and reads 1.10 TiB whether the trim frees everything or nothing. A check that cannot fail is not a check.
+- **A verification step is part of the change and earns the same scrutiny.** State where each check runs from and why the number it reports moves for the reason claimed. `kubectl top node` was once offered as proof a memory fix worked — it counts page cache, and read ~84% on a node with 2 GiB genuinely free. `nc -zv` was offered against ports the tailnet policy doesn't grant, which fails regardless of service health. Vantage point matters throughout this repo — LAN, tailnet and in-cluster reach different things, and the tailnet reaches only what [`docs/tailnet.md`](docs/tailnet.md) lists. A check that cannot fail is not a check.
 
-- **Ask what is consuming a saturated resource before trying to make it faster.** etcd here has been slow since the cluster was built, and every remedy weighed — a SLOG, defragmentation, wider leases — aims at helping the disk keep up with the load. What that load consists of went unasked for years. Nearly all of it is leader-election heartbeat, and `openebs-localpv-provisioner` alone takes a quarter of every write etcd performs, renewing an Endpoints object *and* a Lease every 2s to arbitrate between one replica and nobody. Two lines of chart values removed 25% of the demand, which no amount of disk tuning would have. Profile the demand before buying more supply; the two are not alternatives, but the cheap one is rarely tried first.
+- **Ask what is consuming a saturated resource before trying to make it faster.** etcd here has been slow since the cluster was built, and every remedy considered — a SLOG, defragmentation, wider leases — aimed at helping the disk keep up with the load, without ever asking what the load was. Nearly all of it was `openebs-localpv-provisioner` renewing an Endpoints object and a Lease every 2s to arbitrate between one replica and nobody — a quarter of etcd's total writes, removed by two lines of chart values. Profile the demand before buying more supply.
 
-- **A counter means nothing without a control.** Lease expiries during a storage stall read 1,180 and looked like the mechanism behind failing `LeaseKeepAlive` calls — until the same window on an ordinary night read 1,224. They are Events ageing out on a TTL, identical either way, and building on them would have sent the whole investigation after the wrong cause. The real signal sat in the same query: failed proposals at 463 against 74, from a floor of zero at rest. Nothing about either number looks different in isolation. Take the matched sample from a known-good period before calling a value elevated, and be readiest to do it when the number confirms what you already suspect.
+- **A counter means nothing without a control.** Lease expiries during a storage stall read 1,180 and looked like the cause of failing `LeaseKeepAlive` calls — until an ordinary night read 1,224, just as high. They were Events ageing out on a TTL either way; the real signal was failed proposals, elevated only against a known-good baseline. Take the matched sample from a healthy period before calling a number elevated, especially when it confirms what you already suspect.
 
 The Kubernetes-specific ones live in [`docs/kubernetes.md`](docs/kubernetes.md), which is worth reading before changing a workload. In brief:
 
@@ -269,10 +269,7 @@ This repository is public. It is intentionally shared to contribute to the commu
 - **Semi-sensitive values** (internal hostnames, IP addresses, usernames, email addresses, domain names, service URLs) should default to SOPS encryption. If you are unsure, raise it for the user's consideration before committing.
 - When adding any new value to a config file, stop and ask: could this help an attacker? If yes or maybe, use SOPS.
 
-SOPS-encrypted files are decrypted by Flux at apply time using the age key referenced in `.sops.yaml`, and are named `*.sops.yaml`. To create or edit an encrypted file:
-```bash
-sops kubernetes/apps/<app>/secrets.sops.yaml
-```
+See [Secrets Pattern](#secrets-pattern) above for how encrypted files are named, decrypted, and edited.
 
 ## Formatting
 
@@ -288,11 +285,9 @@ is written at most once — a second write bumps the mtime and trips
 `*.conf`, `*.md`, `*.txt`, `*.yaml.tmpl`) gets a `whitespace` formatter that
 trims trailing whitespace and ends files on one newline.
 
-Four things are excluded: `*.sops.yaml`, because reformatting an encrypted file
-invalidates its MAC; `kubernetes/cluster/flux-system/**`, generated verbatim by
-`flux bootstrap`; `terraform/.terraform/**` and `devenv.lock`. Helm chart
-templates under `kubernetes/charts/*/templates/` are Go templates rather than
-YAML, so `yamlfmt` alone skips them.
+Helm chart templates under `kubernetes/charts/*/templates/` are Go templates
+rather than YAML, so `yamlfmt` alone skips them; see the `treefmt` block in
+`devenv.nix` for the full exclude list and why each entry is there.
 
 `tflint` and `shellcheck` also run on `git commit`. They are linters, so they
 report rather than rewrite and stay outside treefmt.
@@ -302,6 +297,4 @@ encrypted — either missing its `sops:` block entirely, or carrying a plaintext
 value under `data`/`stringData` that was added by hand after encryption. It is a
 commit hook rather than a formatter because the repository is public and a
 plaintext secret is exposed the moment it is pushed; rewriting history does not
-unpublish it. Note the overlap with the exclusion above: `*.sops.yaml` is kept
-away from treefmt precisely so formatting cannot invalidate a MAC, which leaves
-these files unexamined by everything else.
+unpublish it.
