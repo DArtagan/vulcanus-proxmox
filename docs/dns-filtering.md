@@ -105,10 +105,13 @@ supported mechanism is the `ALLOWLIST_URLS` environment variable, and setting it
 *replaces* upstream's recommended allowlists rather than extending them — which
 is why they are repeated verbatim in the CronJob and re-checked on an image bump.
 
-**The sync runs unprivileged**, as the image's `node` user, uid 1000. npm runs
-scripts from the package root regardless of `workingDir`, so the lists it
-downloads are written into `/app` — a read-only root filesystem there produces a
-job that cannot write its own inputs. Capabilities are dropped.
+**The sync is the one workload here with a writable root filesystem.** npm runs
+scripts from the package root regardless of `workingDir`, so the blocklist and
+allowlist it downloads land in `/app`, which no volume covers and which is
+therefore part of the container's root filesystem. The profile server, the canary
+and the policy job all set `readOnlyRootFilesystem: true`; setting it here gives a
+job that cannot download the lists it exists to upload. It runs as the image's
+`node` user, uid 1000.
 
 It runs through the image's entrypoint via `args` rather than replacing it with
 `command`. `args` substitutes the image's `CMD`, which is `crond`; without it the
