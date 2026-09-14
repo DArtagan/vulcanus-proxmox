@@ -27,6 +27,9 @@ spec:
               type: RuntimeDefault
           containers:
             - name: canary
+              # Unpinned on purpose. A busybox change breaking this surfaces as
+              # CronJobNotSucceeding -- the same alert as "filtering stopped" --
+              # and that extra signal is wanted, noise and all. Do not pin it back.
               image: busybox:latest
               securityContext:
                 allowPrivilegeEscalation: false
