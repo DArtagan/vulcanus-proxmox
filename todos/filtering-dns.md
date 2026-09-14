@@ -205,7 +205,7 @@ succeeded, the download would have replaced the mounted file seconds later. The
 file was empty, so nothing was ever exempted and nothing failed loudly.
 Upstream's actual mechanism is the `ALLOWLIST_URLS` env var, which *replaces*
 the recommended lists rather than extending them — hence the twelve URLs now
-repeated verbatim in `cron-job.yaml` with the household's own file appended,
+repeated verbatim in `blocklist-sync-cron-job.yaml` with the household's own file appended,
 served over HTTP by the profile pod.
 
 **Two things in the app read as removable and are not.** `command:` overrides an

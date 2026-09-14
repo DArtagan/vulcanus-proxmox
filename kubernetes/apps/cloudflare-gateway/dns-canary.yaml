@@ -27,7 +27,7 @@ spec:
               type: RuntimeDefault
           containers:
             - name: canary
-              image: busybox:1.37
+              image: busybox:latest
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
@@ -51,11 +51,6 @@ spec:
                 # rather than assuming, with:
                 #   curl -H 'accept: application/dns-json' \
                 #     "https://<sub>.cloudflare-gateway.com/dns-query?name=<d>&type=A"
-                #
-                # doubleclick.net was the original choice and was wrong: oisd
-                # deliberately does not block the apex, because it breaks Google
-                # services. The canary reported "filtering is not in effect" for
-                # seventeen hours while filtering worked correctly.
                 - name: BLOCKED_DOMAINS
                   value: "pagead2.googlesyndication.com ib.adnxs.com ads.pubmatic.com"
                 # Must resolve. If this fails, DNS is broken rather than strict,

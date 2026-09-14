@@ -74,11 +74,7 @@ spec:
             - name: tmp
               mountPath: /tmp
       volumes:
-        # Its own Secret, separate from the API credentials, and a build artefact
-        # rendered from adblock.mobileconfig.template. Do not move it back
-        # alongside the credentials: the CronJob reads those with envFrom, and
-        # "adblock.mobileconfig" is not a valid environment variable name. See
-        # docs/dns-filtering.md.
+        # A build artefact rendered from adblock.mobileconfig.template.
         - name: profile-secret
           secret:
             secretName: cloudflare-gateway-mobileconfig

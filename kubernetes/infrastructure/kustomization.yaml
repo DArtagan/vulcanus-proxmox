@@ -14,7 +14,6 @@ resources:
   - cert-manager.yaml
   - coredns-servers.sops.yaml
   - coredns.yaml
-  - dns-canary.yaml
   - csi-driver-smb.yaml
   - devices.yaml
   - fstrim.yaml
