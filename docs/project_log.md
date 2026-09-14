@@ -14,6 +14,8 @@ a spec to retire, the commit that retired it follows the date. Entries with no
 review link predate the workflow. Sub-bullets carry whatever does not fit the
 one-line shape.
 
+- filtering-dns (2026-09-14): Ad-blocking, privacy and security DNS for the LAN, the cluster, the tailnet and family devices, through Cloudflare Zero Trust Gateway. See [dns-filtering.md](dns-filtering.md). [PR #6](https://github.com/DArtagan/vulcanus-proxmox/pull/6)
+  - The image's sortable tag, non-root support and argument-honouring entrypoint went upstream as [mrrfv/cloudflare-gateway-pihole-scripts#263](https://github.com/mrrfv/cloudflare-gateway-pihole-scripts/pull/263).
 - treefmt (2026-09-01): Put every formatter behind one `treefmt` command, and named encrypted files `*.sops.yaml` so it can skip them. See [CLAUDE.md](../CLAUDE.md). [PR #4](https://github.com/DArtagan/vulcanus-proxmox/pull/4)
 - review-workflow (2026-08-29): Branch-per-project reviews, on a pull request against a base frozen at the fork point. See [CLAUDE.md](../CLAUDE.md). [PR #1](https://github.com/DArtagan/vulcanus-proxmox/pull/1)
 - disc-ripping-reliability (2026-08-25, `f85c527`): Gated the ripper on udev media properties rather than drive status.
