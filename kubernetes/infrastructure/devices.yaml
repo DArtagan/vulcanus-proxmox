@@ -146,7 +146,6 @@ metadata:
   labels:
     app.kubernetes.io/name: generic-device-plugin
   name: generic-device-plugin
-  namespace: kube-system
 spec:
   podMetricsEndpoints:
     # Matches the liveness probe's period, for the reason given beside it.
