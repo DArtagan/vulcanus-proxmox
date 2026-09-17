@@ -84,7 +84,7 @@ unaffected by any of this.
 `headplane-data` 1Gi, `headscale-data` 1Gi, `linkding-data` 50Gi, `mumble-data` 1Gi,
 `photoprism-data` 50Gi, `photoprism-database` 10Gi, `pinepods-backups` 5Gi,
 `pinepods-database` 10Gi, `pinepods-valkey` 1Gi, `plex-config` 10Gi,
-`podgrab-data` 1Gi, `rclone-dropbox-bisync-cache` 1Gi, `rclone-dropbox-config` 1Mi,
+`rclone-dropbox-bisync-cache` 1Gi, `rclone-dropbox-config` 1Mi,
 `rustdesk-data` 1Gi, `salamander-data` 50Gi, `salamander-database` 10Gi,
 `speedtest-tracker` 1Gi, `stump-config` 10Gi, `syncthing-data` 1Gi, `youtube-dl` 1Gi
 

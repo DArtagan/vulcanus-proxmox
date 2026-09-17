@@ -4,7 +4,7 @@
 
 > cert-manager has a single HTTP-01 solver, so all 24 certificates renew only
 > if Let's Encrypt can reach port 80 through the public A record. That includes
-> fourteen hostnames that are otherwise internal-only — the solver names the
+> thirteen hostnames that are otherwise internal-only — the solver names the
 > *external* ingress class, so each of them is briefly served publicly on every
 > renewal. Read `todos/cert-manager-dns01.md`. DNS-01 removes the dependency
 > and unlocks a wildcard; the viability question that would have killed it is
@@ -46,10 +46,10 @@ internet. That needs the public A record correct, port 80 forwarded, and
 **The part that is not obvious: this applies to internal-only services too.**
 The solver names `ingress-nginx-external`, so cert-manager stands up its
 challenge ingress there regardless of which class the certificate's own ingress
-uses. Fourteen hostnames are internal-only and still hold public certificates:
+uses. Thirteen hostnames are internal-only and still hold public certificates:
 
 `alertmanager`, `arm`, `beets`, `filebot`, `grafana`, `headplane`,
-`media-toolkit`, `pinepods`, `podgrab`, `prometheus`, `salamander`,
+`media-toolkit`, `pinepods`, `prometheus`, `salamander`,
 `speedtest`, `syncthing`, `youtube`.
 
 Each is briefly resolvable and served on the public ingress during its own
@@ -114,7 +114,7 @@ throughout, in the same run-both-then-switch shape the DDNS cutover used.
    refuse it if it is not encrypted.
 2. Add a **second** `ClusterIssuer`, `letsencrypt-dns01`, alongside the
    existing one. Nothing references it yet.
-3. Point one low-stakes internal ingress at it — `youtube` or `podgrab` — by
+3. Point one low-stakes internal ingress at it — `youtube` — by
    changing its `cert-manager.io/cluster-issuer` annotation. Confirm the
    challenge TXT appears and is cleaned up, and that the certificate issues.
    A failure here costs one internal service its certificate, and rolling the

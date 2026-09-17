@@ -26,7 +26,6 @@ resources:
   - photoprism
   - pinepods
   - podbook
-  - podgrab
   - photos-pvc.yaml
   - rclone
   - rancher-key.sops.yaml

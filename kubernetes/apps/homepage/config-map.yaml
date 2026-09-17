@@ -108,11 +108,6 @@ data:
           description: Web-based media desktop
           icon: webtop
           siteMonitor: http://media-toolkit-webtop.apps.svc.cluster.local:3000
-      - Podgrab:
-          href: https://podgrab.immortalkeep.com
-          description: Podcast downloader
-          icon: podgrab
-          siteMonitor: http://podgrab.apps.svc.cluster.local:8080
     - Productivity:
       - Linkding:
           href: https://linkding.immortalkeep.com

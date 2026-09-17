@@ -52,7 +52,6 @@ exactly as hard as an explicit `<` bound, and on a `0.x` version caret pins the
 | apps/pinepods-postgres | `^18.0.0` | major | 18.4 |
 | apps/pinepods-valkey | `^8.0.0` | major | 8.1.9-alpine |
 | apps/plex | `^1.0.0` | major | 1.43.3.10828 |
-| apps/podgrab | `^1.0.0` | major | 1.0.0 |
 | apps/rclone | `^1.0.0` | major | 1.75.0 |
 | apps/salamander-mariadb | `^10.5.12` | major | 10.11.18 |
 | apps/syncthing | `^2.0.0` | major | 2.1.3 |
