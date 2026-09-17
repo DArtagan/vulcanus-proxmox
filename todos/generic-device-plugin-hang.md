@@ -8,9 +8,14 @@
 > sawtooth, 2026-09-17"** — the hours-long total wedge described in "The defect"
 > is the *pre-2026-08-26* failure and no longer happens. What replaced it is a
 > progressive slowdown that resets on every restart. **The open question is what
-> flips a process into it**, and the answer is not gather traffic: 117 req/s for
-> 45 s — 350× the scrape rate — leaves a healthy process at 2.93 ms. Traffic
-> only amplifies a process that has already flipped. Fix C (`d310a0f`, live
+> flips a process into it.** The flip is in-process (27 of 29 onsets), a median
+> **495× step inside one scrape interval** at a median process age of 5.2
+> minutes, with no runtime metric moving across it. It is not gather traffic —
+> 117 req/s for 45 s, 350× the scrape rate, leaves a healthy process at 2.93 ms
+> — and it is not an abandoned gather, since only 1% of onsets begin with a
+> timeout. Traffic only amplifies a process that has already flipped. The next
+> move is "Catching a flip": the signature is sharp enough to trigger a dump
+> automatically, and there are ~11 minutes between flip and first timeout. Fix C (`d310a0f`, live
 > 2026-09-17 03:32Z) took both arrival rates 15s → 60s and was shipped on the
 > mechanism that test disproved; it is a mitigation, still worth measuring, and
 > all three pods being stable right now is **not** evidence it worked. The live
@@ -34,7 +39,8 @@ the original reading. Treat anything undated as 2026-08-19.
 | Did A and B work? | **outcome B**, confirmed 2026-09-17 — no collapses, no OOM kills, device availability 98.25%/24h, restarts 130 and 75/day on the two workers and 2 on the control plane |
 | Fix C — scrape interval and probe period 15s → 60s | shipped 2026-09-17 in `d310a0f`; **live 03:32Z** — a mitigation, on a mechanism since disproved |
 | Does load cause the degradation? | **no**, settled 2026-09-17 — 117 req/s leaves a healthy process at 2.93 ms |
-| What flips a process into degrading? | **open, and now the whole question** — chase the cross-node correlation |
+| Is the flip in-process or at startup? | **in-process**, settled 2026-09-17 — 27/29 onsets, median 495× step at median age 5.2 min |
+| What flips a process into degrading? | **open, and now the whole question** — next move is "Catching a flip" |
 | Upstream bug report | **not filed** — draft at the end of this file, Will files it |
 | Did C work? | **unknown, needs days of quiet** — see "The sawtooth, 2026-09-17" |
 
@@ -546,7 +552,16 @@ in-cluster. An earlier reading of this file claimed a "~200 ms base gather for a
 `scrape_duration_seconds`, or `process_cpu_seconds_total` deltas, both of which
 are measured in-cluster or inside the process.
 
-### The mode is decided at startup, and there are three of them
+**Always filter onsets by `process_start_time_seconds`.** A naive
+stable→degraded detector cannot tell a running process flipping from a fresh
+process that came up already slow, and the two have opposite meanings. Detecting
+without that filter produced an apparent finding that
+`go_gc_duration_seconds_count` falls 2004 → 411 at onset — a monotonic counter
+decreasing, which is only possible because the "after" sample came from a
+younger process. The tell is any counter going down; if one does, the population
+is contaminated with restarts.
+
+### There are three modes, and a process flips between them mid-life
 
 Restarts per day, reconstructed from the counter (scrape coverage is complete on
 all 30 days, so the zeroes are real and not gaps):
@@ -559,11 +574,44 @@ all 30 days, so the zeroes are real and not gaps):
 | 09-16 (cluster reboot) | 2 | 64 | 111 |
 
 Median gather during 09-11…09-15 was **1.7 ms** — same pod, same config, same
-scrape rate as the days either side. One process in the 3h sample likewise held
-2–3 ms for 35 minutes while its siblings died at 17. So a process either lands
-in a stable mode at startup and stays there indefinitely, or lands in a
-degrading one. The 2026-09-16 reboot moved **all three nodes** off the stable
-mode, the control plane included, after it had been clean since 08-27.
+scrape rate as the days either side. The 2026-09-16 reboot moved **all three
+nodes** off the stable mode, the control plane included, after it had been clean
+since 08-27.
+
+**A process is not born into its mode; it flips, discontinuously, a few minutes
+in.** Of 29 clean onsets on worker-1 between 08-27 and 09-16, **27 kept the same
+`process_start_time_seconds` across the transition** — the process was running
+before and after:
+
+```
+09-05 00:49:15    1.5 ms →   746.2 ms    process age  3.2 min
+09-06 12:00:30    1.7 ms →  4338.3 ms    process age  4.2 min
+09-06 18:16:15    1.6 ms →  8885.6 ms    process age  6.2 min
+09-08 09:41:45    1.5 ms →  1456.0 ms    process age 36.9 min
+
+n=27   step: median 495x, inside one 15 s scrape interval
+       age at flip: median 5.2 min, range 1.0–52.3
+```
+
+Across that step, `go_goroutines`, `go_threads`, `process_open_fds`,
+`go_memstats_heap_inuse_bytes`, `go_memstats_next_gc_bytes` and
+`go_sched_gomaxprocs_threads` are all unchanged. Nothing in the runtime's own
+accounting moves with it.
+
+**It is not an abandoned gather either.** Only 1% of onsets begin with a 10 s
+timeout; 66% begin between 50 ms and 1 s, median 250 ms, and the two minutes
+before a flip are clean at 6.4 ms max. The 2026-08-19 reading — a scrape
+Prometheus gave up on holding `goCollector`'s mutex forever — cannot be the
+trigger, because there is no timeout to abandon. Those eight aged gathers in the
+worker-0 dump are what the *degraded* state accumulates, not what starts it.
+Median time from flip to the first 10 s timeout is 11.2 minutes.
+
+**Node-local signals do not explain it.** Comparing 151 degraded against 328
+stable hours on worker-1 over 08-27…09-16: `sr0` io_time ratio 0.09, `sr0`
+reads/s 0.15, ARM CPU 0.65 — all *lower* while degraded, which reads as effect
+rather than cause, since a busy plugin polls devices less often. Interrupts run
+1.39× higher, consistent with the `stime`-dominated CPU the dumps showed, and
+also an effect. `node_load1`, context switches and etcd fsync p99 are flat.
 
 **Degrading does not always end in a reaping, and the median does not say which
 way it goes.** Gather latency over the rolling 24 h to 2026-09-17 03:30Z — the
@@ -610,10 +658,19 @@ which is the lead to chase next: correlate known onset times against Prometheus
 restarts and reloads, apiserver restarts, and etcd stalls, all of which are in
 the 30 days of retention.
 
-A dump is still wanted, but it cannot be manufactured on demand — load will not
-produce a degrading process, so a capture has to wait for a natural onset. The
-control plane is the better subject when one comes: it degrades and is never
-reaped, so there is no race against the probe.
+A dump is still wanted, and is now catchable. It cannot be *manufactured* —
+load will not produce a degrading process — but the flip has a precise
+signature: a single-interval step past 50 ms from a run of sub-10 ms samples,
+with `process_start_time_seconds` unchanged. Median 11.2 minutes separate that
+step from the first 10 s timeout, which is a comfortable window to fire a
+`SIGQUIT` into. See "Catching a flip" below.
+
+What a dump has to explain: a **495× step in gather cost with nothing in the
+runtime's accounting moving**. Grab per-thread `utime`/`stime` from
+`/proc/1/task/*/stat` before the `SIGQUIT`, because the one unexplained clue
+from 2026-08-19 is that the CPU is overwhelmingly system time
+(`utime=111 stime=17482`), which says syscalls rather than compute and which
+nothing in this file accounts for.
 
 ### Fix C — take the arrival rate down
 
@@ -664,6 +721,50 @@ only claimant and is not restarting on its own, that is cheap.
 
 This does not displace the split-`3e4e016` experiment above, which is still the
 only thing that addresses *why* worker-0 ever started failing.
+
+### Catching a flip
+
+`tools/gdp-flip-watch/` watches every plugin instance and fires the capture the
+moment one flips. `detect.py` holds the predicate and `test_detect.py` its
+tests, including the restart-conflation case that is the whole reason it is a
+tested function rather than an inline comparison.
+
+```sh
+python3 tools/gdp-flip-watch/watch.py --dry-run          # detect only
+python3 tools/gdp-flip-watch/watch.py --out /tmp/gdp-flip --node piraeus-worker-0
+```
+
+It reaches Prometheus by exec-ing the Alertmanager pod rather than through a
+port-forward, because a tunnel does not survive the hours this has to run. On a
+flip it writes `<node>-<stamp>.threads.txt` (per-thread `utime`/`stime` and
+`wchan`, collected *before* the kill, since `SIGQUIT` destroys that evidence)
+and `<node>-<stamp>.goroutines.txt`.
+
+**The healthy control for the `stime` clue**, taken 2026-09-17 from worker-0's
+idle process — the thing the 2026-08-19 dumps lacked:
+
+| | utime | stime |
+|---|---|---|
+| thread 1 | 2 | 0 |
+| worker threads | 61–93 | 26–35 |
+| **degraded, 2026-08-19 worker-1 thread 11** | **111** | **17482** |
+
+Healthy runs about 2.4:1 utime:stime with every thread parked in
+`futex_do_wait`. Degraded inverts that to 1:157. Whatever the flip is, it turns
+a process that is mostly idle into one that is almost entirely in the kernel.
+
+**The capture is destructive and the watcher must be aimed deliberately.**
+`SIGQUIT` is fatal to a Go process, so the container restarts; on worker-1 that
+withdraws `devic.es/cdrom` for the restart, and an ARM pod admitted in that
+window is rejected permanently — the failure this file already documents. That
+is why `--node` defaults to capturing nowhere useful until named, and why
+`--dry-run` exists. Aim it at worker-0 or the control plane if a flip there will
+do; aim it at worker-1 only knowingly, since worker-1 is where flips are
+frequent.
+
+Two smaller catches: each capture leaves a terminated ephemeral container on the
+pod, which cannot be removed until the pod is recreated, and a capture
+contaminates that node's Fix C sample.
 
 ### Correction to the ARM coupling
 

@@ -87,7 +87,10 @@ best tail — so what reaps a process is tail excursions past the 5s timeout, no
 where its latency sits. **What flips a process into that state is the open
 question, and it is not gather traffic**: 117 req/s for 45s leaves a healthy
 process at 2.93ms, so traffic only amplifies a process that has already flipped.
-Onsets correlate across nodes, which is the lead. The hours-long total wedge
+The flip is in-process — 27 of 29 onsets, a median 495× step inside one scrape
+interval at a median process age of 5.2 minutes, with no runtime metric moving
+across it — and `tools/gdp-flip-watch/` exists to catch the next one and dump
+it. The hours-long total wedge
 this spec opened on is gone: the 2026-08-26 fixes removed the CPU limit and
 added the probe, and there have been no collapses and no OOM kills since, with
 `devic.es/cdrom` allocatable 98.25% of the day. Fix C — both arrival rates
