@@ -222,6 +222,9 @@ suffixes — every file in `todos/` is a spec, so the suffix says nothing. Slugs
 are never reused; [`docs/project_log.md`](docs/project_log.md) is the registry.
 Work too small to warrant future notice needs none of this.
 
+**The branch lives in a worktree**, created with `wt switch <slug>`; the
+repository root stays on `main`. See [`.config/wt.toml`](.config/wt.toml).
+
 **Commits** carry a `Project: <slug>` trailer where they are substantive.
 Roll-forwards and trivial fixes need none, and one commit may carry several. The
 trailer is a convenience for finding work on `main`; the branch is the authority.
