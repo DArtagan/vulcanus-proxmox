@@ -78,22 +78,24 @@ workload actually needs rather than setting a label.
 
 ## Waiting on a decision
 
-**[generic-device-plugin-hang.md](generic-device-plugin-hang.md) — file the upstream report, then read Fix C**
+**[generic-device-plugin-hang.md](generic-device-plugin-hang.md) — find what flips a process into degrading**
 Each plugin process on the worker nodes starts at a 7ms `/metrics` gather and
 slows ~1.25× per minute until the liveness probe reaps it, every ~11 minutes on
 worker-1 and ~19 on worker-0; a restart resets it completely. The control plane
 degrades too and is never reaped, with the worst median of the three and the
 best tail — so what reaps a process is tail excursions past the 5s timeout, not
-where its latency sits. The load is the gather traffic itself: the container
-sits at 0.018 cores when nothing scrapes it, and a probe on `/metrics` costs
-exactly what a scrape does. The hours-long total wedge this spec opened on is
-gone: the 2026-08-26 fixes removed the CPU limit and added the probe, and there
-have been no collapses and no OOM kills since, with `devic.es/cdrom` allocatable
-98.25% of the day. Fix C — both arrival rates 15s → 60s — went live 2026-09-17
-03:32Z, so what is outstanding is reading the result against the per-node
-baseline in the spec, and handing the bug report over for filing. The spec also
-carries several conclusions from 2026-08-14 that the goroutine dumps disproved,
-and why the memory limit must not be raised.
+where its latency sits. **What flips a process into that state is the open
+question, and it is not gather traffic**: 117 req/s for 45s leaves a healthy
+process at 2.93ms, so traffic only amplifies a process that has already flipped.
+Onsets correlate across nodes, which is the lead. The hours-long total wedge
+this spec opened on is gone: the 2026-08-26 fixes removed the CPU limit and
+added the probe, and there have been no collapses and no OOM kills since, with
+`devic.es/cdrom` allocatable 98.25% of the day. Fix C — both arrival rates
+15s → 60s, live 2026-09-17 03:32Z — is a mitigation shipped on the mechanism
+that test disproved, and worth measuring but not worth waiting on. Outstanding
+is the flip, and handing the bug report over for filing. The spec also carries
+several conclusions the goroutine dumps disproved, why the memory limit must not
+be raised, and two measurement traps that have each cost a session.
 
 **[etcd-disk-latency.md](etcd-disk-latency.md) — get etcd off spinning disks**
 etcd's p99 WAL fsync is 0.25s at rest against a target of 0.010s, because `rpool`

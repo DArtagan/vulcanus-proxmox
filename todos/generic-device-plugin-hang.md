@@ -7,16 +7,17 @@
 > `todos/generic-device-plugin-hang.md` from the top, then go straight to **"The
 > sawtooth, 2026-09-17"** — the hours-long total wedge described in "The defect"
 > is the *pre-2026-08-26* failure and no longer happens. What replaced it is a
-> progressive slowdown that resets on every restart, and the load driving it is
-> the gather traffic itself: `/metrics` is idle at 0.018 cores when nothing
-> scrapes it. Fix C shipped on that finding (`d310a0f`, 2026-09-17) — the scrape
-> interval and the probe period both go 15s → 60s — and reached the cluster at
-> **2026-09-17 03:32Z**, when all three pods rolled; that is when the clock
-> starts. The open question is whether time-to-first-restart stretches by more
-> than 4×; a stable mode demonstrably exists, because one process ran five days
-> at 1.7ms. Read *time-to-first-restart*, not availability and not restart
-> count — and note that median latency is not the signal either, for the reason
-> the control plane gives.
+> progressive slowdown that resets on every restart. **The open question is what
+> flips a process into it**, and the answer is not gather traffic: 117 req/s for
+> 45 s — 350× the scrape rate — leaves a healthy process at 2.93 ms. Traffic
+> only amplifies a process that has already flipped. Fix C (`d310a0f`, live
+> 2026-09-17 03:32Z) took both arrival rates 15s → 60s and was shipped on the
+> mechanism that test disproved; it is a mitigation, still worth measuring, and
+> all three pods being stable right now is **not** evidence it worked. The live
+> lead is that onsets correlate across nodes, so look for a cluster-wide event.
+> Two measurement traps: never time `/metrics` through `kubectl port-forward`
+> (~243 ms of tunnel), and never judge health by median latency — the control
+> plane has the worst median of the three and is the one that survives.
 
 ## Where things stand
 
@@ -31,7 +32,9 @@ the original reading. Treat anything undated as 2026-08-19.
 | Fix A — remove the CPU limit | shipped 2026-08-26 |
 | Fix B — liveness probe on `/metrics` | shipped 2026-08-26 |
 | Did A and B work? | **outcome B**, confirmed 2026-09-17 — no collapses, no OOM kills, device availability 98.25%/24h, restarts 130 and 75/day on the two workers and 2 on the control plane |
-| Fix C — scrape interval and probe period 15s → 60s | shipped 2026-09-17 in `d310a0f`; **live 03:32Z**, all three pods rolled |
+| Fix C — scrape interval and probe period 15s → 60s | shipped 2026-09-17 in `d310a0f`; **live 03:32Z** — a mitigation, on a mechanism since disproved |
+| Does load cause the degradation? | **no**, settled 2026-09-17 — 117 req/s leaves a healthy process at 2.93 ms |
+| What flips a process into degrading? | **open, and now the whole question** — chase the cross-node correlation |
 | Upstream bug report | **not filed** — draft at the end of this file, Will files it |
 | Did C work? | **unknown, needs days of quiet** — see "The sawtooth, 2026-09-17" |
 
@@ -501,23 +504,47 @@ hours*; over the full day it averages ~11, and worker-0 ~19. Use the per-node
 baseline under "Fix C" rather than any number from this table, which is a shape
 rather than a rate.
 
-### The gather traffic is the load
+### Gather traffic amplifies a degraded process; it does not degrade a healthy one
 
-Scraping `/metrics` every 3s and watching the container:
+Scraping a **already-degrading** pod's `/metrics` every 3s and watching the
+container:
 
 ```
 every 3s:    0.51c → 0.88c → 1.97c → 1.94c → 3.20c   (4-core node)
-             wall per gather 1.16s → 4.80s
              goroutines 17-23, heap ~5MB, fds 11, threads 9 — all flat
 stop 45s:    0.018 cores
 ```
 
-The process is **idle when nothing scrapes it**. Each gather makes the next one
-dearer, so arrivals compound into congestion collapse. This is consistent with
+The process is **idle when nothing scrapes it**, and in this state each gather
+makes the next one dearer, so arrivals compound into collapse. Consistent with
 the dumps' finding that nothing leaks — there is no accumulated state, only a
-queue. In the 45s quiet window the liveness probe was still running, and its
-three gathers account for the 0.81 CPU-seconds burned: **the probe costs the
-same as a scrape**, which is what Fix C acts on.
+queue. The CPU figures are `process_cpu_seconds_total` read from inside the
+process, so they are not an artefact of how the request was delivered.
+
+**The same load does nothing to a healthy process.** Tested 2026-09-17
+03:51–03:55Z against worker-0, chosen because it advertises no
+`devic.es/cdrom` so a reap costs nothing:
+
+| load | in-cluster gather, max | container CPU |
+|---|---|---|
+| 4 req/s for 90 s | 2.9 ms | 0.004 cores |
+| **117 req/s for 45 s** (5383 requests, ~350× the scrape rate) | **2.93 ms** | 0.073 cores |
+
+Zero errors, zero reaps, cost linear at ~1.8 ms of CPU per gather throughout.
+
+**So arrival rate is an amplifier, not a trigger.** Something else flips a
+process from ~1.8 ms per gather to hundreds of ms, and only then does traffic
+compound it into a reaping. This is the single most important correction in this
+file: `d310a0f`'s commit message and the reasoning behind Fix C both assert that
+gather traffic causes the degradation, and it does not.
+
+**Do not trust wall-clock latency measured through `kubectl port-forward`.** The
+tunnel relays via the apiserver and costs **~243 ms per request** here: the same
+pod in the same minute read 245 ms through the tunnel and 1.8 ms to Prometheus
+in-cluster. An earlier reading of this file claimed a "~200 ms base gather for a
+129-line payload" and built a mystery on it; that number was the tunnel. Use
+`scrape_duration_seconds`, or `process_cpu_seconds_total` deltas, both of which
+are measured in-cluster or inside the process.
 
 ### The mode is decided at startup, and there are three of them
 
@@ -572,24 +599,38 @@ node contention (worker-1's non-plugin busy time moves 0.08 → 0.17 cores, and
 most of "busy" on bad days *is* the plugin), `sr0` I/O and ARM activity (flat
 across both regimes), and any growth in goroutines, heap, fds or threads.
 
-**Still unexplained:** why the base gather costs ~200 ms for a 129-line payload
-when the stable mode costs 1.7 ms, and what decides the mode at startup. That is
-inside client_golang's `goCollector` and needs a dump from a *degrading* process
-— which the restart cycle now makes easy to time, unlike the old regime. The
-control plane is the better subject: it degrades and is never reaped, so there
-is no race against the probe.
+**Still unexplained, and now the whole question:** what flips a process from
+~1.8 ms per gather into the degrading mode. It is not load, not device presence
+(worker-0 has no `/dev/disk/by-id` at all and degrades), not steal, not node
+contention, and nothing leaks. The strongest clue is that **onsets correlate
+across nodes** — the 2026-09-16 reboot moved all three off the stable mode at
+once, and the 2026-08-25 OOM kills landed 25 seconds apart on separate VMs. That
+points at a cluster-wide or scrape-side event rather than anything node-local,
+which is the lead to chase next: correlate known onset times against Prometheus
+restarts and reloads, apiserver restarts, and etcd stalls, all of which are in
+the 30 days of retention.
+
+A dump is still wanted, but it cannot be manufactured on demand — load will not
+produce a degrading process, so a capture has to wait for a natural onset. The
+control plane is the better subject when one comes: it degrades and is never
+reaped, so there is no race against the probe.
 
 ### Fix C — take the arrival rate down
 
 `kubernetes/infrastructure/devices.yaml`: PodMonitor `interval` and the liveness
 probe's `periodSeconds` both 15s → 60s. Two gathers per 15s become two per 60s.
 
-The prediction, and the thing that falsifies it: if arrivals drive the
-compounding, **time-to-first-restart stretches by much more than 4×** — possibly
-without bound, since a stable mode exists. A clean 4× (11 min → ~44 min on
-worker-1) would mean the degradation is per-gather rather than congestive and
-Fix C is only buying time. No change at all means the clock is wall-time, not
-traffic, and the whole reading above is wrong.
+**It was shipped on a mechanism since disproved.** The reasoning was that
+arrivals drive the degradation; the 117 req/s test above shows they do not. What
+Fix C can still do is reduce the amplification *after* a process has flipped,
+which should stretch time-to-first-restart — but it cannot prevent a flip, so it
+is a mitigation and not a fix. Left in place because a quarter of the gather
+traffic is worth having either way, and because the stretch is worth measuring.
+
+Read the result with that in mind: **all three processes being stable is not
+evidence C worked.** 09-11…09-15 had all three stable for five days at the old
+15 s rate. Only a flip that then takes much longer than its per-node baseline to
+reach a reaping says anything.
 
 **The baseline C is measured against**, 24 h to 2026-09-17 03:30Z — the last
 full day at a 15 s arrival rate, ending 2 minutes before the rollout:
