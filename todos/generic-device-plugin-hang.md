@@ -1,19 +1,19 @@
-# generic-device-plugin `/metrics` hang — both fixes shipped, now watch
+# generic-device-plugin `/metrics` hang — outcome B, now testing the gather rate
 
 ## Opening prompt
 
-> The generic-device-plugin pods wedge: they stop serving HTTP entirely, burn
-> whatever CPU they are allowed, and recover only on restart. Root cause is
-> abandoned Prometheus gathers — a scrape the 10s timeout gives up on is never
-> cancelled, so they queue on client_golang's goCollector mutex forever. Read
-> `todos/generic-device-plugin-hang.md`: two goroutine dumps are captured, the
-> analysis is there, and it records several earlier conclusions it disproved.
-> **Both candidate fixes shipped on 2026-08-26** — the CPU limit is gone and a
-> liveness probe on `/metrics` is in. Start from "Where things stand", then
-> "What to watch": the question now is whether onsets still happen and, if they
-> do, whether they recover in ~45s instead of hours. Read *availability*, not
-> restart count, and note that the operational guidance on forensics changed
-> when the CPU limit went.
+> The generic-device-plugin pods degrade until a liveness probe reaps them, and
+> the cycle repeats every ~17 minutes. Read
+> `todos/generic-device-plugin-hang.md` from the top, then go straight to **"The
+> sawtooth, 2026-09-17"** — the hours-long total wedge described in "The defect"
+> is the *pre-2026-08-26* failure and no longer happens. What replaced it is a
+> progressive slowdown that resets on every restart, and the load driving it is
+> the gather traffic itself: `/metrics` is idle at 0.018 cores when nothing
+> scrapes it. Fix C shipped 2026-09-17 on that finding — the scrape interval and
+> the probe period both went 15s → 60s. The open question is whether
+> time-to-first-restart stretches by more than 4×; a stable mode demonstrably
+> exists, because one process ran five days at 1.7ms. Read *time-to-first-
+> restart*, not availability and not restart count.
 
 ## Where things stand
 
@@ -27,8 +27,10 @@ the original reading. Treat anything undated as 2026-08-19.
 | Goroutine dumps captured | done 2026-08-19 |
 | Fix A — remove the CPU limit | shipped 2026-08-26 |
 | Fix B — liveness probe on `/metrics` | shipped 2026-08-26 |
+| Did A and B work? | **outcome B**, confirmed 2026-09-17 — no collapses, device availability 98.25%/24h, restarts ~110/day |
+| Fix C — scrape interval and probe period 15s → 60s | shipped 2026-09-17 |
 | Upstream bug report | **not filed** — draft at the end of this file, Will files it |
-| Did the fixes work? | **unknown, needs days of quiet** — see "What to watch" |
+| Did C work? | **unknown, needs days of quiet** — see "The sawtooth, 2026-09-17" |
 
 The state the fixes were applied against, 2026-08-26: worker-0 wedged and ten
 hours down, the control plane having flapped four times that day, 7-day
@@ -53,6 +55,10 @@ not now.** Both would waste a session:
   capture another dump.**
 
 ## The defect
+
+**This describes the pre-2026-08-26 regime, which no longer occurs.** The dumps
+and corrections below still hold and are why the current reading is what it is,
+but for present behaviour read "The sawtooth, 2026-09-17" first.
 
 Both plugin pods on the worker nodes stop serving HTTP entirely, burn 100% of
 their CPU quota indefinitely, and recover only when the container is restarted.
@@ -455,6 +461,128 @@ Still open and untouched by this change: the correlation between the
 2026-08-14 commit and worker-0's first-ever failures. `3e4e016` bundled the
 image bump with the glob path, the data cannot separate them, and that commit is
 also what made ARM's device matching correct — so it is not casually reverted.
+
+## The sawtooth, 2026-09-17
+
+All timestamps and day buckets here are UTC; the work was done on the evening of
+2026-09-16 Denver time.
+
+**The answer to the section above is outcome B.** A and B did what they were
+meant to: there are no collapses any more, no OOM kills, and `devic.es/cdrom`
+was allocatable 98.25% of the 24h to 2026-09-17. What is left is not the defect
+described in "The defect" — that section describes the pre-2026-08-26 regime and
+should be read as history.
+
+### What replaced it
+
+Gather latency against *process age*, worker-1, 17 process lifetimes in 3h:
+
+| process age | median `scrape_duration_seconds` |
+|---|---|
+| 0–1 min | 7.3 ms |
+| 1–2 min | 113 ms |
+| 2–3 min | 190 ms |
+| 4–5 min | 404 ms |
+| 7–8 min | 965 ms |
+| 9–10 min | 1813 ms |
+| 12–13 min | 2161 ms |
+| 16–17 min | 3315 ms → crosses the 5s probe timeout, reaped |
+
+Every process starts healthy and degrades ~1.25× per minute until the probe
+kills it at ~17 minutes. **Restart resets it completely.** High restart count
+with low downtime is the fix working, exactly as "Neither worked" warned it
+would look — and it is not that case, because availability is 98.25%.
+
+### The gather traffic is the load
+
+Scraping `/metrics` every 3s and watching the container:
+
+```
+every 3s:    0.51c → 0.88c → 1.97c → 1.94c → 3.20c   (4-core node)
+             wall per gather 1.16s → 4.80s
+             goroutines 17-23, heap ~5MB, fds 11, threads 9 — all flat
+stop 45s:    0.018 cores
+```
+
+The process is **idle when nothing scrapes it**. Each gather makes the next one
+dearer, so arrivals compound into congestion collapse. This is consistent with
+the dumps' finding that nothing leaks — there is no accumulated state, only a
+queue. In the 45s quiet window the liveness probe was still running, and its
+three gathers account for the 0.81 CPU-seconds burned: **the probe costs the
+same as a scrape**, which is what Fix C acts on.
+
+### It is bimodal at startup
+
+Restarts per day, reconstructed from the counter (scrape coverage is complete on
+all 30 days, so the zeroes are real and not gaps):
+
+| days | control-plane | worker-0 | worker-1 |
+|---|---|---|---|
+| 08-27 … 09-03 | 0 | 0 | ~22/day |
+| 09-04 … 09-10 | 0 | 0 | ~130/day |
+| **09-11 … 09-15** | **0** | **0** | **0** |
+| 09-16 (cluster reboot) | 2 | 64 | 111 |
+
+Median gather during 09-11…09-15 was **1.7 ms** — same pod, same config, same
+scrape rate as the days either side. One process in the 3h sample likewise held
+2–3 ms for 35 minutes while its siblings died at 17. So a process either lands
+in a stable mode at startup and stays there indefinitely, or lands in the
+degrading mode. The 2026-09-16 reboot flipped **all three nodes** into the
+degrading mode, the control plane included, after it had been clean since 08-27.
+
+Ruled out with data, so as not to be re-tried: CPU steal (≤0.04 everywhere),
+node contention (worker-1's non-plugin busy time moves 0.08 → 0.17 cores, and
+most of "busy" on bad days *is* the plugin), `sr0` I/O and ARM activity (flat
+across both regimes), and any growth in goroutines, heap, fds or threads.
+
+**Still unexplained:** why the base gather costs ~200 ms for a 129-line payload
+when the stable mode costs 1.7 ms, and what decides the mode at startup. That is
+inside client_golang's `goCollector` and needs a dump from a *degrading* process
+— which the 17-minute cycle now makes easy to time, unlike the old regime.
+
+### Fix C — take the arrival rate down
+
+`kubernetes/infrastructure/devices.yaml`: PodMonitor `interval` and the liveness
+probe's `periodSeconds` both 15s → 60s. Two gathers per 15s become two per 60s.
+
+The prediction, and the thing that falsifies it: if arrivals drive the
+compounding, **time-to-first-restart stretches by much more than 4×** — possibly
+without bound, since a stable mode exists. A clean 4× (17 min → ~68 min) would
+mean the degradation is per-gather rather than congestive and Fix C is only
+buying time. No change at all means the clock is wall-time, not traffic, and the
+whole reading above is wrong.
+
+```sh
+# The measurement. Compare against ~17 min.
+kubectl -n infrastructure get pods -l app.kubernetes.io/name=generic-device-plugin \
+  -o custom-columns=POD:.metadata.name,RESTARTS:.status.containerStatuses[0].restartCount,AGE:.metadata.creationTimestamp
+```
+
+The cost if it fails: detection of a genuine total wedge goes from ~45s to
+~180s, and `devic.es/cdrom` is unallocatable for that window. Given ARM is the
+only claimant and is not restarting on its own, that is cheap.
+
+This does not displace the split-`3e4e016` experiment above, which is still the
+only thing that addresses *why* worker-0 ever started failing.
+
+### Correction to the ARM coupling
+
+"It does not only fail admission — it makes admission slow" frames the coupling
+as wedge-overlaps-recreation. Two `UnexpectedAdmissionError` pods found in the
+`automatic-ripping-machine` namespace on 2026-09-17 were **both** killed by the
+2026-09-16 cluster reboot, not by a wedge: kubelet re-admits pods before the
+plugin re-registers, the allocation fails, and the rejection is terminal. One of
+them had been created 2026-09-04 and run healthily for twelve days — a pod's
+`startTime` is when it was created, not when it failed, which is what made the
+wedge reading look right.
+
+Nothing GCs those pods: `--terminated-pod-gc-threshold` is unset, so the default
+12500 never triggers here, and the ReplicaSet controller replaces Failed pods
+rather than deleting them. `KubeContainerWaiting` then fires on the corpse
+indefinitely, which is how this was found — twelve days late. **Nothing alerts on
+`UnexpectedAdmissionError`**, and a rule for it is the gap worth closing: a
+device outage too short for `OpticalDriveUnavailable`'s 30m `for:` still leaves a
+permanent casualty.
 ---
 
 # Upstream bug report — draft
