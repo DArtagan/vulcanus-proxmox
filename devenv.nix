@@ -19,6 +19,7 @@
     k9s
     kubectl
     python3
+    rtk
     sops
     talosctl
   ];
@@ -29,7 +30,18 @@
     opentofu.enable = true;
   };
 
-  claude.code.enable = true;
+  claude.code = {
+    enable = true;
+    hooks = {
+      rtk = {
+        enable = true;
+        name = "RTK";
+        hookType = "PreToolUse";
+        matcher = "Bash";
+        command = "rtk hook claude";
+      };
+    };
+  };
 
   scripts.beets-shell.exec = ''
     # An interactive beets CLI session against the real library, for the things
