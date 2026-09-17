@@ -79,8 +79,17 @@ The device advertisement dies with them.
 ### What the dumps show
 
 Two dumps taken 2026-08-19 by sending `SIGQUIT` with `GOTRACEBACK=all`, from
-pods wedged for 5 and 4 hours respectively. Saved as
-`gdp-goroutines-worker-0.txt` and `gdp-goroutines-worker-1.txt`.
+pods wedged for 5 and 4 hours respectively.
+
+**Both dump files are lost** (confirmed 2026-09-17; nowhere on this machine and
+never committed). Everything below is what was read off them at the time and
+cannot be re-checked, so treat the specific figures — the eight gather ages, the
+`go_collector_latest.go:326` line, `utime=111 stime=17482` — as quoted rather
+than verifiable. They also describe the pre-2026-08-26 regime, which no longer
+occurs, so their loss costs less than it appears: a report about the flip wants
+a *fresh* capture, not these. Keep new captures at the `--out` path
+`tools/gdp-flip-watch/watch.py` was run with, and record that path here when one
+is taken — writing down where they went is the step that was missed.
 
 **Prometheus scrapes accumulate inside the process and never terminate.** The
 scrape interval is 15s and the scrape timeout is 10s. When a `Gather` exceeds
@@ -313,9 +322,17 @@ not to have prevented the collapse, that is where to look next.
 
 ## Step — File the bug report
 
-The draft is at the end of this file, rewritten 2026-08-19 against the dumps.
-Attach both dump files. **The user asked to do the filing themselves** — write
-it up, hand it over, do not submit it.
+**The draft at the end of this file is not filable as it stands**, for two
+reasons found 2026-09-17. Its dumps are lost, so there is nothing to attach; and
+its thesis — abandoned gathers accumulating until the plugin saturates its CPU
+limit — is the pre-2026-08-26 mechanism, which the flip evidence contradicts.
+Filing it would send upstream after a queue that forms *after* the interesting
+event. Rebuild it around the flip once `tools/gdp-flip-watch/` has caught one:
+that capture is the evidence, and a 495× step with no runtime metric moving is a
+far better report than a pile-up.
+
+**The user asked to do the filing themselves** — write it up, hand it over, do
+not submit it.
 
 Checked 2026-08-26: upstream's last binary release is `0.2.0` (2026-04-14),
 nothing since May touches the metrics path, and the single open issue is
@@ -788,8 +805,13 @@ permanent casualty.
 
 # Upstream bug report — draft
 
-Repository: `squat/generic-device-plugin`. Attach `gdp-goroutines-worker-0.txt`
-and `gdp-goroutines-worker-1.txt`, then hand to the user to file.
+Repository: `squat/generic-device-plugin`.
+
+**Superseded — do not file unedited.** Kept because its Environment block and
+its account of the queueing behaviour are still accurate for a process that has
+already degraded, and rewriting from nothing would lose that. What it gets wrong
+is the cause: see "Step — File the bug report" above. The dumps it says to
+attach no longer exist.
 
 **Title:** Abandoned `/metrics` gathers accumulate until the plugin saturates its CPU limit and stops serving entirely
 
