@@ -19,7 +19,6 @@
     k9s
     kubectl
     python3
-    rtk
     sops
     talosctl
   ];
@@ -32,15 +31,6 @@
 
   claude.code = {
     enable = true;
-    hooks = {
-      rtk = {
-        enable = true;
-        name = "RTK";
-        hookType = "PreToolUse";
-        matcher = "Bash";
-        command = "rtk hook claude";
-      };
-    };
   };
 
   scripts.beets-shell.exec = ''
