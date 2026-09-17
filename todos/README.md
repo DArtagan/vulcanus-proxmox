@@ -78,18 +78,28 @@ workload actually needs rather than setting a label.
 
 ## Waiting on a decision
 
-**[generic-device-plugin-hang.md](generic-device-plugin-hang.md) — file the upstream report, then watch**
-The plugin pods stop serving HTTP entirely, pin their CPU at the 50m limit with
-97% CFS throttling, and recover only on restart. Root cause is abandoned
-Prometheus gathers: the 10s scrape timeout does not cancel the gather, so they
-queue on goCollector's mutex forever — eight of them, the oldest five hours old,
-were still running in the dump. Two goroutine dumps were captured on 2026-08-19.
-Both fixes shipped on 2026-08-26 — the CPU limit is gone and a liveness probe on
-`/metrics` is in — so what is outstanding is handing the bug report over for
-filing, and confirming an onset now recovers rather than collapsing. The spec
-records several conclusions from 2026-08-14 that the dumps disproved, plus a
-2026-08-25 finding that the wedge ends in an OOM kill, which is why the memory
-limit must not be raised.
+**[generic-device-plugin-hang.md](generic-device-plugin-hang.md) — find what flips a process into degrading**
+Each plugin process on the worker nodes starts at a 7ms `/metrics` gather and
+slows ~1.25× per minute until the liveness probe reaps it, every ~11 minutes on
+worker-1 and ~19 on worker-0; a restart resets it completely. The control plane
+degrades too and is never reaped, with the worst median of the three and the
+best tail — so what reaps a process is tail excursions past the 5s timeout, not
+where its latency sits. **What flips a process into that state is the open
+question, and it is not gather traffic**: 117 req/s for 45s leaves a healthy
+process at 2.93ms, so traffic only amplifies a process that has already flipped.
+The flip is in-process — 27 of 29 onsets, a median 495× step inside one scrape
+interval at a median process age of 5.2 minutes, with no runtime metric moving
+across it — and `tools/gdp-flip-watch/` exists to catch the next one and dump
+it. The hours-long total wedge
+this spec opened on is gone: the 2026-08-26 fixes removed the CPU limit and
+added the probe, and there have been no collapses and no OOM kills since, with
+`devic.es/cdrom` allocatable 98.25% of the day. Fix C — both arrival rates
+15s → 60s, live 2026-09-17 03:32Z — is a mitigation shipped on the mechanism
+that test disproved, and worth measuring but not worth waiting on. Outstanding
+is the flip, and handing the bug report over for filing. The spec also carries
+several conclusions the goroutine dumps disproved, why the memory limit must not
+be raised, and two measurement traps that have each cost a session.
+
 **[etcd-disk-latency.md](etcd-disk-latency.md) — get etcd off spinning disks**
 etcd's p99 WAL fsync is 0.25s at rest against a target of 0.010s, because `rpool`
 is two raidz2 vdevs of spinning disks with no SLOG and the host holds no SSD at

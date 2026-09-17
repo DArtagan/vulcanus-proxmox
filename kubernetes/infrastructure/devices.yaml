@@ -102,13 +102,20 @@ spec:
           # already stopped serving scrapes and only hangs once the wedge is
           # total, so it never distinguishes the state worth acting on.
           #
+          # `periodSeconds` matches the PodMonitor's interval below, and neither
+          # goes lower.  A GET on /metrics is a full registry gather — the same
+          # work the scrape does — and gather cost compounds with how often
+          # gathers arrive, so the probe is load on the process it measures.
+          # Probing faster buys detection and pays for it in the failure being
+          # detected.  See todos/generic-device-plugin-hang.md.
+          #
           # No startupProbe: the plugin serves ~95ms after start, and three
-          # failures at 15s apart give it 30s before the first restart.
+          # failures at 60s apart give it 180s before the first restart.
           livenessProbe:
             httpGet:
               path: /metrics
               port: http
-            periodSeconds: 15
+            periodSeconds: 60
             timeoutSeconds: 5
             failureThreshold: 3
           ports:
@@ -139,10 +146,10 @@ metadata:
   labels:
     app.kubernetes.io/name: generic-device-plugin
   name: generic-device-plugin
-  namespace: kube-system
 spec:
   podMetricsEndpoints:
-    - interval: 15s
+    # Matches the liveness probe's period, for the reason given beside it.
+    - interval: 60s
       port: http
       path: /metrics
   selector:
