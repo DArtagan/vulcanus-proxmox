@@ -2,18 +2,21 @@
 
 ## Opening prompt
 
-> The generic-device-plugin pods degrade until a liveness probe reaps them, and
-> the cycle repeats every ~17 minutes. Read
+> The generic-device-plugin pods on the worker nodes degrade until a liveness
+> probe reaps them, every ~11 minutes on one and ~20 on the other. Read
 > `todos/generic-device-plugin-hang.md` from the top, then go straight to **"The
 > sawtooth, 2026-09-17"** — the hours-long total wedge described in "The defect"
 > is the *pre-2026-08-26* failure and no longer happens. What replaced it is a
 > progressive slowdown that resets on every restart, and the load driving it is
 > the gather traffic itself: `/metrics` is idle at 0.018 cores when nothing
-> scrapes it. Fix C shipped 2026-09-17 on that finding — the scrape interval and
-> the probe period both went 15s → 60s. The open question is whether
-> time-to-first-restart stretches by more than 4×; a stable mode demonstrably
-> exists, because one process ran five days at 1.7ms. Read *time-to-first-
-> restart*, not availability and not restart count.
+> scrapes it. Fix C shipped on that finding (`d310a0f`, 2026-09-17) — the scrape
+> interval and the probe period both go 15s → 60s — and reached the cluster at
+> **2026-09-17 03:32Z**, when all three pods rolled; that is when the clock
+> starts. The open question is whether time-to-first-restart stretches by more
+> than 4×; a stable mode demonstrably exists, because one process ran five days
+> at 1.7ms. Read *time-to-first-restart*, not availability and not restart
+> count — and note that median latency is not the signal either, for the reason
+> the control plane gives.
 
 ## Where things stand
 
@@ -27,8 +30,8 @@ the original reading. Treat anything undated as 2026-08-19.
 | Goroutine dumps captured | done 2026-08-19 |
 | Fix A — remove the CPU limit | shipped 2026-08-26 |
 | Fix B — liveness probe on `/metrics` | shipped 2026-08-26 |
-| Did A and B work? | **outcome B**, confirmed 2026-09-17 — no collapses, device availability 98.25%/24h, restarts ~110/day |
-| Fix C — scrape interval and probe period 15s → 60s | shipped 2026-09-17 |
+| Did A and B work? | **outcome B**, confirmed 2026-09-17 — no collapses, no OOM kills, device availability 98.25%/24h, restarts 130 and 75/day on the two workers and 2 on the control plane |
+| Fix C — scrape interval and probe period 15s → 60s | shipped 2026-09-17 in `d310a0f`; **live 03:32Z**, all three pods rolled |
 | Upstream bug report | **not filed** — draft at the end of this file, Will files it |
 | Did C work? | **unknown, needs days of quiet** — see "The sawtooth, 2026-09-17" |
 
@@ -489,9 +492,14 @@ Gather latency against *process age*, worker-1, 17 process lifetimes in 3h:
 | 16–17 min | 3315 ms → crosses the 5s probe timeout, reaped |
 
 Every process starts healthy and degrades ~1.25× per minute until the probe
-kills it at ~17 minutes. **Restart resets it completely.** High restart count
-with low downtime is the fix working, exactly as "Neither worked" warned it
-would look — and it is not that case, because availability is 98.25%.
+kills it. **Restart resets it completely.** High restart count with low downtime
+is the fix working, exactly as "Neither worked" warned it would look — and it is
+not that case, because availability is 98.25%.
+
+The ~17 minutes this sample ends at is worker-1's figure *from these three
+hours*; over the full day it averages ~11, and worker-0 ~19. Use the per-node
+baseline under "Fix C" rather than any number from this table, which is a shape
+rather than a rate.
 
 ### The gather traffic is the load
 
@@ -511,7 +519,7 @@ queue. In the 45s quiet window the liveness probe was still running, and its
 three gathers account for the 0.81 CPU-seconds burned: **the probe costs the
 same as a scrape**, which is what Fix C acts on.
 
-### It is bimodal at startup
+### The mode is decided at startup, and there are three of them
 
 Restarts per day, reconstructed from the counter (scrape coverage is complete on
 all 30 days, so the zeroes are real and not gaps):
@@ -526,9 +534,38 @@ all 30 days, so the zeroes are real and not gaps):
 Median gather during 09-11…09-15 was **1.7 ms** — same pod, same config, same
 scrape rate as the days either side. One process in the 3h sample likewise held
 2–3 ms for 35 minutes while its siblings died at 17. So a process either lands
-in a stable mode at startup and stays there indefinitely, or lands in the
-degrading mode. The 2026-09-16 reboot flipped **all three nodes** into the
-degrading mode, the control plane included, after it had been clean since 08-27.
+in a stable mode at startup and stays there indefinitely, or lands in a
+degrading one. The 2026-09-16 reboot moved **all three nodes** off the stable
+mode, the control plane included, after it had been clean since 08-27.
+
+**Degrading does not always end in a reaping, and the median does not say which
+way it goes.** Gather latency over the rolling 24 h to 2026-09-17 03:30Z — the
+last full day at a 15 s arrival rate, and a different window from the UTC
+calendar days above, which is why its restart counts are higher:
+
+| node | p50 | p90 | p99 | max | samples > 5 s | restarts |
+|---|---|---|---|---|---|---|
+| control-plane | 590 ms | 1292 ms | 2751 ms | 5187 ms | 1 / 1433 | 2 |
+| worker-0 | 309 ms | 2019 ms | 6529 ms | 10015 ms | 28 / 1433 | 75 |
+| worker-1 | 395 ms | 4361 ms | 10000 ms | 10002 ms | 106 / 1433 | 130 |
+
+**The control plane has the worst median of the three and the best tail.** Its
+p50 is nearly double worker-1's, yet its p99 is 2.75 s against worker-1's 10 s,
+and its post-reboot process ran from 2026-09-16 06:24Z for twenty-one hours
+without being reaped. The two restarts against its name are the reboot itself.
+
+So "degrades ~1.25× per minute until the probe kills it" is the worker pods'
+behaviour, not a law, and degradation is not one thing with a severity dial: a
+process can sit two to three orders of magnitude above the stable mode
+indefinitely, because what reaps it is tail excursions past 5 s, not where the
+distribution sits. Median latency is therefore the wrong health signal — it
+ranks the survivor worst. (The control plane did cross 5 s once; `failureThreshold`
+is 3, and one crossing is not three consecutive ones.)
+
+Whether the workers also find a ceiling and simply find it above 5 s, or
+genuinely climb without bound, is not answerable from the 3 h sample — every
+worker process in it was reaped before it could show one, which is itself an
+argument for reading time-to-first-restart under Fix C rather than latency.
 
 Ruled out with data, so as not to be re-tried: CPU steal (≤0.04 everywhere),
 node contention (worker-1's non-plugin busy time moves 0.08 → 0.17 cores, and
@@ -538,7 +575,9 @@ across both regimes), and any growth in goroutines, heap, fds or threads.
 **Still unexplained:** why the base gather costs ~200 ms for a 129-line payload
 when the stable mode costs 1.7 ms, and what decides the mode at startup. That is
 inside client_golang's `goCollector` and needs a dump from a *degrading* process
-— which the 17-minute cycle now makes easy to time, unlike the old regime.
+— which the restart cycle now makes easy to time, unlike the old regime. The
+control plane is the better subject: it degrades and is never reaped, so there
+is no race against the probe.
 
 ### Fix C — take the arrival rate down
 
@@ -547,13 +586,33 @@ probe's `periodSeconds` both 15s → 60s. Two gathers per 15s become two per 60s
 
 The prediction, and the thing that falsifies it: if arrivals drive the
 compounding, **time-to-first-restart stretches by much more than 4×** — possibly
-without bound, since a stable mode exists. A clean 4× (17 min → ~68 min) would
-mean the degradation is per-gather rather than congestive and Fix C is only
-buying time. No change at all means the clock is wall-time, not traffic, and the
-whole reading above is wrong.
+without bound, since a stable mode exists. A clean 4× (11 min → ~44 min on
+worker-1) would mean the degradation is per-gather rather than congestive and
+Fix C is only buying time. No change at all means the clock is wall-time, not
+traffic, and the whole reading above is wrong.
+
+**The baseline C is measured against**, 24 h to 2026-09-17 03:30Z — the last
+full day at a 15 s arrival rate, ending 2 minutes before the rollout:
+
+| | control-plane | worker-0 | worker-1 |
+|---|---|---|---|
+| restarts / 24 h | 2 (the reboot) | 75 | 130 |
+| mean interval between restarts | never reaped | ~19 min | ~11 min |
+| `devic.es/cdrom` allocatable / 24 h | n/a | n/a | 98.25% |
+
+Per-node spread is wider than any single number implies, so compare each node
+against its own row rather than against a cluster figure.
 
 ```sh
-# The measurement. Compare against ~17 min.
+# Fix C went live 2026-09-17 03:32Z; both of these read 60.  Re-check after any
+# Flux change that touches the DaemonSet, since a revert would silently restore
+# the 15 s rate and invalidate everything measured after it.
+kubectl -n infrastructure get podmonitor generic-device-plugin \
+  -o jsonpath='{.spec.podMetricsEndpoints[0].interval}{"\n"}'
+kubectl -n infrastructure get ds generic-device-plugin \
+  -o jsonpath='{.spec.template.spec.containers[0].livenessProbe.periodSeconds}{"\n"}'
+
+# The measurement. Compare against ~11 min (worker-1) and ~19 min (worker-0).
 kubectl -n infrastructure get pods -l app.kubernetes.io/name=generic-device-plugin \
   -o custom-columns=POD:.metadata.name,RESTARTS:.status.containerStatuses[0].restartCount,AGE:.metadata.creationTimestamp
 ```

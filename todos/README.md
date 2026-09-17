@@ -78,18 +78,23 @@ workload actually needs rather than setting a label.
 
 ## Waiting on a decision
 
-**[generic-device-plugin-hang.md](generic-device-plugin-hang.md) — file the upstream report, then watch**
-The plugin pods stop serving HTTP entirely, pin their CPU at the 50m limit with
-97% CFS throttling, and recover only on restart. Root cause is abandoned
-Prometheus gathers: the 10s scrape timeout does not cancel the gather, so they
-queue on goCollector's mutex forever — eight of them, the oldest five hours old,
-were still running in the dump. Two goroutine dumps were captured on 2026-08-19.
-Both fixes shipped on 2026-08-26 — the CPU limit is gone and a liveness probe on
-`/metrics` is in — so what is outstanding is handing the bug report over for
-filing, and confirming an onset now recovers rather than collapsing. The spec
-records several conclusions from 2026-08-14 that the dumps disproved, plus a
-2026-08-25 finding that the wedge ends in an OOM kill, which is why the memory
-limit must not be raised.
+**[generic-device-plugin-hang.md](generic-device-plugin-hang.md) — file the upstream report, then read Fix C**
+Each plugin process on the worker nodes starts at a 7ms `/metrics` gather and
+slows ~1.25× per minute until the liveness probe reaps it, every ~11 minutes on
+worker-1 and ~19 on worker-0; a restart resets it completely. The control plane
+degrades too and is never reaped, with the worst median of the three and the
+best tail — so what reaps a process is tail excursions past the 5s timeout, not
+where its latency sits. The load is the gather traffic itself: the container
+sits at 0.018 cores when nothing scrapes it, and a probe on `/metrics` costs
+exactly what a scrape does. The hours-long total wedge this spec opened on is
+gone: the 2026-08-26 fixes removed the CPU limit and added the probe, and there
+have been no collapses and no OOM kills since, with `devic.es/cdrom` allocatable
+98.25% of the day. Fix C — both arrival rates 15s → 60s — went live 2026-09-17
+03:32Z, so what is outstanding is reading the result against the per-node
+baseline in the spec, and handing the bug report over for filing. The spec also
+carries several conclusions from 2026-08-14 that the goroutine dumps disproved,
+and why the memory limit must not be raised.
+
 **[etcd-disk-latency.md](etcd-disk-latency.md) — get etcd off spinning disks**
 etcd's p99 WAL fsync is 0.25s at rest against a target of 0.010s, because `rpool`
 is two raidz2 vdevs of spinning disks with no SLOG and the host holds no SSD at
