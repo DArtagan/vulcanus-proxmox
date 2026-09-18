@@ -174,7 +174,7 @@ that comparison fails, so two concurrent runs destroy each other. Stop the timer
 **A scrub starves a prune.** Running concurrently, sanoid manages a couple of snapshot
 destroys a minute. Sequence them.
 
-**syncoid never removes datasets from the target.** Every guest ever deleted on
+**syncoid never removes datasets from the target.** Every dataset ever deleted on
 vulcanus leaves its replica on mini-nas, and nothing will clean it up.
 
 **syncoid's own snapshots escape sanoid's retention.** Their names do not match
