@@ -195,12 +195,12 @@ no snapshot in common, and it is right to: proceeding would mean destroying the 
 The unit fails, its `OnFailure=` reports, and the replica stops advancing until someone
 intervenes.
 
-A name comes to hold a fresh lineage when a guest's VMID is reissued, when a disk index
-is reused inside a live guest, or when replication has been broken for longer than the
-source's retention window — 30 days for `rpool/data`, far longer for `rpool/storage` —
-so that the last common snapshot is pruned out from under the target. The last of these
-is why a stale replica is worth fixing promptly: staleness left alone matures into
-divergence.
+That state is reached by leaving a stale replica alone. Replication stops for whatever
+reason; the source goes on snapshotting and pruning to its own schedule; and once the
+newest snapshot the target still holds has aged out of the source — 30 days for
+`rpool/ROOT`, around two years for `rpool/storage` — no common ancestor remains to send
+from. **Staleness matures into divergence,** which is why a dataset reported late is
+worth acting on rather than watching.
 
 The repair sets the stale copy aside rather than destroying it, so a copy exists at
 every point. Per dataset, on mini-nas:
