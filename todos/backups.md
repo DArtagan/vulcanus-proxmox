@@ -1060,7 +1060,7 @@ gives them two rather than three to begin with.
 declared retention rules. Freeing that space early is a deliberate act: inspect the
 retained disk, decide whether it is worth keeping, remove it by hand. User's call,
 verbatim: *"if I/someone wants to free up more backup space, they can inspect the
-retained disk and determine whether it's worth deleting."* The destroy set above is that
+retained disk and determine whether it's worth deleting early."* The destroy set above is that
 act, exercised — three guests inspected and judged not worth keeping.
 
 Both layers arrive at indefinite retention by accident rather than design, measured
@@ -1154,11 +1154,9 @@ group answers all three.
 #### Documentation this phase writes
 
 Into [`docs/backups.md`](../docs/backups.md), extending what Phase 0 left: that PBS is
-the layer retaining a destroyed guest and the ZFS replica is destroyed with it; why a
-retained replica fails the freshness check rather than being tolerated by it; the
-VMID-reuse precondition, what reuse costs on each layer, and how the report reads it
-from the group's own contents; and the four-step repair for a superseded dataset, which
-stops being reachable once Phase 4 retires `rpool/data`.
+the layer retaining a destroyed guest, and that a group frozen by deletion is preserved
+by nothing arriving rather than by any retention setting; the VMID-reuse precondition,
+what reuse costs, and how the report reads it from the group's own contents.
 
 ### Phase 2 — application backups
 
