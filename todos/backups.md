@@ -425,7 +425,7 @@ runs on a schedule, reads **the store**, and pings its own check.
 
 | Layer | Assertion | Runs on |
 |---|---|---|
-| ZFS replication | newest snapshot age < 25 h for **every** dataset in the source list, and the target list matches the source list | mini-nas timer |
+| ZFS replication | newest snapshot age < 25 h for **every** dataset in the source list; the target list matches the source list; target datasets with no source, or sharing a name but no snapshot, are classified and reported | mini-nas timer |
 | PBS | newest snapshot age < 26 h for every guest **the job is scoped to back up** — see below | vulcanus timer |
 | restic app layer | per-PVC newest snapshot age; PVCs with no snapshot at all; snapshots whose PVC no longer exists | cluster CronJob |
 | External disk | last successful attach older than 35 days | healthchecks period |
@@ -971,151 +971,182 @@ the capacity model and purchase equation, and the operational notes. Row added t
 
 ### Phase 1 — reclaim, and stop the accumulation
 
-Two halves: clear what has built up, and build the mechanism that stops it building
-up again. The second half matters more — Phase 0 showed this class of debris does not
-merely waste space, it silently blocks replication.
+Two halves: destroy what has built up, and make sure what builds up next is
+*reported*. Phase 0 showed this class of debris does not merely waste space — left
+unreported long enough it matures into something that blocks replication of a live
+guest.
 
 **The borg tree is inspected here but deleted in Phase 2b**, after a restore proves
 the replacement works.
 
-#### What to clear
+#### What to destroy
 
-*On mini-nas, no source counterpart at all — nothing will ever remove these:*
+Guests 100, 101 and 106 are retired outright — no archival step, nothing set aside.
+User's call on rancheros, the only one of the three with anything in it: *"rancheros
+is from an old implementation of vulcanus. We've grown far past it now. It hasn't
+been needed in more than two years. It can go."*
 
-| Dataset under `foreign-backups/vulcanus/data/` | Size |
+On vulcanus, where `qm destroy` frees the zvol and its snapshots together:
+
+| Guest | Dataset | Size |
+|---|---|---|
+| 100 rancheros (stopped) | `rpool/data/vm-100-disk-0` | 256 G |
+| 100 rancheros (stopped) | `rpool/rancheros` — not a guest zvol, destroy separately | 40 G |
+| 101 disk-resizer (stopped) | `rpool/data/vm-101-disk-0` | 5.55 G |
+| 106 ubuntu-desktop (stopped) | `rpool/data/vm-106-disk-0` | ~0 |
+
+On mini-nas, under `rpool/foreign-backups/vulcanus/data/` — the three replicas above,
+`vm-100-disk-0` being **235 G** of them, plus four datasets that have no source
+counterpart at all and that nothing will ever clean up:
+
+| Dataset | Size |
 |---|---|
 | `vm-901-disk-0` | 6.60 G |
 | `vm-200-disk-1` | 1.72 G |
 | `vm-200-disk-0`, `vm-107-disk-1` | ~0 |
 
-*On vulcanus, dead guests still replicated daily because the guest still exists:*
+Roughly 300 G back on vulcanus and 245 G on mini-nas.
 
-| Guest | Dataset | Size |
-|---|---|---|
-| 100 rancheros (stopped) | `vm-100-disk-0` | **235 G offsite, 256 G at source** |
-| 100 rancheros (stopped) | `rpool/rancheros` | 40 G, not replicated |
-| 101 disk-resizer (stopped) | `vm-101-disk-0` | 5.55 G |
-| 106 ubuntu-desktop (stopped) | `vm-106-disk-0` | ~0 |
+**Guest 100 has no PBS group.** It is excluded from the vzdump job (verified
+2026-09-18), so destroying the guest and its replica removes every current copy in one
+step. Only `rpool/backups/borg/rancheros` — 76 G, last written December 2022 —
+outlives it, and Phase 2b deletes that. Accepted deliberately, per the call above. 101
+and 106 have frozen PBS groups and survive there until the last step.
 
 *Elsewhere:* three orphaned hostpath directories on worker-0 (25 G stale PhotoPrism
-storage, 434 M, 131 M), four orphaned `traefik*` PVCs in `infrastructure`, and PBS
-groups `vm/200`, `vm/101` and `vm/106` — pinned forever because vzdump prunes only
-the groups it backs up.
+storage, 434 M, 131 M) and four orphaned `traefik*` PVCs in `infrastructure`.
 
-#### Archival happens on vulcanus, before the guest is destroyed
+**PBS groups `vm/200`, `vm/101` and `vm/106` go last.** They are the only live
+examples of the frozen-group classification the PBS freshness assertion reports, so
+they serve as its test fixtures for the rest of the phase. User's call, verbatim:
+*"ultimately I'm happy to remove them from PBS too, but let's do so as the last step -
+so we can use them as test cases, if necessary, during the rest of this
+implementation."*
 
-**Not after.** PVE frees a zvol with `zfs destroy -r`
-(`ZFSPoolPlugin.pm: zfs_request($scfg, undef, 'destroy', '-r', ...)`), so the
-snapshots go with it and nothing survives to archive. No holds exist under
-`rpool/data` to stop it either. The evidence is the asymmetry Phase 0 found:
-`vm-200-*`, `vm-901-*` and `vm-107-disk-1` exist on mini-nas, while **every** dataset
-under vulcanus's `rpool/data` maps to a live guest. Those snapshots survive only on
-the replica, because syncoid never prunes the target.
+#### There is no archival step — two stores already hold what one would
 
-Recorded so the obvious automation — react to a deletion — is not attempted. There is
-also no hook to react with: PVE hookscripts fire on pre-start, post-start, pre-stop
-and post-stop only.
+A guest destroyed with `qm destroy` loses its source-side zvol and snapshots together.
+PVE frees it with `zfs destroy -r`
+(`ZFSPoolPlugin.pm: zfs_request($scfg, undef, 'destroy', '-r', ...)`), and no holds
+exist under `rpool/data` to stop it. What survives is on the other two stores, and
+both freeze rather than expire:
 
-**Retiring a guest is therefore a two-sided rename, done before `qm destroy`:**
+- **PBS** holds the guest's group at whatever count it had, because vzdump prunes only
+  the groups it backs up and a destroyed guest is never revisited. Local to vulcanus
+  and restorable with `qm restore` — the fast path for an accidental destroy.
+- **mini-nas** holds the replica at its last 30 dailies, because sanoid prunes by
+  count and a dataset that stops receiving keeps its N most recent snapshots. Offsite,
+  a different failure domain, and mountable for file-level inspection.
 
-```
-vulcanus:  rpool/data/vm-911-disk-1              -> rpool/archive/vm-911-disk-1_2026-01
-mini-nas:  .../vulcanus/data/vm-911-disk-1       -> .../vulcanus/archive/vm-911-disk-1_2026-01
-```
+That is already the retention the decision below asks for, on two layers, with nothing
+built. An `rpool/archive` tree would add a third copy of the same promise behind a
+pre-destroy runbook step that nothing can enforce — PVE hookscripts fire on pre-start,
+post-start, pre-stop and post-stop only, so there is no hook to react to a deletion
+with. Recorded under *Wrong turns*.
 
-`zfs rename` is a metadata operation: snapshots move with the dataset and keep their
-GUIDs. So a syncoid command for `rpool/archive` finds matching snapshots on both
-sides and **continues incrementally** — no full re-send, no orphan left behind, and
-the existing prune and replication machinery applies to the archive with whatever
-retention is chosen for it. Doing it on both sides is what avoids the orphan; a
-source-only rename reads to the target as "old gone, new appeared".
-
-This also frees the name immediately, so a new disk may reuse it without colliding.
-
-**What this needs:**
-
-- `rpool/archive` on vulcanus, and a `vulcanus-archive` syncoid command on mini-nas,
-  so archived data keeps an offsite copy rather than existing only on one host.
-- A sanoid template for the archive tree. `autosnap = no` — the snapshots are already
-  there and nothing writes to an archived dataset — with retention set long.
-- A runbook, next to "Removing a stateful workload" in
-  [`docs/kubernetes.md`](../docs/kubernetes.md).
-
-**VMIDs are still never reused.** The rename frees the name, but a retired ID being
-reissued is what turned a routine orphan into seven months of silent blockage, and
-the discipline costs nothing. Same shape as the never-reuse-a-slug registry in
-[`docs/project_log.md`](../docs/project_log.md).
-
-**Retention of what escapes still belongs on the target.** An archive on vulcanus
-alone is in the same failure domain as the thing it protects against — it survives
-neither losing that host nor an accidental `qm destroy` on it. Replicating
-`rpool/archive` covers the deliberate case; the target-side net below covers guests
-destroyed without the runbook being followed.
-
-#### The net: two failure modes, one quarantine
-
-For guests destroyed without the runbook being followed. With the archival step above
-in place this should almost never fire, and firing means something happened outside
-the intended path — which is itself worth knowing.
+#### The condition that actually hurts, and why it is now loud
 
 syncoid never removes datasets from the replication target, which produces two
-problems that look alike and are not:
+conditions that look alike and are not:
 
-- **Orphan** — a target dataset whose source is gone. Wastes space indefinitely.
-- **Superseded** — source and target share a *name* but no snapshot, because a disk
-  was recreated or a VMID reused. **This blocks replication of the live guest**, and
-  is what cost seven months on worker-1.
+- **Orphan** — a target dataset whose source is gone. Holds retained data, and costs
+  space until someone decides otherwise.
+- **Superseded** — source and target share a *name* but no snapshot. **This blocks
+  replication of the live guest**, and is what cost seven months on worker-1.
 
-**Detection** extends `zfs-replication-freshness`, which already fetches the source
-dataset list for its coverage assertion:
+Only the second is a failure, and Phase 0 closed both routes to it. The January
+incident contains both:
 
-| Condition | Classification |
-|---|---|
-| target exists, no source counterpart | orphan |
-| both exist, zero common snapshot names | superseded |
+- **Name reuse.** VMID 911 was reissued to worker-1 in April against January's orphan.
+- **Staleness outliving source retention.** `subvol-105-disk-0` and `vm-910-disk-2`
+  diverged with no name reuse at all: replication stopped, and `rpool/data`'s 30
+  dailies then pruned the last common snapshot out from under the target. Divergence
+  is not the initial failure — it is what an unreported failure matures into after 30
+  days.
+
+`zfs-replication-freshness` reports a stale `data/*` dataset at 26 h — the 25 h
+assertion plus an hour of slack — which is **~29 days of margin** before staleness can
+mature into a block, and every syncoid unit now carries an `OnFailure=`. The seven-month outage required the report to be absent; it is not.
+
+**So detection is extended and nothing is automated.** An unattended `zfs rename`
+against the only offsite copy, to remediate a condition that is reported a month
+before it can form, is not a trade worth making.
+
+#### VMID reuse is tolerated, not forbidden
+
+A never-reuse rule is a guarantee that has to be kept by hand forever, and the
+protection it was meant to provide already sits in the orphan report.
+
+That report stands *between* the destroy and the reuse: a destroyed guest's datasets
+are reported as orphans from the next run onward, naming the slot they hold. So the
+rule is a precondition rather than a promise —
+
+> **Before reissuing a VMID, check the orphan report. If the slot appears, clear it
+> first.**
+
+— checkable at the moment it matters. Miss it and the cost is bounded: source and
+target collide, syncoid fails that hour, the check reclassifies the datasets as
+superseded, and the repair is the four-step Phase 0 already proved — rename the target
+aside with a `-diverged` suffix, let syncoid re-seed, confirm, destroy the set-aside
+copy. A copy exists throughout.
+
+This also covers the case a never-reuse rule never did: **disk-index reuse inside a
+live guest.** Remove `vm-910-disk-2`, add a new disk, and PVE hands back the same name
+with a fresh lineage, no VMID reuse involved. Detection, classification and repair are
+identical — and here the orphan window may be minutes rather than months, which is why
+the recoverable path matters more than the preventive one.
+
+**No `next-id` floor.** Raising `datacenter.cfg`'s lower bound above every retired ID
+would stop the GUI suggesting a dirty slot, but it needs raising again as each ID
+retires — the same discipline problem wearing a hat, propping up a guarantee no longer
+made.
+
+**Clearing an orphan stays a deliberate act.** The precondition is "clear *this*
+orphan before reusing *this* VMID", not "clear orphans on a schedule", so the
+retention decision below is unaffected.
+
+#### What the freshness check gains
+
+`zfs-replication-freshness` already fetches the source dataset list for its coverage
+assertion (`~/repositories/mini-nas/modules/backup_monitoring/default.nix:183`), so
+classification is one comparison away from what it holds:
+
+| Condition | Classification | Verdict |
+|---|---|---|
+| target exists, no source counterpart | orphan | report |
+| both exist, zero common snapshot names | superseded | report |
+| target name ends `-diverged` | set aside by hand, repair in flight | report |
 
 Comparing snapshot *names* is the check that matters. Age alone cannot see either
-case: a superseded dataset has recent-looking snapshots of the wrong lineage, which
-is exactly how January went unnoticed.
+case: a superseded dataset has recent-looking snapshots of the wrong lineage, which is
+exactly how January went unnoticed.
 
-**Quarantine** is `zfs rename` into
-`rpool/foreign-backups/vulcanus/archive/<name>_<date>` — the same tree the runbook
-uses, so there is one place to look regardless of how something got there.
+**Nothing here fails the check.** A frozen orphan is the retention decision working,
+and a superseded dataset already fails loudly through the syncoid unit that cannot
+replicate it — failing twice for one condition buys nothing. Reporting also keeps the
+check green while a repair is mid-flight, which is the state the four-step procedure
+spends most of its time in.
 
-**Guards.** This runs unattended against the only offsite copy, and a naive version
-would quarantine the entire replica the first time an SSH connection dropped:
+No new healthchecks.io check, which matters because the enumerated budget is exactly
+the free tier's 20.
 
-- the source listing must succeed *and* return a plausible dataset count
-- the condition must persist across three consecutive daily runs
-- a circuit breaker — never quarantine more than three datasets in one run
-
-#### Deleted guests are currently kept forever, by accident
+#### Deleted guests are kept forever, by accident
 
 Both layers retain a destroyed guest indefinitely, and neither was designed to.
 Measured 2026-09-10:
 
-- **sanoid prunes by count, not age.** A replica that stops receiving keeps its N
-  most recent snapshots permanently. `vm-200-disk-1` holds exactly 30 dailies with
-  the oldest from 12 March, months after replication stopped; `vm-901-disk-0` has
-  held a single January snapshot since. An age-based policy would have emptied both.
-- **The vzdump job prunes only the groups it backs up.** A destroyed guest's PBS
-  group is never revisited, so it freezes — `vm/200` still holds 31 backups from
-  March and April.
+- **sanoid prunes by count, not age.** A replica that stops receiving keeps its N most
+  recent snapshots permanently. `vm-200-disk-1` holds exactly 30 dailies with the
+  oldest from 12 March, months after replication stopped; `vm-901-disk-0` has held a
+  single January snapshot since. An age-based policy would have emptied both.
+- **The vzdump job prunes only the groups it backs up.** A destroyed guest's PBS group
+  is never revisited, so it freezes — `vm/200` still holds 31 backups from March and
+  April.
 
 They are complements rather than alternatives. PBS is the better *recovery* path for
-an accidental `qm destroy` — local to vulcanus, `qm restore`, no WAN transfer. The
-ZFS replica is the better *survival* copy — offsite, a different failure domain, and
-mountable for file-level inspection.
-
-**The plan ends both protections, in two places.** Whatever retention the archive
-above is given puts a clock on the ZFS side, and Phase 4's PBS #2 policy
-(`keep-daily 30, weekly 8, monthly 12`) is a *datastore-wide* prune, which unlike
-today's client-side prune would expire a frozen group.
-
-So decide what a deleted guest deserves rather than inheriting infinity: the same
-window as a live one, something longer, or genuinely forever at unbounded cost. Set
-the same value on both sides — otherwise the effective retention is the longer of the
-two and the shorter policy is fiction.
+an accidental `qm destroy` — local to vulcanus, `qm restore`, no WAN transfer. The ZFS
+replica is the better *survival* copy — offsite, a different failure domain, and
+mountable for file-level inspection. Accidental, and kept: see the decision below.
 
 Adjacent, from the same measurement: **syncoid's own bookmark snapshots are never
 pruned.** Their names do not match sanoid's `autosnap_<date>_<type>` pattern, so they
@@ -1129,6 +1160,8 @@ declared retention rules, and nothing is destroyed automatically. Freeing that s
 is a deliberate act: inspect the retained disk, decide whether it is worth keeping,
 remove it by hand. User's call, verbatim: *"if I/someone wants to free up more backup
 space, they can inspect the retained disk and determine whether it's worth deleting."*
+The destroy set above is that act, exercised — three guests inspected and judged not
+worth keeping.
 
 **Set identically on both layers.** Otherwise the effective retention is the longer of
 the two and the shorter policy is fiction.
@@ -1137,12 +1170,11 @@ What that means mechanically is different on each side, and on one of them it is
 already true:
 
 - **ZFS — already correct, keep it.** sanoid prunes by count rather than age, so a
-  dataset that stops receiving keeps its N most recent snapshots and nothing ages them
-  out. The archive tree therefore takes the same `replica-shallow` template as
-  `data/*`, and a retired guest sits at 30 snapshots indefinitely. No auto-destroy, no
-  `local:retain` property, no expiry timer — the earlier options 2 and 3 are dropped.
-  The freshness check still reports archive contents and their age, so they surface as
-  work rather than vanishing.
+  dataset that stops receiving keeps its N most recent snapshots under the
+  `replica-shallow` template it already carries, and nothing ages them out. No
+  auto-destroy, no `local:retain` property, no expiry timer — the earlier options 2
+  and 3 are dropped. The orphan report is what keeps a retained disk visible, so it
+  surfaces as work rather than sitting unseen.
 - **PBS — needs one change and one reversal.** The primary already behaves this way by
   the same accident: vzdump prunes only the groups it backs up, so a destroyed guest's
   group freezes at 31. To make PBS #2 identical, sync it with **`remove-vanished`**
@@ -1159,6 +1191,14 @@ primary propagates to PBS #2. After Phase 4 retires `vulcanus-data` from syncoid
 is the only lineage holding VM images, so a propagated deletion has no counterweight
 within that lineage. The offline disk in Phase 5 is the mitigation, which is an
 argument against letting it slip.
+
+#### Documentation this phase writes
+
+Into [`docs/backups.md`](../docs/backups.md), extending what Phase 0 left: that a
+destroyed guest's backups live on PBS and the mini-nas replica and freeze on both; the
+orphan, superseded and set-aside classifications and which of them is a failure; the
+VMID-reuse precondition; and the four-step repair for a superseded dataset, which is
+the only operator procedure this phase produces.
 
 ### Phase 2 — application backups
 
@@ -1266,7 +1306,14 @@ the session become alert rules rather than notes, per the Documentation Protocol
   is the number that says the retention fix worked. `zpool list spool` confirms its
   usable size before PBS #2 is sized against it. The ~19.1 TiB figure applies only
   once the deferred expansion lands.
-- **Phase 1** — `zpool list` on both pools.
+- **Phase 1** — `zpool list` on both pools: ~300 G back on vulcanus, ~245 G on
+  mini-nas. The PBS freshness assertion moves from five reports to four as the guests
+  are destroyed — 100 leaves the list entirely, having neither scope nor a group, while
+  101 and 106 cross from *live, excluded* to *guest gone* — and to one when their
+  groups are removed as the last step. That transition is the first test the PBS
+  classifier has had: 2026-09-18 verified it static, and a classifier never watched to
+  move is a check that has never fired. The orphan and superseded classifications are
+  asserted the same way, by constructing both conditions on a throwaway dataset.
 - **Phase 2** — restore a canary PVC into scratch space and diff it against the live
   volume: the first restore this estate has ever performed. Then confirm the
   reconciliation job reports zero unbacked PVCs, and prove it in the other direction
@@ -1315,6 +1362,21 @@ inheriting none.
 - **Photos, books and filesync were given four copies** when three was the
   requirement. Counting stopped at "how many exist" instead of "how many are
   wanted".
+- **An `rpool/archive` tree and a two-sided rename runbook were designed** to hold
+  retired guests, with an automated quarantine — three guards, a circuit breaker and a
+  persistence file — to catch guests destroyed without following the runbook. Both were
+  redundant: PBS and the mini-nas replica already freeze a destroyed guest's backups
+  indefinitely, so the archive was a third copy of the same promise, and the quarantine
+  existed to catch failures of a runbook that need not exist. The archive also collided
+  with its own detection twice over — it was to be both the syncoid target for
+  `rpool/archive` and the quarantine destination, so a quarantined orphan would be
+  re-quarantined every run; and its datasets are frozen by design, which the freshness
+  check's 26 h threshold would have failed forever.
+- **VMIDs were to be never reused.** A guarantee kept by hand forever, against a
+  condition the orphan report announces before it can occur and the Phase 0 repair
+  fixes when it does. It also missed disk-index reuse inside a live guest, which
+  produces the identical collision with no VMID reuse involved. Design so reuse is
+  recoverable, not so it is forbidden.
 - **The copy count hid a failure-domain inversion.** App state showed three copies,
   but two of them shared `rpool` — leaving the databases at two failure domains while
   media had three. Count domains, not copies.
