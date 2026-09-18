@@ -64,8 +64,11 @@ retention value:
 - **vzdump prunes only the groups it backs up.** A guest that is destroyed or excluded
   is never visited again, so its backup group freezes at whatever count it had.
 
-Neither can be made to expire a retired guest by tuning its numbers. Expiring one
-takes a datastore-wide prune on PBS, or a deliberate `zfs destroy`.
+Neither can be made to expire a retired guest by tuning its numbers, and neither can a
+datastore-wide prune job on PBS: prune counts the buckets that *contain* backups rather
+than elapsed calendar time, so `keep-daily 30` against a group frozen months ago keeps
+30 of its snapshots and stops. A retired guest expires only by forgetting its PBS
+group, or by a deliberate `zfs destroy`.
 
 ## Reporting
 

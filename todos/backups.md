@@ -1156,12 +1156,17 @@ fall outside every retention rule and accumulate — two per dataset, which is w
 #### Retention for deleted guests — decided 2026-09-10
 
 **A deleted machine's disks retain exactly as a live machine's would**, following the
-declared retention rules, and nothing is destroyed automatically. Freeing that space
-is a deliberate act: inspect the retained disk, decide whether it is worth keeping,
+declared retention rules. Freeing that space early is a deliberate act: inspect the retained disk, decide whether it is worth keeping,
 remove it by hand. User's call, verbatim: *"if I/someone wants to free up more backup
 space, they can inspect the retained disk and determine whether it's worth deleting."*
 The destroy set above is that act, exercised — three guests inspected and judged not
 worth keeping.
+
+**With one automatic end, decided 2026-09-18.** A PBS group whose newest backup is
+older than two years is forgotten entirely — see *Deleted guests expire at two years*
+in Phase 4. Two years is long enough that the deliberate act above stays the normal way
+space comes back; the cliff exists so a guest nobody ever revisits does not sit
+forever.
 
 **Set identically on both layers.** Otherwise the effective retention is the longer of
 the two and the shorter policy is fiction.
@@ -1182,9 +1187,15 @@ already true:
   prune job of its own**. It then tracks the primary exactly, frozen groups included.
 
 **This reverses a planned setting.** Phase 4 previously gave PBS #2
-`keep-daily 30, weekly 8, monthly 12` — a *datastore-wide* prune, which would have
-expired precisely the frozen groups this decision preserves, and broken parity with
-the ZFS side.
+`keep-daily 30, weekly 8, monthly 12` — a prune of its own, which would have left it
+holding a different history from the store it mirrors.
+
+**It would not have expired the frozen groups, though. Measured 2026-09-18:** PBS
+prune counts the buckets that *contain* backups rather than elapsed calendar time, so
+`keep-daily 30` against `vm/200` — frozen since April, 31 backups — keeps 30 of them.
+The belief that a datastore-wide prune ages out a frozen group was wrong, and wrong on
+both layers for the same reason: sanoid and PBS freeze because neither has an age term
+to tune. What actually ends it is *Deleted guests expire at two years*, in Phase 4.
 
 **Residual risk worth naming.** With `remove-vanished`, a deliberate deletion on the
 primary propagates to PBS #2. After Phase 4 retires `vulcanus-data` from syncoid, PBS
@@ -1256,6 +1267,53 @@ has it sync with `remove-vanished` and no prune of its own, so it tracks the pri
 exactly and a retired guest's frozen group is preserved rather than expired. Retire
 `vulcanus-data` from syncoid.
 
+#### Deleted guests expire at two years
+
+Decided 2026-09-18, and the one automatic end to *Retention for deleted guests*: a
+group whose newest backup is older than two years is forgotten entirely. No ladder, no
+thinning — user's call: *"keep it simple with just a two-year expiration of the whole
+group."*
+
+Thinning would not pay for itself in any case. PBS dedups at 37x and a dead guest's 31
+backups are one full plus thirty deltas of a machine that stopped changing, so the
+deltas are nearly free. All of the space is in the cliff.
+
+**The predicate carries no liveness question:**
+
+> Forget any group whose newest backup is older than two years.
+
+A live, in-scope guest cannot have a two-year-old newest backup — if one does, that is
+a failure the PBS freshness assertion already reports. So the job never asks whether a
+guest still exists: no source list, no SSH, and none of the false-positive path that
+sank Phase 1's quarantine. A live but *excluded* guest falls under the same rule
+deliberately; a two-year-old backup of a running machine is not one anyone restores.
+
+**It runs against the primary only.** PBS #2 syncs with `remove-vanished`, so a
+forgotten group propagates on the next sync and both stores stay identical from one
+policy in one place. That is the `remove-vanished` residual risk above working as
+intended rather than against us.
+
+**Why it lands in this phase and not in Phase 1.** Until `vulcanus-data` is retired
+from syncoid — which happens here — mini-nas still holds guest zvols that no age rule
+expires: sanoid has no age term, and `replica-shallow` carries only dailies, so there
+is no ladder to decay through. A two-year PBS policy shipped before that is fiction of
+exactly the kind *Retention for deleted guests* warns against, because the effective
+retention would be the longer of the two, which is forever. The two land together so
+the figure is true when it is written down.
+
+Nothing expires before March 2028 in any case — `vm/200` is the oldest frozen group
+and was last written in April 2026 — so the wait costs nothing.
+
+**If this phase slips past that.** The fallback is the symmetric job on mini-nas:
+destroy a replica dataset whose newest snapshot is older than two years, same age-only
+predicate, same absence of a liveness question. Not built now, because it is work for a
+lineage this phase retires.
+
+**PBS has no native job for this** — prune jobs thin, they do not forget — so it is a
+timer and a script: list groups, compare the newest backup's timestamp, forget the
+group. The GUI forgets a group in one action, so the capability is certain; the CLI or
+API call that does it is not yet confirmed and should be before this is built.
+
 **On the apparent contradiction:** a VM was ruled out for the restic repo because a
 zvol datastore is opaque to the host and cannot be verified from outside. PBS #2 is a
 VM with exactly that property. The difference is that PBS verifies *itself* from
@@ -1325,7 +1383,10 @@ the session become alert rules rather than notes, per the Documentation Protocol
   logical device size and is not the measure. The `etcdHighFsyncDurations` silence
   expires 2026-09-17, the natural checkpoint.
 - **Phase 4** — a verify job passing on the mini-nas datastore, and a test restore of
-  one guest **from the offsite copy**.
+  one guest **from the offsite copy**. The two-year expiry is asserted by running it
+  with the threshold lowered until it selects a known frozen group and nothing else,
+  because at two years it correctly names nothing and a job that has only ever matched
+  nothing is untested.
 - **Phase 5** — `restic restore` from the external on a machine that has never seen
   it, using only the passphrase from the password manager, pulling back one database
   dump **and** one media file. A disk that has only ever been written is not a copy.
@@ -1362,6 +1423,13 @@ inheriting none.
 - **Photos, books and filesync were given four copies** when three was the
   requirement. Counting stopped at "how many exist" instead of "how many are
   wanted".
+- **A datastore-wide PBS prune was believed to expire a frozen group.** It does not:
+  prune counts the buckets that contain backups, not elapsed calendar time, so
+  `keep-daily 30` keeps 30 snapshots of a group frozen in April and stops. The error
+  mattered twice — it was the stated reason a prune job on PBS #2 would break the
+  retention decision, and it hid the fact that *no* setting on either layer expires a
+  retired guest. One dry-run in the GUI settled it, against a frozen group that was
+  being kept as a test fixture for an unrelated reason.
 - **An `rpool/archive` tree and a two-sided rename runbook were designed** to hold
   retired guests, with an automated quarantine — three guards, a circuit breaker and a
   persistence file — to catch guests destroyed without following the runbook. Both were
