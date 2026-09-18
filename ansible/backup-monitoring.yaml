@@ -1,9 +1,11 @@
 # Reporting for the backup layer on the Proxmox host: sanoid pings a check when
-# it succeeds, and a timer asserts pool health from the pool itself.
+# it succeeds, and two timers assert the state of a store -- the pool itself,
+# and the PBS datastore -- rather than the exit code of a job that wrote it.
 #
 # The mini-nas half is in ~/repositories/mini-nas/modules/backup_monitoring.
 # The two hosts are managed by different systems and cannot share files, so the
-# scripts are duplicated and must be changed together.
+# shared scripts are duplicated and must be changed together. The PBS check has
+# no counterpart there: PBS runs only on this host.
 - name: 'report on the backup layer to healthchecks.io'
   hosts: proxmox
 
@@ -41,6 +43,7 @@
       loop:
         - HEALTHCHECK_SANOID_VULCANUS
         - HEALTHCHECK_POOL_HEALTH_VULCANUS
+        - HEALTHCHECK_PBS_FRESHNESS
 
     - name: 'write the healthchecks URLs'
       copy:
@@ -56,6 +59,8 @@
           value: "{{ lookup('env', 'HEALTHCHECK_SANOID_VULCANUS') }}"
         - name: pool-health-vulcanus
           value: "{{ lookup('env', 'HEALTHCHECK_POOL_HEALTH_VULCANUS') }}"
+        - name: pbs-freshness
+          value: "{{ lookup('env', 'HEALTHCHECK_PBS_FRESHNESS') }}"
       loop_control:
         label: "{{ item.name }}"
       no_log: true
@@ -80,6 +85,16 @@
       template:
         src: zfs-pool-health.j2
         dest: /usr/local/bin/zfs-pool-health
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: 'install the PBS freshness check'
+      copy:
+        # copy rather than template: it takes no ansible variables, so the file
+        # deployed is the file the tests in ansible/files/ run against.
+        src: pbs_freshness.py
+        dest: /usr/local/bin/pbs-freshness
         owner: root
         group: root
         mode: '0755'
@@ -142,6 +157,38 @@
         mode: '0644'
       notify: reload systemd
 
+    - name: 'install the PBS freshness service'
+      copy:
+        content: |
+          [Unit]
+          Description=Assert PBS holds a current backup for every guest in scope
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/pbs-freshness pbs-freshness 26
+        dest: /etc/systemd/system/pbs-freshness.service
+        mode: '0644'
+      notify: reload systemd
+
+    - name: 'install the PBS freshness timer'
+      copy:
+        # 06:30 local, which is 12:30 UTC alongside the mini-nas replication
+        # assertion. vzdump runs at 04:00 local, so this reads a datastore the
+        # night's run has finished writing.
+        content: |
+          [Unit]
+          Description=Daily PBS coverage assertion
+
+          [Timer]
+          OnCalendar=*-*-* 06:30:00
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+        dest: /etc/systemd/system/pbs-freshness.timer
+        mode: '0644'
+      notify: reload systemd
+
     - name: 'remove the superseded ExecStartPost drop-ins'
       file:
         path: "{{ item }}"
@@ -151,12 +198,15 @@
         - /etc/systemd/system/healthcheck-fail@.service
       notify: reload systemd
 
-    - name: 'enable the pool-health timer'
+    - name: 'enable the assertion timers'
       systemd:
-        name: zfs-pool-health.timer
+        name: "{{ item }}"
         enabled: yes
         state: started
         daemon_reload: yes
+      loop:
+        - zfs-pool-health.timer
+        - pbs-freshness.timer
 
   handlers:
     - name: reload systemd
