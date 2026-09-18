@@ -130,9 +130,12 @@ existing in `todos/` means that work is outstanding. See `todos/README.md`, whic
 also holds the ordered priority list and guidance on writing a good spec.
 
 **[`docs/project_log.md`](docs/project_log.md) — work that is finished.** The
-slug each project used, when it landed, and the pull request where its review
-happened. The one past-tense file in `docs/`, and the registry that stops a slug
-being reused.
+slug each project used, when it landed, and the pull request(s) where its
+review happened — a project big enough to span several review cycles lists all
+of them, oldest first. The one past-tense file in `docs/`, and the registry
+that stops a *retired* slug being reused for something new. A slug whose spec
+is still open in `todos/` is not retired, however many review cycles it has
+already been through.
 
 **The lifecycle:**
 
@@ -144,6 +147,13 @@ being reused.
 4. The spec in `todos/` is deleted — it was scaffolding — and an entry is added
    to [`docs/project_log.md`](docs/project_log.md). Steps 3 and 4 belong in one
    commit on the project branch, so the closing change lands inside the review.
+
+A spec phased across months does not have to reach step 4 in one sitting. It can
+close and reopen its review at a phase boundary — see "A phased project spans
+several reviews" under Project Workflow — as many times as it needs, staying on
+steps 1 through 2 throughout. Only the phase that actually retires the spec
+triggers steps 3 and 4, and that final entry in `docs/project_log.md` lists
+every review the project used, not just the last one.
 
 The point of the split is that the two ages differently. Documentation of the
 present system should be corrected whenever reality moves. A work spec is a
@@ -201,9 +211,13 @@ range is ever just one project.
 
 **The slug** is the `todos/` spec filename without `.md`. It names the branch and
 appears in commit trailers. New specs drop the `-prompt`, `-spec` and `-context`
-suffixes — every file in `todos/` is a spec, so the suffix says nothing. Slugs
-are never reused; [`docs/project_log.md`](docs/project_log.md) is the registry.
-Work too small to warrant future notice needs none of this.
+suffixes — every file in `todos/` is a spec, so the suffix says nothing. A
+*retired* slug — one whose spec has been deleted and logged — is never reused
+for a different project; [`docs/project_log.md`](docs/project_log.md) is the
+registry. A slug whose spec is still open in `todos/` is not retired, so a
+phased project keeps using its own slug across every review cycle it needs —
+see "A phased project spans several reviews" below. Work too small to warrant
+future notice needs none of this.
 
 **Commits** carry a `Project: <slug>` trailer where they are substantive.
 Roll-forwards and trivial fixes need none, and one commit may carry several. The
@@ -238,6 +252,27 @@ in `.config/wt.toml`. Closing in the browser skips `review-close` and its
 check that the work reached `main`, so
 `.github/workflows/land-reviewed-work.yml` merges it there instead — which means
 closing a review from the browser can deploy to the cluster.
+
+**A phased project spans several reviews.** A `todos/` spec built around
+phases, each landing independently over weeks, does not have to carry its
+whole history in one pull request. The value of reviewing back to the very
+first commit falls as a project runs longer, because most of what an old PR's
+diff shows has, by then, already shipped to `main` through repeated `deploy`s
+— the diff just does not reflect that, since it is computed from wherever
+`review-open` froze the base, not from `main`'s current tip. Closing at a
+phase boundary, before the spec is folded into `docs/` and deleted, is a
+diff-hygiene checkpoint, not the project's end.
+
+`review-close` applies exactly as it does for a finished project: the branch
+must already be fully merged into `main`, and closing deletes the branch, its
+worktree, and `review/<slug>-base`, on GitHub and locally. Continue the
+project by branching from `main` again under the *same* slug and running
+`review-open` once there is a new commit to review — the new
+`review/<slug>-base` freezes at the new fork point, so the next PR's diff
+covers only what remains rather than the project's entire history to date.
+This is not slug reuse: the spec never left `todos/`, so the slug was never
+retired, and [`docs/project_log.md`](docs/project_log.md) gets no entry until
+it actually is — see the Documentation Protocol lifecycle above.
 
 If a conflict resolved during a merge to `main` changes the project's own work,
 make the equivalent edit on the branch as an ordinary commit. Otherwise the

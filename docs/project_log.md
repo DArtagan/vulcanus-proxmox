@@ -10,9 +10,11 @@ address of the review discussion.
 Deleted specs are recoverable: `git log --diff-filter=D -- todos/<slug>.md`
 
 Each entry is `slug (date): summary`, with the review link last. Where there was
-a spec to retire, the commit that retired it follows the date. Entries with no
-review link predate the workflow. Sub-bullets carry whatever does not fit the
-one-line shape.
+a spec to retire, the commit that retired it follows the date. A project phased
+across several review cycles under one slug lists every pull request it used,
+oldest first — closing and reopening a review at a phase boundary is not a new
+project, so it gets no entry of its own. Entries with no review link predate the
+workflow. Sub-bullets carry whatever does not fit the one-line shape.
 
 - review-workflow (2026-08-29): Branch-per-project reviews, on a pull request against a base frozen at the fork point. See [CLAUDE.md](../CLAUDE.md). [PR #1](https://github.com/DArtagan/vulcanus-proxmox/pull/1)
 - disc-ripping-reliability (2026-08-25, `f85c527`): Gated the ripper on udev media properties rather than drive status.
