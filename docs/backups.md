@@ -64,8 +64,11 @@ retention value:
 - **vzdump prunes only the groups it backs up.** A guest that is destroyed or excluded
   is never visited again, so its backup group freezes at whatever count it had.
 
-Neither can be made to expire a retired guest by tuning its numbers. Expiring one
-takes a datastore-wide prune on PBS, or a deliberate `zfs destroy`.
+Neither can be made to expire a retired guest by tuning its numbers, and neither can a
+datastore-wide prune job on PBS: prune counts the buckets that *contain* backups rather
+than elapsed calendar time, so `keep-daily 30` against a group frozen months ago keeps
+30 of its snapshots and stops. A retired guest expires only by forgetting its PBS
+group, or by a deliberate `zfs destroy`.
 
 ## Reporting
 
@@ -171,7 +174,7 @@ that comparison fails, so two concurrent runs destroy each other. Stop the timer
 **A scrub starves a prune.** Running concurrently, sanoid manages a couple of snapshot
 destroys a minute. Sequence them.
 
-**syncoid never removes datasets from the target.** Every guest ever deleted on
+**syncoid never removes datasets from the target.** Every dataset ever deleted on
 vulcanus leaves its replica on mini-nas, and nothing will clean it up.
 
 **syncoid's own snapshots escape sanoid's retention.** Their names do not match
@@ -184,6 +187,38 @@ snapshots — or, once replication stops, only ancient ones.
 
 **PBS's own datastore is not replicated.** `rpool/proxmox_backup_server` is excluded
 from syncoid, so losing `rpool` loses the guest images and their backups together.
+
+### Repairing a diverged replica
+
+syncoid refuses to replicate into a target that shares a name with its source but holds
+no snapshot in common, and it is right to: proceeding would mean destroying the target.
+The unit fails, its `OnFailure=` reports, and the replica stops advancing until someone
+intervenes.
+
+That state is reached by leaving a stale replica alone. Replication stops for whatever
+reason; the source goes on snapshotting and pruning to its own schedule; and once the
+newest snapshot the target still holds has aged out of the source — 30 days for
+`rpool/ROOT`, around two years for `rpool/storage` — no common ancestor remains to send
+from. **Staleness matures into divergence,** which is why a dataset reported late is
+worth acting on rather than watching.
+
+The repair sets the stale copy aside rather than destroying it, so a copy exists at
+every point. Per dataset, on mini-nas:
+
+1. `zfs rename <target> <target>-diverged`
+2. Run the syncoid unit, or let the hourly timer fire. It sends in full, so check there
+   is room for both copies before starting.
+3. Confirm the new target holds a snapshot from today.
+4. `zfs destroy -r <target>-diverged`
+
+A `-diverged` dataset has no source counterpart, so syncoid ignores it — but
+`zfs-replication-freshness` reports it as stale until step 4, which is correct and
+resolves itself.
+
+**Not `syncoid -F`.** It reaches the same end state by destroying the target first,
+which removes the only offsite copy before its replacement exists. The set-aside copy is
+also the only thing that can answer what the diverged data actually was, which is worth
+knowing before concluding it was not wanted.
 
 See [`disk_management.md`](disk_management.md) for the physical disk replacement
 procedure, and [`kubernetes.md`](kubernetes.md) for what dies with a stateful workload.
