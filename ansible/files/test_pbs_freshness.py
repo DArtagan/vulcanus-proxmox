@@ -26,6 +26,30 @@ NOW = 1_789_000_000
 FRESH = NOW - 3600
 STALE = NOW - (40 * 3600)
 
+# The three inputs, written the way PVE writes them: tab-indented sections in
+# jobs.cfg, and one `key: value` per line in a config blob.
+JOBS_CFG = """vzdump: 9af0fe23b91fd64972f0d7b4a414b8c912dbf200:1
+	schedule 4:00
+	all 1
+	enabled 1
+	exclude 100,101,106,107
+	mode snapshot
+	storage pbs
+"""
+
+VM_CONFIG_BLOB = """boot: order=scsi0;net0
+name: rancheros
+scsi0: local-zfs:vm-100-disk-0,size=256G
+smbios1: uuid=5e726013-8241-44e0-9657-701d7cdddb25
+sockets: 1
+"""
+
+CT_CONFIG_BLOB = """arch: amd64
+hostname: wireguard
+net0: name=eth0,bridge=vmbr0,hwaddr=BC:24:11:22:33:26,ip=192.168.0.103/24,type=veth
+rootfs: local-zfs:subvol-103-disk-0,size=8G
+"""
+
 
 def guest(vmid, guest_type="qemu", in_scope=True):
     return pbs_freshness.Guest(vmid=vmid, guest_type=guest_type, in_scope=in_scope)
@@ -50,18 +74,7 @@ def classify(guests, groups):
 class ScopeParsing(unittest.TestCase):
     """/etc/pve/jobs.cfg — `all 1` minus `exclude`, read rather than hardcoded."""
 
-    JOB = "\n".join(
-        [
-            "vzdump: 9af0fe23b91fd64972f0d7b4a414b8c912dbf200:1",
-            "\tschedule 4:00",
-            "\tall 1",
-            "\tenabled 1",
-            "\texclude 100,101,106,107",
-            "\tmode snapshot",
-            "\tstorage pbs",
-            "",
-        ]
-    )
+    JOB = JOBS_CFG
 
     def test_excluded_guests_are_out_of_scope(self):
         self.assertEqual(
@@ -110,24 +123,8 @@ class GuestListParsing(unittest.TestCase):
 class IdentityParsing(unittest.TestCase):
     """A guest's identity, read out of the config blob stored in the backup."""
 
-    VM_CONF = "\n".join(
-        [
-            "boot: order=scsi0;net0",
-            "name: rancheros",
-            "scsi0: local-zfs:vm-100-disk-0,size=256G",
-            "smbios1: uuid=5e726013-8241-44e0-9657-701d7cdddb25",
-            "sockets: 1",
-        ]
-    )
-
-    CT_CONF = "\n".join(
-        [
-            "arch: amd64",
-            "hostname: wireguard",
-            "net0: name=eth0,bridge=vmbr0,hwaddr=BC:24:11:22:33:26,ip=192.168.0.103/24,type=veth",
-            "rootfs: local-zfs:subvol-103-disk-0,size=8G",
-        ]
-    )
+    VM_CONF = VM_CONFIG_BLOB
+    CT_CONF = CT_CONFIG_BLOB
 
     def test_a_vm_is_identified_by_its_smbios_uuid(self):
         self.assertEqual(
