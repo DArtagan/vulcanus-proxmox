@@ -59,8 +59,9 @@ narrow:
 | Source | Destination | Why |
 |---|---|---|
 | `will@` | `will@:*` | Personal devices reach each other on any port |
-| `will@` | `tag:vulcanus-subnet:22,8006,8007` | SSH, the Proxmox web UI, and Proxmox Backup Server on the hypervisor |
+| `will@` | `tag:vulcanus-subnet:22,8006` | SSH, the Proxmox web UI, and Proxmox Backup Server on the hypervisor |
 | `will@` | `192.168.0.105:22` | SSH to the fileserver LXC. Shell only — its NFS and SMB exports stay LAN-side |
+| `will@` | `192.168.0.107:8007` | Proxmox Backup Server |
 | `will@` | `192.168.0.200:6443` | Kubernetes API, so `kubectl` and `k9s` work while roaming |
 | `will@` | `192.168.0.190:50000` | Talos API, so `talosctl` works while roaming — the tool needed when the cluster is the thing that is broken |
 | `will@` | `192.168.0.202:53` | CoreDNS, or no internal name resolves |
