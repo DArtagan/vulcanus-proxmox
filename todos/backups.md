@@ -447,6 +447,7 @@ the same guard as *a target that is never created cannot alert as down*.
 | live, **in scope** | no group at all | **fail** — never backed up |
 | guest gone | group frozen | *report* — a pending retention decision |
 | live, **excluded** | frozen or absent | *report* — a coverage statement |
+| any | oldest and newest snapshot carry different guest UUIDs | *report* — the VMID was reused and the prior machine is being evicted |
 
 A frozen group never fails. Once a guest is gone no backup can be taken, so its
 staleness carries no information; what carries information is a guest still in scope
@@ -458,10 +459,15 @@ Verified 2026-09-18: six guests in scope and current, five reports
 (`vm/200` frozen by deletion, `101` and `106` frozen by exclusion, `100` and `107`
 live and excluded with no group at all), zero failures.
 
-Two things this shape does not catch, named rather than assumed. **A group vanishing**
-— retention keeps frozen groups forever, so a disappearance is notable, but a check
-comparing against the *live* guest list has nothing to compare a vanished group
-against; catching it needs a remembered inventory. That matters more after Phase 4,
+**The reuse row is the one that needed no remembered state.** A group that stops being
+frozen because its VMID was reissued looks identical to a healthy group from the live
+guest list alone, and the eviction it starts is silent — see *Reuse is reported* in
+Phase 1 for why the UUID comparison catches it and a day-over-day inventory would not.
+
+Two things this shape still does not catch, named rather than assumed. **A group
+vanishing** — retention keeps frozen groups forever, so a disappearance is notable,
+but a check comparing against the *live* guest list has nothing to compare a vanished
+group against; catching it needs a remembered inventory. That matters more after Phase 4,
 where `remove-vanished` propagates a primary-side deletion straight to PBS #2. And
 **scope drift** — adding a live guest to `exclude` moves it from "fail if stale" to
 "report", making the check quieter rather than louder, which is why excluded-but-live
@@ -1055,9 +1061,10 @@ every dataset under `rpool/foreign-backups/vulcanus` with no exclusion
 (`~/repositories/mini-nas/modules/backup_monitoring/default.nix:167`) and every note
 feeds one `problems` string ending in `hc-ping /fail`. A retired guest's newest
 snapshot is frozen at deletion, so it trips the 26 h limit exactly as a stale one does.
-**Predicted, not yet confirmed: the four datasets in the destroy set have been failing
-this check daily since Phase 0 deployed it**, and destroying them is what turns it
-green. One look at the check's history settles it.
+**Confirmed 2026-09-18: `zfs-replication-freshness` has been red since its inception**
+— the four datasets in the destroy set are why, and destroying them is what turns it
+green. A check that has never once been green is a check nobody can read, which is the
+condition that let `syncoid-vulcanus-data` fail for seven months unnoticed.
 
 **An earlier plan taught the check to classify** target datasets as orphan or
 superseded and report both rather than failing, so that retained replicas could sit
@@ -1108,6 +1115,54 @@ loud: the syncoid unit fails, its `OnFailure=` fires, and the repair is the four
 Phase 0 proved — rename the target aside with a `-diverged` suffix, let syncoid
 re-seed, confirm, destroy the set-aside copy. It stops being possible once guest images
 leave ZFS.
+
+#### Reuse is reported, not just guarded against
+
+Decided 2026-09-18. The precondition above depends on someone remembering to look
+before reissuing an ID. This reports it afterwards, while there is still time to act —
+user's call: *"Noting that it has happened is probably sufficient, as it allows me to
+make the decision then, with 30 days to spare, as to whether the old VM data needs be
+preserved."*
+
+**The signal is intrinsic to the group, so nothing has to be remembered.** vzdump
+stores the guest config in every backup, and a VM's `smbios1` UUID is stable for that
+machine's life and regenerated when a new guest is built at the same ID. So:
+
+> A group whose oldest and newest snapshots carry different guest UUIDs spans two
+> machines. The VMID has been reused, and the older machine's backups are being
+> evicted.
+
+A remembered inventory — today's classification compared against yesterday's — is the
+obvious alternative and is worse: a first run or a lost state file misses the
+transition in silence, and it cannot see a reuse that happened while the check was
+down. The UUID comparison is retroactive and answers the question from data already
+present. It is also the same shape as the rule that a superseded dataset is found by
+comparing snapshot *names*: identity is carried in the content, not in an external
+record of what was true yesterday.
+
+**Its reporting lifetime is exactly the decision window.** On the first run after reuse
+the oldest snapshot belongs to the retired machine and the newest to the new one, so it
+reports. Once `keep-last 31` has evicted the last of the old, both ends carry the same
+UUID and it falls silent on its own — at precisely the moment there is nothing left to
+decide. No threshold to tune, no acknowledgement to wire up, and no way for it to
+become an always-on warning.
+
+**It extends the PBS freshness assertion**, which already enumerates the job's scope,
+the live guest list and the group list, and which already reports rather than fails on
+frozen groups. Reuse is a third report alongside those, and a report rather than a
+failure: nothing is broken, a decision is merely available. No new healthchecks.io
+check, which matters because the enumerated budget is exactly the free tier's 20.
+
+**Why this earns a code change where the ZFS classification did not.** That one kept a
+check green on a lineage with months to live. This one is the only thing between a
+reused VMID and the silent loss of a retired machine's last backups, and it survives
+Phase 4 — after which PBS is the sole lineage and reuse has no other signal at all.
+
+**Unverified, and cheap to settle before building:** the config blob is
+`qemu-server.conf.blob` for VMs and `pct.conf.blob` for containers; reading one from a
+snapshot without mounting it needs either the client's restore of a single file or the
+datastore download API; and whether these backups are encrypted decides whether either
+works unattended. One read against any existing group answers all three.
 
 #### Deleted guests are kept forever, by accident
 
@@ -1375,8 +1430,11 @@ the session become alert rules rather than notes, per the Documentation Protocol
   groups are removed as the last step. That transition is the first test the PBS
   classifier has had: 2026-09-18 verified it static, and a classifier never watched to
   move is a check that has never fired. `zfs-replication-freshness` goes green in the
-  same step, which is the assertion that the four destroyed replicas were what had been
-  failing it.
+  same step — red since its inception, so its first green is the assertion that those
+  four replicas were what had been failing it. The reuse report is exercised on its
+  negative case against any existing group, whose ends must carry one UUID, and on its
+  positive case against synthetic input, there being no group in the estate that still
+  spans two machines.
 - **Phase 2** — restore a canary PVC into scratch space and diff it against the live
   volume: the first restore this estate has ever performed. Then confirm the
   reconciliation job reports zero unbacked PVCs, and prove it in the other direction
