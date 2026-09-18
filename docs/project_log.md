@@ -10,9 +10,11 @@ address of the review discussion.
 Deleted specs are recoverable: `git log --diff-filter=D -- todos/<slug>.md`
 
 Each entry is `slug (date): summary`, with the review link last. Where there was
-a spec to retire, the commit that retired it follows the date. Entries with no
-review link predate the workflow. Sub-bullets carry whatever does not fit the
-one-line shape.
+a spec to retire, the commit that retired it follows the date. A project phased
+across several review cycles under one slug lists every pull request it used,
+oldest first — closing and reopening a review at a phase boundary is not a new
+project, so it gets no entry of its own. Entries with no review link predate the
+workflow. Sub-bullets carry whatever does not fit the one-line shape.
 
 - filtering-dns (2026-09-14): Ad-blocking, privacy and security DNS for the LAN, the cluster, the tailnet and family devices, through Cloudflare Zero Trust Gateway. See [dns-filtering.md](dns-filtering.md). [PR #6](https://github.com/DArtagan/vulcanus-proxmox/pull/6)
   - The image's sortable tag, non-root support and argument-honouring entrypoint went upstream as [mrrfv/cloudflare-gateway-pihole-scripts#263](https://github.com/mrrfv/cloudflare-gateway-pihole-scripts/pull/263).
