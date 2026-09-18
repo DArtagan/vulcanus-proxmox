@@ -488,3 +488,44 @@ spec:
               gone — see docs/logging.md. The records can be corrected by hand
               in the Cloudflare dashboard, which does not depend on the house
               being reachable.
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: etcd-commit-latency
+spec:
+  groups:
+    - name: etcd-commit-latency
+      rules:
+        # Replaces the chart's etcdHighCommitDurations, disabled in
+        # prometheus.yaml. Same expression, threshold 0.6s instead of 0.25s.
+        #
+        # 0.6s is sized against this cluster's measured floor, not against
+        # etcd's target — see docs/talos.md for why a health threshold is the
+        # wrong instrument on a pool with no SLOG.
+        #
+        # THIS NUMBER IS ONLY VALID FOR A SINGLE-MEMBER etcd. Upstream's 0.25s
+        # is tied to the Raft timing budget, which a one-member cluster does not
+        # have. Adding control-plane nodes restores it and makes 0.6s dangerous:
+        # retune to upstream's 0.25s then, together with the leader-election
+        # durations. docs/talos.md lists everything that moves.
+        - alert: etcdHighCommitDurations
+          expr: |
+            histogram_quantile(0.99, rate(etcd_disk_backend_commit_duration_seconds_bucket{job=~".*etcd.*"}[5m])) > 0.6
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: etcd 99th percentile commit durations are above the backup-window baseline.
+            description: >-
+              99th percentile backend commit is {{ $value }}s on {{ $labels.instance }},
+              against an at-rest baseline of 0.25-0.42s on this pool. Something
+              beyond the nightly Proxmox backup is holding `rpool`, and at this
+              depth lease renewals start to fail — which has taken out
+              kube-scheduler and kube-controller-manager before. Check what else
+              is touching the pool:
+              zpool iostat -v rpool 5
+              and see docs/talos.md and todos/etcd-disk-latency.md. The
+              structural fix is a SLOG; the interim mitigation is the widened
+              leader-election durations already in the control-plane patch.

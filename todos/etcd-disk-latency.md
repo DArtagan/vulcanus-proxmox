@@ -649,9 +649,13 @@ workload is not a measurement. Compare matched windows.
 
 - fsync p99 at rest should fall from ~0.25 s to single-digit milliseconds:
   `avg_over_time(histogram_quantile(0.99, sum(rate(etcd_disk_wal_fsync_duration_seconds_bucket[5m])) by (le))[6h:5m])`
-- `etcdHighCommitDurations` should clear on its own. **Remove the Alertmanager
-  silence `43b35199-356a-4304-a1e9-288980fbcd3b` when the device goes in**,
-  rather than letting it expire on 2026-09-17 — the alert is the confirmation.
+- `etcdHighCommitDurations` is no longer the confirmation. Its silence expired
+  2026-09-17 and the rule now runs at 0.6 s, sized against the backup-window
+  stall rather than the at-rest floor, so it is already quiet on an ordinary day
+  — see [`docs/talos.md`](../docs/talos.md). Measure the commit p99 directly
+  instead, the same way as the fsync line above, and expect the floor to leave
+  the 0.25-0.42 s band entirely. Retuning the rule back down is reasonable once
+  the floor is milliseconds, and mandatory if the control plane ever grows.
 - The following night, `openebs-localpv-provisioner`, `csi-provisioner` and
   `csi-resizer` should restart zero times during the backup. They are the better
   signal now: the two widened components absorb a stall instead of reporting it.

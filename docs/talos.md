@@ -90,6 +90,50 @@ Read the rendered file to confirm a change landed rather than trusting the apply
 talosctl -n 192.168.0.190 read /system/config/kubernetes/kube-scheduler/scheduler-config.yaml
 ```
 
+#### Alert thresholds are sized for one etcd member
+
+`etcdHighCommitDurations` runs at 0.6s here, replacing the chart's 0.25s — the
+chart rule is disabled in `prometheus.yaml` and the replacement lives in
+`prometheus-rules.yaml`.
+
+Upstream's thresholds are an order of magnitude above etcd's own targets: 0.25s
+commit against a ~0.025s target, 0.5s and 1s fsync against ~0.010s. They are not
+health lines. They mark where disk latency starts to threaten Raft — a commit
+holding the leader for 250ms spans 2.5 heartbeat intervals out of a 1000ms
+election timeout, so the disk is no longer merely slow but at risk of causing
+spurious elections.
+
+This etcd has one member. `etcd_server_leader_changes_seen_total` is 1, the
+initial election; there is no peer to heartbeat and no election to trigger
+spuriously. The failure mode the threshold was chosen to catch cannot occur,
+while the number itself sits *below* this pool's permanent floor — at-rest p99
+commit is 0.25-0.42s on raidz2 with no SLOG, so the rule reports the hardware
+rather than an event and spends ~99% of every day firing. It also oscillates
+across the line, so with `for: 10m` it resolves and re-fires several times a
+day, and each re-fire is a fresh notification.
+
+0.6s is sized against the failure that does happen here: lease renewals failing
+when something else saturates `rpool`, which reaches 0.85s and above. That is
+the depth that has cost control-plane components, so it is the depth worth
+waking someone for. `etcdHighFsyncDurations` keeps its upstream 0.5s and 1s and
+still has room to speak on a bad night, at-rest fsync being ~0.25s.
+
+**A third control-plane node makes this dangerous and it must be retuned.** Raft
+becomes real, and every number relaxed for a single member goes back on the
+table:
+
+- `etcdHighCommitDurations` returns to upstream's 0.25s, because spurious
+  elections become possible and 0.6s is more than half an election timeout.
+- The leader-election durations above return toward upstream's 15s/10s/2s —
+  their justification is that no standby is waiting for the lease, which stops
+  being true.
+- `openebs-localpv-provisioner` has leader election disabled outright; with
+  more than one candidate that is no longer a free reduction in etcd writes.
+
+The pattern is that a single-node control plane makes latency a throughput
+problem and not an availability one. Growing the cluster reverses that, and
+anything tuned on the first reading needs re-reading.
+
 #### Leader election is most of what etcd writes
 
 Nearly all of etcd's few writes per second are lease renewals; changes to actual

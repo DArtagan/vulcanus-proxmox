@@ -188,6 +188,14 @@ spec:
         # anywhere it counts would silence it while changing nothing — which is
         # what raising the control plane to 4 GiB did to it.
         KubeMemoryOvercommit: true
+        # Replaced by the etcdHighCommitDurations in prometheus-rules.yaml,
+        # which raises the threshold from 0.25s to 0.6s. Upstream's 0.25s is an
+        # order of magnitude above etcd's ~0.025s target, so it is a "the disk
+        # now endangers Raft" line rather than a health line — and this etcd has
+        # one member, so there is no Raft to endanger. Against a no-SLOG pool
+        # whose at-rest p99 is 0.25-0.42s it is below the permanent baseline,
+        # and fires ~99% of every day. See docs/talos.md.
+        etcdHighCommitDurations: true
     # The endpoint is explicit because the chart's default Service selects pods
     # labelled `component: etcd`, and Talos runs etcd as a host service rather
     # than a pod — the selector matches nothing, and a Service with no endpoints
