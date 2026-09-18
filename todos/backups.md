@@ -9,6 +9,16 @@ not written once and deleted on completion — the work spans sessions, so this 
 the handover artefact. Every session updates the status table, records what was
 *verified* and when, and records wrong turns honestly.
 
+**Documentation lands at the end of each phase, not at the end of the project.** A
+deliberate departure from the usual lifecycle, for the same reason this spec is
+maintained rather than written once: a phase's output is running in production the
+moment it deploys, and leaving its permanent facts in a file marked "not yet done"
+strands them — `docs/` is meant to describe the running system, and between phases it
+would not. So each phase ends by writing what it made permanently true into
+[`docs/backups.md`](../docs/backups.md), extending what earlier phases left rather
+than replacing it. Only deleting this spec and adding the
+[`docs/project_log.md`](../docs/project_log.md) entry wait for the end.
+
 Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
 `review/backups-base`.
 
@@ -749,6 +759,11 @@ why its bays are wanted anyway.
 
 ## Phasing
 
+Phase status is maintained in the table above as the work proceeds, and **every phase
+ends by updating [`docs/backups.md`](../docs/backups.md)** with whatever it made
+permanently true — see the header for why that is per-phase rather than saved for the
+end of the project.
+
 ### Phase A — record the spec
 
 Create the `backups` branch as a worktree off `main`, write this spec superseding
@@ -945,6 +960,14 @@ vulcanus leaves its replica behind: `vm-107-disk-1`, `vm-200-disk-0/1` and
 `vm-901-disk-0` have no source counterpart at all (~8.3 GB), and nothing will ever
 clean them up. Phase 1's work, alongside `vm-100-disk-0` (235 GB, the stopped
 rancheros guest, which *is* still replicated because it still exists at source).
+
+#### Documentation written
+
+[`docs/backups.md`](../docs/backups.md) — the layers and the pull-not-push property,
+retention on both hosts and why the offsite copy keeps more dailies, the eight checks
+and the three rules shaping them, scrub scheduling and why the jitter is 15 minutes,
+the capacity model and purchase equation, and the operational notes. Row added to
+[`docs/README.md`](../docs/README.md).
 
 ### Phase 1 — reclaim, and stop the accumulation
 
