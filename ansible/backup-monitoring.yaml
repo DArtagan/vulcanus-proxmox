@@ -1,4 +1,3 @@
----
 # Reporting for the backup layer on the Proxmox host: sanoid pings a check when
 # it succeeds, and a timer asserts pool health from the pool itself.
 #
