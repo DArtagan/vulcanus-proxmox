@@ -1,5 +1,6 @@
 {
   config,
+  lib,
   pkgs,
   ...
 }:
@@ -26,6 +27,10 @@
     ansible.enable = true;
     nix.enable = true;
     opentofu.enable = true;
+  };
+
+  claude.code = {
+    enable = true;
   };
 
   scripts.beets-shell.exec = ''
@@ -158,29 +163,179 @@
 
   dotenv.enable = true;
 
+  treefmt = {
+    enable = true;
+
+    config = {
+      settings.global.excludes = [
+        # SOPS-encrypted; reformatting risks invalidating the MAC.
+        "*.sops.yaml"
+        # Generated verbatim by `flux bootstrap`; formatting it only creates churn.
+        "kubernetes/cluster/flux-system/**"
+        # Vendored provider, including a ~511 MB binary.
+        "terraform/.terraform/**"
+        "terraform/.terraform.lock.hcl"
+        "devenv.lock"
+        "LICENSE"
+      ];
+
+      programs = {
+        deadnix.enable = true;
+        jsonfmt.enable = true;
+        nixfmt.enable = true;
+        ruff-format.enable = true;
+        statix.enable = true;
+        taplo.enable = true;
+        yamlfmt.enable = true;
+      };
+
+      programs.yamlfmt.settings.formatter = {
+        # Leave blank lines exactly as written. The `_single` variant collapses
+        # consecutive blank lines, which reaches inside `|` blocks and rewrites
+        # the embedded configs and scripts they hold.
+        retain_line_breaks = true;
+        # Don't re-fold `>` scalars.
+        scan_folded_as_literal = true;
+      };
+
+      settings.formatter = {
+        # Helm chart templates are Go templates, not valid YAML.
+        yamlfmt.excludes = [ "kubernetes/charts/*/templates/*.yaml" ];
+
+        # deadnix and statix rewrite, then nixfmt tidies up after them.
+        deadnix.priority = 0;
+        statix.priority = 0;
+        nixfmt.priority = 1;
+
+        # `tofu fmt` aligns `=`; this repo deliberately does not. Both happen in
+        # one pass, so each file is written at most once — a second write would
+        # bump the mtime and trip treefmt's --fail-on-change in the commit hook.
+        terraform = {
+          command = lib.getExe (
+            pkgs.writeShellApplication {
+              name = "tofu-fmt-no-align";
+              runtimeInputs = with pkgs; [
+                coreutils
+                diffutils
+                gnused
+                opentofu
+              ];
+              text = ''
+                for file in "$@"; do
+                  tmp="$(mktemp)"
+                  tofu fmt - < "$file" \
+                    | sed -E 's/^([[:space:]]+[a-zA-Z_][a-zA-Z0-9_-]*)[[:space:]]{2,}=[[:space:]]*/\1 = /g' \
+                    > "$tmp"
+                  cmp -s "$tmp" "$file" || cat "$tmp" > "$file"
+                  rm -f "$tmp"
+                done
+              '';
+            }
+          );
+          includes = [
+            "*.tf"
+            "*.tfvars"
+          ];
+          priority = 0;
+        };
+
+        # Covers the types treefmt has no formatter for (*.j2, *.cfg, *.conf,
+        # *.md, *.txt, *.yaml.tmpl, .envrc).
+        whitespace = {
+          command = lib.getExe (
+            pkgs.writeShellApplication {
+              name = "whitespace";
+              runtimeInputs = with pkgs; [
+                coreutils
+                diffutils
+                gnused
+              ];
+              text = ''
+                for file in "$@"; do
+                  tmp="$(mktemp)"
+                  # Strip trailing whitespace, and end on exactly one newline.
+                  printf '%s\n' "$(sed -e 's/[[:space:]]*$//' "$file")" > "$tmp"
+                  # `cat >` rather than `mv`, so the file's mode survives; and only
+                  # when something changed, so --fail-on-change stays honest.
+                  cmp -s "$tmp" "$file" || cat "$tmp" > "$file"
+                  rm -f "$tmp"
+                done
+              '';
+            }
+          );
+          includes = [ "*" ];
+          # Always last, so it tidies up after every other formatter.
+          priority = 2;
+        };
+      };
+    };
+  };
+
   git-hooks.hooks = {
-    end-of-file-fixer.enable = true;
-    deadnix.enable = true;
-    flake-checker.enable = true;
-    nixfmt.enable = true;
+    # Formatting is all treefmt; these two are linters, not formatters.
     shellcheck.enable = true;
-    statix.enable = true;
     tflint.enable = true;
-    trim-trailing-whitespace.enable = true;
-    terraform-no-align-equals = {
+    treefmt.enable = true;
+
+    sops-encrypted = {
       enable = true;
-      name = "terraform-no-align-equals";
-      description = "Remove aligned equals signs from Terraform argument assignments";
-      entry = toString (
-        pkgs.writeShellScript "terraform-no-align-equals" ''
-          for file in "$@"; do
-            sed -i -E 's/^([[:space:]]+[a-zA-Z_][a-zA-Z0-9_-]*)[[:space:]]{2,}=[[:space:]]*/\1 = /g' "$file"
-          done
-        ''
-      );
-      files = "\\.tf$";
+      name = "sops-encrypted";
+      description = "Refuse to commit a *.sops.yaml that is not encrypted";
+      excludes = [ "^\\.sops.yaml$" ];
+      files = "\\.sops\\.yaml$";
       language = "system";
-      pass_filenames = true;
+      entry = lib.getExe (
+        pkgs.writeShellApplication {
+          name = "sops-encrypted";
+          runtimeInputs = with pkgs; [
+            gnugrep
+            python3
+          ];
+          text = ''
+            status=0
+            for file in "$@"; do
+              # An encrypted file carries a top-level `sops:` block and a `mac:`
+              # over its values. A plaintext one carries neither.
+              if ! grep -q '^sops:' "$file" ||
+                 ! grep -qE '^[[:space:]]+mac: ENC\[' "$file"; then
+                echo "$file is not encrypted. Before committing:" >&2
+                echo "    sops -e -i $file" >&2
+                status=1
+                continue
+              fi
+
+              # An already-encrypted file can still gain a plaintext key by
+              # hand. Checking only the `sops:` block would call that file safe,
+              # and a guard that is confidently wrong about a secret is worse
+              # than none. Key names only in the output -- the value is the
+              # secret, and hook output lands in terminals and CI logs.
+              plaintext=$(python3 - "$file" <<'PY'
+            import re, sys
+
+            inside = False
+            for line in open(sys.argv[1]).read().splitlines():
+                if re.match(r"^(data|stringData):\s*$", line):
+                    inside = True
+                elif inside and re.match(r"^\S", line):
+                    inside = False
+                elif inside:
+                    match = re.match(r"^\s+([\w.-]+):\s*(\S.*)$", line)
+                    if match and not match.group(2).startswith("ENC["):
+                        print(match.group(1))
+            PY
+            )
+              if [ -n "$plaintext" ]; then
+                echo "$file has unencrypted values under data/stringData:" >&2
+                while IFS= read -r key; do
+                  echo "    $key" >&2
+                done <<< "$plaintext"
+                status=1
+              fi
+            done
+            exit "$status"
+          '';
+        }
+      );
     };
   };
 }
