@@ -1,0 +1,68 @@
+#!/bin/bash
+# Assert pool health from the pool, not from a scrub unit's exit code.
+#
+# zfs-scrub@ exits 0 having found errors, so OnFailure= and a success ping
+# cannot report a dirty pool. These four conditions can.
+#
+# Managed by ansible/backup-monitoring.yaml. Keep in step with the mini-nas
+# copy in ~/repositories/mini-nas/modules/backup_monitoring.
+set -euo pipefail
+
+check="$1"
+capacity_limit="$2"
+problems=""
+
+note() { problems="${problems}$1"$'\n'; }
+
+# Catches DEGRADED and FAULTED, which no scrub exit code reports.
+if ! zpool status -x | grep -q '^all pools are healthy$'; then
+	note "zpool status -x: $(zpool status -x | head -1)"
+fi
+
+status_json="$(zpool status -j)"
+
+for pool in $(zpool list -H -o name); do
+	pool_json="$(jq -r --arg p "$pool" '.pools[$p]' <<<"$status_json")"
+
+	errors="$(jq -r '.error_count' <<<"$pool_json")"
+	[ "$errors" = "0" ] || note "$pool: $errors data errors"
+
+	# Sums read/write/checksum across every vdev, at any nesting depth.
+	vdev_errors="$(
+		jq -r '[.. | objects | select(has("read_errors"))
+		        | (.read_errors|tonumber) + (.write_errors|tonumber)
+		          + (.checksum_errors|tonumber)] | add // 0' <<<"$pool_json"
+	)"
+	[ "$vdev_errors" = "0" ] || note "$pool: $vdev_errors vdev errors"
+
+	capacity="$(zpool list -H -o capacity "$pool" | tr -d '%')"
+	if [ "$capacity" -ge "$capacity_limit" ]; then
+		note "$pool: $capacity% full, limit $capacity_limit%"
+	fi
+
+	# A resilver is not a scrub. Until a scrub has actually finished, the pool
+	# is unverified and this says so rather than passing on a RESILVER record
+	# that happens to be recent.
+	scan_function="$(jq -r '.scan_stats.function // "NONE"' <<<"$pool_json")"
+	scan_state="$(jq -r '.scan_stats.state // "NONE"' <<<"$pool_json")"
+	if [ "$scan_state" = "SCANNING" ]; then
+		: # scrub or resilver in progress; judge it when it finishes
+	elif [ "$scan_function" != "SCRUB" ]; then
+		note "$pool: never scrubbed"
+	else
+		end_time="$(jq -r '.scan_stats.end_time' <<<"$pool_json")"
+		if end_epoch="$(date -d "$end_time" +%s 2>/dev/null)"; then
+			age_days=$(( ( $(date +%s) - end_epoch ) / 86400 ))
+			[ "$age_days" -le 45 ] || note "$pool: last scrub $age_days days ago"
+		else
+			note "$pool: unparseable scrub end_time '$end_time'"
+		fi
+	fi
+done
+
+if [ -n "$problems" ]; then
+	printf '%s' "$problems" >&2
+	/usr/local/bin/hc-ping "$check" /fail
+	exit 1
+fi
+/usr/local/bin/hc-ping "$check"

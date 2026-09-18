@@ -1,0 +1,165 @@
+---
+# Reporting for the backup layer on the Proxmox host: sanoid pings a check when
+# it succeeds, and a timer asserts pool health from the pool itself.
+#
+# The mini-nas half is in ~/repositories/mini-nas/modules/backup_monitoring.
+# The two hosts are managed by different systems and cannot share files, so the
+# scripts are duplicated and must be changed together.
+- name: 'report on the backup layer to healthchecks.io'
+  hosts: proxmox
+
+  vars:
+    # sanoid on Debian splits the work across two units -- sanoid.service takes
+    # snapshots and pulls in sanoid-prune.service, which prunes. NixOS runs a
+    # single --cron service instead, which is why mini-nas hooks one unit and
+    # this hooks two. The success ping goes on the prune unit because it is the
+    # end of the chain; both get an OnFailure.
+    sanoid_units:
+      - sanoid
+      - sanoid-prune
+
+  tasks:
+    - name: 'install jq for the pool-health check'
+      apt:
+        name: jq
+        update_cache: yes
+
+    - name: 'create the healthchecks URL directory'
+      file:
+        path: /etc/healthchecks
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: 'fail early if a URL is missing from .env'
+      # Without this the files are written empty and every ping fails at
+      # runtime, which surfaces as a red check rather than as the deployment
+      # error it is.
+      assert:
+        that: "lookup('env', item) | length > 0"
+        fail_msg: "{{ item }} is not set -- add it to .env before running this."
+      loop:
+        - HEALTHCHECK_SANOID_VULCANUS
+        - HEALTHCHECK_POOL_HEALTH_VULCANUS
+
+    - name: 'write the healthchecks URLs'
+      copy:
+        # A ping URL lets anyone mark the check received, so it is treated as a
+        # credential: root-only, and sourced from .env rather than committed.
+        content: "{{ item.value }}"
+        dest: "/etc/healthchecks/{{ item.name }}"
+        owner: root
+        group: root
+        mode: '0400'
+      loop:
+        - name: sanoid-vulcanus
+          value: "{{ lookup('env', 'HEALTHCHECK_SANOID_VULCANUS') }}"
+        - name: pool-health-vulcanus
+          value: "{{ lookup('env', 'HEALTHCHECK_POOL_HEALTH_VULCANUS') }}"
+      loop_control:
+        label: "{{ item.name }}"
+      no_log: true
+
+    - name: 'install the ping helper'
+      template:
+        src: hc-ping.j2
+        dest: /usr/local/bin/hc-ping
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: 'install the outcome reporter'
+      template:
+        src: hc-report.j2
+        dest: /usr/local/bin/hc-report
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: 'install the pool-health check'
+      template:
+        src: zfs-pool-health.j2
+        dest: /usr/local/bin/zfs-pool-health
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: 'create sanoid drop-in directories'
+      file:
+        path: "/etc/systemd/system/{{ item }}.service.d"
+        state: directory
+        mode: '0755'
+      loop: "{{ sanoid_units }}"
+
+    - name: 'report sanoid outcomes'
+      copy:
+        # ExecStopPost rather than ExecStartPost plus OnFailure: it runs once,
+        # after the process has exited, and carries $SERVICE_RESULT, so the ping
+        # reflects what actually happened rather than that the unit started.
+        #
+        # `-` because a backup that ran is not a backup that failed -- an
+        # unreachable monitor must not mark the unit failed. A ping that does not
+        # arrive turns the check red on its own period.
+        #
+        # Both units report to one check. Normally both succeed and send two
+        # identical pings, which healthchecks treats as one receipt; a config
+        # error fails both. The mixed case is rare enough not to design around.
+        content: |
+          [Service]
+          ExecStopPost=-/usr/local/bin/hc-report sanoid-vulcanus
+        dest: "/etc/systemd/system/{{ item }}.service.d/healthcheck.conf"
+        mode: '0644'
+      loop: "{{ sanoid_units }}"
+      notify: reload systemd
+
+    - name: 'install the pool-health service'
+      copy:
+        content: |
+          [Unit]
+          Description=Assert pool health, errors, capacity and scrub age
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/zfs-pool-health pool-health-vulcanus 80
+        dest: /etc/systemd/system/zfs-pool-health.service
+        mode: '0644'
+      notify: reload systemd
+
+    - name: 'install the pool-health timer'
+      copy:
+        content: |
+          [Unit]
+          Description=Hourly pool health assertion
+
+          [Timer]
+          OnCalendar=hourly
+          RandomizedDelaySec=5m
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+        dest: /etc/systemd/system/zfs-pool-health.timer
+        mode: '0644'
+      notify: reload systemd
+
+    - name: 'remove the superseded ExecStartPost drop-ins'
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/sanoid-prune.service.d/healthcheck-success.conf
+        - /etc/systemd/system/healthcheck-fail@.service
+      notify: reload systemd
+
+    - name: 'enable the pool-health timer'
+      systemd:
+        name: zfs-pool-health.timer
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes

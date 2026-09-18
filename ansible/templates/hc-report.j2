@@ -1,0 +1,21 @@
+#!/bin/sh
+# Report a unit's real outcome to healthchecks.io. Usage: hc-report <check-name>
+#
+# systemd sets $SERVICE_RESULT for ExecStopPost commands, so this runs once per
+# invocation, after the process has actually exited, and knows whether it worked.
+#
+# ExecStartPost cannot do this. Under Type=simple a unit counts as started about
+# a second after fork, so a success ping fires before the job has done anything
+# -- reporting success on every run whatever the outcome, and leaving a hung
+# job's check green indefinitely. These units are Type=oneshot today, where
+# ExecStartPost would be correct, but depending on that is how the mini-nas
+# copy came to report success for jobs that were failing.
+#
+# Managed by ansible/backup-monitoring.yaml. Keep in step with the mini-nas copy
+# in ~/repositories/mini-nas/modules/backup_monitoring.
+set -eu
+
+case "${SERVICE_RESULT:-}" in
+	success) exec /usr/local/bin/hc-ping "$1" ;;
+	*) exec /usr/local/bin/hc-ping "$1" /fail ;;
+esac
