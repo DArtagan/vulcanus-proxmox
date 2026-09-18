@@ -416,12 +416,46 @@ runs on a schedule, reads **the store**, and pings its own check.
 | Layer | Assertion | Runs on |
 |---|---|---|
 | ZFS replication | newest snapshot age < 25 h for **every** dataset in the source list, and the target list matches the source list | mini-nas timer |
-| PBS | newest snapshot age < 26 h **per guest group**, and group count equals expected | vulcanus timer |
+| PBS | newest snapshot age < 26 h for every guest **the job is scoped to back up** — see below | vulcanus timer |
 | restic app layer | per-PVC newest snapshot age; PVCs with no snapshot at all; snapshots whose PVC no longer exists | cluster CronJob |
 | External disk | last successful attach older than 35 days | healthchecks period |
 
 A PBS sync carrying 8 of 13 groups and exiting 0 is the identical failure to
 `syncoid-vulcanus-data`, and only a per-guest assertion catches it.
+
+**The PBS assertion needs the job's scope, not just the group list.** Staleness alone
+cannot tell a broken backup from a guest that no longer exists, and a check that fires
+on every retired guest forever is the always-on warning
+[`docs/README.md`](../docs/README.md) warns against. Scope comes from
+`/etc/pve/jobs.cfg` — `all 1` minus `exclude` — read at runtime rather than hardcoded,
+so a guest created tomorrow is expected without anyone remembering to add it. That is
+the same guard as *a target that is never created cannot alert as down*.
+
+| Guest | Group | Verdict |
+|---|---|---|
+| live, **in scope** | newest snapshot older than 26 h | **fail** — backups broken for this guest |
+| live, **in scope** | no group at all | **fail** — never backed up |
+| guest gone | group frozen | *report* — a pending retention decision |
+| live, **excluded** | frozen or absent | *report* — a coverage statement |
+
+A frozen group never fails. Once a guest is gone no backup can be taken, so its
+staleness carries no information; what carries information is a guest still in scope
+going stale, which is the PBS analogue of syncoid succeeding on eight datasets of
+thirteen. The reports are what the retention decision above depends on — without them
+"someone inspects and decides" has nothing to prompt it.
+
+Verified 2026-09-18: six guests in scope and current, five reports
+(`vm/200` frozen by deletion, `101` and `106` frozen by exclusion, `100` and `107`
+live and excluded with no group at all), zero failures.
+
+Two things this shape does not catch, named rather than assumed. **A group vanishing**
+— retention keeps frozen groups forever, so a disappearance is notable, but a check
+comparing against the *live* guest list has nothing to compare a vanished group
+against; catching it needs a remembered inventory. That matters more after Phase 4,
+where `remove-vanished` propagates a primary-side deletion straight to PBS #2. And
+**scope drift** — adding a live guest to `exclude` moves it from "fail if stale" to
+"report", making the check quieter rather than louder, which is why excluded-but-live
+guests are reported even though they are not failures.
 
 **Remains of decommissioned workloads.** The restic assertion's third output is the
 handle. Left alone, a deleted app's snapshots quietly age out on the normal retention
