@@ -188,5 +188,37 @@ snapshots — or, once replication stops, only ancient ones.
 **PBS's own datastore is not replicated.** `rpool/proxmox_backup_server` is excluded
 from syncoid, so losing `rpool` loses the guest images and their backups together.
 
+### Repairing a diverged replica
+
+syncoid refuses to replicate into a target that shares a name with its source but holds
+no snapshot in common, and it is right to: proceeding would mean destroying the target.
+The unit fails, its `OnFailure=` reports, and the replica stops advancing until someone
+intervenes.
+
+A name comes to hold a fresh lineage when a guest's VMID is reissued, when a disk index
+is reused inside a live guest, or when replication has been broken for longer than the
+source's retention window — 30 days for `rpool/data`, far longer for `rpool/storage` —
+so that the last common snapshot is pruned out from under the target. The last of these
+is why a stale replica is worth fixing promptly: staleness left alone matures into
+divergence.
+
+The repair sets the stale copy aside rather than destroying it, so a copy exists at
+every point. Per dataset, on mini-nas:
+
+1. `zfs rename <target> <target>-diverged`
+2. Run the syncoid unit, or let the hourly timer fire. It sends in full, so check there
+   is room for both copies before starting.
+3. Confirm the new target holds a snapshot from today.
+4. `zfs destroy -r <target>-diverged`
+
+A `-diverged` dataset has no source counterpart, so syncoid ignores it — but
+`zfs-replication-freshness` reports it as stale until step 4, which is correct and
+resolves itself.
+
+**Not `syncoid -F`.** It reaches the same end state by destroying the target first,
+which removes the only offsite copy before its replacement exists. The set-aside copy is
+also the only thing that can answer what the diverged data actually was, which is worth
+knowing before concluding it was not wanted.
+
 See [`disk_management.md`](disk_management.md) for the physical disk replacement
 procedure, and [`kubernetes.md`](kubernetes.md) for what dies with a stateful workload.

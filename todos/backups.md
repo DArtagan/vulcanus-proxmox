@@ -1058,9 +1058,9 @@ gives them two rather than three to begin with.
 
 **A deleted machine's disks retain exactly as a live machine's would**, following the
 declared retention rules. Freeing that space early is a deliberate act: inspect the
-retained disk, decide whether it is worth keeping, remove it by hand. User's call,
-verbatim: *"if I/someone wants to free up more backup space, they can inspect the
-retained disk and determine whether it's worth deleting early."* The destroy set above is that
+retained disk, decide whether it is worth keeping, remove it by hand. User's call:
+*"if I/someone wants to free up more backup space, they can inspect the retained disk
+and determine whether it's worth deleting early."* The destroy set above is that
 act, exercised — three guests inspected and judged not worth keeping.
 
 Both layers arrive at indefinite retention by accident rather than design, measured
