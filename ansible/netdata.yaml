@@ -1,4 +1,3 @@
----
 - name: set up netdata on proxmox
   hosts: proxmox
 
@@ -36,9 +35,9 @@
         group: root
         mode: u=wrx,g=rx,o=r,+x
       notify: Restart Netdata
-  
+
   handlers:
-  - name: Restart Netdata
-    service:
-      name: netdata
-      state: restarted
+    - name: Restart Netdata
+      service:
+        name: netdata
+        state: restarted
