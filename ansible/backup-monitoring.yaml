@@ -44,6 +44,8 @@
         - HEALTHCHECK_SANOID_VULCANUS
         - HEALTHCHECK_POOL_HEALTH_VULCANUS
         - HEALTHCHECK_PBS_FRESHNESS
+        - PUSHOVER_TOKEN
+        - PUSHOVER_USER_KEY
 
     - name: 'write the healthchecks URLs'
       copy:
@@ -64,6 +66,42 @@
       loop_control:
         label: "{{ item.name }}"
       no_log: true
+
+    - name: 'create the Pushover credential directory'
+      file:
+        path: /etc/pushover
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: 'write the Pushover credentials'
+      copy:
+        # A reuse notification goes to Pushover directly rather than through a
+        # healthchecks check. healthchecks notifies on transitions, so a reuse
+        # failing the check would hold it down for up to 31 runs and silence a
+        # genuine backup failure arriving in that window.
+        content: "{{ item.value }}"
+        dest: "/etc/pushover/{{ item.name }}"
+        owner: root
+        group: root
+        mode: '0400'
+      loop:
+        - name: token
+          value: "{{ lookup('env', 'PUSHOVER_TOKEN') }}"
+        - name: user-key
+          value: "{{ lookup('env', 'PUSHOVER_USER_KEY') }}"
+      loop_control:
+        label: "{{ item.name }}"
+      no_log: true
+
+    - name: 'install the Pushover sender'
+      copy:
+        src: pushover-notify
+        dest: /usr/local/bin/pushover-notify
+        owner: root
+        group: root
+        mode: '0755'
 
     - name: 'install the ping helper'
       template:

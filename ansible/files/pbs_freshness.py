@@ -17,6 +17,13 @@ guest going stale is a real backup failure. The reports are what the retention
 decision depends on: without them "someone inspects and decides" has nothing to
 prompt it.
 
+A reused VMID takes a third route: reported here, and pushed to Pushover
+directly. Failing the check instead would hold it down for up to 31 runs, and
+healthchecks only notifies on transitions -- so a real backup failure arriving
+during that window would be silent. Separating the channels keeps a red check
+meaning "a guest's backups are broken" and gives the decision its own
+notification, with a countdown, on a ladder that needs no stored state.
+
 Managed by ansible/backup-monitoring.yaml. The mini-nas copy of the reporting
 helpers is in ~/repositories/mini-nas/modules/backup_monitoring; this check has
 no counterpart there, because PBS runs only here.
@@ -27,12 +34,13 @@ import os
 import re
 import subprocess
 import sys
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, NamedTuple
 
-HC_PING = Path("/usr/local/bin/hc-ping")
+HC_PING = "/usr/local/bin/hc-ping"
+PUSHOVER = "/usr/local/bin/pushover-notify"
 JOBS_CFG = Path("/etc/pve/jobs.cfg")
 VMLIST = Path("/etc/pve/.vmlist")
 STORAGE_CFG = Path("/etc/pve/storage.cfg")
@@ -60,7 +68,9 @@ class Group(NamedTuple):
 
     `newest` is None for a group holding no backups at all, which is a real
     state rather than a parse failure: vm/107 has existed with count 0 since PBS
-    was built. Identities are None when the config blob could not be read.
+    was built. Identities are None when the config blob could not be read, and
+    `prior_count` -- how many backups still belong to the earlier machine -- is
+    None unless reuse was detected, because counting costs a read per snapshot.
     """
 
     name: str
@@ -68,6 +78,7 @@ class Group(NamedTuple):
     newest: int | None
     oldest_identity: str | None
     newest_identity: str | None
+    prior_count: int | None
 
 
 class NoActiveJobError(Exception):
@@ -173,20 +184,6 @@ def _excluded_group_state(group: Group | None, now: int) -> str:
     return f"a group frozen {(now - group.newest) // 3600}h ago"
 
 
-def _reuse_reports(groups: Mapping[str, Group]) -> list[str]:
-    """Report each group whose oldest and newest backups are different machines."""
-    reports = []
-    for name, group in sorted(groups.items()):
-        ends = (group.oldest_identity, group.newest_identity)
-        if group.count >= BACKUPS_TO_SHOW_REUSE and all(ends) and ends[0] != ends[1]:
-            reports.append(
-                f"{name}: VMID reused -- oldest backup is {ends[0]}, "
-                f"newest is {ends[1]}; "
-                "the earlier machine is being evicted one backup per run"
-            )
-    return reports
-
-
 def classify(
     guests: Mapping[str, Guest],
     groups: Mapping[str, Group],
@@ -232,8 +229,62 @@ def classify(
             f"{name}: guest gone, group frozen at {group.count} backups, newest {age}"
         )
 
-    reports.extend(_reuse_reports(groups))
+    reports.extend(
+        reuse_message(group)
+        for _, group in sorted(groups.items())
+        if reuse_detected(group)
+    )
     return problems, reports
+
+
+def reuse_detected(group: Group) -> bool:
+    """Say whether a group's two ends belong to different machines."""
+    ends = (group.oldest_identity, group.newest_identity)
+    return group.count >= BACKUPS_TO_SHOW_REUSE and all(ends) and ends[0] != ends[1]
+
+
+def reuse_message(group: Group) -> str:
+    """Describe a reused VMID, for the journal line and the Pushover push alike.
+
+    One message for both, so the two cannot drift.
+    """
+    detail = (
+        f"{group.prior_count} of {group.count} backups still belong to the earlier "
+        f"machine, and the job evicts one per run -- they are gone in "
+        f"{group.prior_count} more runs."
+        if group.prior_count
+        else "The earlier machine's backups are being evicted one per run."
+    )
+    return (
+        f"{group.name}: VMID reused. The oldest backup is machine "
+        f"{group.oldest_identity} and the newest is {group.newest_identity}. "
+        f"{detail} Copy out anything worth keeping first -- nothing else will say "
+        "so, and this clears itself when the last one goes."
+    )
+
+
+# Pushover keeps no state, so without this it would fire on every run for as
+# long as the reuse lasts -- up to 31 of them. Every rung is derivable from the
+# group itself, so nothing has to be remembered: the run where the new machine
+# has exactly one backup is the transition, and the rest count down to the
+# deadline. A missed run can step over a rung; the remaining rungs are why that
+# is tolerable rather than worth a state file.
+REUSE_RUNGS = (7, 3, 1)
+
+
+def reuse_alerts(groups: Mapping[str, Group]) -> list[str]:
+    """Pick the reuse messages due a push this run."""
+    due = []
+    for _, group in sorted(groups.items()):
+        if not reuse_detected(group):
+            continue
+        if (
+            group.prior_count is None
+            or group.count - group.prior_count == 1
+            or group.prior_count in REUSE_RUNGS
+        ):
+            due.append(reuse_message(group))
+    return due
 
 
 def pbs_environment() -> dict[str, str]:
@@ -280,19 +331,19 @@ def _iso(epoch: int) -> str:
     return datetime.fromtimestamp(epoch, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _snapshot_identity(
-    snapshot: str, blob: str, pve_type: str, env: Mapping[str, str]
+def _identity_at(
+    name: str, when: int, blob: str, guest_type: str, env: Mapping[str, str]
 ) -> str | None:
-    """Read the identity from one snapshot's config blob, or None if unreadable.
+    """Read the guest identity in one snapshot's config blob, or None if unreadable.
 
-    An unreadable end is not evidence of two machines, so it reads as unknown
-    rather than failing the whole check.
+    An unreadable snapshot is not evidence of a second machine, so it reads as
+    unknown rather than as a difference.
     """
     try:
-        raw = _client(["restore", snapshot, blob, "-"], env)
-        return parse_identity(raw.decode("utf-8", "replace"), pve_type)
-    except (subprocess.CalledProcessError, UnicodeError):
+        raw = _client(["restore", f"{name}/{_iso(when)}", blob, "-"], env)
+    except subprocess.CalledProcessError:
         return None
+    return parse_identity(raw.decode("utf-8", "replace"), guest_type)
 
 
 def collect_groups(env: Mapping[str, str]) -> dict[str, Group]:
@@ -310,19 +361,32 @@ def collect_groups(env: Mapping[str, str]) -> dict[str, Group]:
         blob = "pct.conf.blob" if guest_type == "ct" else "qemu-server.conf.blob"
         pve_type = "lxc" if guest_type == "ct" else "qemu"
 
-        identities = [None, None]
+        oldest_identity = newest_identity = prior_count = None
         if len(times) >= BACKUPS_TO_SHOW_REUSE:
-            identities = [
-                _snapshot_identity(f"{name}/{_iso(when)}", blob, pve_type, env)
-                for when in (times[0], times[-1])
-            ]
+            oldest_identity = _identity_at(name, times[0], blob, pve_type, env)
+            newest_identity = _identity_at(name, times[-1], blob, pve_type, env)
+            if (
+                oldest_identity
+                and newest_identity
+                and oldest_identity != newest_identity
+            ):
+                # Only on reuse, and bounded by keep-last: ~31 reads at 0.24s.
+                # The count *is* the decision -- how many runs remain before the
+                # earlier machine is gone -- so it is paid for exactly when it is
+                # the thing being asked, and never otherwise.
+                prior_count = sum(
+                    1
+                    for when in times
+                    if _identity_at(name, when, blob, pve_type, env) == oldest_identity
+                )
 
         groups[name] = Group(
             name=name,
             count=len(times),
             newest=times[-1] if times else None,
-            oldest_identity=identities[0],
-            newest_identity=identities[1],
+            oldest_identity=oldest_identity,
+            newest_identity=newest_identity,
+            prior_count=prior_count,
         )
     return groups
 
@@ -334,6 +398,35 @@ def ping(check: str, suffix: str = "") -> None:
     assertion into a crash. The check goes red on its own period instead.
     """
     subprocess.run([HC_PING, check, *([suffix] if suffix else [])], check=False)
+
+
+def notify_reuse(
+    groups: Mapping[str, Group], send: Callable[[str], object] | None = None
+) -> list[str]:
+    """Push the reuse alerts due this run; return what could not be sent.
+
+    Takes the sender as an argument so the failure path is testable: the claim
+    that a lost push fails the check is only worth making if it is exercised.
+    """
+    send = push if send is None else send
+    failures = []
+    for message in reuse_alerts(groups):
+        try:
+            send(message)
+        except (OSError, subprocess.CalledProcessError) as error:
+            failures.append(f"could not send the VMID-reuse notification: {error}")
+    return failures
+
+
+def push(message: str) -> None:
+    """Send one Pushover notification, raising if it does not arrive.
+
+    The opposite of ping() on purpose. A healthchecks ping that never arrives
+    turns its own check red on its own period, so losing one is self-announcing.
+    A Pushover push that never arrives leaves no trace anywhere, so the only way
+    a lost alert surfaces is by failing the check that tried to send it.
+    """
+    subprocess.run([PUSHOVER, "PBS: VMID reused", message], check=True)
 
 
 def main(argv: list[str]) -> int:
@@ -370,6 +463,9 @@ def main(argv: list[str]) -> int:
 
     for report in reports:
         print(report)
+
+    problems.extend(notify_reuse(groups))
+
     if problems:
         print("\n".join(problems), file=sys.stderr)
         ping(check, "/fail")

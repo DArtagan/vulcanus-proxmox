@@ -14,9 +14,11 @@ else in this repo reads: /etc/pve/jobs.cfg, /etc/pve/.vmlist and the config
 blob stored inside each backup.
 """
 
+import subprocess
 import sys
 import unittest
 from pathlib import Path
+from typing import Never
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -57,12 +59,15 @@ def guest(
     return pbs_freshness.Guest(vmid=vmid, guest_type=guest_type, in_scope=in_scope)
 
 
-def group(
+# One keyword per Group field, so each test names only the field it varies.
+def group(  # noqa: PLR0913
     name: str,
+    *,
     count: int = 30,
     newest: int | None = FRESH,
     oldest_identity: str | None = "uuid-a",
     newest_identity: str | None = "uuid-a",
+    prior_count: int | None = None,
 ) -> pbs_freshness.Group:
     return pbs_freshness.Group(
         name=name,
@@ -70,6 +75,7 @@ def group(
         newest=newest,
         oldest_identity=oldest_identity,
         newest_identity=newest_identity,
+        prior_count=prior_count,
     )
 
 
@@ -206,6 +212,9 @@ class VerdictTable(unittest.TestCase):
                 self.assertEqual(len(reports), 1)
 
     def test_a_reused_vmid_reports(self) -> None:
+        # Reported here, not failed. The push is a separate channel, so that a
+        # red pbs-freshness keeps meaning "a guest's backups are broken" -- a
+        # reuse holding the check down for 31 days would mask exactly that.
         problems, reports = classify(
             {"900": guest("900")},
             {
@@ -231,8 +240,27 @@ class VerdictTable(unittest.TestCase):
         )
         self.assertTrue(any("reused" in r.lower() for r in reports))
 
-    def test_a_single_backup_cannot_show_reuse(self) -> None:
+    def test_the_message_names_how_long_is_left_to_decide(self) -> None:
+        # The decision-relevant number is how many backups of the earlier
+        # machine survive, because the job evicts one per run.
         _, reports = classify(
+            {"900": guest("900")},
+            {
+                "vm/900": group(
+                    "vm/900",
+                    count=30,
+                    oldest_identity="uuid-old",
+                    newest_identity="uuid-new",
+                    prior_count=12,
+                )
+            },
+        )
+        self.assertIn("12 of 30", reports[0])
+        self.assertIn("12 more", reports[0])
+        self.assertIn("uuid-old", reports[0])
+
+    def test_a_single_backup_cannot_show_reuse(self) -> None:
+        problems, reports = classify(
             {"900": guest("900")},
             {
                 "vm/900": group(
@@ -240,16 +268,71 @@ class VerdictTable(unittest.TestCase):
                 )
             },
         )
+        self.assertEqual(problems, [])
         self.assertEqual(reports, [])
 
-    def test_an_unreadable_identity_does_not_report_reuse(self) -> None:
+    def test_an_unreadable_identity_is_not_reuse(self) -> None:
         # A blob that fails to parse gives None at both ends; two unknowns are
         # not evidence of two machines.
-        _, reports = classify(
+        problems, reports = classify(
             {"900": guest("900")},
             {"vm/900": group("vm/900", oldest_identity=None, newest_identity=None)},
         )
+        self.assertEqual(problems, [])
         self.assertEqual(reports, [])
+
+
+class ReuseLadder(unittest.TestCase):
+    """Which runs push, given Pushover has no state of its own.
+
+    healthchecks dedupes by transition; Pushover would fire on every run for as
+    long as the reuse lasts. The ladder is stateless because every rung is
+    derivable from the group itself -- "first detection" is the run where the
+    new machine has exactly one backup.
+    """
+
+    def reused(
+        self, count: int, prior_count: int | None
+    ) -> dict[str, pbs_freshness.Group]:
+        return {
+            "vm/900": group(
+                "vm/900",
+                count=count,
+                oldest_identity="old",
+                newest_identity="new",
+                prior_count=prior_count,
+            )
+        }
+
+    def test_the_first_run_after_reuse_pushes(self) -> None:
+        # New machine has exactly one backup, so this run is the transition.
+        self.assertEqual(len(pbs_freshness.reuse_alerts(self.reused(30, 29))), 1)
+
+    def test_the_quiet_middle_does_not_push(self) -> None:
+        for prior in (28, 20, 12, 8, 4, 2):
+            with self.subTest(prior=prior):
+                self.assertEqual(pbs_freshness.reuse_alerts(self.reused(30, prior)), [])
+
+    def test_the_deadline_rungs_push(self) -> None:
+        for prior in (7, 3, 1):
+            with self.subTest(prior=prior):
+                self.assertEqual(
+                    len(pbs_freshness.reuse_alerts(self.reused(30, prior))), 1
+                )
+
+    def test_an_uncounted_reuse_always_pushes(self) -> None:
+        # Without the count there is no way to know which rung this is, and a
+        # decision with an unknown deadline is the one you least want silent.
+        self.assertEqual(len(pbs_freshness.reuse_alerts(self.reused(30, None))), 1)
+
+    def test_a_healthy_group_never_pushes(self) -> None:
+        self.assertEqual(pbs_freshness.reuse_alerts({"vm/900": group("vm/900")}), [])
+
+    def test_the_pushed_text_is_the_reported_text(self) -> None:
+        # One message, so the journal and the phone cannot drift.
+        groups = self.reused(30, 7)
+        _, reports = classify({"900": guest("900")}, groups)
+        self.assertEqual(pbs_freshness.reuse_alerts(groups), reports)
 
 
 class TheEstateAsMeasured(unittest.TestCase):
@@ -315,6 +398,56 @@ class TheEstateAsMeasured(unittest.TestCase):
         self.assertEqual(problems, [])
         self.assertEqual(len(reports), 1)
         self.assertIn("vm/107", reports[0])
+
+
+class LostPushFailsTheCheck(unittest.TestCase):
+    """A Pushover push that does not arrive fails the check it was sent from.
+
+    It leaves no trace anywhere else, so the check is the only thing that makes
+    it visible.
+    """
+
+    def reused(self) -> dict[str, pbs_freshness.Group]:
+        return {
+            "vm/900": group(
+                "vm/900",
+                count=30,
+                oldest_identity="old",
+                newest_identity="new",
+                prior_count=1,
+            )
+        }
+
+    def test_a_failed_push_becomes_a_problem(self) -> None:
+        def refuse(_message: str) -> Never:
+            raise subprocess.CalledProcessError(1, "pushover-notify")
+
+        failures = pbs_freshness.notify_reuse(self.reused(), send=refuse)
+        self.assertEqual(len(failures), 1)
+        self.assertIn("could not send", failures[0])
+
+    def test_a_missing_sender_also_becomes_a_problem(self) -> None:
+        def missing(_message: str) -> Never:
+            raise FileNotFoundError(pbs_freshness.PUSHOVER)
+
+        self.assertEqual(
+            len(pbs_freshness.notify_reuse(self.reused(), send=missing)), 1
+        )
+
+    def test_a_delivered_push_leaves_no_problem(self) -> None:
+        sent = []
+        self.assertEqual(
+            pbs_freshness.notify_reuse(self.reused(), send=sent.append), []
+        )
+        self.assertEqual(len(sent), 1)
+
+    def test_nothing_is_sent_for_a_healthy_group(self) -> None:
+        sent = []
+        self.assertEqual(
+            pbs_freshness.notify_reuse({"vm/900": group("vm/900")}, send=sent.append),
+            [],
+        )
+        self.assertEqual(sent, [])
 
 
 if __name__ == "__main__":
