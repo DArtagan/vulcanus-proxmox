@@ -103,7 +103,7 @@ whether it is worth keeping, remove it by hand.
 **A group frozen by deletion is preserved by nothing arriving, not by any retention
 setting.** That distinction matters because it is also how the preservation ends:
 reissue the VMID and backups start landing in the group again, which resumes pruning
-and evicts the retired machine. See *VMID reuse is tolerated, and reported* below.
+and evicts the retired machine. See *VMID reuse is tolerated, and alerted on* below.
 
 Each layer arrives at indefinite retention differently, and both are worth knowing
 before changing a retention value:
@@ -119,7 +119,7 @@ than elapsed calendar time, so `keep-daily 30` against a group frozen months ago
 30 of its snapshots and stops. A retired guest expires only by forgetting its PBS
 group, or by a deliberate `zfs destroy`.
 
-### VMID reuse is tolerated, and reported
+### VMID reuse is tolerated, and alerted on
 
 A never-reuse rule is a guarantee that has to be kept by hand forever, so there is not
 one. The price is data loss rather than inconvenience, and is worth stating plainly.
@@ -133,11 +133,26 @@ Nothing fails, and the group simply stops being frozen.
 Before reissuing a VMID, look at what its PBS group still holds. If any of it matters,
 take a copy out first — reuse evicts it within 31 days.
 
-**The report, for when nobody looks.** The signal is intrinsic to the group, so nothing
-has to be remembered. vzdump stores the guest config in every backup, and a VM's
-`smbios1` UUID is stable for that machine's life and regenerated when a new guest is
-built at the same ID. A group whose oldest and newest snapshots carry different UUIDs
-therefore spans two machines, and `pbs-freshness` says so.
+**It fails the check, rather than merely being noted.** The signal is intrinsic to the
+group, so nothing has to be remembered. vzdump stores the guest config in every backup,
+and a VM's `smbios1` UUID is stable for that machine's life and regenerated when a new
+guest is built at the same ID. A group whose oldest and newest snapshots carry different
+UUIDs therefore spans two machines, and `pbs-freshness` fails on it.
+
+Reuse is the one non-failure condition promoted to a failure, and it earns that by
+being **bounded**: it begins at the first backup of the new machine and clears itself
+once `keep-last 31` has evicted the last of the old. A frozen group is permanent and
+failing on it would be the always-on warning [the alerting rules](README.md) warn
+against; this cannot become one. It is also the only one with a deadline, which is why
+the failure counts what is left rather than just naming the collision:
+
+> `vm/900: VMID reused. The oldest backup is machine 31282d50-… and the newest is
+> 6f685ca0-…. 12 of 30 backups still belong to the earlier machine, and the job evicts
+> one per run — they are gone in 12 more runs. Copy out anything worth keeping first —
+> nothing else will say so, and this clears itself when the last one goes.`
+
+Counting costs a config-blob read per snapshot, so it happens only once the two ends
+already disagree — never on a healthy group.
 
 Containers carry no `smbios1`, so for `ct/<vmid>` the comparison uses `net0`'s
 `hwaddr`, which PVE generates per container and which survives a restore of the same
@@ -190,8 +205,8 @@ than hardcoded, so a guest created tomorrow is expected without anyone editing t
 check — a guest merely absent from the check's own list cannot alert as missing.
 
 A live, in-scope guest whose newest backup is over 26 h old, or which has no group at
-all, is a **failure**. Everything else is a **report**, printed but not pinged: a guest
-that is gone, a live guest the job excludes, and a reused VMID. Once a guest is gone no
+all, is a **failure**, and so is a reused VMID. Everything else is a **report**, printed
+but not pinged: a guest that is gone, and a live guest the job excludes. Once a guest is gone no
 backup can be taken, so its staleness carries no information, and failing on it would
 make the check the always-on warning that
 [the alerting rules](README.md) warn against. The reports are what the retention

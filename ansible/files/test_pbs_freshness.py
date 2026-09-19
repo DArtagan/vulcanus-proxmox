@@ -56,7 +56,12 @@ def guest(vmid, guest_type="qemu", in_scope=True):
 
 
 def group(
-    name, count=30, newest=FRESH, oldest_identity="uuid-a", newest_identity="uuid-a"
+    name,
+    count=30,
+    newest=FRESH,
+    oldest_identity="uuid-a",
+    newest_identity="uuid-a",
+    prior_count=None,
 ):
     return pbs_freshness.Group(
         name=name,
@@ -64,6 +69,7 @@ def group(
         newest=newest,
         oldest_identity=oldest_identity,
         newest_identity=newest_identity,
+        prior_count=prior_count,
     )
 
 
@@ -195,7 +201,10 @@ class VerdictTable(unittest.TestCase):
                 self.assertEqual(problems, [])
                 self.assertEqual(len(reports), 1)
 
-    def test_a_reused_vmid_reports(self):
+    def test_a_reused_vmid_fails(self):
+        # Unlike every other non-failure row, reuse is bounded: it clears on its
+        # own once keep-last has evicted the last old backup. A self-clearing
+        # condition can be an alert without becoming an always-on warning.
         problems, reports = classify(
             {"900": guest("900")},
             {
@@ -204,14 +213,14 @@ class VerdictTable(unittest.TestCase):
                 )
             },
         )
-        self.assertEqual(problems, [])
-        self.assertEqual(len(reports), 1)
-        self.assertIn("reused", reports[0].lower())
+        self.assertEqual(reports, [])
+        self.assertEqual(len(problems), 1)
+        self.assertIn("reused", problems[0].lower())
 
-    def test_reuse_is_reported_even_while_the_guest_is_healthy(self):
+    def test_reuse_fails_even_while_the_guest_is_healthy(self):
         # The eviction is silent and the group looks fine from the live guest
         # list alone; that is the entire reason this row exists.
-        _, reports = classify(
+        problems, _ = classify(
             {"900": guest("900")},
             {
                 "vm/900": group(
@@ -219,10 +228,43 @@ class VerdictTable(unittest.TestCase):
                 )
             },
         )
-        self.assertTrue(any("reused" in r.lower() for r in reports))
+        self.assertTrue(any("reused" in p.lower() for p in problems))
+
+    def test_the_failure_names_how_long_is_left_to_decide(self):
+        # The decision-relevant number is how many backups of the earlier
+        # machine survive, because the job evicts one per run.
+        problems, _ = classify(
+            {"900": guest("900")},
+            {
+                "vm/900": group(
+                    "vm/900",
+                    count=30,
+                    oldest_identity="uuid-old",
+                    newest_identity="uuid-new",
+                    prior_count=12,
+                )
+            },
+        )
+        self.assertIn("12 of 30", problems[0])
+        self.assertIn("12 more", problems[0])
+        self.assertIn("uuid-old", problems[0])
+
+    def test_an_uncounted_reuse_still_fails(self):
+        # Counting costs a blob read per snapshot and can come back empty. The
+        # failure must not depend on it.
+        problems, _ = classify(
+            {"900": guest("900")},
+            {
+                "vm/900": group(
+                    "vm/900", oldest_identity="a", newest_identity="b", prior_count=None
+                )
+            },
+        )
+        self.assertEqual(len(problems), 1)
+        self.assertIn("reused", problems[0].lower())
 
     def test_a_single_backup_cannot_show_reuse(self):
-        _, reports = classify(
+        problems, reports = classify(
             {"900": guest("900")},
             {
                 "vm/900": group(
@@ -230,15 +272,17 @@ class VerdictTable(unittest.TestCase):
                 )
             },
         )
+        self.assertEqual(problems, [])
         self.assertEqual(reports, [])
 
-    def test_an_unreadable_identity_does_not_report_reuse(self):
+    def test_an_unreadable_identity_does_not_fail(self):
         # A blob that fails to parse gives None at both ends; two unknowns are
         # not evidence of two machines.
-        _, reports = classify(
+        problems, reports = classify(
             {"900": guest("900")},
             {"vm/900": group("vm/900", oldest_identity=None, newest_identity=None)},
         )
+        self.assertEqual(problems, [])
         self.assertEqual(reports, [])
 
 

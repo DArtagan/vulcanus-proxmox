@@ -17,6 +17,12 @@ guest going stale is a real backup failure. The reports are what the retention
 decision depends on: without them "someone inspects and decides" has nothing to
 prompt it.
 
+A reused VMID is the exception that fails. It is the one non-failure condition
+that is *bounded*: it begins at the first backup of the new machine and clears
+itself once keep-last has evicted the last of the old, so it cannot become an
+always-on warning. It is also the one with a deadline, which is why the failure
+counts the backups left rather than merely naming the collision.
+
 Managed by ansible/backup-monitoring.yaml. The mini-nas copy of the reporting
 helpers is in ~/repositories/mini-nas/modules/backup_monitoring; this check has
 no counterpart there, because PBS runs only here.
@@ -44,8 +50,12 @@ Guest = namedtuple("Guest", "vmid guest_type in_scope")
 
 # `newest` is None for a group holding no backups at all, which is a real state
 # rather than a parse failure: vm/107 has existed with count 0 since PBS was
-# built. Identities are None when the config blob could not be read.
-Group = namedtuple("Group", "name count newest oldest_identity newest_identity")
+# built. Identities are None when the config blob could not be read, and
+# `prior_count` -- how many backups still belong to the earlier machine -- is
+# None unless reuse was detected, because counting costs a read per snapshot.
+Group = namedtuple(
+    "Group", "name count newest oldest_identity newest_identity prior_count"
+)
 
 
 class NoActiveJob(Exception):
@@ -186,11 +196,25 @@ def classify(guests, groups, now, max_age_hours=DEFAULT_MAX_AGE_HOURS):
 
     for name, group in sorted(groups.items()):
         ends = (group.oldest_identity, group.newest_identity)
-        if group.count >= 2 and all(ends) and ends[0] != ends[1]:
-            reports.append(
-                f"{name}: VMID reused -- oldest backup is {ends[0]}, newest is {ends[1]}; "
-                "the earlier machine is being evicted one backup per run"
-            )
+        if group.count < 2 or not all(ends) or ends[0] == ends[1]:
+            continue
+        # A failure rather than a report, and the only non-failure row promoted
+        # to one, because reuse is *bounded*: it begins at the first backup of
+        # the new machine and clears itself once keep-last has evicted the last
+        # of the old. A frozen group is permanent and would become the always-on
+        # warning docs/README.md warns against; this cannot.
+        detail = (
+            f"{group.prior_count} of {group.count} backups still belong to the earlier "
+            f"machine, and the job evicts one per run -- they are gone in "
+            f"{group.prior_count} more runs."
+            if group.prior_count
+            else "The earlier machine's backups are being evicted one per run."
+        )
+        problems.append(
+            f"{name}: VMID reused. The oldest backup is machine {ends[0]} and the "
+            f"newest is {ends[1]}. {detail} Copy out anything worth keeping first -- "
+            f"nothing else will say so, and this clears itself when the last one goes."
+        )
 
     return problems, reports
 
@@ -232,6 +256,21 @@ def _iso(epoch):
     return datetime.fromtimestamp(epoch, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _identity_at(group_name, when, blob, guest_type, env):
+    """The guest identity in one snapshot's config blob, or None if unreadable.
+
+    An unreadable snapshot is not evidence of a second machine, so it reads as
+    unknown rather than as a difference.
+    """
+    try:
+        raw = _client(
+            ["restore", f"{group_name}/{_iso(when)}", blob, "-"], env, binary=True
+        )
+    except subprocess.CalledProcessError:
+        return None
+    return parse_identity(raw.decode("utf-8", "replace"), guest_type)
+
+
 def collect_groups(env):
     """Every group in the datastore, with the identity at each end.
 
@@ -247,25 +286,32 @@ def collect_groups(env):
         blob = "pct.conf.blob" if guest_type == "ct" else "qemu-server.conf.blob"
         pve_type = "lxc" if guest_type == "ct" else "qemu"
 
-        identities = [None, None]
+        oldest_identity = newest_identity = prior_count = None
         if len(times) >= 2:
-            for index, when in enumerate((times[0], times[-1])):
-                try:
-                    raw = _client(
-                        ["restore", f"{name}/{_iso(when)}", blob, "-"], env, binary=True
-                    )
-                    identities[index] = parse_identity(
-                        raw.decode("utf-8", "replace"), pve_type
-                    )
-                except (subprocess.CalledProcessError, UnicodeError):
-                    pass  # an unreadable end is not evidence of two machines
+            oldest_identity = _identity_at(name, times[0], blob, pve_type, env)
+            newest_identity = _identity_at(name, times[-1], blob, pve_type, env)
+            if (
+                oldest_identity
+                and newest_identity
+                and oldest_identity != newest_identity
+            ):
+                # Only on reuse, and bounded by keep-last: ~31 reads at 0.24s.
+                # The count *is* the decision -- how many runs remain before the
+                # earlier machine is gone -- so it is paid for exactly when it is
+                # the thing being asked, and never otherwise.
+                prior_count = sum(
+                    1
+                    for when in times
+                    if _identity_at(name, when, blob, pve_type, env) == oldest_identity
+                )
 
         groups[name] = Group(
             name=name,
             count=len(times),
             newest=times[-1] if times else None,
-            oldest_identity=identities[0],
-            newest_identity=identities[1],
+            oldest_identity=oldest_identity,
+            newest_identity=newest_identity,
+            prior_count=prior_count,
         )
     return groups
 
