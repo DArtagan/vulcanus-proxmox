@@ -7,6 +7,8 @@ the smallest real one observed is 1.5ms -> 62.4ms, and the two minutes before a
 flip sit at 6.4ms or below.
 """
 
+from collections.abc import Sequence
+
 STABLE_MS = 10.0
 FLIP_MS = 50.0
 MIN_RUN = 10
@@ -14,15 +16,12 @@ CONFIRM_RUN = 3
 
 
 def is_flip(
-    recent_ms,
-    current_ms,
-    prev_start,
-    cur_start,
-    stable_ms=STABLE_MS,
-    flip_ms=FLIP_MS,
-    min_run=MIN_RUN,
-):
-    """True when `current_ms` is the first degraded sample of an in-process flip.
+    recent_ms: Sequence[float],
+    current_ms: float,
+    prev_start: float | None,
+    cur_start: float | None,
+) -> bool:
+    """Say whether `current_ms` is the first degraded sample of an in-process flip.
 
     `prev_start` and `cur_start` are `process_start_time_seconds` either side of
     the transition. They must be equal: a fresh process that comes up already
@@ -35,15 +34,15 @@ def is_flip(
         return False
     if prev_start != cur_start:
         return False
-    if current_ms <= flip_ms:
+    if current_ms <= FLIP_MS:
         return False
-    if len(recent_ms) < min_run:
+    if len(recent_ms) < MIN_RUN:
         return False
-    return all(sample < stable_ms for sample in recent_ms[-min_run:])
+    return all(sample < STABLE_MS for sample in recent_ms[-MIN_RUN:])
 
 
-def is_sustained(recent_ms, confirm_run=CONFIRM_RUN, flip_ms=FLIP_MS):
-    """True when the last `confirm_run` samples are all degraded.
+def is_sustained(recent_ms: Sequence[float]) -> bool:
+    """Say whether the last `CONFIRM_RUN` samples are all degraded.
 
     An onset is not enough to justify the capture, which kills the process. Both
     excursions observed after Fix C recovered unaided — 775.6/138.1/5.5 ms on
@@ -55,6 +54,6 @@ def is_sustained(recent_ms, confirm_run=CONFIRM_RUN, flip_ms=FLIP_MS):
     cost of waiting is a later capture, and the cost of firing early is a live
     process on worker-1 and the ARM admission window that comes with it.
     """
-    if len(recent_ms) < confirm_run:
+    if len(recent_ms) < CONFIRM_RUN:
         return False
-    return all(sample > flip_ms for sample in recent_ms[-confirm_run:])
+    return all(sample > FLIP_MS for sample in recent_ms[-CONFIRM_RUN:])
