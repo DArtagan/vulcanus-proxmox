@@ -10,7 +10,7 @@ Work still outstanding lives in [`todos/backups.md`](../todos/backups.md), not h
 |---|---|---|
 | ZFS snapshots (sanoid) | everything on `rpool` | vulcanus, in place |
 | ZFS replication (syncoid) | `rpool/storage`, `rpool/ROOT`, `rpool/data` | mini-nas, offsite |
-| vzdump → PBS | every guest except `100,101,106,107` | PBS VM 107, on `rpool` |
+| vzdump → PBS | every guest except `107` | PBS VM 107, on `rpool` |
 
 Snapshots are the instant-rollback layer, exposed to SMB clients as VSS shadow copies
 on every share except `borg`. Replication is the offsite copy. PBS is the per-guest
@@ -52,12 +52,30 @@ applies it per guest as it backs that guest up. The PVE storage entry sets
 
 ### A retired guest keeps what a live one would
 
-Both layers hold a deleted guest's backups indefinitely, and that is deliberate.
-Freeing the space is a separate act: inspect what is there, decide whether it is worth
-keeping, remove it by hand.
+**PBS is the layer that retains a destroyed guest.** Its ZFS replica is destroyed
+alongside it. A retained replica fails `zfs-replication-freshness`: that check's age
+loop walks every dataset under `rpool/foreign-backups/vulcanus` with no exclusion, and
+a retired guest's newest snapshot is frozen at the moment of deletion, so it trips the
+26 h limit exactly as a genuinely stale one does. A check that is never green is a
+check nobody reads, which is the condition that let `syncoid-vulcanus-data` fail for
+seven months unnoticed.
 
-Each layer arrives there differently, and both are worth knowing before changing a
-retention value:
+The cost is that a retired guest sits at one failure domain — PBS on `rpool`, the same
+spindles as the original — until PBS #2 exists. That is bounded and deliberate: guests
+are rebuildable from `terraform` plus `talosctl`, which is why the failure-domain table
+gives them two copies rather than three.
+
+Retention itself is unchanged by deletion — a retired guest keeps what a live one
+would. Freeing the space is a separate, deliberate act: inspect what is there, decide
+whether it is worth keeping, remove it by hand.
+
+**A group frozen by deletion is preserved by nothing arriving, not by any retention
+setting.** That distinction matters because it is also how the preservation ends:
+reissue the VMID and backups start landing in the group again, which resumes pruning
+and evicts the retired machine. See *VMID reuse is tolerated, and reported* below.
+
+Each layer arrives at indefinite retention differently, and both are worth knowing
+before changing a retention value:
 
 - **sanoid prunes by count, not age.** A dataset that stops receiving keeps its N most
   recent snapshots and nothing ages them out.
@@ -70,10 +88,40 @@ than elapsed calendar time, so `keep-daily 30` against a group frozen months ago
 30 of its snapshots and stops. A retired guest expires only by forgetting its PBS
 group, or by a deliberate `zfs destroy`.
 
+### VMID reuse is tolerated, and reported
+
+A never-reuse rule is a guarantee that has to be kept by hand forever, so there is not
+one. The price is data loss rather than inconvenience, and is worth stating plainly.
+
+A PBS group is keyed `vm/<vmid>` with no notion of which machine wrote a given
+snapshot, and the vzdump job prunes every group it touches to `keep-last 31`. So a
+reused VMID appends the new guest's backups to the retired guest's group and evicts one
+old backup per run: **after 31 runs the prior machine is gone from PBS entirely.**
+Nothing fails, and the group simply stops being frozen.
+
+Before reissuing a VMID, look at what its PBS group still holds. If any of it matters,
+take a copy out first — reuse evicts it within 31 days.
+
+**The report, for when nobody looks.** The signal is intrinsic to the group, so nothing
+has to be remembered. vzdump stores the guest config in every backup, and a VM's
+`smbios1` UUID is stable for that machine's life and regenerated when a new guest is
+built at the same ID. A group whose oldest and newest snapshots carry different UUIDs
+therefore spans two machines, and `pbs-freshness` says so.
+
+Containers carry no `smbios1`, so for `ct/<vmid>` the comparison uses `net0`'s
+`hwaddr`, which PVE generates per container and which survives a restore of the same
+container.
+
+Comparing against a remembered inventory would miss the transition whenever the state
+file is lost or the check was down for it. The UUID comparison is retroactive, because
+identity is carried in the content. Its reporting lifetime is exactly the decision
+window: it begins on the first run after reuse and falls silent once `keep-last 31` has
+evicted the last old backup, at the moment there is nothing left to decide.
+
 ## Reporting
 
-Eight healthchecks.io checks, all routed to Pushover. Six are fed from mini-nas via
-sops-nix secrets, two from vulcanus via `/etc/healthchecks/` written by
+Nine healthchecks.io checks, all routed to Pushover. Six are fed from mini-nas via
+sops-nix secrets, three from vulcanus via `/etc/healthchecks/` written by
 [`ansible/backup-monitoring.yaml`](../ansible/backup-monitoring.yaml).
 
 | Check | Fed by |
@@ -82,6 +130,7 @@ sops-nix secrets, two from vulcanus via `/etc/healthchecks/` written by
 | `sanoid-mini-nas`, `sanoid-vulcanus` | the sanoid units |
 | `pool-health-mini-nas`, `pool-health-vulcanus` | an hourly timer per host |
 | `zfs-replication-freshness` | a daily timer on mini-nas |
+| `pbs-freshness` | a daily timer on vulcanus |
 
 Three rules shape all of it, each because the obvious alternative is wrong:
 
@@ -101,6 +150,25 @@ exit zero while carrying only part of its dataset list, and a job that stops run
 emits nothing at all. `zfs-replication-freshness` therefore reads the target — newest
 snapshot age per dataset, plus a comparison against the source dataset list, because a
 dataset that was never replicated has no stale snapshot to look wrong.
+
+**PBS coverage is asserted against the job's scope, and a frozen group reports rather
+than fails.** `pbs-freshness` reads three things and compares them: the vzdump job's
+scope from `/etc/pve/jobs.cfg` (`all 1` minus `exclude`), the live guest list from
+`/etc/pve/.vmlist`, and the groups the datastore holds. Scope is read at runtime rather
+than hardcoded, so a guest created tomorrow is expected without anyone editing the
+check — a guest merely absent from the check's own list cannot alert as missing.
+
+A live, in-scope guest whose newest backup is over 26 h old, or which has no group at
+all, is a **failure**. Everything else is a **report**, printed but not pinged: a guest
+that is gone, a live guest the job excludes, and a reused VMID. Once a guest is gone no
+backup can be taken, so its staleness carries no information, and failing on it would
+make the check the always-on warning that
+[the alerting rules](README.md) warn against. The reports are what the retention
+decision depends on — without them, "someone inspects and decides" has nothing to
+prompt it.
+
+An empty group is distinct from an absent one and is treated as no coverage: `vm/107`
+has existed with zero backups since PBS was built.
 
 **Pool health is read from the pool.** `zfs-scrub@` exits 0 having found errors, so no
 unit's exit status can report a dirty pool. The check reads `zpool status -x`, the
