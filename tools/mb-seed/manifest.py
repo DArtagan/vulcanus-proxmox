@@ -19,10 +19,16 @@ import json
 import os
 import re
 import sys
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any
 
 import mutagen
 
 FREEFORM = "----:com.pilabor.tone:"
+
+# mutagen's MP4Tags: every value is a list, freeform ones of bytes.
+Tags = Mapping[str, list[Any]]
 
 # Every file in this collection is English or untagged, so a full ISO 639-3
 # table would be dead weight. An unmapped language is left None for review
@@ -32,7 +38,21 @@ LANGUAGES = {"English": "eng"}
 MONTHS = {
     m: i
     for i, m in enumerate(
-        "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(), start=1
+        [
+            "Jan",
+            "Feb",
+            "Mar",
+            "Apr",
+            "May",
+            "Jun",
+            "Jul",
+            "Aug",
+            "Sep",
+            "Oct",
+            "Nov",
+            "Dec",
+        ],
+        start=1,
     )
 }
 
@@ -43,16 +63,18 @@ UNABRIDGED = re.compile(r"\s*\((?:un)?abridged\)\s*$", re.IGNORECASE)
 # cannot resolve, and one that must be fixed in MusicBrainz rather than with a
 # local override. Flagged for review rather than parsed.
 CREDIT_NOISE = re.compile(
-    r"(translat|illustrat|read by|narrated by|performed by)", re.I
+    r"(translat|illustrat|read by|narrated by|performed by)", re.IGNORECASE
 )
 
 
-def text(tags, key):
+def text(tags: Tags, key: str) -> str | None:
+    """Read a standard atom's first value, stripped."""
     value = tags.get(key)
     return str(value[0]).strip() if value else None
 
 
-def freeform(tags, key):
+def freeform(tags: Tags, key: str) -> str | None:
+    """Read a tone freeform atom, which holds bytes; empty reads as absent."""
     value = tags.get(FREEFORM + key)
     if not value:
         return None
@@ -60,17 +82,13 @@ def freeform(tags, key):
     return raw.decode("utf-8", "replace").strip() or None
 
 
-def parse_date(tags):
+def parse_date(tags: Tags) -> dict[str, int] | None:
     """Prefer `rldt` ("11-Oct-2020"), which carries a full date, over `©day`."""
     released = text(tags, "rldt")
     if released:
-        parts = released.split("-")
-        if len(parts) == 3 and parts[1] in MONTHS:
-            return {
-                "year": int(parts[2]),
-                "month": MONTHS[parts[1]],
-                "day": int(parts[0]),
-            }
+        match released.split("-"):
+            case [day, month, year] if month in MONTHS:
+                return {"year": int(year), "month": MONTHS[month], "day": int(day)}
     day = text(tags, "\xa9day")
     if day:
         match = re.match(r"(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?", day)
@@ -91,8 +109,8 @@ COVER_MIMES = {13: "image/jpeg", 14: "image/png"}
 SIDECAR_SUFFIXES = (".jpg", ".jpeg", ".png", ".gif")
 
 
-def cover_art(tags, directory):
-    """Where this book's art is, not the art itself.
+def cover_art(tags: Tags, directory: Path) -> dict[str, Any]:
+    """Locate this book's art, without reading the art itself.
 
     The bytes are fetched on demand instead: 463 covers at a median 553 KiB
     would be 250 MB of manifest, and the manifest crosses `kubectl exec`, which
@@ -104,9 +122,9 @@ def cover_art(tags, directory):
 
     try:
         sidecars = sorted(
-            name
-            for name in os.listdir(directory)
-            if name.lower().endswith(SIDECAR_SUFFIXES)
+            entry.name
+            for entry in directory.iterdir()
+            if entry.name.lower().endswith(SIDECAR_SUFFIXES)
         )
     except OSError:
         sidecars = []
@@ -119,7 +137,8 @@ def cover_art(tags, directory):
     }
 
 
-def record(path, root):
+def record(path: str, root: str) -> dict[str, Any]:
+    """Read one book's tags into a manifest entry, with what needs review."""
     handle = mutagen.File(path)
     if handle is None or not handle.tags:
         return {"path": os.path.relpath(path, root), "warnings": ["unreadable tags"]}
@@ -154,13 +173,14 @@ def record(path, root):
     if language and language not in LANGUAGES:
         warnings.append(f"unmapped language {language!r}")
 
-    art = cover_art(tags, os.path.dirname(path))
+    folder = Path(path).parent
+    art = cover_art(tags, folder)
     if not art["embedded"] and not art["sidecars"]:
         warnings.append("no cover art")
 
     return {
         "path": os.path.relpath(path, root),
-        "folder": os.path.relpath(os.path.dirname(path), root),
+        "folder": os.path.relpath(folder, root),
         "asin": asin,
         "asin_source": asin_source,
         "title": UNABRIDGED.sub("", album) if album else None,
@@ -179,13 +199,14 @@ def record(path, root):
     }
 
 
-def main():
+def main() -> None:
+    """Walk the root named in argv and write the manifest to stdout."""
     root = sys.argv[1] if len(sys.argv) > 1 else "/audio/import"
     books = []
     for directory, _, filenames in os.walk(root):
         for filename in sorted(filenames):
             if filename.lower().endswith(".m4b"):
-                path = os.path.join(directory, filename)
+                path = str(Path(directory, filename))
                 try:
                     books.append(record(path, root))
                 except Exception as exc:  # noqa: BLE001 - one bad file must not stop the walk

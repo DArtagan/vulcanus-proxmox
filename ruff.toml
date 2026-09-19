@@ -1,12 +1,49 @@
-# Lint rules for the Python in this repo, pinned rather than left to ruff's
-# default, which is not stable across releases: 0.16 selects PLW, SIM, S, BLE
-# and RUF on top of the documented core, and every one of those findings here
-# is a deliberate pattern in a test harness -- `exec` in the tool that exists
-# to test a monkeypatch, a held file handle asserting a file did not change,
-# `subprocess.run` whose return code is the assertion. A hook that reports
-# those is a hook people learn to skip.
+# Every rule ruff has, less the few below. Each exclusion is a rule whose
+# compliance is wrong for this repository rather than merely inconvenient. A
+# finding that is deliberate at one site is suppressed at that site with its
+# reason, so the rule keeps watching everywhere else.
 #
-# This is the documented core and catches what ruff-format cannot see: an
-# unused import, a name bound and never read, an undefined one.
+# ALL grows as ruff stabilises rules, so the `devenv update` that moves ruff can
+# bring new findings with it.
+
+# The oldest interpreter anything here runs on: tools/mb-seed/manifest.py runs
+# in the beets-flask pod's /venv, which is Python 3.12.
+target-version = "py312"
+
 [lint]
-select = ["E4", "E7", "E9", "F"]
+select = ["ALL"]
+ignore = [
+  # Each is the opposite of another rule (D211, D212). Selecting both makes ruff
+  # drop one per run and warn about it every time.
+  "D203",
+  "D213",
+  # ruff-format owns trailing commas, and the two disagree; ruff warns when both
+  # are enabled.
+  "COM812",
+  # Want pytest-style bare asserts. The tests here are stdlib unittest, run
+  # without pytest, and a bare assert only reports values under pytest's
+  # assertion rewriting -- here it would fail with an empty AssertionError.
+  "PT009",
+  "PT027",
+  # The repository's LICENSE covers every file; a header per file restates it.
+  "CPY001",
+  # Each directory is a set of scripts run directly, most with hyphenated names
+  # that cannot be imported as a package, so an __init__.py would claim a
+  # structure that does not exist.
+  "INP001",
+  # Fires on every subprocess call made without a shell, whatever its arguments,
+  # so it can only ever be suppressed. S602 and S604, which catch shell=True,
+  # stay on.
+  "S603",
+  # Wants an absolute path to every executable. The tools and tests run on NixOS,
+  # which has no /usr/bin/bash or /usr/bin/git, so resolving through PATH is the
+  # only form that works on both it and the Proxmox host.
+  "S607",
+  # Every module here is a script whose output is its interface.
+  "T201",
+]
+
+[lint.per-file-ignores]
+# A unittest method's name is already the sentence describing it; a docstring
+# would say the same thing twice.
+"test_*.py" = ["D1"]

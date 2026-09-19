@@ -27,33 +27,55 @@ import os
 import re
 import subprocess
 import sys
-from collections import namedtuple
-from datetime import datetime, timezone
+from collections.abc import Mapping
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, NamedTuple
 
-HC_PING = "/usr/local/bin/hc-ping"
-JOBS_CFG = "/etc/pve/jobs.cfg"
-VMLIST = "/etc/pve/.vmlist"
-STORAGE_CFG = "/etc/pve/storage.cfg"
-STORAGE_PRIV = "/etc/pve/priv/storage"
+HC_PING = Path("/usr/local/bin/hc-ping")
+JOBS_CFG = Path("/etc/pve/jobs.cfg")
+VMLIST = Path("/etc/pve/.vmlist")
+STORAGE_CFG = Path("/etc/pve/storage.cfg")
+STORAGE_PRIV = Path("/etc/pve/priv/storage")
 
 # vzdump runs at 10:00 UTC and this at 12:30, so a limit under 24 h would fail
 # every day on a healthy estate. 26 h is one run plus slack.
 DEFAULT_MAX_AGE_HOURS = 26
 
-Guest = namedtuple("Guest", "vmid guest_type in_scope")
-
-# `newest` is None for a group holding no backups at all, which is a real state
-# rather than a parse failure: vm/107 has existed with count 0 since PBS was
-# built. Identities are None when the config blob could not be read.
-Group = namedtuple("Group", "name count newest oldest_identity newest_identity")
+# Reuse shows as the identities at the two ends of a group differing, and a
+# single backup has only one end.
+BACKUPS_TO_SHOW_REUSE = 2
 
 
-class NoActiveJob(Exception):
+class Guest(NamedTuple):
+    """A live guest, and whether the vzdump job's scope takes it in."""
+
+    vmid: str
+    guest_type: str
+    in_scope: bool
+
+
+class Group(NamedTuple):
+    """A PBS backup group, reduced to what the verdict table reads.
+
+    `newest` is None for a group holding no backups at all, which is a real
+    state rather than a parse failure: vm/107 has existed with count 0 since PBS
+    was built. Identities are None when the config blob could not be read.
+    """
+
+    name: str
+    count: int
+    newest: int | None
+    oldest_identity: str | None
+    newest_identity: str | None
+
+
+class NoActiveJobError(Exception):
     """No enabled `all 1` vzdump job, so there is no scope to assert against."""
 
 
-def _sections(text, prefix):
-    """PVE's flat config format: `<type>: <id>` then indented `key value`.
+def _sections(text: str, prefix: str) -> list[dict[str, str]]:
+    """Parse PVE's flat config format: `<type>: <id>` then indented `key value`.
 
     Shared by jobs.cfg and storage.cfg, which are the same shape.
 
@@ -78,8 +100,8 @@ def _sections(text, prefix):
     return sections
 
 
-def _active_vzdump_job(text):
-    """The enabled vzdump job's settings, as a flat dict.
+def _active_vzdump_job(text: str) -> dict[str, str]:
+    """Return the enabled vzdump job's settings, as a flat dict.
 
     Raising rather than returning an empty scope is deliberate: a disabled or
     missing job means nothing is being backed up, and reporting full coverage
@@ -87,23 +109,25 @@ def _active_vzdump_job(text):
     """
     jobs = [job for job in _sections(text, "vzdump") if job.get("enabled", "1") != "0"]
     if not jobs:
-        raise NoActiveJob(f"no enabled vzdump job in {JOBS_CFG}")
+        message = f"no enabled vzdump job in {JOBS_CFG}"
+        raise NoActiveJobError(message)
     job = jobs[0]
     if job.get("all") != "1":
-        raise NoActiveJob(
+        message = (
             "the vzdump job does not use `all 1`, so its scope is not all-minus-exclude"
         )
+        raise NoActiveJobError(message)
     return job
 
 
-def parse_excluded(text):
-    """The VMIDs the vzdump job skips. Scope is every live guest but these."""
+def parse_excluded(text: str) -> set[str]:
+    """Return the VMIDs the vzdump job skips. Scope is every live guest but these."""
     excluded = _active_vzdump_job(text).get("exclude", "")
     return {vmid for vmid in excluded.split(",") if vmid}
 
 
-def parse_vmlist(text):
-    """Live guests as {vmid: "qemu"|"lxc"}, from PVE's own cluster list.
+def parse_vmlist(text: str) -> dict[str, str]:
+    """Read live guests as {vmid: "qemu"|"lxc"}, from PVE's own cluster list.
 
     One file gives both the id and the type, so PBS group names are derived
     rather than guessed -- `qm list` plus `pct list` would need two calls and
@@ -112,12 +136,13 @@ def parse_vmlist(text):
     return {vmid: entry["type"] for vmid, entry in json.loads(text)["ids"].items()}
 
 
-def group_name(vmid, guest_type):
+def group_name(vmid: str, guest_type: str) -> str:
+    """Name the PBS group a guest's backups land in."""
     return ("ct/" if guest_type == "lxc" else "vm/") + vmid
 
 
-def parse_identity(conf_text, guest_type):
-    """The guest's own identity, as carried in its backed-up config.
+def parse_identity(conf_text: str, guest_type: str) -> str | None:
+    """Read the guest's own identity, as carried in its backed-up config.
 
     A VM's smbios1 UUID is regenerated when a new guest is built at the same
     VMID and stable for that machine's life, which is what lets reuse be
@@ -139,7 +164,35 @@ def parse_identity(conf_text, guest_type):
     return None
 
 
-def classify(guests, groups, now, max_age_hours=DEFAULT_MAX_AGE_HOURS):
+def _excluded_group_state(group: Group | None, now: int) -> str:
+    """Describe the group of a guest the job excludes, which nothing refreshes."""
+    if group is None:
+        return "no group"
+    if group.count == 0:
+        return "an empty group"
+    return f"a group frozen {(now - group.newest) // 3600}h ago"
+
+
+def _reuse_reports(groups: Mapping[str, Group]) -> list[str]:
+    """Report each group whose oldest and newest backups are different machines."""
+    reports = []
+    for name, group in sorted(groups.items()):
+        ends = (group.oldest_identity, group.newest_identity)
+        if group.count >= BACKUPS_TO_SHOW_REUSE and all(ends) and ends[0] != ends[1]:
+            reports.append(
+                f"{name}: VMID reused -- oldest backup is {ends[0]}, "
+                f"newest is {ends[1]}; "
+                "the earlier machine is being evicted one backup per run"
+            )
+    return reports
+
+
+def classify(
+    guests: Mapping[str, Guest],
+    groups: Mapping[str, Group],
+    now: int,
+    max_age_hours: int = DEFAULT_MAX_AGE_HOURS,
+) -> tuple[list[str], list[str]]:
     """Sort every guest and group into failures and reports.
 
     Pure: it takes parsed state and returns strings, so the verdict table can
@@ -157,12 +210,7 @@ def classify(guests, groups, now, max_age_hours=DEFAULT_MAX_AGE_HOURS):
         held = group is not None and group.count > 0
 
         if not guest.in_scope:
-            if group is None:
-                state = "no group"
-            elif not held:
-                state = "an empty group"
-            else:
-                state = f"a group frozen {(now - group.newest) // 3600}h ago"
+            state = _excluded_group_state(group, now)
             reports.append(f"{name}: live but excluded from the job, with {state}")
             continue
 
@@ -184,81 +232,90 @@ def classify(guests, groups, now, max_age_hours=DEFAULT_MAX_AGE_HOURS):
             f"{name}: guest gone, group frozen at {group.count} backups, newest {age}"
         )
 
-    for name, group in sorted(groups.items()):
-        ends = (group.oldest_identity, group.newest_identity)
-        if group.count >= 2 and all(ends) and ends[0] != ends[1]:
-            reports.append(
-                f"{name}: VMID reused -- oldest backup is {ends[0]}, newest is {ends[1]}; "
-                "the earlier machine is being evicted one backup per run"
-            )
-
+    reports.extend(_reuse_reports(groups))
     return problems, reports
 
 
-def pbs_environment():
-    """Credentials for proxmox-backup-client, from PVE's own storage entry.
+def pbs_environment() -> dict[str, str]:
+    """Build credentials for proxmox-backup-client, from PVE's own storage entry.
 
     Read rather than duplicated into this repo: the datastore, its fingerprint
     and its password already live on the host, and a second copy would be a
     second thing to rotate. The backups are unencrypted (every file reports
     crypt-mode "none"), so the datastore password is the whole credential.
     """
-    with open(STORAGE_CFG) as handle:
-        entries = _sections(handle.read(), "pbs")
+    entries = _sections(STORAGE_CFG.read_text(), "pbs")
     if not entries:
-        raise RuntimeError("no pbs storage entry in " + STORAGE_CFG)
+        message = f"no pbs storage entry in {STORAGE_CFG}"
+        raise RuntimeError(message)
     storage = entries[0]
-    with open(os.path.join(STORAGE_PRIV, storage["id"] + ".pw")) as handle:
-        password = handle.read().strip()
+    password = (STORAGE_PRIV / f"{storage['id']}.pw").read_text().strip()
+    repository = f"{storage['username']}@{storage['server']}:{storage['datastore']}"
     return {
         **os.environ,
-        "PBS_REPOSITORY": f"{storage['username']}@{storage['server']}:{storage['datastore']}",
+        "PBS_REPOSITORY": repository,
         "PBS_PASSWORD": password,
         "PBS_FINGERPRINT": storage["fingerprint"],
     }
 
 
-def _client(args, env, binary=False):
+def _client(args: list[str], env: Mapping[str, str]) -> bytes:
+    """Run proxmox-backup-client and return what it wrote to stdout."""
     result = subprocess.run(
         ["proxmox-backup-client", *args],
         env=env,
         capture_output=True,
         check=True,
     )
-    return result.stdout if binary else json.loads(result.stdout)
+    return result.stdout
 
 
-def _iso(epoch):
-    return datetime.fromtimestamp(epoch, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+def _client_json(args: list[str], env: Mapping[str, str]) -> list[dict[str, Any]]:
+    """Run a proxmox-backup-client listing and parse its JSON."""
+    return json.loads(_client([*args, "--output-format", "json"], env))
 
 
-def collect_groups(env):
-    """Every group in the datastore, with the identity at each end.
+def _iso(epoch: int) -> str:
+    """Format an epoch the way proxmox-backup-client names a snapshot."""
+    return datetime.fromtimestamp(epoch, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _snapshot_identity(
+    snapshot: str, blob: str, pve_type: str, env: Mapping[str, str]
+) -> str | None:
+    """Read the identity from one snapshot's config blob, or None if unreadable.
+
+    An unreadable end is not evidence of two machines, so it reads as unknown
+    rather than failing the whole check.
+    """
+    try:
+        raw = _client(["restore", snapshot, blob, "-"], env)
+        return parse_identity(raw.decode("utf-8", "replace"), pve_type)
+    except (subprocess.CalledProcessError, UnicodeError):
+        return None
+
+
+def collect_groups(env: Mapping[str, str]) -> dict[str, Group]:
+    """Read every group in the datastore, with the identity at each end.
 
     Two blob reads per group, ~0.25 s each, and only where there are at least
     two backups to compare -- a single backup cannot show reuse.
     """
     groups = {}
-    for entry in _client(["list", "--output-format", "json"], env):
+    for entry in _client_json(["list"], env):
         guest_type, vmid = entry["backup-type"], entry["backup-id"]
         name = f"{guest_type}/{vmid}"
-        snapshots = _client(["snapshots", name, "--output-format", "json"], env)
+        snapshots = _client_json(["snapshots", name], env)
         times = sorted(snapshot["backup-time"] for snapshot in snapshots)
         blob = "pct.conf.blob" if guest_type == "ct" else "qemu-server.conf.blob"
         pve_type = "lxc" if guest_type == "ct" else "qemu"
 
         identities = [None, None]
-        if len(times) >= 2:
-            for index, when in enumerate((times[0], times[-1])):
-                try:
-                    raw = _client(
-                        ["restore", f"{name}/{_iso(when)}", blob, "-"], env, binary=True
-                    )
-                    identities[index] = parse_identity(
-                        raw.decode("utf-8", "replace"), pve_type
-                    )
-                except (subprocess.CalledProcessError, UnicodeError):
-                    pass  # an unreadable end is not evidence of two machines
+        if len(times) >= BACKUPS_TO_SHOW_REUSE:
+            identities = [
+                _snapshot_identity(f"{name}/{_iso(when)}", blob, pve_type, env)
+                for when in (times[0], times[-1])
+            ]
 
         groups[name] = Group(
             name=name,
@@ -270,26 +327,28 @@ def collect_groups(env):
     return groups
 
 
-def ping(check, suffix=""):
-    # `-` in spirit: a monitor that cannot be reached must not turn a correct
-    # assertion into a crash. The check goes red on its own period instead.
+def ping(check: str, suffix: str = "") -> None:
+    """Report to a healthchecks check, never raising if it cannot be reached.
+
+    `-` in spirit: a monitor that cannot be reached must not turn a correct
+    assertion into a crash. The check goes red on its own period instead.
+    """
     subprocess.run([HC_PING, check, *([suffix] if suffix else [])], check=False)
 
 
-def main(argv):
-    check = argv[1]
-    max_age_hours = int(argv[2]) if len(argv) > 2 else DEFAULT_MAX_AGE_HOURS
+def main(argv: list[str]) -> int:
+    """Assert coverage, ping the check named in argv, and return the exit code."""
+    check, *limit = argv[1:]
+    max_age_hours = int(limit[0]) if limit else DEFAULT_MAX_AGE_HOURS
 
     try:
-        with open(JOBS_CFG) as handle:
-            excluded = parse_excluded(handle.read())
-        with open(VMLIST) as handle:
-            live = parse_vmlist(handle.read())
+        excluded = parse_excluded(JOBS_CFG.read_text())
+        live = parse_vmlist(VMLIST.read_text())
         env = pbs_environment()
         groups = collect_groups(env)
     except (
         OSError,
-        NoActiveJob,
+        NoActiveJobError,
         RuntimeError,
         subprocess.CalledProcessError,
         ValueError,
@@ -305,7 +364,7 @@ def main(argv):
     problems, reports = classify(
         guests,
         groups,
-        now=int(datetime.now(timezone.utc).timestamp()),
+        now=int(datetime.now(UTC).timestamp()),
         max_age_hours=max_age_hours,
     )
 

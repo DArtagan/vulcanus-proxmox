@@ -11,44 +11,44 @@ unless `process_start_time_seconds` is compared across the transition. See
 todos/generic-device-plugin-hang.md.
 """
 
-import os
 import sys
 import unittest
+from pathlib import Path
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
 import detect  # noqa: E402
 
 
-def stable_run(n=12, ms=2.0):
+def stable_run(n: int = 12, ms: float = 2.0) -> list[float]:
     return [ms] * n
 
 
 class TestIsFlip(unittest.TestCase):
-    def test_step_after_stable_run_is_a_flip(self):
+    def test_step_after_stable_run_is_a_flip(self) -> None:
         self.assertTrue(detect.is_flip(stable_run(), 250.0, 100.0, 100.0))
 
-    def test_restart_is_not_a_flip(self):
+    def test_restart_is_not_a_flip(self) -> None:
         self.assertFalse(detect.is_flip(stable_run(), 250.0, 100.0, 900.0))
 
-    def test_short_stable_run_is_not_enough(self):
+    def test_short_stable_run_is_not_enough(self) -> None:
         self.assertFalse(detect.is_flip(stable_run(n=3), 250.0, 100.0, 100.0))
 
-    def test_unstable_lead_in_is_not_a_flip(self):
-        self.assertFalse(detect.is_flip(stable_run(n=11) + [40.0], 250.0, 100.0, 100.0))
+    def test_unstable_lead_in_is_not_a_flip(self) -> None:
+        self.assertFalse(detect.is_flip([*stable_run(n=11), 40.0], 250.0, 100.0, 100.0))
 
-    def test_sample_below_threshold_is_not_a_flip(self):
+    def test_sample_below_threshold_is_not_a_flip(self) -> None:
         self.assertFalse(detect.is_flip(stable_run(), 20.0, 100.0, 100.0))
 
-    def test_missing_start_times_refuse_rather_than_guess(self):
+    def test_missing_start_times_refuse_rather_than_guess(self) -> None:
         self.assertFalse(detect.is_flip(stable_run(), 250.0, None, 100.0))
         self.assertFalse(detect.is_flip(stable_run(), 250.0, 100.0, None))
 
-    def test_real_worker1_flip_09_06(self):
+    def test_real_worker1_flip_09_06(self) -> None:
         # 09-06 12:00:30Z, 1.7ms -> 4338.3ms, process age 4.2 min.
         self.assertTrue(detect.is_flip([1.7] * 16, 4338.3, 1.0, 1.0))
 
-    def test_real_worker1_flip_09_08_slow_step(self):
+    def test_real_worker1_flip_09_08_slow_step(self) -> None:
         # 09-08 13:48:45Z, 1.5ms -> 62.4ms. The smallest real step seen; the
         # 50ms threshold has to stay below it.
         self.assertTrue(detect.is_flip([1.5] * 16, 62.4, 1.0, 1.0))
@@ -61,25 +61,25 @@ class TestIsSustained(unittest.TestCase):
     onset would have SIGQUITed a healthy plugin on ARM's node for no data.
     """
 
-    def test_three_consecutive_elevated_is_sustained(self):
+    def test_three_consecutive_elevated_is_sustained(self) -> None:
         self.assertTrue(detect.is_sustained([200.0, 300.0, 400.0]))
 
-    def test_observed_worker1_transient_is_not_sustained(self):
+    def test_observed_worker1_transient_is_not_sustained(self) -> None:
         # 2026-09-17 08:56:14Z: 775.6 -> 138.1 -> 5.5, recovered unaided.
         self.assertFalse(detect.is_sustained([775.6, 138.1, 5.5]))
 
-    def test_observed_worker0_transient_is_not_sustained(self):
+    def test_observed_worker0_transient_is_not_sustained(self) -> None:
         # 2026-09-17 06:23:32Z: a single 98.5ms sample.
         self.assertFalse(detect.is_sustained([98.5, 1.9, 1.6]))
 
-    def test_two_elevated_is_not_enough(self):
+    def test_two_elevated_is_not_enough(self) -> None:
         self.assertFalse(detect.is_sustained([200.0, 300.0]))
 
-    def test_only_the_tail_counts(self):
+    def test_only_the_tail_counts(self) -> None:
         # Recovery then a fresh climb must not borrow the earlier excursion.
         self.assertFalse(detect.is_sustained([900.0, 900.0, 2.0, 900.0]))
 
-    def test_historical_onset_climb_is_sustained(self):
+    def test_historical_onset_climb_is_sustained(self) -> None:
         # Post-onset medians from the age-vs-latency table: once a real flip
         # starts it stays up and climbs, so this must fire.
         self.assertTrue(detect.is_sustained([113.0, 190.0, 404.0]))
