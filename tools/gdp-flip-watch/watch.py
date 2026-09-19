@@ -1,6 +1,6 @@
 """Watch generic-device-plugin for a flip and capture the process when one happens.
 
-    python3 tools/gdp-flip-watch/watch.py --out /tmp/gdp-flip --node piraeus-worker-1
+    python3 tools/gdp-flip-watch/watch.py --out ~/gdp-flip --node piraeus-worker-1 --once
     python3 tools/gdp-flip-watch/watch.py --dry-run          # detect, capture nothing
 
 Why this exists, and what a capture has to explain, are in
@@ -111,9 +111,56 @@ def restart_count(pod):
     return int(res.stdout.strip() or -1)
 
 
+def debug_exec(pod, name, script):
+    """Run `script` in an ephemeral container sharing the plugin's namespaces.
+
+    Container names are RFC 1123 labels, so `name` must be lowercase with no
+    stray characters: a name built from a `%Y%m%dT%H%M%SZ` stamp keeps the
+    trailing `Z`, the API rejects it, and an unchecked return code turns that
+    into two empty files and a report of success.
+    """
+    res = run(
+        [
+            "kubectl",
+            "debug",
+            "-n",
+            NS,
+            pod,
+            "--image=busybox:1.36",
+            "--target=generic-device-plugin",
+            "-c",
+            name,
+            "--attach=false",
+            "--",
+            "sh",
+            "-c",
+            script,
+        ],
+        timeout=180,
+    )
+    if res.returncode != 0:
+        raise RuntimeError(f"kubectl debug {name} failed: {res.stderr.strip()[:300]}")
+    return name
+
+
+def wait_for_container(pod, name, timeout=180):
+    """Block until the ephemeral container has run, rather than guessing a sleep."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        res = run(["kubectl", "get", "pod", "-n", NS, pod, "-o", "json"], timeout=60)
+        if res.returncode == 0:
+            for c in json.loads(res.stdout)["status"].get(
+                "ephemeralContainerStatuses", []
+            ):
+                if c["name"] == name and "terminated" in c.get("state", {}):
+                    return True
+        time.sleep(5)
+    return False
+
+
 def capture(pod, node, out_dir, gather_ms):
     """Collect thread state, then SIGQUIT and keep the goroutine dump."""
-    stamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dt%H%M%S")
     base = os.path.join(out_dir, f"{node}-{stamp}")
     os.makedirs(out_dir, exist_ok=True)
     log(f"CAPTURE {pod} on {node} at {gather_ms:.1f}ms -> {base}.*")
@@ -125,53 +172,18 @@ def capture(pod, node, out_dir, gather_ms):
         "echo; echo -n 'wchan: '; cat $t/wchan 2>/dev/null; echo; done; "
         "echo '== status'; cat /proc/1/status"
     )
-    proc_c = f"dbg-proc-{stamp[-6:]}"
-    run(
-        [
-            "kubectl",
-            "debug",
-            "-n",
-            NS,
-            pod,
-            "--image=busybox:1.36",
-            "--target=generic-device-plugin",
-            "-c",
-            proc_c,
-            "--attach=false",
-            "--",
-            "sh",
-            "-c",
-            script,
-        ],
-        timeout=180,
-    )
-    time.sleep(15)
+    proc_c = debug_exec(pod, f"dbg-proc-{stamp[-6:]}", script)
+    if not wait_for_container(pod, proc_c):
+        log(f"  WARNING: {proc_c} never terminated; reading logs anyway")
     res = run(["kubectl", "logs", "-n", NS, pod, "-c", proc_c], timeout=120)
+    if not res.stdout:
+        log(f"  WARNING: {proc_c} produced no output: {res.stderr.strip()[:200]}")
     with open(f"{base}.threads.txt", "w") as fh:
         fh.write(res.stdout)
     log(f"  wrote {base}.threads.txt ({len(res.stdout)} bytes)")
 
     before = restart_count(pod)
-    kill_c = f"dbg-kill-{stamp[-6:]}"
-    run(
-        [
-            "kubectl",
-            "debug",
-            "-n",
-            NS,
-            pod,
-            "--image=busybox:1.36",
-            "--target=generic-device-plugin",
-            "-c",
-            kill_c,
-            "--attach=false",
-            "--",
-            "sh",
-            "-c",
-            "kill -QUIT 1",
-        ],
-        timeout=180,
-    )
+    debug_exec(pod, f"dbg-kill-{stamp[-6:]}", "kill -QUIT 1")
 
     # The container restarts only once the dump has finished writing, so
     # --previous stays empty until then. Poll restartCount rather than sleeping.
@@ -205,10 +217,25 @@ def main():
 
     hist = collections.defaultdict(list)
     prev_start = {}
+    excursion = {}
+    os.makedirs(args.out, exist_ok=True)
+    ledger = os.path.join(args.out, "excursions.jsonl")
     log(
         f"watching; capture on {args.node or 'any node'}"
-        f"{' (dry run)' if args.dry_run else ''}"
+        f"{' (dry run)' if args.dry_run else ''}; ledger {ledger}"
     )
+
+    def record(**fields):
+        """Every excursion is logged whether or not it is worth capturing.
+
+        Whether flips begin as transients is unanswered, and the only way to
+        find out is to keep the ones that recover as well as the ones that do
+        not. This costs nothing and needs no destructive action.
+        """
+        fields["t"] = datetime.datetime.now(datetime.UTC).isoformat()
+        with open(ledger, "a") as fh:
+            fh.write(json.dumps(fields) + "\n")
+
     while True:
         try:
             cur = sample()
@@ -218,26 +245,50 @@ def main():
             continue
         pods = None
         for inst, (ms, start) in sorted(cur.items()):
-            flipped = detect.is_flip(hist[inst], ms, prev_start.get(inst), start)
+            onset = detect.is_flip(hist[inst], ms, prev_start.get(inst), start)
             hist[inst].append(ms)
             del hist[inst][:-40]
             prev_start[inst] = start
-            if not flipped:
+
+            if onset:
+                excursion[inst] = [ms]
+                log(f"ONSET {inst}: {hist[inst][-2]:.1f}ms -> {ms:.1f}ms")
+                record(event="onset", instance=inst, ms=ms)
                 continue
+            if inst not in excursion:
+                continue
+
+            # In an excursion: either it recovers, or it holds and is a flip.
+            if ms <= detect.FLIP_MS:
+                samples = excursion.pop(inst)
+                log(f"  transient on {inst} ended after {len(samples)} sample(s)")
+                record(event="transient", instance=inst, samples=samples)
+                continue
+            excursion[inst].append(ms)
+            if not detect.is_sustained(excursion[inst]):
+                continue
+
+            samples = excursion.pop(inst)
             if pods is None:
                 pods = pod_map()
             pod, node = pods.get(inst, (None, None))
+            log(f"FLIP CONFIRMED {node or inst}: {samples}")
+            record(event="flip", instance=inst, node=node, samples=samples)
             if pod is None:
-                log(f"FLIP on {inst} at {ms:.1f}ms but no pod matches that IP")
+                log(f"  no pod matches {inst}; cannot capture")
                 continue
-            log(f"FLIP {node} {pod}: {hist[inst][-2]:.1f}ms -> {ms:.1f}ms")
             if args.node and node not in args.node:
                 log(f"  {node} not in capture list; watching only")
                 continue
             if args.dry_run:
                 log("  dry run; not capturing")
             else:
-                capture(pod, node, args.out, ms)
+                try:
+                    capture(pod, node, args.out, samples[-1])
+                except Exception as exc:
+                    log(f"  CAPTURE FAILED: {exc}")
+                    record(event="capture_failed", instance=inst, error=str(exc))
+                    continue
             if args.once:
                 return
         time.sleep(args.interval)

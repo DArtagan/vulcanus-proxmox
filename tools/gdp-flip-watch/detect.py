@@ -10,6 +10,7 @@ flip sit at 6.4ms or below.
 STABLE_MS = 10.0
 FLIP_MS = 50.0
 MIN_RUN = 10
+CONFIRM_RUN = 3
 
 
 def is_flip(
@@ -39,3 +40,21 @@ def is_flip(
     if len(recent_ms) < min_run:
         return False
     return all(sample < stable_ms for sample in recent_ms[-min_run:])
+
+
+def is_sustained(recent_ms, confirm_run=CONFIRM_RUN, flip_ms=FLIP_MS):
+    """True when the last `confirm_run` samples are all degraded.
+
+    An onset is not enough to justify the capture, which kills the process. Both
+    excursions observed after Fix C recovered unaided — 775.6/138.1/5.5 ms on
+    worker-1 and a lone 98.5 ms on worker-0 — so firing on an onset would have
+    destroyed a healthy plugin and produced nothing.
+
+    Three is calibrated against those two transients, the longest of which held
+    for two samples. If a three-sample transient is ever recorded, raise it: the
+    cost of waiting is a later capture, and the cost of firing early is a live
+    process on worker-1 and the ARM admission window that comes with it.
+    """
+    if len(recent_ms) < confirm_run:
+        return False
+    return all(sample > flip_ms for sample in recent_ms[-confirm_run:])

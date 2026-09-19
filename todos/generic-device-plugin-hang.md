@@ -741,21 +741,30 @@ only thing that addresses *why* worker-0 ever started failing.
 
 ### Catching a flip
 
-`tools/gdp-flip-watch/` watches every plugin instance and fires the capture the
-moment one flips. `detect.py` holds the predicate and `test_detect.py` its
-tests, including the restart-conflation case that is the whole reason it is a
-tested function rather than an inline comparison.
+`tools/gdp-flip-watch/` watches every plugin instance and fires the capture when
+one flips. `detect.py` holds the predicates and `test_detect.py` their tests,
+including the restart-conflation case that is the whole reason they are tested
+functions rather than inline comparisons.
 
 ```sh
 python3 tools/gdp-flip-watch/watch.py --dry-run          # detect only
-python3 tools/gdp-flip-watch/watch.py --out /tmp/gdp-flip --node piraeus-worker-0
+python3 tools/gdp-flip-watch/watch.py --out ~/gdp-flip --node piraeus-worker-1 --once
 ```
 
 It reaches Prometheus by exec-ing the Alertmanager pod rather than through a
 port-forward, because a tunnel does not survive the hours this has to run. On a
-flip it writes `<node>-<stamp>.threads.txt` (per-thread `utime`/`stime` and
-`wchan`, collected *before* the kill, since `SIGQUIT` destroys that evidence)
-and `<node>-<stamp>.goroutines.txt`.
+confirmed flip it writes `<node>-<stamp>.threads.txt` (per-thread
+`utime`/`stime` and `wchan`, collected *before* the kill, since `SIGQUIT`
+destroys that evidence) and `<node>-<stamp>.goroutines.txt`. **Record the
+`--out` path here when a capture lands** — losing the 2026-08-19 dumps was a
+failure to write down where they went.
+
+**Detection is two-stage, because an onset is not a flip.** Every excursion
+above 50 ms is appended to `excursions.jsonl` in the output directory —
+transients included, since whether flips begin as transients is unanswered and
+keeping the ones that recover is the only way to find out. The destructive
+capture fires only once three consecutive samples stay elevated. Use `--once`:
+without it the watcher fires on every subsequent flip.
 
 **The healthy control for the `stime` clue**, taken 2026-09-17 from worker-0's
 idle process — the thing the 2026-08-19 dumps lacked:
@@ -769,6 +778,29 @@ idle process — the thing the 2026-08-19 dumps lacked:
 Healthy runs about 2.4:1 utime:stime with every thread parked in
 `futex_do_wait`. Degraded inverts that to 1:157. Whatever the flip is, it turns
 a process that is mostly idle into one that is almost entirely in the kernel.
+
+### Transients exist, and Fix C has a first real signal
+
+First run, 2026-09-17 04:26Z → 16:04Z on all three nodes, capturing worker-1
+only. Two excursions, **neither a flip**:
+
+```
+06:23:32Z  worker-0   1.5 ->  98.5 ms                     recovered in 1 sample
+08:56:14Z  worker-1   8.1 -> 775.6 -> 138.1 -> 5.5 ms     recovered in ~3 min
+```
+
+Both recovered unaided, with no restart — which also retires "a restart is the
+only thing that clears a wedge", true of the old regime and not of this one.
+Neither process was reaped; all three have run since 03:32Z with zero restarts.
+
+**Worker-1 went 12.5 hours without a sustained flip**, against a pre-C baseline
+of one every ~11 minutes. That is the first real evidence for Fix C, and it is
+not conclusive: 09-11…09-15 was five naturally stable days at the old 15 s rate,
+so a quiet spell explains it equally well. It also sits awkwardly with the
+117 req/s test showing load does not cause degradation — if C is working, the
+mechanism is not what it was shipped on. Do not resolve that tension by
+assuming; it needs more days, and the `excursions.jsonl` ledger is what will
+answer it.
 
 **The capture is destructive and the watcher must be aimed deliberately.**
 `SIGQUIT` is fatal to a Go process, so the container restarts; on worker-1 that

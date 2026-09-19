@@ -54,5 +54,36 @@ class TestIsFlip(unittest.TestCase):
         self.assertTrue(detect.is_flip([1.5] * 16, 62.4, 1.0, 1.0))
 
 
+class TestIsSustained(unittest.TestCase):
+    """An onset alone does not justify the capture, which destroys the process.
+
+    Both excursions seen after Fix C recovered on their own, so firing on an
+    onset would have SIGQUITed a healthy plugin on ARM's node for no data.
+    """
+
+    def test_three_consecutive_elevated_is_sustained(self):
+        self.assertTrue(detect.is_sustained([200.0, 300.0, 400.0]))
+
+    def test_observed_worker1_transient_is_not_sustained(self):
+        # 2026-09-17 08:56:14Z: 775.6 -> 138.1 -> 5.5, recovered unaided.
+        self.assertFalse(detect.is_sustained([775.6, 138.1, 5.5]))
+
+    def test_observed_worker0_transient_is_not_sustained(self):
+        # 2026-09-17 06:23:32Z: a single 98.5ms sample.
+        self.assertFalse(detect.is_sustained([98.5, 1.9, 1.6]))
+
+    def test_two_elevated_is_not_enough(self):
+        self.assertFalse(detect.is_sustained([200.0, 300.0]))
+
+    def test_only_the_tail_counts(self):
+        # Recovery then a fresh climb must not borrow the earlier excursion.
+        self.assertFalse(detect.is_sustained([900.0, 900.0, 2.0, 900.0]))
+
+    def test_historical_onset_climb_is_sustained(self):
+        # Post-onset medians from the age-vs-latency table: once a real flip
+        # starts it stays up and climbs, so this must fire.
+        self.assertTrue(detect.is_sustained([113.0, 190.0, 404.0]))
+
+
 if __name__ == "__main__":
     unittest.main()
