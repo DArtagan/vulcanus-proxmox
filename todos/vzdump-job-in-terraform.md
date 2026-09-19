@@ -10,7 +10,7 @@ to this repo. Two settings that decide how hard it hits `rpool` were applied by
 hand with `pvesh` on 2026-08-23:
 
 ```
---exclude       100,101,106,107   (was 100,107)
+--exclude       107               (100, 101 and 106 destroyed 2026-09-18)
 --performance   max-workers=2     (default 16)
 ```
 
@@ -19,7 +19,7 @@ backup job is tuned". The whole job as it stands:
 
 ```
 schedule 4:00 · all 1 · mode snapshot · storage pbs · compress zstd · quiet 1
-exclude 100,101,106,107 · performance max-workers=2 · prune-backups keep-last=31
+exclude 107 · performance max-workers=2 · prune-backups keep-last=31
 mailnotification failure · mailto <address> · node vulcanus · enabled 1
 ```
 
@@ -125,7 +125,7 @@ cd terraform && tofu providers schema -json \
 1. `tofu plan` — one resource to add, and **no diff on the telmate VMs**.
 2. Delete the old job, `tofu apply`.
 3. `pvesh get /cluster/backup --output-format json` — exactly one entry, id
-   `nightly-pbs`, `exclude: 100,101,106,107`, `performance: {max-workers: 2}`,
+   `nightly-pbs`, `exclude: 107`, `performance: {max-workers: 2}`,
    `next-run` at 04:00 local tomorrow.
 4. `tofu plan` again — **must be empty.** PVE normalises some fields on write
    (`schedule` may come back as `4:00` rather than `04:00`); anything it rewrites
@@ -141,7 +141,7 @@ Unrelated but in the way: `tofu plan` already reports drift on
 
 > Read `todos/vzdump-job-in-terraform.md`. The nightly Proxmox backup job lives
 > only in `/etc/pve/jobs.cfg`, and two settings applied by hand on 2026-08-23 —
-> `--exclude 100,101,106,107` and `--performance max-workers=2` — exist nowhere
+> `--exclude 107` and `--performance max-workers=2` — exist nowhere
 > in git. Bringing it under Terraform needs `bpg/proxmox`'s `proxmox_backup_job`,
 > which was blocked because no released version implemented `exclude`; it is
 > merged on `main` but 0.111.1 (2026-07-03) predates it. Check whether a newer

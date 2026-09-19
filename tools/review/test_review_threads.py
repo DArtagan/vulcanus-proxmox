@@ -22,7 +22,6 @@ import unittest
 
 from review_threads import (
     GraphQLError,
-    Thread,
     format_threads,
     parse_threads,
     raise_for_graphql_errors,

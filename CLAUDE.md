@@ -327,8 +327,11 @@ Helm chart templates under `kubernetes/charts/*/templates/` are Go templates
 rather than YAML, so `yamlfmt` alone skips them; see the `treefmt` block in
 `devenv.nix` for the full exclude list and why each entry is there.
 
-`tflint` and `shellcheck` also run on `git commit`. They are linters, so they
-report rather than rewrite and stay outside treefmt.
+`ruff`, `tflint` and `shellcheck` also run on `git commit`. They are linters, so
+they report rather than rewrite and stay outside treefmt — `ruff` is pinned to
+`--no-fix` for exactly that reason, and its rule selection lives in
+[`ruff.toml`](ruff.toml) rather than being left to a default that moves between
+releases.
 
 `sops-encrypted` runs there too, and refuses any `*.sops.yaml` that is not
 encrypted — either missing its `sops:` block entirely, or carrying a plaintext
