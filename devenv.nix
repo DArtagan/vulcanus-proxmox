@@ -272,16 +272,10 @@
   };
 
   git-hooks.hooks = {
-    # Formatting is all treefmt; these three are linters, not formatters.
-    #
-    # --no-fix because git-hooks ships this as `ruff check --fix`. Rewriting
-    # here would put a second formatter outside treefmt, editing a file treefmt
-    # has already written in the same commit -- which is what trips its
-    # --fail-on-change.
-    ruff = {
-      enable = true;
-      args = [ "--no-fix" ];
-    };
+    # Formatting is all treefmt; these are linters. ruff is the exception that
+    # also rewrites, applying its safe fixes wherever the hooks run -- which is
+    # every file in the repo on shell entry, not just the one being worked on.
+    ruff.enable = true;
     shellcheck.enable = true;
     tflint.enable = true;
     treefmt.enable = true;
