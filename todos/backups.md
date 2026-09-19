@@ -511,7 +511,7 @@ restic check · **cluster backup dead-man's switch** · restore drill · externa
 
 **Eight exist as of 2026-09-02** — Watchdog, syncoid-storage, syncoid-root,
 syncoid-data, sanoid-mini-nas, sanoid-vulcanus, pool-health-mini-nas and
-pool-health-vulcanus. syncoid-data is temporary and frees a slot at Phase 4.
+pool-health-vulcanus. syncoid-data narrows rather than retires at Phase 4 and keeps its slot.
 
 The split is principled rather than a bundling compromise: checks are spent only on
 what Prometheus **cannot** see — the two hosts, PBS, and the disk. Everything
@@ -519,9 +519,10 @@ in-cluster uses Prometheus rules, with **one** external check that the reconcili
 CronJob pings on success, because Prometheus and that CronJob both die with the
 cluster.
 
-`syncoid-vulcanus-data` retires in Phase 4, freeing a slot. If it still binds,
-healthchecks is Apache-2.0 and self-hosting it **on mini-nas** puts it in a third
-failure domain from both the cluster and vulcanus, at no subscription cost.
+`syncoid-vulcanus-data` **does not retire** in Phase 4 and frees no slot: it narrows to
+`rpool/data/vm-107-disk-0` and keeps its name, so the enumerated 20 has no slack left.
+If that binds, healthchecks is Apache-2.0 and self-hosting it **on mini-nas** puts it in
+a third failure domain from both the cluster and vulcanus, at no subscription cost.
 
 All alerts land in Pushover via the existing Alertmanager receiver; healthchecks
 routes to the same place. **PVE 9.2.2 and PBS 4.1 both support webhook notification
@@ -1183,24 +1184,63 @@ lacks — but **not a prune job on PBS #2**: see *Retention, and what ends it*, 
 it sync with `remove-vanished` and no prune of its own, so it tracks the primary exactly
 and a retired guest's frozen group is preserved rather than expired.
 
-#### Retiring `rpool/data` from replication
+#### Retiring `rpool/data` from replication — except the PBS appliance
 
-Three changes that must land together, because each one alone breaks the freshness
+Guest images leave ZFS for PBS, with **one exception that stays replicated**:
+`rpool/data/vm-107-disk-0`, the Proxmox Backup Server VM's own OS disk. Decided
+2026-09-19, user's call.
+
+**Why the exception.** PBS #2 gives the *chunks* an offsite twin, but nothing gives
+PBS #1's own configuration one. `/etc/proxmox-backup` — datastore definitions, users,
+ACLs, prune/GC/verify job schedules, and the TLS certificate whose fingerprint is
+pinned in vulcanus's `/etc/pve/storage.cfg` — lives on that OS disk. Retiring
+`rpool/data` wholesale leaves it as the only thing in the estate with one copy that a
+reinstall cannot reconstruct; everything else ends this phase with two. Keeping the one
+dataset costs ~18 GiB against a 19.1 TiB pool, needs no new mechanism, and preserves a
+`zfs send`-back restore that skips the manual install
+`terraform/modules/proxmox_backup_server/main.tf` still requires ("complete the install
+manually via the booted GUI").
+
+**What it does not buy.** If `rpool` is lost, recovery still goes *through PBS #2* — it
+is a working PBS holding every backup, and reading its datastore never needs the
+primary's config. The exception buys a faster rebuild of the primary, not the backups
+themselves. It is cheap insurance against rebuild friction, not a second lineage.
+
+Four changes that must land together, because each one alone breaks the freshness
 check:
 
-- **Drop the `vulcanus-data` command** from mini-nas's `services.syncoid.commands`.
-- **Drop `rpool/data` from the check's source roots.** The loop at
-  `~/repositories/mini-nas/modules/backup_monitoring/default.nix:183` asserts a target
-  counterpart for every source dataset, so leaving it there turns all thirteen live
-  guests into missing-counterpart notes the morning after the replicas go.
-- **Destroy `rpool/foreign-backups/vulcanus/data` and its sanoid entry.** Retaining it
-  leaves ~1.44 TiB of frozen replicas that the age loop reports stale every day, for a
-  lineage nothing writes to any more.
+- **Narrow the `vulcanus-data` syncoid command** rather than dropping it. `source`
+  becomes `rpool/data/vm-107-disk-0`, `target`
+  `rpool/foreign-backups/vulcanus/data/vm-107-disk-0`, and `recursive = false` — a zvol
+  has no children. **No re-seed:** the target already exists and shares a snapshot
+  lineage with the source, so syncoid continues incrementally.
 
-Afterwards PBS is the only lineage holding guest images, which is what makes the
+  Keep the command's *name*. `checkNameFor` derives the healthchecks check from the
+  unit name, so renaming it to match its narrower scope costs a new check and a new
+  sops secret for no functional gain. A comment at the command carries the scope
+  instead.
+
+- **Narrow the check's source roots** at
+  `~/repositories/mini-nas/modules/backup_monitoring/default.nix:183`, from
+  `rpool/data` to `rpool/data/vm-107-disk-0`. The loop asserts a target counterpart for
+  every dataset under each root, so leaving `rpool/data` there turns every live guest
+  into a missing-counterpart note the morning after the replicas go.
+
+- **Destroy the siblings, not the parent.** `rpool/foreign-backups/vulcanus/data` has
+  to survive as the container for the retained zvol, so each sibling is destroyed
+  individually — ~1.44 TiB less the ~18 GiB kept. Any sibling left behind is reported
+  stale every day, because the age loop walks everything under
+  `rpool/foreign-backups/vulcanus` with no exclusion.
+
+- **Leave mini-nas's sanoid entry alone.** `"rpool/foreign-backups/vulcanus/data"` is
+  `replica-shallow` with `recursive = true`, which goes on pruning the retained child
+  unchanged. Verified 2026-09-19 — the one step here easiest to "fix" unnecessarily.
+
+Afterwards PBS is the only lineage holding **guest images**, which is what makes the
 two-year cliff the whole of *Retention, and what ends it* rather than half of it: there
-is no longer a ZFS copy whose indefinite retention would make the shorter policy
-fiction.
+is no longer a ZFS copy of a guest whose indefinite retention would make the shorter
+policy fiction. `vm-107-disk-0` is not a guest image — it is the appliance that stores
+them — so it sits outside the cliff and keeps `rpool/data`'s ordinary sanoid policy.
 
 #### Deleted guests expire at two years
 
@@ -1328,7 +1368,12 @@ the session become alert rules rather than notes, per the Documentation Protocol
 - **Phase 4** — a verify job passing on the mini-nas datastore, and a test restore of
   one guest **from the offsite copy**. `zfs-replication-freshness` stays green across
   the `rpool/data` retirement, which is what says the source-root trim and the replica
-  destroy landed together rather than one without the other. The two-year expiry is
+  destroy landed together rather than one without the other. Green is not enough on its
+  own here, because the narrowed command must still be *doing* something: assert that
+  `rpool/foreign-backups/vulcanus/data/vm-107-disk-0` gains a snapshot newer than the
+  retirement, and that it is the only dataset left under `.../vulcanus/data`. A syncoid
+  command narrowed to a dataset that stopped receiving would pass the source-root
+  comparison and fail nothing until the 26 h limit caught it the next morning. The two-year expiry is
   asserted by running it
   with the threshold lowered until it selects a known frozen group and nothing else,
   because at two years it correctly names nothing and a job that has only ever matched
