@@ -10,52 +10,56 @@ does (tag values are lists, freeform values are bytes).
 """
 
 import json
-import os
 import sys
+import tempfile
 import types
 import unittest
+from pathlib import Path
+from typing import Any, Self
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = Path(__file__).resolve().parent
 FREEFORM = "----:com.pilabor.tone:"
 
 
 class FakeInfo:
-    def __init__(self, length):
+    def __init__(self, length: float) -> None:
         self.length = length
 
 
 class FakeCover(bytes):
-    """Stands in for mutagen's MP4Cover, which is a bytes subclass carrying an
-    image_format code (13 = JPEG, 14 = PNG)."""
+    """Stands in for mutagen's MP4Cover.
 
-    def __new__(cls, data, image_format=13):
+    That is a bytes subclass carrying an image_format code (13 = JPEG, 14 = PNG).
+    """
+
+    def __new__(cls, data: bytes, image_format: int = 13) -> Self:
         self = super().__new__(cls, data)
         self.imageformat = image_format
         return self
 
 
 class FakeAudio:
-    def __init__(self, tags, length=3600.0):
+    def __init__(self, tags: dict[str, Any], length: float | None = 3600.0) -> None:
         self.tags = tags
         self.info = FakeInfo(length) if length is not None else None
 
 
-def install_mutagen_stub():
+def install_mutagen_stub() -> types.ModuleType:
     """Put a stub `mutagen` in sys.modules so manifest.py imports cleanly."""
     stub = types.ModuleType("mutagen")
-    stub.File = lambda path: FakeAudio.registry.get(path)
     FakeAudio.registry = {}
+    stub.File = FakeAudio.registry.get
     sys.modules["mutagen"] = stub
     return stub
 
 
 install_mutagen_stub()
-sys.path.insert(0, HERE)
+sys.path.insert(0, str(HERE))
 import manifest  # noqa: E402
 
 
-def tags(**overrides):
-    """A well-formed Libation/tone tag set, as measured off a real rip."""
+def tags(**overrides: list[Any] | None) -> dict[str, list[Any]]:
+    """Build a well-formed Libation/tone tag set, as measured off a real rip."""
     base = {
         "\xa9alb": ["Death Cultivator (Unabridged)"],
         "aART": ["Eden Hudson"],
@@ -94,91 +98,93 @@ def tags(**overrides):
 
 
 def record(
-    root="/audio/import", path="/audio/import/Book/book.m4b", sidecars=None, **overrides
-):
-    FakeAudio.registry[path] = FakeAudio(tags(**overrides))
-    listing = ["book.m4b"] + (["cover.jpg"] if sidecars is None else list(sidecars))
-    original = manifest.os.listdir
-    manifest.os.listdir = lambda d: listing
-    try:
-        return manifest.record(path, root)
-    finally:
-        manifest.os.listdir = original
+    relative: str = "Book/book.m4b",
+    sidecars: list[str] | None = None,
+    **overrides: list[Any] | None,
+) -> dict[str, Any]:
+    """Read one book from a real folder holding `sidecars`, or a cover.jpg."""
+    with tempfile.TemporaryDirectory() as root:
+        path = Path(root, relative)
+        path.parent.mkdir(parents=True)
+        for name in [path.name, *(["cover.jpg"] if sidecars is None else sidecars)]:
+            (path.parent / name).touch()
+        FakeAudio.registry[str(path)] = FakeAudio(tags(**overrides))
+        return manifest.record(str(path), root)
 
 
 class TestParseDate(unittest.TestCase):
-    def test_prefers_rldt_which_carries_a_full_date(self):
+    def test_prefers_rldt_which_carries_a_full_date(self) -> None:
         self.assertEqual(
             manifest.parse_date(tags()), {"year": 2020, "month": 10, "day": 11}
         )
 
-    def test_falls_back_to_year_only_day_tag(self):
+    def test_falls_back_to_year_only_day_tag(self) -> None:
         self.assertEqual(manifest.parse_date(tags(released=None)), {"year": 2020})
 
-    def test_parses_an_iso_day_tag(self):
+    def test_parses_an_iso_day_tag(self) -> None:
         parsed = manifest.parse_date(tags(released=None, day=["2019-03-07"]))
         self.assertEqual(parsed, {"year": 2019, "month": 3, "day": 7})
 
-    def test_returns_none_when_undated(self):
+    def test_returns_none_when_undated(self) -> None:
         self.assertIsNone(manifest.parse_date(tags(released=None, day=None)))
 
-    def test_malformed_rldt_falls_back_rather_than_raising(self):
+    def test_malformed_rldt_falls_back_rather_than_raising(self) -> None:
         parsed = manifest.parse_date(tags(released=["sometime in 2020"]))
         self.assertEqual(parsed, {"year": 2020})
 
-    def test_unknown_month_name_falls_back(self):
+    def test_unknown_month_name_falls_back(self) -> None:
         parsed = manifest.parse_date(tags(released=["11-Smarch-2020"]))
         self.assertEqual(parsed, {"year": 2020})
 
 
 class TestTitleCleanup(unittest.TestCase):
-    def test_strips_the_unabridged_suffix(self):
+    def test_strips_the_unabridged_suffix(self) -> None:
         self.assertEqual(record()["title"], "Death Cultivator")
 
-    def test_strips_case_insensitively(self):
+    def test_strips_case_insensitively(self) -> None:
         self.assertEqual(record(album=["Kraken (unabridged)"])["title"], "Kraken")
 
-    def test_strips_abridged_too(self):
+    def test_strips_abridged_too(self) -> None:
         self.assertEqual(record(album=["Kraken (Abridged)"])["title"], "Kraken")
 
-    def test_keeps_the_raw_album_for_reference(self):
+    def test_keeps_the_raw_album_for_reference(self) -> None:
         self.assertEqual(record()["raw_album"], "Death Cultivator (Unabridged)")
 
-    def test_leaves_a_parenthetical_that_is_part_of_the_title(self):
+    def test_leaves_a_parenthetical_that_is_part_of_the_title(self) -> None:
         title = record(album=["We Are Legion (We Are Bob)"])["title"]
         self.assertEqual(title, "We Are Legion (We Are Bob)")
 
 
 class TestFieldMapping(unittest.TestCase):
-    def test_maps_the_tone_freeform_atoms(self):
+    def test_maps_the_tone_freeform_atoms(self) -> None:
         book = record()
         self.assertEqual(book["asin"], "B08M3S7ZPF")
         self.assertEqual(book["series"], "Death Cultivator")
         self.assertEqual(book["part"], "1")
         self.assertEqual(book["publisher"], "Shadow Alley Press Inc")
 
-    def test_maps_language_to_iso_639_3(self):
+    def test_maps_language_to_iso_639_3(self) -> None:
         self.assertEqual(record()["language"], "eng")
 
-    def test_leaves_an_unmapped_language_unset_rather_than_guessing(self):
+    def test_leaves_an_unmapped_language_unset_rather_than_guessing(self) -> None:
         book = record(language=[b"Klingon"])
         self.assertIsNone(book["language"])
         self.assertIn("unmapped language 'Klingon'", book["warnings"])
 
-    def test_prefers_albumartist_over_artist_for_the_author(self):
+    def test_prefers_albumartist_over_artist_for_the_author(self) -> None:
         self.assertEqual(record(artist=["Somebody Else"])["author"], "Eden Hudson")
 
-    def test_falls_back_to_artist_when_albumartist_is_absent(self):
+    def test_falls_back_to_artist_when_albumartist_is_absent(self) -> None:
         book = record(author=None, artist=["Eden Hudson"])
         self.assertEqual(book["author"], "Eden Hudson")
 
-    def test_falls_back_to_the_plain_asin_atom(self):
+    def test_falls_back_to_the_plain_asin_atom(self) -> None:
         self.assertEqual(record(asin=None)["asin"], "B08M3S7ZPF")
 
-    def test_an_audible_asin_records_its_provenance(self):
+    def test_an_audible_asin_records_its_provenance(self) -> None:
         self.assertEqual(record()["asin_source"], "audible")
 
-    def test_a_plain_asin_alone_has_unknown_provenance(self):
+    def test_a_plain_asin_alone_has_unknown_provenance(self) -> None:
         # The plain `asin` atom is where an Amazon-sourced file would put its
         # identifier, and Amazon's ASIN is a different namespace from Audible's.
         # Nothing here can tell them apart, so it must not be assumed.
@@ -186,104 +192,106 @@ class TestFieldMapping(unittest.TestCase):
         self.assertEqual(book["asin_source"], "unknown")
         self.assertIn("ASIN of unknown provenance", book["warnings"])
 
-    def test_an_audible_asin_is_not_flagged(self):
+    def test_an_audible_asin_is_not_flagged(self) -> None:
         self.assertNotIn("ASIN of unknown provenance", record()["warnings"])
 
-    def test_no_asin_has_no_source(self):
+    def test_no_asin_has_no_source(self) -> None:
         self.assertIsNone(record(asin=None, plain_asin=None)["asin_source"])
 
-    def test_length_is_milliseconds(self):
+    def test_length_is_milliseconds(self) -> None:
         self.assertEqual(record()["length_ms"], 3600000)
 
-    def test_paths_are_relative_to_the_root(self):
-        book = record(path="/audio/import/Cradle/Unsouled/unsouled.m4b")
+    def test_paths_are_relative_to_the_root(self) -> None:
+        book = record(relative="Cradle/Unsouled/unsouled.m4b")
         self.assertEqual(book["path"], "Cradle/Unsouled/unsouled.m4b")
         self.assertEqual(book["folder"], "Cradle/Unsouled")
 
-    def test_freeform_values_are_decoded_and_stripped(self):
+    def test_freeform_values_are_decoded_and_stripped(self) -> None:
         self.assertEqual(record(series=[b"  Cradle  "])["series"], "Cradle")
 
-    def test_empty_freeform_reads_as_absent(self):
+    def test_empty_freeform_reads_as_absent(self) -> None:
         self.assertIsNone(record(series=[b""])["series"])
 
 
 class TestCoverArt(unittest.TestCase):
-    """Cover art is embedded in 463 of 485 files and absent from the Cover Art
-    Archive for almost all of these releases, so the file is the only source.
-    The manifest records where it is; the bytes are fetched on demand, because
-    463 covers at a median 553 KiB would be 250 MB of manifest."""
+    """The file is the only source of cover art, so the manifest says where it is.
 
-    def test_reports_embedded_art(self):
+    Art is embedded in 463 of 485 files and absent from the Cover Art Archive
+    for almost all of these releases. The bytes are fetched on demand, because
+    463 covers at a median 553 KiB would be 250 MB of manifest.
+    """
+
+    def test_reports_embedded_art(self) -> None:
         art = record()["art"]
         self.assertTrue(art["embedded"])
         self.assertEqual(art["mime"], "image/jpeg")
         self.assertEqual(art["bytes"], 4)
 
-    def test_reports_png_art(self):
+    def test_reports_png_art(self) -> None:
         FakeAudio.registry["/audio/import/P/p.m4b"] = FakeAudio(
             tags(covr=[FakeCover(b"\x89PNG", image_format=14)])
         )
         art = manifest.record("/audio/import/P/p.m4b", "/audio/import")["art"]
         self.assertEqual(art["mime"], "image/png")
 
-    def test_reports_no_embedded_art(self):
+    def test_reports_no_embedded_art(self) -> None:
         art = record(covr=None)["art"]
         self.assertFalse(art["embedded"])
         self.assertIsNone(art["mime"])
 
-    def test_does_not_carry_the_image_bytes(self):
+    def test_does_not_carry_the_image_bytes(self) -> None:
         # The manifest is copied out of the cluster over kubectl exec, which
         # truncates silently; keeping it small is what keeps it whole.
         self.assertNotIn("data", record()["art"])
 
-    def test_lists_sidecar_images(self):
+    def test_lists_sidecar_images(self) -> None:
         book = record(sidecars=["cover.jpg", "notes.txt", "back.PNG"])
         self.assertEqual(book["art"]["sidecars"], ["back.PNG", "cover.jpg"])
 
-    def test_no_sidecars_is_an_empty_list(self):
+    def test_no_sidecars_is_an_empty_list(self) -> None:
         self.assertEqual(record(sidecars=[])["art"]["sidecars"], [])
 
-    def test_flags_a_book_with_no_art_anywhere(self):
+    def test_flags_a_book_with_no_art_anywhere(self) -> None:
         book = record(covr=None, sidecars=[])
         self.assertIn("no cover art", book["warnings"])
 
-    def test_embedded_art_alone_is_not_flagged(self):
+    def test_embedded_art_alone_is_not_flagged(self) -> None:
         self.assertNotIn("no cover art", record(sidecars=[])["warnings"])
 
 
 class TestWarnings(unittest.TestCase):
-    def test_a_clean_file_warns_about_nothing(self):
+    def test_a_clean_file_warns_about_nothing(self) -> None:
         self.assertEqual(record()["warnings"], [])
 
-    def test_flags_a_missing_author(self):
+    def test_flags_a_missing_author(self) -> None:
         book = record(author=None, artist=None)
         self.assertIn("no author credit", book["warnings"])
 
-    def test_flags_a_credit_naming_a_translator(self):
+    def test_flags_a_credit_naming_a_translator(self) -> None:
         book = record(author=["Roy, Mana Z - translator"])
         self.assertIn(
             "author credit names someone other than the author", book["warnings"]
         )
 
-    def test_flags_a_credit_naming_an_illustrator(self):
+    def test_flags_a_credit_naming_an_illustrator(self) -> None:
         book = record(author=["Ryohgo Narita, Katsumi Enami - illustrator"])
         self.assertIn(
             "author credit names someone other than the author", book["warnings"]
         )
 
-    def test_flags_a_slash_separated_credit(self):
+    def test_flags_a_slash_separated_credit(self) -> None:
         book = record(author=["Brandon Sanderson/Michael Kramer"])
         self.assertIn(
             "author credit names someone other than the author", book["warnings"]
         )
 
-    def test_flags_a_missing_asin(self):
+    def test_flags_a_missing_asin(self) -> None:
         self.assertIn("no ASIN", record(asin=None, plain_asin=None)["warnings"])
 
-    def test_flags_a_missing_narrator(self):
+    def test_flags_a_missing_narrator(self) -> None:
         self.assertIn("no narrator", record(narrator=None)["warnings"])
 
-    def test_unreadable_tags_produce_a_record_rather_than_an_exception(self):
+    def test_unreadable_tags_produce_a_record_rather_than_an_exception(self) -> None:
         path = "/audio/import/Broken/broken.m4b"
         FakeAudio.registry[path] = FakeAudio(tags={})
         book = manifest.record(path, "/audio/import")
@@ -292,11 +300,11 @@ class TestWarnings(unittest.TestCase):
 
 
 class TestManifestIsSerialisable(unittest.TestCase):
-    def test_a_record_round_trips_through_json(self):
+    def test_a_record_round_trips_through_json(self) -> None:
         book = record()
         self.assertEqual(json.loads(json.dumps(book, ensure_ascii=False)), book)
 
-    def test_non_ascii_names_survive(self):
+    def test_non_ascii_names_survive(self) -> None:
         book = record(author=["추공"])
         self.assertEqual(
             json.loads(json.dumps(book, ensure_ascii=False))["author"], "추공"

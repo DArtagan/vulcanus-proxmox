@@ -14,12 +14,12 @@ else in this repo reads: /etc/pve/jobs.cfg, /etc/pve/.vmlist and the config
 blob stored inside each backup.
 """
 
-import os
 import sys
 import unittest
+from pathlib import Path
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
 import pbs_freshness  # noqa: E402
 
 NOW = 1_789_000_000
@@ -51,13 +51,19 @@ rootfs: local-zfs:subvol-103-disk-0,size=8G
 """
 
 
-def guest(vmid, guest_type="qemu", in_scope=True):
+def guest(
+    vmid: str, guest_type: str = "qemu", *, in_scope: bool = True
+) -> pbs_freshness.Guest:
     return pbs_freshness.Guest(vmid=vmid, guest_type=guest_type, in_scope=in_scope)
 
 
 def group(
-    name, count=30, newest=FRESH, oldest_identity="uuid-a", newest_identity="uuid-a"
-):
+    name: str,
+    count: int = 30,
+    newest: int | None = FRESH,
+    oldest_identity: str | None = "uuid-a",
+    newest_identity: str | None = "uuid-a",
+) -> pbs_freshness.Group:
     return pbs_freshness.Group(
         name=name,
         count=count,
@@ -67,7 +73,9 @@ def group(
     )
 
 
-def classify(guests, groups):
+def classify(
+    guests: dict[str, pbs_freshness.Guest], groups: dict[str, pbs_freshness.Group]
+) -> tuple[list[str], list[str]]:
     return pbs_freshness.classify(guests, groups, now=NOW)
 
 
@@ -76,24 +84,24 @@ class ScopeParsing(unittest.TestCase):
 
     JOB = JOBS_CFG
 
-    def test_excluded_guests_are_out_of_scope(self):
+    def test_excluded_guests_are_out_of_scope(self) -> None:
         self.assertEqual(
             pbs_freshness.parse_excluded(self.JOB), {"100", "101", "106", "107"}
         )
 
-    def test_a_job_with_no_exclude_excludes_nothing(self):
+    def test_a_job_with_no_exclude_excludes_nothing(self) -> None:
         text = "vzdump: abc:1\n\tall 1\n\tstorage pbs\n"
         self.assertEqual(pbs_freshness.parse_excluded(text), set())
 
-    def test_a_disabled_job_is_not_read_as_scope(self):
+    def test_a_disabled_job_is_not_read_as_scope(self) -> None:
         # A job set `enabled 0` backs nothing up, so treating its exclude list
         # as the scope would report full coverage for a cluster with none.
         text = "vzdump: abc:1\n\tall 1\n\tenabled 0\n\texclude 107\n"
-        with self.assertRaises(pbs_freshness.NoActiveJob):
+        with self.assertRaises(pbs_freshness.NoActiveJobError):
             pbs_freshness.parse_excluded(text)
 
-    def test_no_vzdump_job_at_all_is_an_error_not_an_empty_scope(self):
-        with self.assertRaises(pbs_freshness.NoActiveJob):
+    def test_no_vzdump_job_at_all_is_an_error_not_an_empty_scope(self) -> None:
+        with self.assertRaises(pbs_freshness.NoActiveJobError):
             pbs_freshness.parse_excluded("replication: foo\n\tschedule 4:00\n")
 
 
@@ -109,13 +117,13 @@ class GuestListParsing(unittest.TestCase):
 
 }"""
 
-    def test_ids_carry_their_type(self):
+    def test_ids_carry_their_type(self) -> None:
         self.assertEqual(
             pbs_freshness.parse_vmlist(self.VMLIST),
             {"910": "qemu", "104": "lxc", "107": "qemu"},
         )
 
-    def test_group_name_follows_the_type(self):
+    def test_group_name_follows_the_type(self) -> None:
         self.assertEqual(pbs_freshness.group_name("910", "qemu"), "vm/910")
         self.assertEqual(pbs_freshness.group_name("104", "lxc"), "ct/104")
 
@@ -126,20 +134,22 @@ class IdentityParsing(unittest.TestCase):
     VM_CONF = VM_CONFIG_BLOB
     CT_CONF = CT_CONFIG_BLOB
 
-    def test_a_vm_is_identified_by_its_smbios_uuid(self):
+    def test_a_vm_is_identified_by_its_smbios_uuid(self) -> None:
         self.assertEqual(
             pbs_freshness.parse_identity(self.VM_CONF, "qemu"),
             "5e726013-8241-44e0-9657-701d7cdddb25",
         )
 
-    def test_a_container_is_identified_by_its_interface_address(self):
+    def test_a_container_is_identified_by_its_interface_address(self) -> None:
         # Containers carry no smbios1, so the MAC is the stand-in: regenerated
         # for a new container at the same ID, stable for that container's life.
         self.assertEqual(
             pbs_freshness.parse_identity(self.CT_CONF, "lxc"), "BC:24:11:22:33:26"
         )
 
-    def test_a_config_with_no_identity_reads_as_unknown_rather_than_crashing(self):
+    def test_a_config_with_no_identity_reads_as_unknown_rather_than_crashing(
+        self,
+    ) -> None:
         self.assertIsNone(
             pbs_freshness.parse_identity("cores: 1\nmemory: 512\n", "qemu")
         )
@@ -148,12 +158,12 @@ class IdentityParsing(unittest.TestCase):
 class VerdictTable(unittest.TestCase):
     """The five rows of the spec's table, plus the empty group measured on vm/107."""
 
-    def test_live_in_scope_and_current_is_silent(self):
+    def test_live_in_scope_and_current_is_silent(self) -> None:
         problems, reports = classify({"900": guest("900")}, {"vm/900": group("vm/900")})
         self.assertEqual(problems, [])
         self.assertEqual(reports, [])
 
-    def test_live_in_scope_and_stale_fails(self):
+    def test_live_in_scope_and_stale_fails(self) -> None:
         problems, reports = classify(
             {"900": guest("900")}, {"vm/900": group("vm/900", newest=STALE)}
         )
@@ -161,12 +171,12 @@ class VerdictTable(unittest.TestCase):
         self.assertIn("vm/900", problems[0])
         self.assertEqual(reports, [])
 
-    def test_live_in_scope_with_no_group_fails(self):
+    def test_live_in_scope_with_no_group_fails(self) -> None:
         problems, _ = classify({"900": guest("900")}, {})
         self.assertEqual(len(problems), 1)
         self.assertIn("never", problems[0].lower())
 
-    def test_live_in_scope_with_an_empty_group_fails(self):
+    def test_live_in_scope_with_an_empty_group_fails(self) -> None:
         # vm/107 is exactly this shape: a group with count 0 and no files. It
         # must not read as coverage, and must not crash the age comparison.
         problems, _ = classify(
@@ -175,13 +185,13 @@ class VerdictTable(unittest.TestCase):
         self.assertEqual(len(problems), 1)
         self.assertIn("never", problems[0].lower())
 
-    def test_a_guest_that_is_gone_reports_and_never_fails(self):
+    def test_a_guest_that_is_gone_reports_and_never_fails(self) -> None:
         problems, reports = classify({}, {"vm/200": group("vm/200", newest=STALE)})
         self.assertEqual(problems, [])
         self.assertEqual(len(reports), 1)
         self.assertIn("vm/200", reports[0])
 
-    def test_live_but_excluded_reports_whatever_its_group_looks_like(self):
+    def test_live_but_excluded_reports_whatever_its_group_looks_like(self) -> None:
         for name, grp in (
             ("frozen", group("vm/101", newest=STALE)),
             ("empty", group("vm/101", count=0, newest=None)),
@@ -195,7 +205,7 @@ class VerdictTable(unittest.TestCase):
                 self.assertEqual(problems, [])
                 self.assertEqual(len(reports), 1)
 
-    def test_a_reused_vmid_reports(self):
+    def test_a_reused_vmid_reports(self) -> None:
         problems, reports = classify(
             {"900": guest("900")},
             {
@@ -208,7 +218,7 @@ class VerdictTable(unittest.TestCase):
         self.assertEqual(len(reports), 1)
         self.assertIn("reused", reports[0].lower())
 
-    def test_reuse_is_reported_even_while_the_guest_is_healthy(self):
+    def test_reuse_is_reported_even_while_the_guest_is_healthy(self) -> None:
         # The eviction is silent and the group looks fine from the live guest
         # list alone; that is the entire reason this row exists.
         _, reports = classify(
@@ -221,7 +231,7 @@ class VerdictTable(unittest.TestCase):
         )
         self.assertTrue(any("reused" in r.lower() for r in reports))
 
-    def test_a_single_backup_cannot_show_reuse(self):
+    def test_a_single_backup_cannot_show_reuse(self) -> None:
         _, reports = classify(
             {"900": guest("900")},
             {
@@ -232,7 +242,7 @@ class VerdictTable(unittest.TestCase):
         )
         self.assertEqual(reports, [])
 
-    def test_an_unreadable_identity_does_not_report_reuse(self):
+    def test_an_unreadable_identity_does_not_report_reuse(self) -> None:
         # A blob that fails to parse gives None at both ends; two unknowns are
         # not evidence of two machines.
         _, reports = classify(
@@ -250,7 +260,7 @@ class TheEstateAsMeasured(unittest.TestCase):
     makes those numbers mean something.
     """
 
-    def setUp(self):
+    def setUp(self) -> None:
         live = {
             "103": ("lxc", True),
             "104": ("lxc", True),
@@ -282,12 +292,12 @@ class TheEstateAsMeasured(unittest.TestCase):
             ]
         }
 
-    def test_the_baseline_is_five_reports_and_no_failures(self):
+    def test_the_baseline_is_five_reports_and_no_failures(self) -> None:
         problems, reports = classify(self.guests, self.groups)
         self.assertEqual(problems, [])
         self.assertEqual(len(reports), 5)
 
-    def test_destroying_the_three_guests_leaves_four_reports(self):
+    def test_destroying_the_three_guests_leaves_four_reports(self) -> None:
         for vmid in ("100", "101", "106"):
             del self.guests[vmid]
         problems, reports = classify(self.guests, self.groups)
@@ -296,7 +306,7 @@ class TheEstateAsMeasured(unittest.TestCase):
         # cross from live-excluded to guest-gone; 200 and 107 are unchanged.
         self.assertEqual(len(reports), 4)
 
-    def test_removing_the_frozen_groups_leaves_only_the_empty_one(self):
+    def test_removing_the_frozen_groups_leaves_only_the_empty_one(self) -> None:
         for vmid in ("100", "101", "106"):
             del self.guests[vmid]
         for name in ("vm/101", "vm/106", "vm/200"):

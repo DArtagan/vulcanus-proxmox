@@ -25,23 +25,26 @@ not depend on the function's internals.
 
 Latin-1 is the target rather than ASCII, deliberately: the fileserver accepts it
 today, and `Mànran` already exists in the library under a Latin-1 name.
-"""
+"""  # noqa: RUF002 - quotes job 20's path, en dash and all
 
-import os
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 import yaml
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(os.path.dirname(HERE))
-INIT_SCRIPTS = os.path.join(
-    REPO, "kubernetes", "apps", "automatic-ripping-machine", "init-scripts.yaml"
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parent.parent
+INIT_SCRIPTS = (
+    REPO / "kubernetes" / "apps" / "automatic-ripping-machine" / "init-scripts.yaml"
 )
 UTILS = "/opt/arm/arm/ripper/utils.py"
 PATCH_PY = "/usr/local/bin/arm-title-charset.py"
 ARM_LOG = "/home/arm/logs/arm.log"
+
+# Samba's `unix charset = ISO-8859-1` writes every code point below this.
+BEYOND_LATIN1 = 0x100
 
 # Enough of ARM's utils.py to patch against.
 STUB_UTILS = """\
@@ -53,105 +56,116 @@ def fix_job_title(job):
 
 
 class Job:
-    def __init__(self, title, year=None):
+    def __init__(self, title: str, year: str | None = None) -> None:
         self.title = title
         self.year = year
         self.title_manual = None
 
 
-def load_configmap(key):
-    with open(INIT_SCRIPTS) as handle:
-        doc = yaml.safe_load(handle)
+def load_configmap(key: str) -> str:
+    doc = yaml.safe_load(INIT_SCRIPTS.read_text())
     try:
         return doc["data"][key]
     except KeyError:
-        raise AssertionError(f"init-scripts.yaml has no {key} entry") from None
+        message = f"init-scripts.yaml has no {key} entry"
+        raise AssertionError(message) from None
 
 
-def sandbox(script, utils_path, patch_path, log):
+def sandbox(script: str, utils_path: Path, patch_path: Path, log: Path) -> str:
     for original, replacement in (
         (UTILS, utils_path),
         (PATCH_PY, patch_path),
         (ARM_LOG, log),
     ):
         if original not in script:
-            raise AssertionError(
+            message = (
                 f"arm-title-charset.sh no longer contains {original!r}; "
                 "update the constants at the top of this test."
             )
-        script = script.replace(original, replacement)
+            raise AssertionError(message)
+        script = script.replace(original, str(replacement))
     return script
 
 
 class Harness:
-    def __init__(self, tmpdir, utils_body=STUB_UTILS):
-        self.tmpdir = tmpdir
-        self.utils = os.path.join(tmpdir, "utils.py")
-        self.log = os.path.join(tmpdir, "arm.log")
-        with open(self.utils, "w") as fh:
-            fh.write(utils_body)
+    def __init__(self, tmpdir: str, utils_body: str = STUB_UTILS) -> None:
+        self.tmpdir = Path(tmpdir)
+        self.utils = self.tmpdir / "utils.py"
+        self.log = self.tmpdir / "arm.log"
+        self.utils.write_text(utils_body)
         # The patch body ships as its own ConfigMap key, so the test uses the
         # real one rather than a copy.
-        self.patch_py = os.path.join(tmpdir, "arm-title-charset.py")
-        with open(self.patch_py, "w") as fh:
-            fh.write(load_configmap("arm-title-charset.py"))
-        self.script = os.path.join(tmpdir, "arm-title-charset.sh")
-        with open(self.script, "w") as fh:
-            fh.write(
-                sandbox(
-                    load_configmap("arm-title-charset.sh"),
-                    self.utils,
-                    self.patch_py,
-                    self.log,
-                )
+        self.patch_py = self.tmpdir / "arm-title-charset.py"
+        self.patch_py.write_text(load_configmap("arm-title-charset.py"))
+        self.script = self.tmpdir / "arm-title-charset.sh"
+        self.script.write_text(
+            sandbox(
+                load_configmap("arm-title-charset.sh"),
+                self.utils,
+                self.patch_py,
+                self.log,
             )
-        os.chmod(self.script, 0o755)
+        )
+        self.script.chmod(0o700)
 
-    def run(self):
+    def run(self) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            ["bash", self.script], capture_output=True, text=True, timeout=60
+            ["bash", self.script],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
         )
 
-    def fix_job_title(self, job):
+    def fix_job_title(self, job: Job) -> str:
         """Import the patched module and call it, as ARM would."""
         ns = {}
-        with open(self.utils) as fh:
-            exec(compile(fh.read(), self.utils, "exec"), ns)
+        # Running the patched utils.py is the thing under test.
+        exec(compile(self.utils.read_text(), self.utils, "exec"), ns)  # noqa: S102
         return ns["fix_job_title"](job)
 
-    def log_text(self):
-        return open(self.log).read() if os.path.exists(self.log) else ""
+    def log_text(self) -> str:
+        return self.log.read_text() if self.log.exists() else ""
 
 
 class Sanitising(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.h = Harness(self.tmp.name)
         result = self.h.run()
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def test_the_case_that_broke_job_20(self):
+    def test_the_case_that_broke_job_20(self) -> None:
         got = self.h.fix_job_title(
-            Job("The-Sylvester-and-Tweety-Mysteries", "1995–2002")
+            Job("The-Sylvester-and-Tweety-Mysteries", "1995\N{EN DASH}2002")
         )
         self.assertEqual(got, "The-Sylvester-and-Tweety-Mysteries (1995-2002)")
-        self.assertTrue(all(ord(c) < 0x100 for c in got))
+        self.assertTrue(all(ord(c) < BEYOND_LATIN1 for c in got))
 
-    def test_dashes_become_hyphens_not_deleted(self):
+    def test_dashes_become_hyphens_not_deleted(self) -> None:
         # ARM's own clean_for_filename would give "19952002", which is a
         # different year. Replacing beats stripping.
-        for dash in "‐‑‒–—―":
+        for dash in (
+            "\N{HYPHEN}",
+            "\N{NON-BREAKING HYPHEN}",
+            "\N{FIGURE DASH}",
+            "\N{EN DASH}",
+            "\N{EM DASH}",
+            "\N{HORIZONTAL BAR}",
+        ):
             self.assertEqual(
                 self.h.fix_job_title(Job("Show", f"1995{dash}2002")),
                 "Show (1995-2002)",
             )
 
-    def test_curly_quotes_and_ellipsis(self):
+    def test_curly_quotes_and_ellipsis(self) -> None:
         self.assertEqual(
-            self.h.fix_job_title(Job("Ocean’s Eleven", "2001")),
+            self.h.fix_job_title(
+                Job("Ocean\N{RIGHT SINGLE QUOTATION MARK}s Eleven", "2001")
+            ),
             "Ocean's Eleven (2001)",
         )
         self.assertEqual(
@@ -159,39 +173,40 @@ class Sanitising(unittest.TestCase):
             "And Then... (1975)",
         )
 
-    def test_latin1_is_preserved(self):
+    def test_latin1_is_preserved(self) -> None:
         # The share accepts it, and Mànran is already in the library this way.
         self.assertEqual(self.h.fix_job_title(Job("Mànran", "2013")), "Mànran (2013)")
 
-    def test_characters_with_no_latin1_form_are_dropped_not_left(self):
+    def test_characters_with_no_latin1_form_are_dropped_not_left(self) -> None:
         got = self.h.fix_job_title(Job("Tokyo 中文", "2020"))
         self.assertTrue(
-            all(ord(c) < 0x100 for c in got), f"{got!r} still has un-writable chars"
+            all(ord(c) < BEYOND_LATIN1 for c in got),
+            f"{got!r} still has un-writable chars",
         )
 
-    def test_plain_ascii_is_untouched(self):
+    def test_plain_ascii_is_untouched(self) -> None:
         self.assertEqual(
             self.h.fix_job_title(Job("The-Hallelujah-Trail", "1965")),
             "The-Hallelujah-Trail (1965)",
         )
 
-    def test_a_job_with_no_year_still_works(self):
+    def test_a_job_with_no_year_still_works(self) -> None:
         self.assertEqual(self.h.fix_job_title(Job("Some Disc")), "Some Disc")
 
 
 class PatchSafety(unittest.TestCase):
-    def test_running_twice_does_not_double_wrap(self):
+    def test_running_twice_does_not_double_wrap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             h = Harness(tmp)
             h.run()
-            first = open(h.utils).read()
+            first = h.utils.read_text()
             h.run()
-            self.assertEqual(open(h.utils).read(), first, "patch is not idempotent")
+            self.assertEqual(h.utils.read_text(), first, "patch is not idempotent")
             self.assertEqual(
-                h.fix_job_title(Job("Show", "1995–2002")), "Show (1995-2002)"
+                h.fix_job_title(Job("Show", "1995\N{EN DASH}2002")), "Show (1995-2002)"
             )
 
-    def test_it_refuses_loudly_when_the_target_is_gone(self):
+    def test_it_refuses_loudly_when_the_target_is_gone(self) -> None:
         # ARM now auto-updates, so a version that renames or moves
         # fix_job_title must not fail silently -- the symptom would be a TV rip
         # dying on EIO again with nothing pointing here.
@@ -200,9 +215,9 @@ class PatchSafety(unittest.TestCase):
             result = h.run()
             self.assertNotEqual(result.returncode, 0, "should exit non-zero")
             self.assertIn("fix_job_title", h.log_text())
-            self.assertNotIn("_arm_charset_patch", open(h.utils).read())
+            self.assertNotIn("_arm_charset_patch", h.utils.read_text())
 
-    def test_the_original_function_still_does_its_own_job(self):
+    def test_the_original_function_still_does_its_own_job(self) -> None:
         # The wrapper must not replace ARM's logic, only clean its output.
         with tempfile.TemporaryDirectory() as tmp:
             h = Harness(tmp)

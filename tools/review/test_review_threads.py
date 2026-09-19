@@ -19,6 +19,7 @@ fallback must tolerate that rather than assume `originalLine` is always present.
 """
 
 import unittest
+from typing import Any
 
 from review_threads import (
     GraphQLError,
@@ -29,7 +30,7 @@ from review_threads import (
 )
 
 
-def payload(*nodes):
+def payload(*nodes: dict[str, Any]) -> dict[str, Any]:
     return {
         "data": {
             "repository": {"pullRequest": {"reviewThreads": {"nodes": list(nodes)}}}
@@ -37,15 +38,18 @@ def payload(*nodes):
     }
 
 
-def node(
-    thread_id="PRRT_x",
-    resolved=False,
-    outdated=False,
-    path="a.yaml",
-    line=1,
-    original_line=1,
-    comments=(("will", "why?"),),
-):
+# One keyword per field of the GraphQL node, so each test names only the field
+# it varies.
+def node(  # noqa: PLR0913
+    *,
+    thread_id: str = "PRRT_x",
+    resolved: bool = False,
+    outdated: bool = False,
+    path: str = "a.yaml",
+    line: int | None = 1,
+    original_line: int | None = 1,
+    comments: tuple[tuple[str, str], ...] = (("will", "why?"),),
+) -> dict[str, Any]:
     return {
         "id": thread_id,
         "isResolved": resolved,
@@ -60,26 +64,26 @@ def node(
 
 
 class ParseThreads(unittest.TestCase):
-    def test_uses_line_when_present(self):
+    def test_uses_line_when_present(self) -> None:
         threads = parse_threads(payload(node(line=12, original_line=9)))
         self.assertEqual(threads[0].line, 12)
 
-    def test_falls_back_to_original_line_when_outdated(self):
+    def test_falls_back_to_original_line_when_outdated(self) -> None:
         threads = parse_threads(
             payload(node(outdated=True, line=None, original_line=7))
         )
         self.assertEqual(threads[0].line, 7)
         self.assertTrue(threads[0].is_outdated)
 
-    def test_tolerates_file_level_thread_with_no_line_at_all(self):
+    def test_tolerates_file_level_thread_with_no_line_at_all(self) -> None:
         threads = parse_threads(payload(node(line=None, original_line=None)))
         self.assertIsNone(threads[0].line)
 
-    def test_captures_author_and_body(self):
+    def test_captures_author_and_body(self) -> None:
         threads = parse_threads(payload(node(comments=(("will", "why 30d?"),))))
         self.assertEqual(threads[0].comments, [("will", "why 30d?")])
 
-    def test_tolerates_thread_with_no_comments(self):
+    def test_tolerates_thread_with_no_comments(self) -> None:
         n = node()
         n["comments"]["nodes"] = []
         threads = parse_threads(payload(n))
@@ -87,11 +91,14 @@ class ParseThreads(unittest.TestCase):
 
 
 class GraphQLErrors(unittest.TestCase):
-    """GitHub reports GraphQL failures in the response body, sometimes alongside a
-    zero exit status and a partially populated `data` key. Letting that through
-    surfaces later as a confusing KeyError far from the cause."""
+    """GraphQL failures arrive in the response body, not only the exit status.
 
-    def test_raises_when_the_body_carries_errors(self):
+    GitHub reports them there sometimes alongside a zero exit status and a
+    partially populated `data` key. Letting that through surfaces later as a
+    confusing KeyError far from the cause.
+    """
+
+    def test_raises_when_the_body_carries_errors(self) -> None:
         body = {
             "data": {"repository": None},
             "errors": [{"message": "Could not resolve to a Repository"}],
@@ -100,13 +107,13 @@ class GraphQLErrors(unittest.TestCase):
             raise_for_graphql_errors(body)
         self.assertIn("Could not resolve", str(caught.exception))
 
-    def test_passes_a_clean_body_through(self):
+    def test_passes_a_clean_body_through(self) -> None:
         body = payload(node())
         self.assertIs(raise_for_graphql_errors(body), body)
 
 
 class Unresolved(unittest.TestCase):
-    def test_excludes_resolved_threads(self):
+    def test_excludes_resolved_threads(self) -> None:
         threads = parse_threads(
             payload(
                 node(thread_id="open", resolved=False),
@@ -117,7 +124,7 @@ class Unresolved(unittest.TestCase):
 
 
 class FormatThreads(unittest.TestCase):
-    def test_marks_outdated_so_a_null_line_is_not_read_as_current(self):
+    def test_marks_outdated_so_a_null_line_is_not_read_as_current(self) -> None:
         text = format_threads(
             parse_threads(
                 payload(
@@ -128,7 +135,7 @@ class FormatThreads(unittest.TestCase):
         self.assertIn("alloy.yaml:7", text)
         self.assertIn("outdated", text)
 
-    def test_file_level_thread_renders_without_a_line_number(self):
+    def test_file_level_thread_renders_without_a_line_number(self) -> None:
         text = format_threads(
             parse_threads(
                 payload(node(line=None, original_line=None, path="alloy.yaml"))
@@ -137,7 +144,7 @@ class FormatThreads(unittest.TestCase):
         self.assertIn("alloy.yaml", text)
         self.assertNotIn("alloy.yaml:", text)
 
-    def test_empty_reports_nothing_open(self):
+    def test_empty_reports_nothing_open(self) -> None:
         self.assertIn("no open threads", format_threads([]).lower())
 
 

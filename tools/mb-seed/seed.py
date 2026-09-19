@@ -29,6 +29,7 @@ the right page.
 """
 
 import base64
+import contextlib
 import html
 import json
 import os
@@ -36,12 +37,18 @@ import re
 import subprocess
 import sys
 import webbrowser
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path, PurePosixPath
+from typing import Any, ClassVar
 from urllib.parse import parse_qs, urlparse
 
 ADD_RELEASE = "https://musicbrainz.org/release/add"
 PORT = int(os.environ.get("MB_SEED_PORT", "8787"))
 ORIGIN = f"http://127.0.0.1:{PORT}"
+
+# One manifest entry, as manifest.py writes it.
+Book = dict[str, Any]
 
 # MusicBrainz models an audiobook as primary type Other plus the Audiobook
 # secondary type. Digital Media with no barcode is what an Audible download is;
@@ -72,23 +79,23 @@ NOT_A_PERSON = {
 }
 
 
-def narrators(book):
-    """The performers to credit, in tag order, placeholders removed."""
+def narrators(book: Book) -> list[str]:
+    """Return the performers to credit, in tag order, placeholders removed."""
     return [n for n in _narrator_tokens(book) if n.lower() not in NOT_A_PERSON]
 
 
-def dropped_narrators(book):
-    """Placeholders removed from the credit, surfaced on the review page."""
+def dropped_narrators(book: Book) -> list[str]:
+    """Return the placeholders removed from the credit, for the review page."""
     return [n for n in _narrator_tokens(book) if n.lower() in NOT_A_PERSON]
 
 
-def _narrator_tokens(book):
+def _narrator_tokens(book: Book) -> list[str]:
     raw = book.get("narrator") or ""
     return [n.strip() for n in raw.split(",") if n.strip()]
 
 
-def artist_credit(book):
-    """Author, then every narrator, in this library's established phrasing.
+def artist_credit(book: Book) -> list[dict[str, str]]:
+    """Credit the author, then every narrator, in this library's phrasing.
 
     Seeded as separate names rather than one string on purpose: MusicBrainz
     stores the credit as an ordered list, and the `$author` inline field in the
@@ -122,14 +129,17 @@ EXTENSIONS = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif"}
 UNSAFE_IN_FILENAME = re.compile(r'[/\\:*?"<>|]')
 
 
-def cover_art_url(mbid):
-    """The Cover Art Archive has no upload API and the form takes no seeding,
-    so landing on the right page is the whole of what can be automated."""
+def cover_art_url(mbid: str) -> str:
+    """Address the release's add-cover-art page.
+
+    The Cover Art Archive has no upload API and the form takes no seeding, so
+    landing on the right page is the whole of what can be automated.
+    """
     return f"https://musicbrainz.org/release/{mbid}/add-cover-art"
 
 
-def cover_art_link(mbid, label):
-    """The upload hand-off, forced into a new tab.
+def cover_art_link(mbid: str, label: str) -> str:
+    """Render the upload hand-off, forced into a new tab.
 
     The opposite of `seed_link`: the release editor takes a `redirect_uri` and
     comes back here, while the cover art form has no such parameter and ends on
@@ -142,27 +152,29 @@ def cover_art_link(mbid, label):
     )
 
 
-def has_art(book):
+def has_art(book: Book) -> bool:
+    """Say whether the book has art to upload, embedded or beside it."""
     art = book.get("art") or {}
     return bool(art.get("embedded") or art.get("sidecars"))
 
 
-def cover_filename(book):
+def cover_filename(book: Book) -> str:
+    """Name the local copy of the art, safely and with the right extension."""
     art = book.get("art") or {}
     stem = book.get("asin") or book.get("title") or "cover"
     return UNSAFE_IN_FILENAME.sub("_", stem) + EXTENSIONS.get(art.get("mime"), ".jpg")
 
 
-def render_credit(credit):
-    """The credit as MusicBrainz will display it, for the review page."""
+def render_credit(credit: list[dict[str, str]]) -> str:
+    """Render the credit as MusicBrainz will display it, for the review page."""
     return "".join(n.get("artist.name", "") + n.get("join_phrase", "") for n in credit)
 
 
-def seed_fields(book):
+def seed_fields(book: Book) -> list[tuple[str, str]]:
     """Build the flat form fields the release editor expects."""
     fields = []
 
-    def add(key, value):
+    def add(key: str, value: object) -> None:
         if value not in (None, ""):
             fields.append((key, str(value)))
 
@@ -202,8 +214,17 @@ def seed_fields(book):
     if book.get("asin") and book.get("asin_source") == "audible":
         add("urls.0.url", f"https://www.audible.com/pd/{book['asin']}")
 
-    # Free text can be honest about an uncertain vendor where a relationship
-    # cannot, so an unattributable identifier is recorded rather than dropped.
+    add("annotation", _annotation(book))
+    add("edit_note", f"Audiobook release, metadata taken from {_source(book)}.")
+    return fields
+
+
+def _annotation(book: Book) -> str:
+    """Write the free-text annotation: the identifier and the series.
+
+    Free text can be honest about an uncertain vendor where a relationship
+    cannot, so an unattributable identifier is recorded rather than dropped.
+    """
     annotation = []
     if book.get("asin"):
         if book.get("asin_source") == "audible":
@@ -215,19 +236,21 @@ def seed_fields(book):
         if book.get("part"):
             series += f", book {book['part']}"
         annotation.append(f"Series: {series}")
-    add("annotation", "\n".join(annotation))
+    return "\n".join(annotation)
 
+
+def _source(book: Book) -> str:
+    """Say where the metadata came from, for the edit note."""
     if not book.get("asin"):
-        source = "the audiobook file"
-    elif book.get("asin_source") == "audible":
-        source = f"Audible ASIN {book['asin']}"
-    else:
-        source = f"the audiobook file, ASIN {book['asin']}"
-    add("edit_note", f"Audiobook release, metadata taken from {source}.")
-    return fields
+        return "the audiobook file"
+    if book.get("asin_source") == "audible":
+        return f"Audible ASIN {book['asin']}"
+    return f"the audiobook file, ASIN {book['asin']}"
 
 
-def fetch_cover(book, root, pod, namespace="apps"):
+def fetch_cover(
+    book: Book, root: str, pod: str, namespace: str = "apps"
+) -> bytes | None:
     """Pull one book's cover out of the cluster, embedded art or sidecar.
 
     Base64 over `kubectl exec`, because raw bytes through that pipe truncate
@@ -235,7 +258,8 @@ def fetch_cover(book, root, pod, namespace="apps"):
     databases out. The length is checked against what the manifest recorded.
     """
     art = book.get("art") or {}
-    source = os.path.join(root, book["path"])
+    # A path inside the pod, so POSIX whatever this runs on.
+    source = PurePosixPath(root, book["path"])
     if art.get("embedded"):
         reader = (
             "import base64,sys,mutagen;"
@@ -243,7 +267,7 @@ def fetch_cover(book, root, pod, namespace="apps"):
             "sys.stdout.write(base64.b64encode(bytes(t['covr'][0])).decode())"
         )
     elif art.get("sidecars"):
-        source = os.path.join(root, book["folder"], art["sidecars"][0])
+        source = PurePosixPath(root, book["folder"], art["sidecars"][0])
         reader = (
             "import base64,sys;"
             "sys.stdout.write(base64.b64encode(open(sys.argv[1],'rb').read()).decode())"
@@ -264,10 +288,11 @@ def fetch_cover(book, root, pod, namespace="apps"):
             "/venv/bin/python",
             "-c",
             reader,
-            source,
+            str(source),
         ],
         capture_output=True,
         text=True,
+        check=False,
     )
     if result.returncode != 0:
         return None
@@ -278,8 +303,8 @@ def fetch_cover(book, root, pod, namespace="apps"):
     return data
 
 
-def seed_link(index, label):
-    """The hand-off to MusicBrainz, as a link rather than a submit button.
+def seed_link(index: int, label: str) -> str:
+    """Render the hand-off to MusicBrainz as a link rather than a submit button.
 
     Seeding is documented as POST only, and a submit button cannot be
     middle-clicked into a new tab — so the link points at a local page that
@@ -290,8 +315,8 @@ def seed_link(index, label):
     return f'<a class="button" href="/seed/{index}">{html.escape(label)}</a>'
 
 
-def seed_form(book, redirect=None):
-    """A page whose only job is to POST the seed to MusicBrainz on arrival."""
+def seed_form(book: Book, redirect: str | None = None) -> str:
+    """Render a page whose only job is to POST the seed to MusicBrainz on arrival."""
     inputs = "".join(
         f'<input type="hidden" name="{html.escape(key)}" '
         f'value="{html.escape(value, quote=True)}">'
@@ -311,7 +336,13 @@ def seed_form(book, redirect=None):
     )
 
 
-def save_cover(book, covers_dir, root, pod, fetcher=fetch_cover):
+def save_cover(
+    book: Book,
+    covers_dir: Path,
+    root: str,
+    pod: str,
+    fetcher: Callable[[Book, str, str], bytes | None] = fetch_cover,
+) -> Path | None:
     """Put the art on disk and return where, or None if it could not be read.
 
     Called before the page renders rather than when the browser asks for the
@@ -320,36 +351,38 @@ def save_cover(book, covers_dir, root, pod, fetcher=fetch_cover):
     """
     if not has_art(book):
         return None
-    path = os.path.join(covers_dir, cover_filename(book))
-    if os.path.exists(path):
+    path = covers_dir / cover_filename(book)
+    if path.exists():
         return path
     data = fetcher(book, root, pod)
     if data is None:
         return None
-    os.makedirs(covers_dir, exist_ok=True)
-    with open(path, "wb") as handle:
-        handle.write(data)
+    covers_dir.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
     return path
 
 
 class Ledger:
-    def __init__(self, path):
+    """The book path -> release MBID map, rewritten whole on every entry."""
+
+    def __init__(self, path: Path) -> None:
+        """Load the ledger at `path`, or start an empty one if there is none."""
         self.path = path
         self.entries = {}
-        if os.path.exists(path):
-            with open(path) as handle:
-                self.entries = json.load(handle)
+        if path.exists():
+            self.entries = json.loads(path.read_text())
 
-    def record(self, book_path, mbid):
+    def record(self, book_path: str, mbid: str) -> None:
+        """Record a book's release and write the whole ledger back."""
         self.entries[book_path] = mbid
-        with open(self.path, "w") as handle:
-            json.dump(
-                self.entries, handle, indent=1, ensure_ascii=False, sort_keys=True
-            )
-            handle.write("\n")
+        self.path.write_text(
+            json.dumps(self.entries, indent=1, ensure_ascii=False, sort_keys=True)
+            + "\n"
+        )
 
 
-def page(title, body):
+def page(title: str, body: str) -> str:
+    """Wrap a body in the queue's one stylesheet."""
     return f"""<!doctype html><meta charset="utf-8"><title>{html.escape(title)}</title>
 <style>
  body {{ font: 15px/1.5 system-ui, sans-serif; max-width: 46rem; margin: 2rem auto;
@@ -375,16 +408,19 @@ def page(title, body):
 
 
 class Handler(BaseHTTPRequestHandler):
-    books = []
-    ledger = None
-    covers_dir = ""
-    root = "/audio/import"
-    pod = ""
+    """The review queue. Its state is set on the class by main()."""
 
-    def log_message(self, *args):
-        pass
+    books: ClassVar[list[Book]] = []
+    ledger: ClassVar[Ledger]
+    covers_dir: ClassVar[Path]
+    root: ClassVar[str] = "/audio/import"
+    pod: ClassVar[str] = ""
 
-    def reply(self, body, status=200):
+    def log_message(self, *args: object) -> None:
+        """Log nothing: a line per request would bury the queue's own output."""
+
+    def reply(self, body: str, status: int = 200) -> None:
+        """Send an HTML page."""
         encoded = body.encode()
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -392,64 +428,69 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
-    def redirect(self, location):
+    def redirect(self, location: str) -> None:
+        """Send the browser on with a 303, so a reload does not repeat the GET."""
         self.send_response(303)
         self.send_header("Location", location)
         self.end_headers()
 
-    def do_GET(self):
+    def do_GET(self) -> None:
+        """Route a request by its path segments."""
         parsed = urlparse(self.path)
-        parts = [p for p in parsed.path.split("/") if p]
         query = parse_qs(parsed.query)
 
-        if not parts:
-            return self.reply(self.index())
-        if parts[0] == "book" and len(parts) == 2:
-            return self.reply(self.book(int(parts[1])))
-        if parts[0] == "captured" and len(parts) == 2:
-            index = int(parts[1])
-            mbid = (query.get("release_mbid") or [""])[0]
-            if mbid:
-                self.ledger.record(self.books[index]["path"], mbid)
-            return self.redirect(self.after_capture(index))
-        if parts[0] == "record" and len(parts) == 2:
-            index = int(parts[1])
-            mbid = (query.get("mbid") or [""])[0].strip()
-            if mbid:
-                self.ledger.record(self.books[index]["path"], mbid)
-            return self.redirect(self.after_capture(index))
-        if parts[0] == "seed" and len(parts) == 2:
-            index = int(parts[1])
-            return self.reply(
-                page(
-                    "Opening MusicBrainz",
-                    seed_form(self.books[index], f"{ORIGIN}/captured/{index}"),
+        match [p for p in parsed.path.split("/") if p]:
+            case []:
+                self.reply(self.index())
+            case ["book", index]:
+                self.reply(self.book(int(index)))
+            case ["captured", index]:
+                self.capture(int(index), (query.get("release_mbid") or [""])[0])
+            case ["record", index]:
+                self.capture(int(index), (query.get("mbid") or [""])[0].strip())
+            case ["seed", index]:
+                self.reply(
+                    page(
+                        "Opening MusicBrainz",
+                        seed_form(self.books[int(index)], f"{ORIGIN}/captured/{index}"),
+                    )
                 )
-            )
-        if parts[0] == "cover" and len(parts) == 2:
-            return self.reply(self.cover(int(parts[1])))
-        if parts[0] == "cover-image" and len(parts) == 2:
-            return self.serve_cover(int(parts[1]))
-        return self.reply(page("Not found", "<h1>Not found</h1>"), 404)
+            case ["cover", index]:
+                self.reply(self.cover(int(index)))
+            case ["cover-image", index]:
+                self.serve_cover(int(index))
+            case _:
+                self.reply(page("Not found", "<h1>Not found</h1>"), 404)
 
-    def after_capture(self, index):
-        """Cover art is a second visit to MusicBrainz, so it gets its own step
-        rather than being lost between one book and the next."""
+    def capture(self, index: int, mbid: str) -> None:
+        """Record the release a book became, if there is one, and move on."""
+        if mbid:
+            self.ledger.record(self.books[index]["path"], mbid)
+        self.redirect(self.after_capture(index))
+
+    def after_capture(self, index: int) -> str:
+        """Send a book with art to its cover step, and any other to the next book.
+
+        Cover art is a second visit to MusicBrainz, so it gets its own step
+        rather than being lost between one book and the next.
+        """
         book = self.books[index]
         if has_art(book) and self.ledger.entries.get(book["path"]):
             return f"/cover/{index}"
         return self.next_after(index)
 
-    def save_cover(self, index):
+    def save_cover(self, index: int) -> Path | None:
+        """Put a book's art on disk, returning where."""
         return save_cover(self.books[index], self.covers_dir, self.root, self.pod)
 
-    def serve_cover(self, index):
+    def serve_cover(self, index: int) -> None:
+        """Send a book's art, for the thumbnail on its cover step."""
         book = self.books[index]
         path = self.save_cover(index)
         if path is None:
-            return self.reply(page("No art", "<h1>Could not read the art</h1>"), 404)
-        with open(path, "rb") as handle:
-            data = handle.read()
+            self.reply(page("No art", "<h1>Could not read the art</h1>"), 404)
+            return
+        data = path.read_bytes()
         mime = (book.get("art") or {}).get("mime") or "image/jpeg"
         self.send_response(200)
         self.send_header("Content-Type", mime)
@@ -457,7 +498,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def cover(self, index):
+    def cover(self, index: int) -> str:
+        """Render a book's cover art step."""
         book = self.books[index]
         mbid = self.ledger.entries.get(book["path"], "")
         art = book.get("art") or {}
@@ -485,7 +527,7 @@ class Handler(BaseHTTPRequestHandler):
                 f"border:1px solid #ddd' alt='cover'></p>"
                 f"<table><tr><th>Source</th><td>{html.escape(source)}</td></tr>"
                 f"<tr><th>Size</th><td>{(art.get('bytes') or 0) // 1024} KiB</td></tr>"
-                f"<tr><th>Saved to</th><td><code>{html.escape(saved)}</code></td>"
+                f"<tr><th>Saved to</th><td><code>{html.escape(str(saved))}</code></td>"
                 f"</tr></table>"
                 f"<p>{cover_art_link(mbid, 'Upload to the Cover Art Archive →')}</p>"
                 f"<p style='color:#666'>Choose <b>Front</b> as the type.</p>"
@@ -496,16 +538,19 @@ class Handler(BaseHTTPRequestHandler):
             f"<h1>Cover art</h1>"
             f"<p>{html.escape(book.get('title') or book['path'])}</p>"
             f"{body}"
-            f"<p><a href='{self.next_after(index)}'>Continue to the next book &rarr;</a></p>",
+            f"<p><a href='{self.next_after(index)}'>"
+            f"Continue to the next book &rarr;</a></p>",
         )
 
-    def next_after(self, index):
+    def next_after(self, index: int) -> str:
+        """Address the next book not yet submitted, or the queue if none is."""
         for candidate in range(index + 1, len(self.books)):
             if self.books[candidate]["path"] not in self.ledger.entries:
                 return f"/book/{candidate}"
         return "/"
 
-    def index(self):
+    def index(self) -> str:
+        """Render the queue."""
         done = len(self.ledger.entries)
         rows = []
         for index, book in enumerate(self.books):
@@ -530,7 +575,8 @@ class Handler(BaseHTTPRequestHandler):
             + "</table>",
         )
 
-    def book(self, index):
+    def book(self, index: int) -> str:
+        """Render one book's review page."""
         book = self.books[index]
         rendered = render_credit(artist_credit(book))
 
@@ -567,7 +613,8 @@ class Handler(BaseHTTPRequestHandler):
 
         return page(
             book.get("title") or book["path"],
-            f"<p><a href='/'>&larr; queue</a> &middot; {index + 1} of {len(self.books)}</p>"
+            f"<p><a href='/'>&larr; queue</a> &middot; "
+            f"{index + 1} of {len(self.books)}</p>"
             f"<h1>{html.escape(book.get('title') or book['path'])}</h1>"
             f"{warnings}<table>{rows}</table>"
             f"<p>{seed_link(index, 'Open in MusicBrainz →')}</p>"
@@ -579,17 +626,15 @@ class Handler(BaseHTTPRequestHandler):
         )
 
 
-def main():
-    here = os.path.dirname(os.path.abspath(__file__))
-    manifest_path = (
-        sys.argv[1] if len(sys.argv) > 1 else os.path.join(here, "manifest.json")
-    )
-    with open(manifest_path) as handle:
-        manifest = json.load(handle)
+def main() -> None:
+    """Serve the queue for the manifest named in argv, narrowed by the rest."""
+    here = Path(__file__).resolve().parent
+    manifest_path = Path(sys.argv[1]) if len(sys.argv) > 1 else here / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
     books = manifest["books"]
     Handler.root = manifest.get("root", "/audio/import")
     Handler.pod = os.environ.get("MB_SEED_POD", "")
-    Handler.covers_dir = os.path.join(os.path.dirname(manifest_path), "covers")
+    Handler.covers_dir = manifest_path.parent / "covers"
 
     # Remaining arguments narrow the queue by substring. The inbox is ~479
     # books and upstream lags past a few hundred, so this is how a batch gets
@@ -608,16 +653,15 @@ def main():
             sys.exit(f"No books matched {', '.join(patterns)}")
 
     Handler.books = books
-    Handler.ledger = Ledger(os.path.join(os.path.dirname(manifest_path), "ledger.json"))
+    Handler.ledger = Ledger(manifest_path.parent / "ledger.json")
 
     print(
         f"{len(Handler.books)} books; {len(Handler.ledger.entries)} already submitted"
     )
     print(f"==> {ORIGIN}")
-    try:
+    # A headless shell is not a failure.
+    with contextlib.suppress(Exception):
         webbrowser.open(ORIGIN)
-    except Exception:  # noqa: BLE001 - a headless shell is not a failure
-        pass
     HTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
 
 

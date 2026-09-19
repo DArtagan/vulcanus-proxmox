@@ -23,6 +23,7 @@ import json
 import subprocess
 import sys
 from dataclasses import dataclass, field
+from typing import Any
 
 THREAD_QUERY = """
 query($owner:String!, $repo:String!, $number:Int!) {
@@ -41,7 +42,9 @@ query($owner:String!, $repo:String!, $number:Int!) {
 
 REPLY_MUTATION = """
 mutation($thread:ID!, $body:String!) {
-  addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$thread, body:$body}) {
+  addPullRequestReviewThreadReply(
+    input:{pullRequestReviewThreadId:$thread, body:$body}
+  ) {
     comment { author { login } body }
   }
 }
@@ -60,8 +63,8 @@ class GraphQLError(RuntimeError):
     """A GraphQL request failed, with the message GitHub actually gave."""
 
 
-def raise_for_graphql_errors(payload):
-    """GraphQL reports failures in the body, not only in the exit status.
+def raise_for_graphql_errors(payload: dict[str, Any]) -> dict[str, Any]:
+    """Raise on the failures GraphQL reports in the body, not the exit status.
 
     A missing repository comes back as `data.repository: null` plus an `errors`
     list; without this the caller sees a KeyError several frames away from the
@@ -77,6 +80,8 @@ def raise_for_graphql_errors(payload):
 
 @dataclass
 class Thread:
+    """One review thread, located by the line it was last known to cover."""
+
     identifier: str
     path: str
     line: int | None
@@ -85,7 +90,7 @@ class Thread:
     comments: list[tuple[str, str]] = field(default_factory=list)
 
 
-def parse_threads(payload):
+def parse_threads(payload: dict[str, Any]) -> list[Thread]:
     """Turn a GraphQL response into Thread records.
 
     `line` is null on outdated threads, so fall back to `originalLine`. Both are
@@ -118,11 +123,13 @@ def parse_threads(payload):
     return threads
 
 
-def unresolved(threads):
+def unresolved(threads: list[Thread]) -> list[Thread]:
+    """Keep only the threads still awaiting resolution."""
     return [thread for thread in threads if not thread.is_resolved]
 
 
-def format_threads(threads):
+def format_threads(threads: list[Thread]) -> str:
+    """Render threads one per line, each comment's first line beneath it."""
     if not threads:
         return "no open threads"
     lines = []
@@ -144,12 +151,18 @@ def format_threads(threads):
     return "\n".join(lines)
 
 
-def run_graphql(query, **variables):
+def run_graphql(query: str, **variables: str | int) -> dict[str, Any]:
+    """Run a GraphQL document through `gh api`, raising on any reported error.
+
+    Checked by hand rather than with `check=True`: whatever the exit status, a
+    body on stdout carries GitHub's own account of what failed, which is the
+    message worth showing.
+    """
     command = ["gh", "api", "graphql", "-f", f"query={query}"]
     for name, value in variables.items():
         flag = "-F" if isinstance(value, int) else "-f"
         command += [flag, f"{name}={value}"]
-    completed = subprocess.run(command, capture_output=True, text=True)
+    completed = subprocess.run(command, capture_output=True, text=True, check=False)
     if not completed.stdout.strip():
         raise GraphQLError(
             completed.stderr.strip() or f"gh exited {completed.returncode}"
@@ -157,7 +170,7 @@ def run_graphql(query, **variables):
     return raise_for_graphql_errors(json.loads(completed.stdout))
 
 
-def current_pull_request():
+def current_pull_request() -> tuple[str, str, int]:
     """Resolve owner, repo and PR number for the checked-out branch."""
     completed = subprocess.run(
         ["gh", "pr", "view", "--json", "number,headRepository,headRepositoryOwner"],
@@ -173,7 +186,8 @@ def current_pull_request():
     )
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
+    """List, reply to or resolve threads, as the subcommand in argv says."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     subcommands = parser.add_subparsers(dest="command", required=True)
 

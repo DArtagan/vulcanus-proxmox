@@ -32,13 +32,14 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 import yaml
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(os.path.dirname(HERE))
-INIT_SCRIPTS = os.path.join(
-    REPO, "kubernetes", "apps", "automatic-ripping-machine", "init-scripts.yaml"
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parent.parent
+INIT_SCRIPTS = (
+    REPO / "kubernetes" / "apps" / "automatic-ripping-machine" / "init-scripts.yaml"
 )
 
 STAGING = "/home/arm/arm-incoming"
@@ -61,68 +62,71 @@ TRACKS = [
 ]
 
 
-def load_script():
-    with open(INIT_SCRIPTS) as handle:
-        doc = yaml.safe_load(handle)
+def load_script() -> str:
+    doc = yaml.safe_load(INIT_SCRIPTS.read_text())
     try:
         return doc["data"]["arm-audio-handoff.sh"]
     except KeyError:
-        raise AssertionError(
-            "init-scripts.yaml has no arm-audio-handoff.sh entry"
-        ) from None
+        message = "init-scripts.yaml has no arm-audio-handoff.sh entry"
+        raise AssertionError(message) from None
 
 
-def sandbox(script, staging, inbox, log):
+def sandbox(script: str, staging: Path, inbox: Path, log: Path) -> str:
     for original, replacement in ((STAGING, staging), (INBOX, inbox), (ARM_LOG, log)):
         if original not in script:
-            raise AssertionError(
+            message = (
                 f"arm-audio-handoff.sh no longer contains {original!r}; "
                 "update the constants at the top of this test."
             )
-        script = script.replace(original, replacement)
+            raise AssertionError(message)
+        script = script.replace(original, str(replacement))
     return script
 
 
 class Harness:
-    def __init__(self, tmpdir, album="Mànran The Test", tracks=TRACKS):
-        self.tmpdir = tmpdir
-        self.staging = os.path.join(tmpdir, "staging")
-        self.inbox = os.path.join(tmpdir, "inbox")
-        self.log = os.path.join(tmpdir, "arm.log")
-        self.bindir = os.path.join(tmpdir, "bin")
-        self.copies = os.path.join(tmpdir, "copy-destinations")
-        os.makedirs(self.bindir)
-        os.makedirs(self.inbox)
-        self.album_dir = os.path.join(self.staging, album)
-        os.makedirs(self.album_dir)
+    def __init__(
+        self, tmpdir: str, album: str = "Mànran The Test", tracks: list[str] = TRACKS
+    ) -> None:
+        self.tmpdir = Path(tmpdir)
+        self.staging = self.tmpdir / "staging"
+        self.inbox = self.tmpdir / "inbox"
+        self.log = self.tmpdir / "arm.log"
+        self.bindir = self.tmpdir / "bin"
+        self.copies = self.tmpdir / "copy-destinations"
+        self.bindir.mkdir()
+        self.inbox.mkdir()
+        self.album_dir = self.staging / album
+        self.album_dir.mkdir(parents=True)
         for t in tracks:
-            with open(os.path.join(self.album_dir, t), "w") as fh:
-                fh.write(f"contents of {t}\n")
+            (self.album_dir / t).write_text(f"contents of {t}\n")
 
         # Record every destination cp is asked to write, so the test can assert
         # on what the inbox looked like mid-copy without racing it. Resolve the
         # real cp rather than assuming /bin/cp — there is no /bin on NixOS.
         self.real_cp = shutil.which("cp")
-        assert self.real_cp, "cp not found on PATH"
-        self._write(
-            os.path.join(self.bindir, "cp"),
+        if self.real_cp is None:
+            message = "cp not found on PATH"
+            raise AssertionError(message)
+        self.write_executable(
+            self.bindir / "cp",
             f'#!/bin/sh\necho "$2" >> {self.copies}\nexec {self.real_cp} "$@"\n',
         )
 
-        self.script = os.path.join(tmpdir, "arm-audio-handoff.sh")
-        self._write(
+        self.script = self.tmpdir / "arm-audio-handoff.sh"
+        self.write_executable(
             self.script, sandbox(load_script(), self.staging, self.inbox, self.log)
         )
 
     @staticmethod
-    def _write(path, body):
-        with open(path, "w") as fh:
-            fh.write(body)
-        os.chmod(path, 0o755)
+    def write_executable(path: Path, body: str) -> None:
+        path.write_text(body)
+        path.chmod(0o700)
 
-    def run(self, title="ARM notification", body=COMPLETE):
+    def run(
+        self, title: str = "ARM notification", body: str = COMPLETE
+    ) -> subprocess.CompletedProcess[str]:
         env = dict(os.environ)
-        env["PATH"] = self.bindir + os.pathsep + env["PATH"]
+        env["PATH"] = f"{self.bindir}{os.pathsep}{env['PATH']}"
         return subprocess.run(
             ["bash", self.script, title, body],
             env=env,
@@ -130,62 +134,80 @@ class Harness:
             capture_output=True,
             text=True,
             timeout=60,
+            check=False,
         )
 
-    def copy_destinations(self):
-        if not os.path.exists(self.copies):
+    def copy_destinations(self) -> list[str]:
+        if not self.copies.exists():
             return []
-        with open(self.copies) as fh:
-            return [line.strip() for line in fh if line.strip()]
+        return [
+            line.strip()
+            for line in self.copies.read_text().splitlines()
+            if line.strip()
+        ]
 
-    def inbox_tree(self, album="Mànran The Test"):
-        d = os.path.join(self.inbox, album)
-        return sorted(os.listdir(d)) if os.path.isdir(d) else []
+    def inbox_tree(self, album: str = "Mànran The Test") -> list[str]:
+        return listing(self.inbox / album)
+
+
+def listing(directory: Path) -> list[str]:
+    """Name what a directory holds, sorted; nothing if it does not exist."""
+    return (
+        sorted(entry.name for entry in directory.iterdir())
+        if directory.is_dir()
+        else []
+    )
 
 
 class OnlyOnCompletion(unittest.TestCase):
-    """ARM calls this for every notification, so the message is the only signal
-    that a rip finished. Acting on the wrong one would move a half-written
-    album."""
+    """Only ARM's completion message hands an album off.
 
-    def _run_with(self, body):
+    ARM calls this for every notification, so the message is the only signal
+    that a rip finished. Acting on the wrong one would move a half-written
+    album.
+    """
+
+    def _run_with(self, body: str) -> tuple[list[str], bool]:
         with tempfile.TemporaryDirectory() as tmp:
             h = Harness(tmp)
             h.run(body=body)
-            return h.inbox_tree(), os.path.isdir(h.album_dir)
+            return h.inbox_tree(), h.album_dir.is_dir()
 
-    def test_entry_notification_does_nothing(self):
+    def test_entry_notification_does_nothing(self) -> None:
         moved, staging_intact = self._run_with(ENTRY)
         self.assertEqual(moved, [])
         self.assertTrue(staging_intact)
 
-    def test_video_notification_does_nothing(self):
+    def test_video_notification_does_nothing(self) -> None:
         moved, _ = self._run_with(VIDEO)
         self.assertEqual(moved, [])
 
-    def test_fatal_error_notification_does_nothing(self):
+    def test_fatal_error_notification_does_nothing(self) -> None:
         moved, staging_intact = self._run_with(FATAL)
         self.assertEqual(moved, [])
         self.assertTrue(staging_intact, "a failed rip must not be handed off")
 
-    def test_completion_moves_the_album(self):
+    def test_completion_moves_the_album(self) -> None:
         moved, staging_intact = self._run_with(COMPLETE)
         self.assertEqual(moved, sorted(TRACKS))
         self.assertFalse(staging_intact, "staging should be cleared after a handoff")
 
 
 class NeverVisibleWhileIncomplete(unittest.TestCase):
-    """The whole point. If any intermediate filename would read as audio to
-    beets-flask, the race this script exists to remove is still there."""
+    """No intermediate filename reads as audio to beets-flask.
 
-    def test_every_copy_lands_under_a_name_beets_flask_ignores(self):
+    The whole point. If any did, the race this script exists to remove is
+    still there.
+    """
+
+    def test_every_copy_lands_under_a_name_beets_flask_ignores(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             h = Harness(tmp)
             h.run()
             destinations = h.copy_destinations()
             self.assertEqual(len(destinations), len(TRACKS))
             for d in destinations:
-                base = os.path.basename(d)
+                base = Path(d).name
                 self.assertTrue(
                     base.startswith("."),
                     f"{base} does not start with '.', so the watchdog would see it",
@@ -195,35 +217,36 @@ class NeverVisibleWhileIncomplete(unittest.TestCase):
                     f"{base} ends in an audio extension, so it counts as a track",
                 )
 
-    def test_final_names_are_restored_exactly(self):
+    def test_final_names_are_restored_exactly(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             h = Harness(tmp)
             h.run()
             self.assertEqual(h.inbox_tree(), sorted(TRACKS))
 
-    def test_contents_survive_the_round_trip(self):
+    def test_contents_survive_the_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             h = Harness(tmp)
             h.run()
-            with open(os.path.join(h.inbox, "Mànran The Test", "01 - MSR.flac")) as fh:
-                self.assertEqual(fh.read(), "contents of 01 - MSR.flac\n")
+            self.assertEqual(
+                (h.inbox / "Mànran The Test" / "01 - MSR.flac").read_text(),
+                "contents of 01 - MSR.flac\n",
+            )
 
 
 class Safety(unittest.TestCase):
-    def test_nothing_staged_is_not_an_error(self):
+    def test_nothing_staged_is_not_an_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             h = Harness(tmp, tracks=[])
-            os.rmdir(h.album_dir)
+            h.album_dir.rmdir()
             result = h.run()
             self.assertEqual(result.returncode, 0)
 
-    def test_existing_destination_is_not_clobbered(self):
+    def test_existing_destination_is_not_clobbered(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             h = Harness(tmp)
-            existing = os.path.join(h.inbox, "Mànran The Test")
-            os.makedirs(existing)
-            with open(os.path.join(existing, "keep.flac"), "w") as fh:
-                fh.write("previous rip\n")
+            existing = h.inbox / "Mànran The Test"
+            existing.mkdir()
+            (existing / "keep.flac").write_text("previous rip\n")
             h.run()
             self.assertEqual(
                 h.inbox_tree(), ["keep.flac"], "the first album must be untouched"
@@ -231,7 +254,9 @@ class Safety(unittest.TestCase):
 
 
 class CollidingAlbumNames(unittest.TestCase):
-    """Two discs can produce the same album directory, and it is not a corner
+    """An album whose directory is taken lands under a disambiguated name.
+
+    Two discs can produce the same album directory, and it is not a corner
     case: every disc MusicBrainz cannot identify is named
     `Unknown Artist Unknown Album`. Two of those in a row collide.
 
@@ -243,100 +268,100 @@ class CollidingAlbumNames(unittest.TestCase):
     old — a plausible-looking album that is two discs. Silent corruption, which
     is worse than either losing it or refusing loudly.
 
-    So the album always lands; the name is disambiguated instead."""
+    So the album always lands; the name is disambiguated instead.
+    """
 
-    def _rip(self, harness, tracks, contents):
-        os.makedirs(harness.album_dir, exist_ok=True)
+    def _rip(self, harness: Harness, tracks: list[str], contents: str) -> None:
+        harness.album_dir.mkdir(parents=True, exist_ok=True)
         for t in tracks:
-            with open(os.path.join(harness.album_dir, t), "w") as fh:
-                fh.write(contents)
+            (harness.album_dir / t).write_text(contents)
         harness.run()
 
-    def test_second_album_lands_beside_the_first(self):
+    def test_second_album_lands_beside_the_first(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             h = Harness(tmp, album="Unknown Artist Unknown Album", tracks=TRACKS)
             h.run()
             self._rip(h, TRACKS, "second disc\n")
             self.assertEqual(
-                sorted(os.listdir(h.inbox)),
+                listing(h.inbox),
                 ["Unknown Artist Unknown Album", "Unknown Artist Unknown Album (2)"],
             )
-            with open(
-                os.path.join(h.inbox, "Unknown Artist Unknown Album (2)", TRACKS[0])
-            ) as fh:
-                self.assertEqual(fh.read(), "second disc\n")
+            self.assertEqual(
+                (h.inbox / "Unknown Artist Unknown Album (2)" / TRACKS[0]).read_text(),
+                "second disc\n",
+            )
 
-    def test_third_album_lands_too(self):
+    def test_third_album_lands_too(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             h = Harness(tmp, album="Unknown Artist Unknown Album", tracks=TRACKS)
             h.run()
             self._rip(h, TRACKS, "second\n")
             self._rip(h, TRACKS, "third\n")
-            self.assertIn("Unknown Artist Unknown Album (3)", os.listdir(h.inbox))
+            self.assertIn("Unknown Artist Unknown Album (3)", listing(h.inbox))
 
-    def test_staging_is_always_cleared_so_the_next_rip_cannot_merge(self):
+    def test_staging_is_always_cleared_so_the_next_rip_cannot_merge(self) -> None:
         # The corruption path: staging left populated, then abcde rips a
         # shorter disc into it and the leftover tracks masquerade as part of it.
         with tempfile.TemporaryDirectory() as tmp:
             h = Harness(tmp, album="Unknown Artist Unknown Album", tracks=TRACKS)
             h.run()
-            self.assertFalse(os.path.isdir(h.album_dir))
+            self.assertFalse(h.album_dir.is_dir())
             self._rip(h, TRACKS, "second\n")
             self.assertFalse(
-                os.path.isdir(h.album_dir),
+                h.album_dir.is_dir(),
                 "staging must be empty after a colliding handoff too",
             )
 
-    def test_the_first_album_is_never_modified(self):
+    def test_the_first_album_is_never_modified(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             h = Harness(tmp, album="Unknown Artist Unknown Album", tracks=TRACKS)
             h.run()
-            first = os.path.join(h.inbox, "Unknown Artist Unknown Album", TRACKS[0])
-            before = open(first).read()
+            first = h.inbox / "Unknown Artist Unknown Album" / TRACKS[0]
+            before = first.read_text()
             self._rip(h, TRACKS, "second disc\n")
-            self.assertEqual(open(first).read(), before)
+            self.assertEqual(first.read_text(), before)
 
-    def test_a_colliding_handoff_is_still_invisible_while_incomplete(self):
+    def test_a_colliding_handoff_is_still_invisible_while_incomplete(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             h = Harness(tmp, album="Unknown Artist Unknown Album", tracks=TRACKS)
             h.run()
-            os.remove(h.copies)
+            h.copies.unlink()
             self._rip(h, TRACKS, "second\n")
             for d in h.copy_destinations():
-                base = os.path.basename(d)
+                base = Path(d).name
                 self.assertTrue(base.startswith("."), base)
                 self.assertFalse(base.endswith(".flac"), base)
 
-    def test_a_failed_copy_moves_staging_aside_so_it_cannot_be_merged_into(self):
+    def test_a_failed_copy_moves_staging_aside_so_it_cannot_be_merged_into(
+        self,
+    ) -> None:
         # The abort path is now the only one that keeps staging, which makes it
         # the only remaining way abcde's next rip could write into a directory
         # that still holds an album. Moving it aside closes that.
         with tempfile.TemporaryDirectory() as tmp:
             h = Harness(tmp)
-            Harness._write(
-                os.path.join(h.bindir, "cp"),
+            h.write_executable(
+                h.bindir / "cp",
                 f'#!/bin/sh\necho "$2" >> {h.copies}\n'
                 f'[ "$(wc -l < {h.copies})" -gt 1 ] && exit 1\n'
                 f'exec {h.real_cp} "$@"\n',
             )
             h.run()
             self.assertFalse(
-                os.path.isdir(h.album_dir),
+                h.album_dir.is_dir(),
                 "the album abcde would rip into next must not still hold a rip",
             )
-            kept = [d for d in os.listdir(h.staging) if d.startswith("Mànran The Test")]
+            kept = [d for d in listing(h.staging) if d.startswith("Mànran The Test")]
             self.assertEqual(len(kept), 1, f"the rip must be kept somewhere: {kept}")
             self.assertNotEqual(kept[0], "Mànran The Test")
-            self.assertEqual(
-                sorted(os.listdir(os.path.join(h.staging, kept[0]))), sorted(TRACKS)
-            )
+            self.assertEqual(listing(h.staging / kept[0]), sorted(TRACKS))
 
-    def test_a_failed_copy_leaves_no_audio_in_the_inbox(self):
+    def test_a_failed_copy_leaves_no_audio_in_the_inbox(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             h = Harness(tmp)
             # cp succeeds once, then fails: a disk filling up mid-album.
-            Harness._write(
-                os.path.join(h.bindir, "cp"),
+            h.write_executable(
+                h.bindir / "cp",
                 f'#!/bin/sh\necho "$2" >> {h.copies}\n'
                 f'[ "$(wc -l < {h.copies})" -gt 1 ] && exit 1\n'
                 f'exec {h.real_cp} "$@"\n',
@@ -346,7 +371,7 @@ class CollidingAlbumNames(unittest.TestCase):
                 h.inbox_tree(), [], "a partial album must not be left behind"
             )
             self.assertTrue(
-                any(d.startswith("Mànran The Test") for d in os.listdir(h.staging)),
+                any(d.startswith("Mànran The Test") for d in listing(h.staging)),
                 "the rip must survive a failed handoff, under some name",
             )
 
