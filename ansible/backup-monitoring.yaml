@@ -97,7 +97,7 @@
 
     - name: 'install the Pushover sender'
       copy:
-        src: pushover-notify
+        src: pushover-notify.sh
         dest: /usr/local/bin/pushover-notify
         owner: root
         group: root
