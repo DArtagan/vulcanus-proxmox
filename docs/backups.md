@@ -20,6 +20,37 @@ image backup, and the only one that restores a whole guest with a single command
 vulcanus grants it `hold,send` on `rpool` and nothing more. A host that is compromised
 cannot reach into its own backups, and a `zfs destroy` on vulcanus does not propagate.
 
+### The PBS appliance
+
+PBS is guest 107, and it is the one guest the job excludes. Its datastore is a 2 TB
+chunk store, so backing it up would read that store and write the resulting chunks
+back into it — never consistent, and unbounded.
+
+`--exclude 107` is job policy living in one file on the host. The datastore disk also
+carries **`backup=0`**, so a manual `vzdump 107`, a second job, or the job's eventual
+move into Terraform cannot pull it in. There is no circumstance in which backing a
+chunk store up into itself is correct, which is why it is a property of the disk
+rather than something a job decides.
+
+The appliance's two disks are protected differently, and the difference is what
+decides how a rebuild goes:
+
+| Disk | Holds | Protection |
+|---|---|---|
+| `virtio0`, 20 G, on `rpool/data` | the OS, and `/etc/proxmox-backup` | sanoid, **and replicated to mini-nas** with the rest of `rpool/data` |
+| `virtio1`, 2 T, on `rpool/proxmox_backup_server` | the chunk store | sanoid dailies on `rpool` only |
+
+**PBS's own datastore is not replicated.** `rpool/proxmox_backup_server` is excluded
+from syncoid, so losing `rpool` loses the guest images and their backups together.
+
+`/etc/proxmox-backup` is the part a reinstall cannot reconstruct: datastore
+definitions, users, ACLs, prune/GC/verify schedules, and the TLS certificate whose
+fingerprint is pinned in vulcanus's `/etc/pve/storage.cfg` — a rebuilt PBS presents a
+new fingerprint and PVE refuses the connection until that line is updated. It rides
+the replicated OS disk, so it has an offsite copy. The datastore itself needs no such
+care: a chunk store is self-describing, and `datastore create` against an existing one
+adopts it.
+
 ## Retention
 
 sanoid on vulcanus, from [`ansible/templates/sanoid.conf`](../ansible/templates/sanoid.conf):
@@ -253,8 +284,6 @@ dataset.
 Retention truncates history, so a filesystem years old can present only recent
 snapshots — or, once replication stops, only ancient ones.
 
-**PBS's own datastore is not replicated.** `rpool/proxmox_backup_server` is excluded
-from syncoid, so losing `rpool` loses the guest images and their backups together.
 
 ### Repairing a diverged replica
 

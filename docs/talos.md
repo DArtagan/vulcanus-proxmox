@@ -258,17 +258,16 @@ full read of trimmed disks reports the same `transferred` as before and finishes
 far sooner, because unallocated regions come back as zeros without touching a
 disk. That is the number to compare after a guest restart.
 
-### How the backup job is tuned
+### Tuning the backup job for etcd
 
-`--exclude 107`. 107 is Proxmox Backup Server itself and its datastore lives on
-`rpool`, so backing it up is circular. That is the only standing reason to
-exclude a guest here; the list holds nothing else because a guest not worth
-backing up is a guest worth destroying.
+What the job covers, and why PBS itself is excluded, is in
+[backups.md](backups.md). What belongs here is the setting chosen for the
+cluster's sake, and the guest shape that makes a backup expensive.
 
-The exclusion that mattered besides was stopped scratch VMs. A stopped VM has no
-QEMU process and therefore no dirty bitmap, so it can never be incremental —
-guest 106's zvol held 81.4K and was read as 32 GiB of zeros every night for it.
-Worth remembering before excluding a stopped guest rather than retiring it.
+A stopped VM has no QEMU process and therefore no dirty bitmap, so it can never
+be incremental — guest 106's zvol held 81.4K and was read as 32 GiB of zeros
+every night for it. Worth remembering before excluding a stopped guest rather
+than retiring it.
 
 `--performance max-workers=2`, against a default of 16. What hurts etcd is
 seeks, not bandwidth: worker-1's incremental reads 3.58 GiB at 22.6 MiB/s and
