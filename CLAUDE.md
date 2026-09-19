@@ -309,6 +309,22 @@ This repository is public. It is intentionally shared to contribute to the commu
 
 See [Secrets Pattern](#secrets-pattern) above for how encrypted files are named, decrypted, and edited.
 
+### Debugging captures
+
+Anything pulled out of a running system to investigate it — goroutine dumps,
+`/proc` reads, packet traces, logs copied off a node — goes under
+`captures/<tool>/` at the root of the checkout doing the work, never the home
+directory or `/tmp`. `.gitignore` excludes `captures/`, because a capture holds
+whatever the process held: environment variables, tokens, internal hostnames.
+Nobody reads a dump line by line before `git add`, so the ignore rule is the
+only thing between one and a public repository.
+
+A capture lives as long as its checkout. `git worktree remove` deletes ignored
+files without asking, so captures taken in a project's worktree go when
+`review-close` removes it. That is intended: most matter only for the life of
+the project. Whatever a conclusion rests on beyond that belongs in the spec or
+`docs/` as quoted figures.
+
 ## Formatting
 
 Every formatter in the repo is a [treefmt](https://treefmt.com/) formatter,

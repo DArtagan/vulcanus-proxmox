@@ -748,7 +748,7 @@ functions rather than inline comparisons.
 
 ```sh
 python3 tools/gdp-flip-watch/watch.py --dry-run          # detect only
-python3 tools/gdp-flip-watch/watch.py --out ~/gdp-flip --node piraeus-worker-1 --once
+python3 tools/gdp-flip-watch/watch.py --node piraeus-worker-1 --once
 ```
 
 It reaches Prometheus by exec-ing the Alertmanager pod rather than through a

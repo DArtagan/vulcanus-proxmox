@@ -1,6 +1,6 @@
 """Watch generic-device-plugin for a flip and capture the process when one happens.
 
-    python3 tools/gdp-flip-watch/watch.py --node piraeus-worker-1 --once  # ~/gdp-flip
+    python3 tools/gdp-flip-watch/watch.py --node piraeus-worker-1 --once
     python3 tools/gdp-flip-watch/watch.py --dry-run          # detect, capture nothing
 
 Why this exists, and what a capture has to explain, are in
@@ -285,10 +285,11 @@ class Watcher:
 def main() -> None:
     """Poll every plugin instance until a flip is captured, or forever."""
     ap = argparse.ArgumentParser()
-    # Under the home directory, not /tmp: captures have to outlive a reboot, and
-    # losing the 2026-08-19 dumps is why todos/generic-device-plugin-hang.md
-    # asks for the path to be recorded.
-    ap.add_argument("--out", type=Path, default=Path.home() / "gdp-flip")
+    # captures/ in this checkout, which git ignores; see "Debugging captures"
+    # in CLAUDE.md.
+    ap.add_argument(
+        "--out", type=Path, default=HERE.parent.parent / "captures" / "gdp-flip"
+    )
     ap.add_argument(
         "--node",
         action="append",

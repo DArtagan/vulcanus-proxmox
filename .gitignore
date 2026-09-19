@@ -9,6 +9,10 @@ talos_secrets.tfs
 # Secrets
 *.agekey
 
+# Debugging captures, which hold whatever the captured process held. See
+# "Debugging captures" in CLAUDE.md.
+/captures/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
