@@ -1,0 +1,12 @@
+# Lint rules for the Python in this repo, pinned rather than left to ruff's
+# default, which is not stable across releases: 0.16 selects PLW, SIM, S, BLE
+# and RUF on top of the documented core, and every one of those findings here
+# is a deliberate pattern in a test harness -- `exec` in the tool that exists
+# to test a monkeypatch, a held file handle asserting a file did not change,
+# `subprocess.run` whose return code is the assertion. A hook that reports
+# those is a hook people learn to skip.
+#
+# This is the documented core and catches what ruff-format cannot see: an
+# unused import, a name bound and never read, an undefined one.
+[lint]
+select = ["E4", "E7", "E9", "F"]
