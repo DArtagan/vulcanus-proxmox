@@ -334,7 +334,8 @@ rows on different hosts can be compared.
 | 08:00 | 02:00 MDT | restic mass-file backup | repo LXC |
 | **10:00** | **04:00 MDT** | **vzdump to PBS** | vulcanus |
 | 11:00 | 05:00 PBS-local | PBS sync to PBS #2 | PBS |
-| 12:30 | 06:30 MDT / 08:30 EDT | freshness assertions | vulcanus / mini-nas |
+| 12:30 | 08:30 EDT | ZFS replication freshness | mini-nas |
+| 14:00 | 08:00 MDT | PBS freshness | vulcanus |
 | 09:00 1st of month | 03:00 MDT | `restic forget --prune` | repo LXC |
 | Sat 13:00 | Sat 07:00 PBS-local | PBS GC | PBS |
 | Sun 14:00 | Sun 08:00 PBS-local | PBS verify (both datastores) | PBS |

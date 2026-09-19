@@ -172,15 +172,16 @@
 
     - name: 'install the PBS freshness timer'
       copy:
-        # 06:30 local, which is 12:30 UTC alongside the mini-nas replication
-        # assertion. vzdump runs at 04:00 local, so this reads a datastore the
-        # night's run has finished writing.
+        # 08:00 local, four hours after vzdump starts at 04:00. The margin is
+        # the point: a guest whose backup has not landed yet reads as 26 h old
+        # and fails, and the job has run 2h22m before now -- a recreated QEMU
+        # dirty bitmap on 2026-08-19 -- against a 15-21 min norm.
         content: |
           [Unit]
           Description=Daily PBS coverage assertion
 
           [Timer]
-          OnCalendar=*-*-* 06:30:00
+          OnCalendar=*-*-* 08:00:00
           Persistent=true
 
           [Install]
