@@ -448,13 +448,13 @@ the same guard as *a target that is never created cannot alert as down*.
 | live, **in scope** | no group at all | **fail** — never backed up |
 | guest gone | group frozen | *report* — a pending retention decision |
 | live, **excluded** | frozen or absent | *report* — a coverage statement |
-| any | oldest and newest snapshot carry different guest UUIDs | **fail** — the VMID was reused and the prior machine is being evicted, with a deadline |
+| any | oldest and newest snapshot carry different guest UUIDs | *report*, **plus a Pushover push** — the VMID was reused and the prior machine is being evicted, with a deadline |
 
-A frozen group never fails, but a reused VMID does — decided 2026-09-19, user's call.
-Reuse is the one row here that is bounded: it clears itself once `keep-last 31` has
-evicted the last backup of the earlier machine, so it cannot become the always-on
-warning a frozen group would be, and it is the only one carrying a deadline. Once a
-guest is gone no backup can be taken, so its
+A frozen group never fails. Neither does a reused VMID — it takes a third route,
+decided 2026-09-19, user's call: reported here and pushed to Pushover directly, on a
+stateless ladder. Failing the check would have held it down for up to 31 runs, and
+healthchecks only notifies on transitions, so a genuine backup failure inside that
+window would have been silent. Once a guest is gone no backup can be taken, so its
 staleness carries no information; what carries information is a guest still in scope
 going stale, which is the PBS analogue of syncoid succeeding on eight datasets of
 thirteen. The reports are what the retention decision above depends on — without them

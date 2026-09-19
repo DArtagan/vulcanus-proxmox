@@ -17,11 +17,12 @@ guest going stale is a real backup failure. The reports are what the retention
 decision depends on: without them "someone inspects and decides" has nothing to
 prompt it.
 
-A reused VMID is the exception that fails. It is the one non-failure condition
-that is *bounded*: it begins at the first backup of the new machine and clears
-itself once keep-last has evicted the last of the old, so it cannot become an
-always-on warning. It is also the one with a deadline, which is why the failure
-counts the backups left rather than merely naming the collision.
+A reused VMID takes a third route: reported here, and pushed to Pushover
+directly. Failing the check instead would hold it down for up to 31 runs, and
+healthchecks only notifies on transitions -- so a real backup failure arriving
+during that window would be silent. Separating the channels keeps a red check
+meaning "a guest'"'"'s backups are broken" and gives the decision its own
+notification, with a countdown, on a ladder that needs no stored state.
 
 Managed by ansible/backup-monitoring.yaml. The mini-nas copy of the reporting
 helpers is in ~/repositories/mini-nas/modules/backup_monitoring; this check has
@@ -37,6 +38,7 @@ from collections import namedtuple
 from datetime import datetime, timezone
 
 HC_PING = "/usr/local/bin/hc-ping"
+PUSHOVER = "/usr/local/bin/pushover-notify"
 JOBS_CFG = "/etc/pve/jobs.cfg"
 VMLIST = "/etc/pve/.vmlist"
 STORAGE_CFG = "/etc/pve/storage.cfg"
@@ -195,28 +197,58 @@ def classify(guests, groups, now, max_age_hours=DEFAULT_MAX_AGE_HOURS):
         )
 
     for name, group in sorted(groups.items()):
-        ends = (group.oldest_identity, group.newest_identity)
-        if group.count < 2 or not all(ends) or ends[0] == ends[1]:
-            continue
-        # A failure rather than a report, and the only non-failure row promoted
-        # to one, because reuse is *bounded*: it begins at the first backup of
-        # the new machine and clears itself once keep-last has evicted the last
-        # of the old. A frozen group is permanent and would become the always-on
-        # warning docs/README.md warns against; this cannot.
-        detail = (
-            f"{group.prior_count} of {group.count} backups still belong to the earlier "
-            f"machine, and the job evicts one per run -- they are gone in "
-            f"{group.prior_count} more runs."
-            if group.prior_count
-            else "The earlier machine's backups are being evicted one per run."
-        )
-        problems.append(
-            f"{name}: VMID reused. The oldest backup is machine {ends[0]} and the "
-            f"newest is {ends[1]}. {detail} Copy out anything worth keeping first -- "
-            f"nothing else will say so, and this clears itself when the last one goes."
-        )
+        if reuse_detected(group):
+            reports.append(reuse_message(group))
 
     return problems, reports
+
+
+def reuse_detected(group):
+    """Whether a group's two ends belong to different machines."""
+    ends = (group.oldest_identity, group.newest_identity)
+    return group.count >= 2 and all(ends) and ends[0] != ends[1]
+
+
+def reuse_message(group):
+    """One message, used for both the journal line and the Pushover push, so
+    the two cannot drift."""
+    detail = (
+        f"{group.prior_count} of {group.count} backups still belong to the earlier "
+        f"machine, and the job evicts one per run -- they are gone in "
+        f"{group.prior_count} more runs."
+        if group.prior_count
+        else "The earlier machine's backups are being evicted one per run."
+    )
+    return (
+        f"{group.name}: VMID reused. The oldest backup is machine "
+        f"{group.oldest_identity} and the newest is {group.newest_identity}. {detail} "
+        "Copy out anything worth keeping first -- nothing else will say so, and this "
+        "clears itself when the last one goes."
+    )
+
+
+# Pushover keeps no state, so without this it would fire on every run for as
+# long as the reuse lasts -- up to 31 of them. Every rung is derivable from the
+# group itself, so nothing has to be remembered: the run where the new machine
+# has exactly one backup is the transition, and the rest count down to the
+# deadline. A missed run can step over a rung; the remaining rungs are why that
+# is tolerable rather than worth a state file.
+REUSE_RUNGS = (7, 3, 1)
+
+
+def reuse_alerts(groups):
+    """The reuse messages due a push this run."""
+    due = []
+    for _, group in sorted(groups.items()):
+        if not reuse_detected(group):
+            continue
+        if (
+            group.prior_count is None
+            or group.count - group.prior_count == 1
+            or group.prior_count in REUSE_RUNGS
+        ):
+            due.append(reuse_message(group))
+    return due
 
 
 def pbs_environment():
@@ -322,6 +354,17 @@ def ping(check, suffix=""):
     subprocess.run([HC_PING, check, *([suffix] if suffix else [])], check=False)
 
 
+def push(message):
+    """Send one Pushover notification, raising if it does not arrive.
+
+    The opposite of ping() on purpose. A healthchecks ping that never arrives
+    turns its own check red on its own period, so losing one is self-announcing.
+    A Pushover push that never arrives leaves no trace anywhere, so the only way
+    a lost alert surfaces is by failing the check that tried to send it.
+    """
+    subprocess.run([PUSHOVER, "PBS: VMID reused", message], check=True)
+
+
 def main(argv):
     check = argv[1]
     max_age_hours = int(argv[2]) if len(argv) > 2 else DEFAULT_MAX_AGE_HOURS
@@ -357,6 +400,13 @@ def main(argv):
 
     for report in reports:
         print(report)
+
+    for message in reuse_alerts(groups):
+        try:
+            push(message)
+        except (OSError, subprocess.CalledProcessError) as error:
+            problems.append(f"could not send the VMID-reuse notification: {error}")
+
     if problems:
         print("\n".join(problems), file=sys.stderr)
         ping(check, "/fail")

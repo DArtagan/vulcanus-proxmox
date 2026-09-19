@@ -201,10 +201,10 @@ class VerdictTable(unittest.TestCase):
                 self.assertEqual(problems, [])
                 self.assertEqual(len(reports), 1)
 
-    def test_a_reused_vmid_fails(self):
-        # Unlike every other non-failure row, reuse is bounded: it clears on its
-        # own once keep-last has evicted the last old backup. A self-clearing
-        # condition can be an alert without becoming an always-on warning.
+    def test_a_reused_vmid_reports(self):
+        # Reported here, not failed. The push is a separate channel, so that a
+        # red pbs-freshness keeps meaning "a guest's backups are broken" -- a
+        # reuse holding the check down for 31 days would mask exactly that.
         problems, reports = classify(
             {"900": guest("900")},
             {
@@ -213,14 +213,14 @@ class VerdictTable(unittest.TestCase):
                 )
             },
         )
-        self.assertEqual(reports, [])
-        self.assertEqual(len(problems), 1)
-        self.assertIn("reused", problems[0].lower())
+        self.assertEqual(problems, [])
+        self.assertEqual(len(reports), 1)
+        self.assertIn("reused", reports[0].lower())
 
-    def test_reuse_fails_even_while_the_guest_is_healthy(self):
+    def test_reuse_is_reported_even_while_the_guest_is_healthy(self):
         # The eviction is silent and the group looks fine from the live guest
         # list alone; that is the entire reason this row exists.
-        problems, _ = classify(
+        _, reports = classify(
             {"900": guest("900")},
             {
                 "vm/900": group(
@@ -228,12 +228,12 @@ class VerdictTable(unittest.TestCase):
                 )
             },
         )
-        self.assertTrue(any("reused" in p.lower() for p in problems))
+        self.assertTrue(any("reused" in r.lower() for r in reports))
 
-    def test_the_failure_names_how_long_is_left_to_decide(self):
+    def test_the_message_names_how_long_is_left_to_decide(self):
         # The decision-relevant number is how many backups of the earlier
         # machine survive, because the job evicts one per run.
-        problems, _ = classify(
+        _, reports = classify(
             {"900": guest("900")},
             {
                 "vm/900": group(
@@ -245,23 +245,9 @@ class VerdictTable(unittest.TestCase):
                 )
             },
         )
-        self.assertIn("12 of 30", problems[0])
-        self.assertIn("12 more", problems[0])
-        self.assertIn("uuid-old", problems[0])
-
-    def test_an_uncounted_reuse_still_fails(self):
-        # Counting costs a blob read per snapshot and can come back empty. The
-        # failure must not depend on it.
-        problems, _ = classify(
-            {"900": guest("900")},
-            {
-                "vm/900": group(
-                    "vm/900", oldest_identity="a", newest_identity="b", prior_count=None
-                )
-            },
-        )
-        self.assertEqual(len(problems), 1)
-        self.assertIn("reused", problems[0].lower())
+        self.assertIn("12 of 30", reports[0])
+        self.assertIn("12 more", reports[0])
+        self.assertIn("uuid-old", reports[0])
 
     def test_a_single_backup_cannot_show_reuse(self):
         problems, reports = classify(
@@ -275,7 +261,7 @@ class VerdictTable(unittest.TestCase):
         self.assertEqual(problems, [])
         self.assertEqual(reports, [])
 
-    def test_an_unreadable_identity_does_not_fail(self):
+    def test_an_unreadable_identity_is_not_reuse(self):
         # A blob that fails to parse gives None at both ends; two unknowns are
         # not evidence of two machines.
         problems, reports = classify(
@@ -284,6 +270,57 @@ class VerdictTable(unittest.TestCase):
         )
         self.assertEqual(problems, [])
         self.assertEqual(reports, [])
+
+
+class ReuseLadder(unittest.TestCase):
+    """Which runs push, given Pushover has no state of its own.
+
+    healthchecks dedupes by transition; Pushover would fire on every run for as
+    long as the reuse lasts. The ladder is stateless because every rung is
+    derivable from the group itself -- "first detection" is the run where the
+    new machine has exactly one backup.
+    """
+
+    def reused(self, count, prior_count):
+        return {
+            "vm/900": group(
+                "vm/900",
+                count=count,
+                oldest_identity="old",
+                newest_identity="new",
+                prior_count=prior_count,
+            )
+        }
+
+    def test_the_first_run_after_reuse_pushes(self):
+        # New machine has exactly one backup, so this run is the transition.
+        self.assertEqual(len(pbs_freshness.reuse_alerts(self.reused(30, 29))), 1)
+
+    def test_the_quiet_middle_does_not_push(self):
+        for prior in (28, 20, 12, 8, 4, 2):
+            with self.subTest(prior=prior):
+                self.assertEqual(pbs_freshness.reuse_alerts(self.reused(30, prior)), [])
+
+    def test_the_deadline_rungs_push(self):
+        for prior in (7, 3, 1):
+            with self.subTest(prior=prior):
+                self.assertEqual(
+                    len(pbs_freshness.reuse_alerts(self.reused(30, prior))), 1
+                )
+
+    def test_an_uncounted_reuse_always_pushes(self):
+        # Without the count there is no way to know which rung this is, and a
+        # decision with an unknown deadline is the one you least want silent.
+        self.assertEqual(len(pbs_freshness.reuse_alerts(self.reused(30, None))), 1)
+
+    def test_a_healthy_group_never_pushes(self):
+        self.assertEqual(pbs_freshness.reuse_alerts({"vm/900": group("vm/900")}), [])
+
+    def test_the_pushed_text_is_the_reported_text(self):
+        # One message, so the journal and the phone cannot drift.
+        groups = self.reused(30, 7)
+        _, reports = classify({"900": guest("900")}, groups)
+        self.assertEqual(pbs_freshness.reuse_alerts(groups), reports)
 
 
 class TheEstateAsMeasured(unittest.TestCase):

@@ -133,18 +133,17 @@ Nothing fails, and the group simply stops being frozen.
 Before reissuing a VMID, look at what its PBS group still holds. If any of it matters,
 take a copy out first — reuse evicts it within 31 days.
 
-**It fails the check, rather than merely being noted.** The signal is intrinsic to the
+**It goes to Pushover directly, on its own channel.** The signal is intrinsic to the
 group, so nothing has to be remembered. vzdump stores the guest config in every backup,
 and a VM's `smbios1` UUID is stable for that machine's life and regenerated when a new
 guest is built at the same ID. A group whose oldest and newest snapshots carry different
-UUIDs therefore spans two machines, and `pbs-freshness` fails on it.
+UUIDs therefore spans two machines.
 
-Reuse is the one non-failure condition promoted to a failure, and it earns that by
-being **bounded**: it begins at the first backup of the new machine and clears itself
-once `keep-last 31` has evicted the last of the old. A frozen group is permanent and
-failing on it would be the always-on warning [the alerting rules](README.md) warn
-against; this cannot become one. It is also the only one with a deadline, which is why
-the failure counts what is left rather than just naming the collision:
+**Why not fail `pbs-freshness` instead.** healthchecks notifies on transitions, so a
+check already down sends nothing further. A reuse holds for up to 31 runs, and a genuine
+backup failure arriving inside that window would raise no notification at all — the
+check would already be red. Keeping the channels apart means a red `pbs-freshness`
+still means "a guest's backups are broken", while the decision gets its own push:
 
 > `vm/900: VMID reused. The oldest backup is machine 31282d50-… and the newest is
 > 6f685ca0-…. 12 of 30 backups still belong to the earlier machine, and the job evicts
@@ -153,6 +152,21 @@ the failure counts what is left rather than just naming the collision:
 
 Counting costs a config-blob read per snapshot, so it happens only once the two ends
 already disagree — never on a healthy group.
+
+**The push ladder is stateless.** Pushover has no memory, so without one it would fire
+every run for as long as the reuse lasts. It pushes on first detection — the run where
+the new machine has exactly one backup, which is derivable rather than remembered — and
+again with 7, 3 and 1 backups of the earlier machine left. A missed run can step over a
+rung; the remaining rungs are why that is tolerable instead of worth a state file. When
+the count cannot be taken at all it pushes every run, because a deadline of unknown
+length is the one worth least silence.
+
+**A failed push fails the check**, which inverts the rule `hc-ping` follows. A
+healthchecks ping that never arrives turns its own check red on its own period, so
+losing one announces itself; a Pushover push that never arrives leaves no trace
+anywhere. Failing `pbs-freshness` is the only thing that makes a lost alert visible.
+
+This costs no healthchecks check, so the enumerated twenty are unaffected.
 
 Containers carry no `smbios1`, so for `ct/<vmid>` the comparison uses `net0`'s
 `hwaddr`, which PVE generates per container and which survives a restore of the same
@@ -205,8 +219,9 @@ than hardcoded, so a guest created tomorrow is expected without anyone editing t
 check — a guest merely absent from the check's own list cannot alert as missing.
 
 A live, in-scope guest whose newest backup is over 26 h old, or which has no group at
-all, is a **failure**, and so is a reused VMID. Everything else is a **report**, printed
-but not pinged: a guest that is gone, and a live guest the job excludes. Once a guest is gone no
+all, is a **failure**. Everything else is a **report**, printed but not pinged: a guest
+that is gone, a live guest the job excludes, and a reused VMID — which additionally
+pushes to Pushover, see above. Once a guest is gone no
 backup can be taken, so its staleness carries no information, and failing on it would
 make the check the always-on warning that
 [the alerting rules](README.md) warn against. The reports are what the retention
