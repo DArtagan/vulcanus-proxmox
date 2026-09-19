@@ -15,6 +15,7 @@ blob stored inside each backup.
 """
 
 import os
+import subprocess
 import sys
 import unittest
 
@@ -390,3 +391,50 @@ class TheEstateAsMeasured(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LostPushFailsTheCheck(unittest.TestCase):
+    """A Pushover push that does not arrive leaves no trace anywhere, so the
+    only thing that makes it visible is the check it was sent from."""
+
+    def reused(self):
+        return {
+            "vm/900": group(
+                "vm/900",
+                count=30,
+                oldest_identity="old",
+                newest_identity="new",
+                prior_count=1,
+            )
+        }
+
+    def test_a_failed_push_becomes_a_problem(self):
+        def refuse(_message):
+            raise subprocess.CalledProcessError(1, "pushover-notify")
+
+        failures = pbs_freshness.notify_reuse(self.reused(), send=refuse)
+        self.assertEqual(len(failures), 1)
+        self.assertIn("could not send", failures[0])
+
+    def test_a_missing_sender_also_becomes_a_problem(self):
+        def missing(_message):
+            raise FileNotFoundError("/usr/local/bin/pushover-notify")
+
+        self.assertEqual(
+            len(pbs_freshness.notify_reuse(self.reused(), send=missing)), 1
+        )
+
+    def test_a_delivered_push_leaves_no_problem(self):
+        sent = []
+        self.assertEqual(
+            pbs_freshness.notify_reuse(self.reused(), send=sent.append), []
+        )
+        self.assertEqual(len(sent), 1)
+
+    def test_nothing_is_sent_for_a_healthy_group(self):
+        sent = []
+        self.assertEqual(
+            pbs_freshness.notify_reuse({"vm/900": group("vm/900")}, send=sent.append),
+            [],
+        )
+        self.assertEqual(sent, [])

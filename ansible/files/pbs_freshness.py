@@ -354,6 +354,22 @@ def ping(check, suffix=""):
     subprocess.run([HC_PING, check, *([suffix] if suffix else [])], check=False)
 
 
+def notify_reuse(groups, send=None):
+    """Push the reuse alerts due this run; return what could not be sent.
+
+    Takes the sender as an argument so the failure path is testable: the claim
+    that a lost push fails the check is only worth making if it is exercised.
+    """
+    send = push if send is None else send
+    failures = []
+    for message in reuse_alerts(groups):
+        try:
+            send(message)
+        except (OSError, subprocess.CalledProcessError) as error:
+            failures.append(f"could not send the VMID-reuse notification: {error}")
+    return failures
+
+
 def push(message):
     """Send one Pushover notification, raising if it does not arrive.
 
@@ -401,11 +417,7 @@ def main(argv):
     for report in reports:
         print(report)
 
-    for message in reuse_alerts(groups):
-        try:
-            push(message)
-        except (OSError, subprocess.CalledProcessError) as error:
-            problems.append(f"could not send the VMID-reuse notification: {error}")
+    problems.extend(notify_reuse(groups))
 
     if problems:
         print("\n".join(problems), file=sys.stderr)
