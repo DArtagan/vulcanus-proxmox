@@ -42,7 +42,7 @@ the original reading. Treat anything undated as 2026-08-19.
 | Is the flip in-process or at startup? | **in-process**, settled 2026-09-17 — 27/29 onsets, median 495× step at median age 5.2 min |
 | What flips a process into degrading? | **open, and now the whole question** — next move is "Catching a flip" |
 | Upstream bug report | **not filed** — draft at the end of this file, Will files it |
-| Did C work? | **unknown, needs days of quiet** — see "The sawtooth, 2026-09-17" |
+| Did C work? | **3 days, zero restarts** at 2026-09-20, against ~400 expected — strong, but the old regime once ran 5 days clean |
 
 The state the fixes were applied against, 2026-08-26: worker-0 wedged and ten
 hours down, the control plane having flapped four times that day, 7-day
@@ -89,7 +89,9 @@ than verifiable. They also describe the pre-2026-08-26 regime, which no longer
 occurs, so their loss costs less than it appears: a report about the flip wants
 a *fresh* capture, not these. Keep new captures at the `--out` path
 `tools/gdp-flip-watch/watch.py` was run with, and record that path here when one
-is taken — writing down where they went is the step that was missed.
+is taken. Captures go under `captures/<tool>/` in the checkout — see "Debugging
+captures" in CLAUDE.md — which is `.gitignore`d and dies with the worktree;
+writing down where they went is the step that was missed.
 
 **Prometheus scrapes accumulate inside the process and never terminate.** The
 scrape interval is 15s and the scrape timeout is 10s. When a `Gather` exceeds
@@ -793,14 +795,44 @@ Both recovered unaided, with no restart — which also retires "a restart is the
 only thing that clears a wedge", true of the old regime and not of this one.
 Neither process was reaped; all three have run since 03:32Z with zero restarts.
 
-**Worker-1 went 12.5 hours without a sustained flip**, against a pre-C baseline
-of one every ~11 minutes. That is the first real evidence for Fix C, and it is
-not conclusive: 09-11…09-15 was five naturally stable days at the old 15 s rate,
-so a quiet spell explains it equally well. It also sits awkwardly with the
-117 req/s test showing load does not cause degradation — if C is working, the
-mechanism is not what it was shipped on. Do not resolve that tension by
-assuming; it needs more days, and the `excursions.jsonl` ledger is what will
-answer it.
+**Fix C holds at three days**, 2026-09-20: all three processes have run since
+2026-09-17 03:32Z with **zero restarts**. Worker-1 alone would have taken ~400
+at its pre-C rate of one every ~11 minutes. The longest stable run at the old
+15 s rate was five days (09-11…09-15), so this is strong but not yet past that
+bar — at a week it is past anything the old regime produced.
+
+It still sits awkwardly with the 117 req/s test showing load does not cause
+degradation. If C works, the mechanism is not the one it was shipped on: halving
+gather arrivals cannot matter if arrivals are not the trigger. Something else
+about the 60 s cadence is doing the work, or the flip rate simply fell on its
+own. Do not resolve that by assuming.
+
+### The ledger oversampled, 2026-09-20
+
+The first three days of `excursions.jsonl` record four "confirmed flips" on
+worker-0 and they are all artefacts. Their sample arrays are byte-identical
+floats:
+
+```
+{"event": "flip", "node": "piraeus-worker-0",
+ "samples": [887.510338, 887.510338, 887.510338], "t": "2026-09-19T17:05:04Z"}
+```
+
+Three reads of one scrape, not three scrapes. The watcher polls every 15 s while
+the PodMonitor scrapes every 60 s, so an instant query returns the same value
+four times over, and `CONFIRM_RUN` counted reads. `MIN_RUN` was compromised the
+same way: ten "stable" samples were two and a half real scrapes. Nothing was
+captured only because `--node` was worker-1 and every artefact was on worker-0.
+
+`sample()` now carries each sample's own timestamp from `timestamp()` — not the
+query evaluation time, which is the same for every poll — and the loop skips an
+instance whose scrape has not advanced. `is_sustained` also rejects exact
+repeats as a backstop, because this failure is silent and reads as success.
+
+**The general trap:** polling a derived store faster than it updates does not
+oversample, it fabricates agreement. Any rule of the form "N consecutive
+samples" needs those samples to be distinct observations, and the way to know
+is to carry the source timestamp rather than the read time.
 
 **The capture is destructive and the watcher must be aimed deliberately.**
 `SIGQUIT` is fatal to a Go process, so the container restarts; on worker-1 that
@@ -833,6 +865,12 @@ indefinitely, which is how this was found — twelve days late. **Nothing alerts
 `UnexpectedAdmissionError`**, and a rule for it is the gap worth closing: a
 device outage too short for `OpticalDriveUnavailable`'s 30m `for:` still leaves a
 permanent casualty.
+
+Both pods were deleted 2026-09-20 after checking they held nothing the above
+does not already record — same rejection message, same resources block, same
+container states, and their Events had long since aged out. Their full JSON is
+archived under `captures/arm-zombies/`. Deleting them is what silences the
+`KubeContainerWaiting` that had been firing on the 09-04 corpse for 16 days.
 ---
 
 # Upstream bug report — draft

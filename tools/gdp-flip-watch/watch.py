@@ -1,6 +1,6 @@
 """Watch generic-device-plugin for a flip and capture the process when one happens.
 
-    python3 tools/gdp-flip-watch/watch.py --out ~/gdp-flip --node piraeus-worker-1 --once
+    python3 tools/gdp-flip-watch/watch.py --node piraeus-worker-1 --once
     python3 tools/gdp-flip-watch/watch.py --dry-run          # detect, capture nothing
 
 Why this exists, and what a capture has to explain, are in
@@ -72,14 +72,27 @@ def promq(query):
 
 
 def sample():
-    """Return {pod_ip: (gather_ms, process_start)} for every plugin instance."""
+    """Return {pod_ip: (gather_ms, process_start, scrape_ts)} per plugin instance.
+
+    `scrape_ts` is the timestamp of the sample itself, via `timestamp()`, not the
+    query's evaluation time. The loop polls faster than Prometheus scrapes, so an
+    instant query returns the same value repeatedly; without this the history is
+    mostly duplicates and both `MIN_RUN` and `CONFIRM_RUN` count reads rather
+    than scrapes.
+    """
     out = {}
     for r in promq('scrape_duration_seconds{job=~".*generic-device-plugin.*"}'):
-        out[r["metric"]["instance"]] = [float(r["value"][1]) * 1000.0, None]
+        out[r["metric"]["instance"]] = [float(r["value"][1]) * 1000.0, None, None]
     for r in promq('process_start_time_seconds{job=~".*generic-device-plugin.*"}'):
         inst = r["metric"]["instance"]
         if inst in out:
             out[inst][1] = float(r["value"][1])
+    for r in promq(
+        'timestamp(scrape_duration_seconds{job=~".*generic-device-plugin.*"})'
+    ):
+        inst = r["metric"]["instance"]
+        if inst in out:
+            out[inst][2] = float(r["value"][1])
     return {k: tuple(v) for k, v in out.items()}
 
 
@@ -204,7 +217,7 @@ def capture(pod, node, out_dir, gather_ms):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default="/tmp/gdp-flip")
+    ap.add_argument("--out", default="captures/gdp-flip")
     ap.add_argument(
         "--node",
         action="append",
@@ -218,6 +231,7 @@ def main():
     hist = collections.defaultdict(list)
     prev_start = {}
     excursion = {}
+    seen_ts = {}
     os.makedirs(args.out, exist_ok=True)
     ledger = os.path.join(args.out, "excursions.jsonl")
     log(
@@ -244,7 +258,10 @@ def main():
             time.sleep(args.interval)
             continue
         pods = None
-        for inst, (ms, start) in sorted(cur.items()):
+        for inst, (ms, start, scrape_ts) in sorted(cur.items()):
+            if scrape_ts is not None and seen_ts.get(inst) == scrape_ts:
+                continue  # same scrape, already counted
+            seen_ts[inst] = scrape_ts
             onset = detect.is_flip(hist[inst], ms, prev_start.get(inst), start)
             hist[inst].append(ms)
             del hist[inst][:-40]

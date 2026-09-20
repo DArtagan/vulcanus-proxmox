@@ -85,5 +85,27 @@ class TestIsSustained(unittest.TestCase):
         self.assertTrue(detect.is_sustained([113.0, 190.0, 404.0]))
 
 
+class TestDistinctScrapes(unittest.TestCase):
+    """Polling faster than Prometheus scrapes defeats the persistence check.
+
+    The watcher polls every 15s; after Fix C the PodMonitor scrapes every 60s,
+    so an instant query returns the same value four times over. Three identical
+    reads of one elevated scrape are not three elevated scrapes, and treating
+    them as such produced four "confirmed flips" on worker-0 between 2026-09-19
+    and 2026-09-20 whose samples were byte-identical floats.
+    """
+
+    def test_repeated_reads_of_one_scrape_are_not_sustained(self):
+        # Verbatim from excursions.jsonl, 2026-09-19T17:05:04Z.
+        self.assertFalse(detect.is_sustained([887.510338, 887.510338, 887.510338]))
+
+    def test_distinct_elevated_scrapes_are_sustained(self):
+        self.assertTrue(detect.is_sustained([887.5, 912.3, 1043.8]))
+
+    def test_near_identical_but_distinct_values_still_count(self):
+        # Real scrapes differ; only exact repeats are suspect.
+        self.assertTrue(detect.is_sustained([200.0, 200.1, 200.2]))
+
+
 if __name__ == "__main__":
     unittest.main()
