@@ -39,6 +39,26 @@
         state: present
       notify: 'add backups/borg dataset to proxmox'
 
+    - name: 'backups/restic dataset'
+      community.general.zfs:
+        name: "{{ zpool }}/backups/restic"
+        state: present
+
+    # The restic repository is bind-mounted into an unprivileged container,
+    # which shifts every uid by 100000. NixOS gives the `restic` user uid 291,
+    # so the container sees 291 and the host must see 100291 or rest-server
+    # cannot write to its own repository. No `pvesm add dir` handler: a bind
+    # mount is declared by host path in terraform/main.tf and never goes
+    # through a PVE storage, so registering one would leave an entry nothing
+    # reads -- which is exactly what had to be unpicked when `rancheros` was
+    # destroyed.
+    - name: 'backups/restic ownership, shifted for the unprivileged container'
+      file:
+        path: "/{{ zpool }}/backups/restic"
+        owner: 100291
+        group: 100291
+        state: directory
+
     - name: 'proxmox_backup_server'
       community.general.zfs:
         name: "{{ zpool }}/proxmox_backup_server"

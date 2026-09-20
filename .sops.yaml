@@ -3,6 +3,23 @@ keys:
   - &thenixbeast_will ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIyPkfTI0io9dZsJstcf29tddyrsHr9bnM8UXKtaVJwm
   - &flux age1rkkc3rmwczelakcy57fh3schs5qv6488hujf9c9s7zh3jpng6acsxuradu
 creation_rules:
+  # NixOS hosts, first: sops takes the first rule that matches, and the
+  # Kubernetes rule below matches these paths too. It carries an
+  # `encrypted_regex` of `data|stringData`, which a sops-nix file has neither
+  # of -- so every value would be written back in plaintext, in a file still
+  # carrying a `sops:` block and a `mac:`, which is exactly what the
+  # sops-encrypted commit hook inspects. It would pass, and a public
+  # repository would have the secret.
+  #
+  # No `encrypted_regex` here: encrypt every value.
+  - path_regex: "^nixos/.*\\.sops\\.yaml$"
+    key_groups:
+      - age:
+        - *steamdeck_willy
+        - *thenixbeast_will
+
+  # Kubernetes Secrets, which Flux decrypts. Only data/stringData is encrypted
+  # so the rest of the manifest stays readable in git.
   - path_regex: "[^/]+\\.sops\\.yaml$"
     encrypted_regex: ^(data|stringData)$
     key_groups:
