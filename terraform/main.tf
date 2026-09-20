@@ -155,10 +155,15 @@ resource "proxmox_lxc" "restic_repository" {
     size = "20G"
   }
 
+  # Every mountpoint in this file is a bind mount, so none of them sets
+  # `storage`. The provider derives that attribute on read by splitting the
+  # volume on ":", which a host path does not contain, so it always reads back
+  # empty and any value set here is a diff that no apply can settle. It is also
+  # ignored when the mountpoint is written, since `volume` is what names the
+  # source, and it makes each apply attempt a storage move that Proxmox rejects.
   mountpoint {
     key = "0"
     slot = 0
-    storage = "/rpool/backups/restic"
     volume = "/rpool/backups/restic"
     mp = "/srv/restic"
     size = "1M"
@@ -173,7 +178,6 @@ resource "proxmox_lxc" "restic_repository" {
   mountpoint {
     key = "1"
     slot = 1
-    storage = "/rpool/storage/photos"
     volume = "/rpool/storage/photos"
     mp = "/srv/storage/photos"
     size = "1M"
@@ -182,7 +186,6 @@ resource "proxmox_lxc" "restic_repository" {
   mountpoint {
     key = "2"
     slot = 2
-    storage = "/rpool/storage/books"
     volume = "/rpool/storage/books"
     mp = "/srv/storage/books"
     size = "1M"
@@ -191,7 +194,6 @@ resource "proxmox_lxc" "restic_repository" {
   mountpoint {
     key = "3"
     slot = 3
-    storage = "/rpool/storage/filesync"
     volume = "/rpool/storage/filesync"
     mp = "/srv/storage/filesync"
     size = "1M"
@@ -238,7 +240,6 @@ resource "proxmox_lxc" "fileserver" {
   mountpoint {
     key = "0"
     slot = 0
-    storage = "/rpool/storage/media"
     volume = "/rpool/storage/media"
     mp = "/mnt/storage/media"
     size = "1M"
@@ -247,7 +248,6 @@ resource "proxmox_lxc" "fileserver" {
   mountpoint {
     key = "1"
     slot = 1
-    storage = "/rpool/storage/filesync"
     volume = "/rpool/storage/filesync"
     mp = "/mnt/storage/filesync"
     size = "1M"
@@ -256,7 +256,6 @@ resource "proxmox_lxc" "fileserver" {
   mountpoint {
     key = "2"
     slot = 2
-    storage = "/rpool/storage/photos"
     volume = "/rpool/storage/photos"
     mp = "/mnt/storage/photos"
     size = "1M"
@@ -265,7 +264,6 @@ resource "proxmox_lxc" "fileserver" {
   mountpoint {
     key = "3"
     slot = 3
-    storage = "/rpool/backups/borg"
     volume = "/rpool/backups/borg"
     mp = "/mnt/backups/borg"
     size = "1M"
@@ -274,7 +272,6 @@ resource "proxmox_lxc" "fileserver" {
   mountpoint {
     key = "4"
     slot = 4
-    storage = "/rpool/storage/books"
     volume = "/rpool/storage/books"
     mp = "/mnt/storage/books"
     size = "1M"

@@ -1362,7 +1362,7 @@ someone else's.** Each was traced to a cause rather than assumed:
 |---|---|---|
 | PBS VM `virtio1` `backup false → true` | **this project.** Phase 0/1 set `backup=0` on the datastore disk by hand and never wrote it back to `terraform/modules/proxmox_backup_server/main.tf`, which still said `true` | **Put the 2 TB datastore back into vzdump's scope** -- backing the backups up onto the pool they already live on, the exact circularity Phase 0 removed |
 | `talos_machine_configuration_apply.worker` ×2 | **the `treefmt` project.** Commit `59707955` reindented `openebs-kubelet-patch.json` from four spaces to two; state holds the old bytes | Pushes a semantically identical machine config to both workers |
-| `proxmox_lxc` mountpoint `+ storage` on *both* the fileserver and the new container | **the provider.** `storage` is optional and not computed, and is not read back for a bind mount, so config and state can never agree | Nothing |
+| `proxmox_lxc` mountpoint `+ storage` on *both* the fileserver and the new container | **the provider.** `storage` is optional and not computed, and is not read back for a bind mount, so config and state can never agree | Attempts a `move_volume` PVE rejects with a 400, whose error the provider discards -- nothing is moved |
 | `local_sensitive_file.kubeconfig` replaced | **inherent.** `data.talos_cluster_kubeconfig` returns fresh content every plan, and is deprecated in favour of the resource form | Rewrites the local `.kubeconfig` |
 
 The first is fixed here: the module now says `backup = false`, matching the host,
@@ -1370,9 +1370,14 @@ so an apply no longer silently re-enables it. **The lesson generalises past this
 one flag** -- a setting changed by hand on the host is not merely undocumented,
 it is *armed*, because the next apply asserts the old value.
 
-The third is left alone deliberately. It is cosmetic, and removing an attribute
-the provider may use to tell a bind mount from an allocated volume risks
-remounting the fileserver's data to fix nothing.
+The third is fixed here too: the nine bind-mount blocks no longer set `storage`,
+and both containers now refresh clean. The fear that held it back -- that the
+provider might need the attribute to tell a bind mount from an allocated volume,
+so dropping it risks remounting the fileserver's data -- does not survive
+reading the code. `FormatDiskParam` names `storage` in its ignored keys and
+builds the `mpN` line from `volume` whenever that is set, which for a bind mount
+it always is. The attribute reaches nothing but the provider's own comparison
+that fabricated the diff.
 
 The second needs a decision. It is safe -- Talos receives a configuration it
 already has -- but it is an apply against both Kubernetes workers, so it wants
