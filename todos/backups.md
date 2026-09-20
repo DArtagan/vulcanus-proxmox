@@ -1283,6 +1283,31 @@ mechanism confirmed rather than assumed.
 | borgmatic, valkey, rclone cache, prometheus, alertmanager, victoria-logs | | | **D** | regenerable |
 | the twelve SMB volumes | incl. `borg-backups` | ~16 TiB | **D** | the ZFS layer covers them |
 
+##### Exclusions, and the one step chart values cannot do
+
+Eighteen PVCs are excluded and twenty-two remain in scope. The check that
+matters is that **no ReadWriteMany claim is left in scope**, asserted as a set
+difference between the live PVC list and the annotations the repository
+declares -- run while no Schedule exists, because a check that can only run after
+the first backup is not a check.
+
+Three of the eighteen are StatefulSet `volumeClaimTemplates`, annotated through
+their chart values. **That reaches claims created from here on and no others**:
+the template is immutable on a live StatefulSet and nothing propagates it to the
+claim already bound. They were annotated by hand once --
+
+```
+kubectl annotate pvc -n infrastructure <claim> k8up.io/backup=false --overwrite
+```
+
+-- against the Prometheus TSDB, the Alertmanager claim and
+`server-volume-victoria-logs-0`. A cluster rebuild recreates them from the chart
+values and needs no repeat; a chart that renames its claim does. Verified against
+the chart source rather than assumed: `victoria-logs-single` 0.13.9 really does
+render `server.persistentVolume.annotations` into the claim template.
+
+Grafana is deliberately *not* excluded -- see the dump table above.
+
 Seven PreBackupPods: six in `apps`, one in `infrastructure`. **Every dump command
 exits non-zero on empty output** — otherwise a silently failing dump writes a
 zero-byte snapshot that satisfies the coverage assertion and is found only by a
