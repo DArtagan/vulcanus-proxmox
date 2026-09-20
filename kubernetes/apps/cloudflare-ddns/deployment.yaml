@@ -27,7 +27,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: cloudflare-ddns
-          image: favonia/cloudflare-ddns:1.17.0 # {"$imagepolicy": "apps:cloudflare-ddns"}
+          image: favonia/cloudflare-ddns:1.17.1 # {"$imagepolicy": "apps:cloudflare-ddns"}
           env:
             - name: CLOUDFLARE_API_TOKEN
               valueFrom:
