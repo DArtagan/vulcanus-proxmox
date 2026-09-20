@@ -1315,6 +1315,48 @@ Pin colmena explicitly, and say in a comment whether it tracks the nixpkgs
 package or a `main` revision. An untagged dependency on the host holding every
 application backup is a standing obligation worth naming rather than inheriting.
 
+##### What the spike found, 2026-09-20
+
+**It applies.** A throwaway unprivileged LXC was created from the flake's own
+template, given a config declaring a different address, and switched: the
+interface moved from `192.168.0.199` to `192.168.0.108`, the route, resolver and
+unit set followed, nothing was left failed. The reported "succeeds but applies
+nothing" failure did not reproduce. **The NixOS decision stands**, and the
+container was destroyed afterwards -- before the 04:00 vzdump, so it never
+became a PBS group.
+
+Three things had to be got right first, none of them obvious, and all three
+present as *the container simply has no network*:
+
+- **Proxmox writes no network configuration into an `unmanaged` container**,
+  which is what a NixOS container is. At the LXC module's defaults `eth0` comes
+  up DOWN with no address and nothing ever fixes it.
+- **`proxmoxLXC.manageNetwork = true` does not hand networking over — it turns
+  the module's networking block off entirely.** `systemd.network.enable` has to
+  be asked for separately, or a `systemd.network.networks` entry is inert and
+  `systemd-networkd.service` does not exist at all.
+- **Enabling networkd pulls in systemd-resolved**, which asserts against the
+  `networking.useHostResolvConf` that every container config defaults to on.
+  It is `mkDefault`, so it is overridable; nothing here needs a caching resolver.
+
+**The hostname goes the other way.** Proxmox does set it, from `--hostname` at
+creation, and it wins: a switch writes `/etc/hostname` but does not rename the
+running UTS namespace, so the two disagree until the container restarts. The
+value in `networking.hostName` must therefore match the one Terraform creates the
+container with. Left at `manageHostName = false` the module forces
+`networking.hostName` to `""`, which also names the system derivation
+`nixos-system-unnamed-...`.
+
+**colmena cannot reach the container from a roaming workstation, and this is not
+a colmena problem.** `docs/tailnet.md` says it plainly -- *"advertising a route
+is not granting access to it"* -- and the policy grants `will@` a list of
+`host:port` pairs, of which `192.168.0.105:22` is the only container. With sshd
+up and the right key installed, `192.168.0.108:22` timed out from the tailnet
+exactly as that predicts. **Deploying from off-LAN needs a grant added to
+`kubernetes/apps/headscale/policy-config-map.sops.yaml`**, alongside the
+fileserver's, and a row in `docs/tailnet.md`. That is an access-control change
+and it is the user's call, so it is recorded here rather than made.
+
 #### Escrow, including what Phase 0 left open
 
 Three credentials go to the password manager as step 3 builds the host, before
