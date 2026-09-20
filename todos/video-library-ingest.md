@@ -43,6 +43,11 @@ file worth filing. One now exists.
 /video/import/automatic-ripping-machine/completed/movies/
   The-Hallelujah-Trail (1965)_178824223068/The-Hallelujah-Trail (1965).mkv   1.29 GB
 
+  The Rescuers (1977)_178961349896/The Rescuers (1977).mkv                   1.44 GB
+    └ extras/title_43, title_44, title_46, title_71                          2.4 GB
+  Field-of-Dreams (1989)/Field-of-Dreams (1989).mkv                           980 MB
+  Shrek-the-Third (2007)/ · The-Great-Race (1965)/ · The-Polar-Express (2004)/
+
 /video/import/automatic-ripping-machine/completed/tv/
   The-Sylvester-and-Tweety-Mysteries (1995-2002)/               disc 1: title_0 … title_8
   The-Sylvester-and-Tweety-Mysteries (1995-2002)_178840975618/  disc 2: title_0 … title_5
@@ -50,6 +55,31 @@ file worth filing. One now exists.
 
 Plus **8 empty directories** in that same tree, left by failed jobs — see the
 naming traps below, they are not merely untidy.
+
+### A film can arrive twice, and the better copy is the one marked "extra"
+
+Blu-rays frequently present the feature through two playlists. ARM transcodes
+both and keeps both — one becomes the film, the other lands in `extras/` — so a
+single 77-minute title occupies 3.1 GB:
+
+```
+The Rescuers (1977)/The Rescuers (1977).mkv    77.2m  1435 MB
+The Rescuers (1977)/extras/title_71.mkv        77.1m  1719 MB
+```
+
+**The copy promoted to feature is the smaller one.** `skip_transcode_movie` does
+pick the largest file, but it only runs when `track.source == "MakeMKV"`, and a
+Blu-ray reaches `handbrake_all` with tracks registered by HandBrake's own scan —
+so `move_files_post` takes the other branch and trusts HandBrake's `main_feature`
+flag. At a fixed CRF a 20% larger file means more retained detail, so on this
+evidence the better encode is the one filed as an extra.
+
+An ingest therefore cannot treat `extras/` as discardable, and cannot assume the
+feature file is the best available copy. Where two files in one folder have
+near-identical durations, they are the same film and the choice between them is
+the ingest's to make — on size, or better, on measured quality. Deleting the
+duplicate is the obvious saving, but it is the kind of decision that wants a
+person the first few times.
 
 ### The TV tree is harder than the movie tree, and measurably so
 

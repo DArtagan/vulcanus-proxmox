@@ -32,7 +32,7 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 | 1 | Audio CD | **done** 2026-08-31 — one loose end, see below |
 | 2 | DVD — movie | **done** 2026-09-01 — first video file ARM has ever produced |
 | 2b | DVD — TV series | **done** 2026-09-04 — two discs of one season; play-all and multi-disc findings drive the ingest design |
-| 3 | Blu-ray | **in progress** — rip proven (43 GB in 57m); transcode killed by node OOM, worker-1 resized to 16 GiB |
+| 3 | Blu-ray | **done** 2026-09-17 — The Rescuers end to end in 9h42m once worker-1 was resized to 16 GiB |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
 
 Phase 0 is a prerequisite for all of the others: until it is done, the drive
@@ -909,8 +909,24 @@ and any cleanup should happen after this phase closes, not during it.
 
 Two things to settle here:
 
-- **The duplicate main feature.** Two near-identical 77-minute titles is
-  ambiguous for anything downstream. Decide whether ARM should pick one.
+- **The duplicate main feature — answered by running it, and the answer is not
+  the obvious one.** ARM keeps *both* 77-minute titles: one becomes the feature,
+  the other is filed under `extras/`. What it picks is the surprise:
+
+  | | duration | size |
+  |---|---|---|
+  | `The Rescuers (1977).mkv` | 77.2m | 1435 MB |
+  | `extras/title_71.mkv` | 77.1m | **1719 MB** |
+
+  The copy promoted to feature is the **smaller** one. `skip_transcode_movie`
+  does select the largest file, but it only runs when `track.source ==
+  "MakeMKV"`, and a Blu-ray reaches `handbrake_all` with tracks registered by
+  HandBrake's own scan — so `move_files_post` takes the other branch and trusts
+  HandBrake's `main_feature` flag instead. At a fixed CRF a 20% larger file means
+  more retained detail, so the better encode is the one sitting in `extras/`.
+  Downstream cannot tell them apart by name, and 3.1 GB is being spent on one
+  film. This is the ingest's problem to resolve, not the ripper's, and it is
+  recorded in [video-library-ingest.md](video-library-ingest.md).
 - **Audio.** `docs/` claims TrueHD/DTS-HD MA passthrough. The preset does not do
   it: `AudioCopyMask` lists `copy:truehd` and `copy:dtshd`, but **both
   `AudioList` entries specify `AudioEncoder: opus`**, and HandBrake only passes
@@ -1838,3 +1854,164 @@ This belongs with the placeholder deny-list rather than replacing it: the
 deny-list stops a bad title being *generated*, and the runtime check catches a
 bad title from any source, including the manual-override path the deny-list would
 push unlabelled discs onto. Neither subsumes the other.
+
+### D13 — an unreadable disc region wedges the drive indefinitely, and the failure restarts itself
+
+Three separate faults, all triggered by one marginal disc. They compound, and
+only the first is about the disc at all.
+
+**A blocked read has no timeout.** On job 30 the log runs from 17:27 to 00:10
+with *nothing in between* and the output file stops growing at 18:28. MakeMKV was
+not retrying and reporting — it sat blocked on a single read for **5 hours 42
+minutes**, holding the drive, and came loose only when somebody opened the tray.
+Job 31 stalled 95 minutes before MakeMKV gave up on its own. Nothing crashes and
+nothing restarts, so `RipperRestarted` cannot fire: this is invisible to every
+alert that exists. It is the `MANUAL_WAIT` wedge of D1 again, arrived at from a
+different direction, and the same consequence — the drive is held and nobody
+knows.
+
+**Failure re-triggers itself, without bound.** When the drive faults it drops the
+medium, which fires a udev event, which starts a fresh job on the same disc:
+
+```
+job 30 fails 00:10:32  ->  job 31 starts 00:11:08
+job 31 fails 03:37:51  ->  job 32 starts 03:38:44
+```
+
+Roughly 3.5 hours per cycle, forever, until a person intervenes. The media-property
+gate and flock from D2 correctly admit each of these: a disc really is present and
+no other job holds the drive. Nothing in the chain asks whether *this disc has
+just failed*.
+
+**A failed secondary title discards a good primary one.** The worst of the three,
+because it destroys work that succeeded. ARM selected two titles over
+`MINLENGTH`; title 0 (105.1m, the film) ripped perfectly on both attempts, and
+title 1 (88.4m) was unreadable. ARM fails the whole job, so the feature is never
+transcoded and never leaves `raw/`. On marginal media that is exactly the wrong
+trade — one bad extra throws away the film.
+
+#### What the disc and drive actually did
+
+The drive's own report, which is the part worth keeping:
+
+```
+Sense Key : Not Ready       Add. Sense: Medium not present - tray open
+Sense Key : Hardware Error  Add. Sense: Internal target failure
+```
+
+`Internal target failure` is the drive reporting an unrecoverable fault of its
+own, after which it drops the disc entirely. **The drive is healthy** — the
+control is unambiguous:
+
+| disc | MakeMKV read errors |
+|---|---|
+| Shrek the Third (DVD) | 0 |
+| The Great Race (DVD) | 0 |
+| The Rescuers (Blu-ray) | 0 |
+| Field of Dreams, attempt 1 | 11 |
+| Field of Dreams, attempt 2 | 11 |
+
+Throughput agrees: title 0 read at 1.07 MB/s against 1.10–1.35 MB/s on the discs
+either side of it, so the drive performed normally right up to the moment it
+stopped.
+
+**It is not a scratch.** The two attempts failed at *different* offsets — 141 MB
+and 44 MB into `VTS_02_1.VOB` — where a fixed defect fails at a fixed sector. The
+disc was later cleaned and inspected and looks undamaged, which points at disc
+rot or a manufacturing defect in the reflective layer rather than anything on the
+surface.
+
+#### Two diagnostic gaps this exposed
+
+**Kernel logs are not persisted anywhere.** Alloy collects pod logs only, so
+`victoria-logs` has nothing from the kernel; the evidence for job 30's failure
+window is gone for good. Everything above had to be reconstructed from ARM's own
+log and from throughput controls.
+
+**CSS refusals flood the ring buffer.** Reading a protected DVD generates a
+constant stream of `Illegal Request / Invalid field in cdb` — 588 in one seven
+minute window — which is *normal* and means nothing, but rolls `dmesg` so fast
+that its useful history is minutes deep. Any real medium error is pushed out
+before anyone can look. Capture the kernel log while a failure is still fresh, or
+it will not be there.
+
+---
+
+### 2026-09-17 — phase 3 closes: a Blu-ray end to end
+
+Job 27, The Rescuers, **02:51 → 12:34 (9h42m)**, 71 titles scanned, 5 selected,
+success. This is the same disc whose transcode the node OOM killed on 2026-09-04,
+run again after worker-1 went to 16 GiB, and it completed without incident. The
+resize is therefore confirmed by the workload that exposed the problem rather
+than by a proxy.
+
+Two DVDs followed without drama — Shrek the Third (job 28, 4h17m) and The Great
+Race (job 29, 5h33m) — so the DVD path is steady across repeat use, which it had
+not been before phase 0.
+
+### 2026-09-19/20 — Field of Dreams, and three faults behind one error
+
+A DVD failed twice and took most of two nights doing it. The disc is at fault,
+but almost nothing about the *outcome* was, and the three defects it exposed are
+recorded as [D13](#d13--an-unreadable-disc-region-wedges-the-drive-indefinitely-and-the-failure-restarts-itself).
+
+**What was lost is small and now bounded.** ARM selected two titles: the feature
+at 105.1m and a second at 88.4m. Only the second is unreadable, and nothing was
+queued behind it — the remaining thirteen titles are 24–35 second menu stingers
+plus one 2:27 clip, all under `MINLENGTH`. So the loss is exactly one 88-minute
+title.
+
+What that title *is* stayed unresolved, because identifying it requires reading
+the disc, which is the thing that fails. It is 4:3, 29.97 fps, 31 chapters, in
+its own title set, using 41 cells against the feature's 48 — an 85% ratio
+tracking its 84% duration ratio, at essentially the same chapter density. That
+reads as an alternate cut or second feature rather than a bonus documentary, but
+it is inference and should not be written down as more.
+
+**It is not the commentary, and that is worth stating because it was the obvious
+guess.** The commentary is an alternate *audio track* on the feature itself, not
+a separate title: HandBrake's scan shows source track 3 as plain `AC3, 2.0 ch`
+where tracks 1 and 2 are `Dolby Surround` — the signature of a flat stereo
+commentary recording. It was captured with the film and survives into the
+transcode as output audio track 4. A commentary would also run the film's length,
+not 88 minutes.
+
+#### Recovering the film without the disc
+
+The feature had ripped correctly *twice*, and ARM had thrown both away by failing
+the job. Running HandBrake by hand over the surviving raw MKV, with ARM's own
+preset and command shape, produced the file ARM would have:
+
+```
+completed/movies/Field-of-Dreams (1989)/Field-of-Dreams (1989).mkv
+980 MB · 105.6 min · AV1 · 4 audio (incl. commentary) · 2 subtitle tracks
+```
+
+Write to a `.part` name and rename only on a zero exit, so a partial cannot be
+mistaken for a finished file — D4 is still live and this path has no ARM job
+tracking it.
+
+**Two independent rips are a stronger integrity check than any single one.**
+Jobs 30 and 31 each produced the feature, and their video streams hash
+identically:
+
+```
+MD5=263d67e648a8fa091b47e5bd322aef4e   (job 30)
+MD5=263d67e648a8fa091b47e5bd322aef4e   (job 31)
+```
+
+The files differ by one byte of container metadata and not at all in content. Use
+this whenever a disc has been ripped more than once; it costs one demux per copy
+and proves far more than a decode pass, which only shows the file is internally
+consistent. Both source and output also decode clean — every message ffmpeg emits
+is the same benign muxer `dts` warning from writing DVD subtitles to a null
+muxer, and zero are decode errors.
+
+**Aspect handling is correct, and looks wrong at a glance.** The output is
+718x358, which is not an error: the source is a 4:3 letterboxed transfer and
+HandBrake auto-cropped the bars (60 top, 62 bottom, asymmetric because the
+transfer is). With `SAR 8:9` it displays 1.783:1 against a nominal 1.85:1, so it
+**under**-cropped by about 4% — a few black lines kept rather than picture cut,
+which is the safe direction. HandBrake also detected the true film rate of 23.976
+where ARM's database records the DVD's nominal 29.97, and produced 151,917 frames
+= exactly 105.6 minutes.
