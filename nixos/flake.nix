@@ -63,6 +63,19 @@
         inherit (host) deployment;
       }) hosts;
 
+      # The same systems colmena deploys, reachable by the tools that expect
+      # this output -- `nixos-rebuild --flake`, and anything introspecting the
+      # flake. Built from `host.module` alone, since `deployment` is colmena's
+      # and a plain nixosSystem rejects it.
+      nixosConfigurations = builtins.mapAttrs (
+        _: host:
+        nixpkgs.lib.nixosSystem {
+          inherit system;
+          specialArgs.inputs = self.inputs;
+          modules = [ host.module ];
+        }
+      ) hosts;
+
       # LXC templates to feed Proxmox when first creating a container. After
       # that, colmena owns the host and these are only rebuilt to recreate it.
       packages.${system} = builtins.mapAttrs (
