@@ -50,8 +50,9 @@
       };
     in
     {
-      # colmena 0.4.0 reads `colmena`; newer versions prefer `colmenaHive` but
-      # still accept this, so it stays the one definition both understand.
+      # The hive definition. The pinned colmena reads it through `colmenaHive`
+      # below and does not look at this attribute at all -- only 0.4.0, the tag
+      # nixpkgs still ships, consumes `colmena` directly.
       colmena = {
         meta = {
           nixpkgs = pkgs;
@@ -62,6 +63,10 @@
         imports = [ host.module ];
         inherit (host) deployment;
       }) hosts;
+
+      # What the pinned colmena actually evaluates. It resolves
+      # `colmenaHive` and errors out if only `colmena` is present.
+      colmenaHive = colmena.lib.makeHive self.outputs.colmena;
 
       # The same systems colmena deploys, reachable by the tools that expect
       # this output -- `nixos-rebuild --flake`, and anything introspecting the

@@ -6,8 +6,10 @@
 # rather than a zvol on a VM, and why retention runs here rather than in the
 # cluster.
 {
+  config,
   inputs,
   modulesPath,
+  pkgs,
   ...
 }:
 {
@@ -78,6 +80,51 @@
       PermitRootLogin = "prohibit-password";
     };
   };
+
+  sops = {
+    defaultSopsFile = ./secrets.sops.yaml;
+    # The container's own host key, which is also a recipient in .sops.yaml.
+    # Nothing has to be copied onto the machine for it to decrypt at activation.
+    age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
+    secrets = {
+      "restic/password".owner = "restic";
+      "rest-server/htpasswd".owner = "restic";
+      # The same credential as the bcrypt above, in the clear. It is what lets
+      # this host check its own append-only boundary -- that `forget` through
+      # the served URL is refused while the same command against the local path
+      # succeeds. No exposure it does not already have: anything that can read
+      # this directory already holds the repository passphrase beside it.
+      "rest-server/password".owner = "restic";
+    };
+  };
+
+  services.restic.server = {
+    enable = true;
+
+    # The cluster is a hostile writer by design: K8up holds credentials that a
+    # compromised or misbehaving workload could use to erase its own history.
+    # Append-only is what stops that, and it is why retention cannot run
+    # through this server -- `forget` needs delete access, so it runs as a
+    # local-filesystem client on this host instead. See docs/backups.md.
+    appendOnly = true;
+
+    # The bind-mounted rpool/backups/restic dataset. A dataset rather than a
+    # zvol so mini-nas can mount the replica read-only and verify it natively.
+    dataDir = "/srv/restic";
+
+    # A port, not an address: the unit is socket-activated and asserts against
+    # anything starting with a colon.
+    listenAddress = "8000";
+
+    htpasswd-file = config.sops.secrets."rest-server/htpasswd".path;
+
+    # Repository size and blob counts, scraped alongside everything else.
+    prometheus = true;
+  };
+
+  # restic itself, for the repository's own maintenance: init, check, and the
+  # retention pass that append-only refuses to serve.
+  environment.systemPackages = [ pkgs.restic ];
 
   # Never changes once set. It is the release this host was first built on, not
   # the one it currently runs.

@@ -1352,9 +1352,32 @@ a config patch.
 
 Harmless individually, but a plain `tofu apply` from this phase would push
 machine configuration to both Kubernetes workers as a side effect of creating a
-container. Create it with
-`tofu apply -target=proxmox_lxc.restic_repository` instead, and leave the drift
-to be resolved deliberately, on its own, by someone who has looked at it.
+container. The container was created with
+`tofu apply -target=proxmox_lxc.restic_repository` instead.
+
+**Then the drift was run down, because one item was neither cosmetic nor
+someone else's.** Each was traced to a cause rather than assumed:
+
+| Drift | Cause | What an apply would do |
+|---|---|---|
+| PBS VM `virtio1` `backup false → true` | **this project.** Phase 0/1 set `backup=0` on the datastore disk by hand and never wrote it back to `terraform/modules/proxmox_backup_server/main.tf`, which still said `true` | **Put the 2 TB datastore back into vzdump's scope** -- backing the backups up onto the pool they already live on, the exact circularity Phase 0 removed |
+| `talos_machine_configuration_apply.worker` ×2 | **the `treefmt` project.** Commit `59707955` reindented `openebs-kubelet-patch.json` from four spaces to two; state holds the old bytes | Pushes a semantically identical machine config to both workers |
+| `proxmox_lxc` mountpoint `+ storage` on *both* the fileserver and the new container | **the provider.** `storage` is optional and not computed, and is not read back for a bind mount, so config and state can never agree | Nothing |
+| `local_sensitive_file.kubeconfig` replaced | **inherent.** `data.talos_cluster_kubeconfig` returns fresh content every plan, and is deprecated in favour of the resource form | Rewrites the local `.kubeconfig` |
+
+The first is fixed here: the module now says `backup = false`, matching the host,
+so an apply no longer silently re-enables it. **The lesson generalises past this
+one flag** -- a setting changed by hand on the host is not merely undocumented,
+it is *armed*, because the next apply asserts the old value.
+
+The third is left alone deliberately. It is cosmetic, and removing an attribute
+the provider may use to tell a bind mount from an allocated volume risks
+remounting the fileserver's data to fix nothing.
+
+The second needs a decision. It is safe -- Talos receives a configuration it
+already has -- but it is an apply against both Kubernetes workers, so it wants
+to be done on purpose rather than swept up by an unrelated phase. Until it is,
+every `tofu apply` here stays `-target`ed.
 
 ##### What the spike found, 2026-09-20
 
