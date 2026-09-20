@@ -1340,6 +1340,22 @@ Pin colmena explicitly, and say in a comment whether it tracks the nixpkgs
 package or a `main` revision. An untagged dependency on the host holding every
 application backup is a standing obligation worth naming rather than inheriting.
 
+##### Apply the container with `-target`
+
+`tofu plan` against `main` reports **1 to add, 4 to change, 1 to destroy**
+before this phase adds anything. None of it is Phase 2's:
+`local_sensitive_file.kubeconfig` wants replacing, `proxmox_lxc.fileserver` and
+the PBS VM want in-place refreshes, and both
+`talos_machine_configuration_apply.worker` entries differ only by
+`jsonencode( # whitespace changes )` -- a semantically identical re-encoding of
+a config patch.
+
+Harmless individually, but a plain `tofu apply` from this phase would push
+machine configuration to both Kubernetes workers as a side effect of creating a
+container. Create it with
+`tofu apply -target=proxmox_lxc.restic_repository` instead, and leave the drift
+to be resolved deliberately, on its own, by someone who has looked at it.
+
 ##### What the spike found, 2026-09-20
 
 **It applies.** A throwaway unprivileged LXC was created from the flake's own
