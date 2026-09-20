@@ -1379,10 +1379,16 @@ builds the `mpN` line from `volume` whenever that is set, which for a bind mount
 it always is. The attribute reaches nothing but the provider's own comparison
 that fabricated the diff.
 
-The second needs a decision. It is safe -- Talos receives a configuration it
-already has -- but it is an apply against both Kubernetes workers, so it wants
-to be done on purpose rather than swept up by an unrelated phase. Until it is,
-every `tofu apply` here stays `-target`ed.
+The second was done on purpose rather than swept up, which was the whole of what
+it needed: an untargeted `tofu apply` on 2026-09-20 pushed the re-encoded patch
+to both workers and neither restarted -- their `Ready` conditions still
+transition at 2026-09-16, and no pod left `Running`. That retires the `-target`
+rule with it; `tofu plan` now reports no changes to any of the first three.
+
+The fourth stands, and will until `data.talos_cluster_kubeconfig` is swapped for
+the resource form it is deprecated in favour of. It rewrites a local file and
+reaches nothing else, so a plan here is expected to show it and is not drift to
+chase.
 
 ##### What the spike found, 2026-09-20
 
