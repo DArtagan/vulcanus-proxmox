@@ -22,6 +22,7 @@ resources:
   - grafana-auth.sops.yaml
   - image-update-automation.yaml
   - ingress-nginx-reverse-proxy.yaml
+  - k8up.yaml
   - media-pv.yaml
   - metallb.yaml
   - metrics-server.yaml
