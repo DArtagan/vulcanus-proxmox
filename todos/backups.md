@@ -1697,6 +1697,9 @@ must group by `exported_namespace`.
 Pushgateway address. Nothing here listens on it, and the push is harmless to the
 backup. `SendPrometheus` skips an empty URL, but a Backup's `promURL: ""` falls
 back to the operator default. So only the operator-wide setting can turn it off.
+**Decided 2026-09-21, user's call: turned off**, with `BACKUP_PROMURL: ""` in
+`k8up.yaml`. urfave/cli v2.27.7 treats a set-but-empty variable as set, so it
+replaces the default rather than falling back to it.
 
 A Pushgateway would not be worth running for these metrics:
 

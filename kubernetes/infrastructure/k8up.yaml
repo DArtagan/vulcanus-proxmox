@@ -43,6 +43,15 @@ spec:
       # Scaling above one replica would reintroduce the race it exists to
       # prevent.
       enableLeaderElection: false
+      envVars:
+        # Empty turns off the push of each item's stats to a Pushgateway. The
+        # default, http://127.0.0.1/, reaches nothing and logs an ERROR for every
+        # PVC and dump. Pointing it at a real Pushgateway would not help: K8up
+        # groups its pushes by namespace, so each item's push replaces the last,
+        # and the store keeps these numbers per item anyway. It must be set here:
+        # an empty promURL on a Schedule falls back to this. See docs/backups.md.
+        - name: BACKUP_PROMURL
+          value: ""
     metrics:
       # So TargetDown covers the operator. Its job counters are no substitute
       # for the coverage assertion: they carry no pvc label. See
