@@ -1391,6 +1391,7 @@ up -- PVCs, annotated pods and PreBackupPod templates. Verified at `v2.16.0` in
 | full | `infrastructure` | 01:30 | everything | grafana's volume and dump (the rest there is excluded) |
 | dumps | `infrastructure` | 07:30, 13:30, 19:30 | the same label | grafana's dump |
 | full | `automatic-ripping-machine` | 02:00 | everything | its one volume -- the step 6 canary |
+| check | `apps` (on the full Schedule) | Sunday 03:00 | the repository | structural `restic check`; the only K8up `Check` |
 
 Six-hourly dumps meet the 6-hour database RPO without re-reading ~56 GB of
 volumes four times a day. The label goes on the three annotated pod templates
@@ -1420,7 +1421,10 @@ application:
 since append-only refuses it. The repo host's monthly prune applies one policy
 per host-and-path group, and every dump path is its own group.
 
-**Open: whether a Schedule carries a K8up `Check`.** First framed as a lock
+**Decided 2026-09-21, user's call: one weekly K8up `Check`**, on the `apps`
+full Schedule, Sunday 03:00 UTC -- after the night's backups, which the locker
+makes it wait out anyway. The host's `--read-data-subset` pass stays in Phase 6.
+The question was first framed as a lock
 contention risk, which was wrong: K8up already prevents it (below). What a K8up
 `Check` is, read from the source at `v2.16.0`:
 
