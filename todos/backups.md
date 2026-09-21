@@ -29,7 +29,7 @@ Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
 | A | Record the spec, open the review | **done** 2026-09-01 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3) |
 | 0 | Stop the bleeding — replication, retention, scrub | **done 2026-09-03.** Key escrow, retention, scrub, monitoring on both hosts, prune and diverged-dataset repair (30,404 → 1,083 snapshots, 89% → **76%**, **2.32 TiB reclaimed**), with the five datasets re-seeded — `syncoid-vulcanus-data` completed with zero errors for the first time since 2026-01-14 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3), merged 2026-09-18 |
 | 1 | Reclaim — dead guests, orphans | **done 2026-09-18.** Five orphaned datasets, guests 100/101/106, `rpool/rancheros`, three replicas, four PVCs, seven hostpath dirs and three PBS groups destroyed; vulcanus 28.3→**27.7 T**, mini-nas 77→**73%**, worker-0 **25.1 GiB** back. `zfs-replication-freshness` **green for the first time since inception**; `pbs-freshness` built and deployed here rather than in Phase 6, reports 5→2, zero failures — [PR #11](https://github.com/DArtagan/vulcanus-proxmox/pull/11) |
-| 2 | Application backups — K8up + restic | **in progress**, opened 2026-09-20 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13). **Steps 0–4 done 2026-09-21:** exclusions live (no RWX claim in scope), repo LXC 108 on NixOS serving append-only (403 on `forget` through the URL, proven), escrow complete, mass-file first run done (296.6 GiB in 2 h 09 m, 247.6 GiB stored), K8up operator installed with no Schedules. Step 5 design decided (annotations for the relational databases, PreBackupPods for SQLite, dumps-only Schedules for the 6 h RPO), written and pushed, awaiting deploy. **Every Schedule must set `runAsUser: 0`**: as K8up's default uid 65532 the Job cannot read 13 of 22 volumes, and reports Succeeded anyway (see *Checked against K8up #910 and #1032*). Next: deploy and verify step 5 |
+| 2 | Application backups — K8up + restic | **in progress**, opened 2026-09-20 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13). **Steps 0–4 done 2026-09-21:** exclusions live (no RWX claim in scope), repo LXC 108 on NixOS serving append-only (403 on `forget` through the URL, proven), escrow complete, mass-file first run done (296.6 GiB in 2 h 09 m, 247.6 GiB stored), K8up operator installed with no Schedules. **Step 5 done 2026-09-21:** all seven dumps (annotations for the relational databases, PreBackupPods for SQLite) taken by one-off dumps-only Backups and verified in the store. **Every Schedule must set `runAsUser: 0`**: as K8up's default uid 65532 the Job cannot read 13 of 22 volumes, and reports Succeeded anyway (see *Checked against K8up #910 and #1032*). Next: step 6 |
 | 2b | Delete the borg tree, after a restore is proven | not started |
 | 3 | Performance — drop the OpenEBS disks from vzdump | not started |
 | 4 | Platform images offsite — PBS #2 + sync | not started; **gated on the mini-nas disks** |
@@ -1641,6 +1641,76 @@ They cannot: a PreBackupPod has its own network namespace. Two ways through were
 weighed -- a ClusterIP Service per database, or `backupcommand` annotations with
 the file-extension workaround from #1068 -- and the annotations were chosen (user's
 call, 2026-09-21). The result is recorded under *Every K8up backup route*.
+
+#### Step 5, deployed -- 2026-09-21
+
+Two one-off `Backup` objects, one each in `apps` and `infrastructure`, with the
+dumps-only label selector and `runAsUser: 0`, applied by hand rather than
+committed. Each ran only its `prebackup` Job. The selector kept every volume Job
+out, as `fetchPVCs` said it would. The dumps ran in pod-name order, and each
+landed in the store at its own path:
+
+| Path | Bytes | Content |
+|---|---|---|
+| `/apps-database.pinepods.pgdump` | 18,362,976 | `PGDMP` |
+| `/apps-database.photoprism.sql` | 72,829,425 | ends `-- Dump completed on 2026-09-21` |
+| `/apps-database.salamander.sql` | 203,273,294 | ends `-- Dump completed on 2026-09-21` |
+| `/apps-sqlite.headscale.sqlite` | 90,112 | `SQLite format 3` |
+| `/apps-sqlite.linkding.sqlite` | 1,150,976 | `SQLite format 3` |
+| `/apps-sqlite.plex.sqlite` | 88,185,856 | `SQLite format 3` |
+| `/infrastructure-sqlite.grafana.sqlite` | 4,161,536 | `SQLite format 3` |
+
+The bytes and headers were read back on the repo host with the restore spine's
+own `restic dump --host <ns> --path <p> latest <p>`, so that command is proven,
+not just written. Every snapshot carries restic 0.19.0's `summary`, which the
+coverage assertion's emptiness check needs.
+
+**Deduplication, measured.** A second run minutes later added 308 B for
+headscale, 443 B for linkding, 11 KB for Plex's 88 MB, 942 KB for photoprism's
+72.8 MB and 953 KB for pinepods' 18.4 MB. So each run of the uncompressed
+dumps costs the repository what changed since the last run, not the dumps'
+size.
+
+**salamander did not roll on the first deploy.** Its HelmRelease takes the chart
+from Git under Flux's default `reconcileStrategy: ChartVersion`, which
+repackages only when `Chart.yaml`'s version moves. The annotations went in
+without a bump. So the HelmRelease stayed Ready on artifact `1.10`, and the pod
+from 2026-09-19 carried no `backupcommand`. The first dumps run simply did not
+list it. The `1.11` bump fixed it, and the second run took salamander's dump.
+Any change to `kubernetes/charts/photoprism/templates/` needs the same bump.
+This chart has hit it once before.
+
+**The operator's metrics, as scraped.** Only `k8up_jobs_total` and
+`k8up_jobs_successful_counter` have series so far. `k8up_jobs_failed_counter`
+appears only after a first failure, and `k8up_schedule_last_job_succeeded`
+only once a Schedule exists. The Backup's namespace is in
+**`exported_namespace`**, because the scrape's own `namespace` label,
+`infrastructure`, where the operator runs, takes the plain name. Step 8's rules
+must group by `exported_namespace`.
+
+**Every item logs an `ERROR`:** `prometheus send failed` to
+`http://127.0.0.1/`. That is the operator's default `BACKUP_PROMURL`, a
+Pushgateway address. Nothing here listens on it, and the push is harmless to the
+backup. `SendPrometheus` skips an empty URL, but a Backup's `promURL: ""` falls
+back to the operator default. So only the operator-wide setting can turn it off.
+
+A Pushgateway would not be worth running for these metrics:
+
+- **It would keep one item per namespace.** K8up pushes after every volume and
+  every dump, with `Add()`, an HTTP `POST`, under the grouping key `job`,
+  `instance` (the namespace) and `cluster`. The PVC is only a label. The
+  Pushgateway's documented rule is that a `POST` replaces every metric of the
+  same name under the same grouping key. So each push erases the one before,
+  and after a night the gateway holds whichever PVC or dump pushed last.
+- **Everything else it carries is already in the store.** The pushed values are
+  files and directories new, changed and unmodified per item. The snapshot
+  `summary` holds all of that per PVC and per dump, with history, and the
+  coverage assertion reads it there.
+- **The one number unique to the push is `last_errors`,** restic's count of
+  unreadable files: the exit-3 case from #1032. Overwritten per namespace, it
+  would be unreliable exactly when it matters, since a clean push from the next
+  PVC erases a failed one. Otherwise that count exists only in the Job's own log,
+  on restic's `backup finished` line for each item. Nothing here alerts on logs.
 
 #### Checked against K8up #910 and #1032 -- 2026-09-21
 
