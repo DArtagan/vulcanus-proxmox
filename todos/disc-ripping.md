@@ -32,7 +32,7 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 | 1 | Audio CD | **done** 2026-08-31 — one loose end, see below |
 | 2 | DVD — movie | **done** 2026-09-01 — first video file ARM has ever produced |
 | 2b | DVD — TV series | **done** 2026-09-04 — two discs of one season; play-all and multi-disc findings drive the ingest design |
-| 3 | Blu-ray | **in progress** — rip proven (43 GB in 57m); transcode killed by node OOM, worker-1 resized to 16 GiB |
+| 3 | Blu-ray | **done** 2026-09-17 — The Rescuers end to end in 9h42m once worker-1 was resized to 16 GiB |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
 
 Phase 0 is a prerequisite for all of the others: until it is done, the drive
@@ -909,8 +909,24 @@ and any cleanup should happen after this phase closes, not during it.
 
 Two things to settle here:
 
-- **The duplicate main feature.** Two near-identical 77-minute titles is
-  ambiguous for anything downstream. Decide whether ARM should pick one.
+- **The duplicate main feature — answered by running it, and the answer is not
+  the obvious one.** ARM keeps *both* 77-minute titles: one becomes the feature,
+  the other is filed under `extras/`. What it picks is the surprise:
+
+  | | duration | size |
+  |---|---|---|
+  | `The Rescuers (1977).mkv` | 77.2m | 1435 MB |
+  | `extras/title_71.mkv` | 77.1m | **1719 MB** |
+
+  The copy promoted to feature is the **smaller** one. `skip_transcode_movie`
+  does select the largest file, but it only runs when `track.source ==
+  "MakeMKV"`, and a Blu-ray reaches `handbrake_all` with tracks registered by
+  HandBrake's own scan — so `move_files_post` takes the other branch and trusts
+  HandBrake's `main_feature` flag instead. At a fixed CRF a 20% larger file means
+  more retained detail, so the better encode is the one sitting in `extras/`.
+  Downstream cannot tell them apart by name, and 3.1 GB is being spent on one
+  film. This is the ingest's problem to resolve, not the ripper's, and it is
+  recorded in [video-library-ingest.md](video-library-ingest.md).
 - **Audio.** `docs/` claims TrueHD/DTS-HD MA passthrough. The preset does not do
   it: `AudioCopyMask` lists `copy:truehd` and `copy:dtshd`, but **both
   `AudioList` entries specify `AudioEncoder: opus`**, and HandBrake only passes
@@ -1731,3 +1747,329 @@ than inherit the 1080p preset:
 The VM is not being sized for this today: phase 4 is still blocked on whether the
 BDR-212U can obtain volume keys at all, and the honest number comes from
 measuring a completed 1080p encode and scaling it.
+
+### D12 — a disc with no volume label is confidently misidentified, and only the person holding it can tell
+
+A Blu-ray whose UDF label was never set reports the literal placeholder string
+`LOGICAL_VOLUME_ID`. ARM passes that to its identification step, which fuzzy-matches
+it against OMDb and returns a real film — in the observed case *The Adventures of
+Mary-Kate and Ashley: The Case of the Logical i Ranch* (1994, `tt0282341`),
+presumably off the word "Logical". The job is then created with
+`hasnicetitle: 1`, meaning ARM considers the identification good and will rip,
+transcode, name and file the disc under that title without hesitating.
+
+**Why this is worse than an ordinary failure.** The Pushover notification reads
+`Found disc: The-Adventures-of-Mary-Kate-and-Ashley--The-Case-of-the-Logical-i-Ranch.
+Disc type is bluray.` — well-formed, plausible, and indistinguishable from a
+correct identification. Nothing about it signals a problem. **Only the person who
+physically put the disc in the tray can tell it is wrong**, and only if they read
+the notification and recognise the title as not theirs. That makes it the sharpest
+failure mode yet for the self-service goal, because the whole point of the
+notification is that Will's brother can load discs without anyone watching the
+cluster.
+
+The ten-minute `MANUAL_WAIT` is the existing remedy, and it does work — the job
+sits in `waiting` and the title can be corrected in the web UI at
+`/jobdetail?job_id=<id>` before the rip starts. But it only helps someone who
+already suspects the identification is wrong.
+
+**The exact mechanism**, read from `arm/ripper/identify.py`, because it is more
+actionable than the symptom.
+
+`identify_bluray` (line 96) reads the disc's own metadata from
+`BDMV/META/DL/bdmt_eng.xml`. **This disc has an empty `META/DL/` directory**, so
+the open raises `OSError` and control reaches the fallback at line 106 — which
+upstream itself marks with `# Maybe call OMdb with label when we can't find any
+ident on disc ?`. That fallback takes `job.label`, replaces underscores with
+spaces and title-cases it, giving `Logical Volume Id`, then **returns `True`**.
+Returning true is the defect: the caller cannot distinguish *identified from disc
+metadata* from *guessed from a label*, so `hasnicetitle` is set either way and the
+OMDb search that follows matches on the word "Logical".
+
+**Blu-rays have no content-based fallback at all, and DVDs do.** `identify_dvd`
+(line 149) computes `pydvdid.compute()` over the mounted disc and queries
+`1337server.pythonanywhere.com` with the CRC64, which maps a disc *hash* to a
+title and is immune to labels entirely. Nothing equivalent runs for Blu-ray.
+So the disc type least likely to carry a useful label is the one with no fallback
+when the label is useless — which is why this surfaced on a Blu-ray and never on
+a DVD.
+
+Worth noting a second oddity found while reading this: on the successful path,
+`bluray_year` is taken from the **file mtime of `bdmt_eng.xml`** (line 130), not
+from any metadata field. That is the disc's authoring date standing in for the
+film's release year, and it will be wrong for every catalogue re-issue.
+
+**The signal ARM has and does not use.** A label that is exactly a known
+placeholder is not weak evidence, it is *no* evidence, and the two are being
+treated identically. `LOGICAL_VOLUME_ID`, `DVD_VIDEO`, `LOGICAL_VOLUME_ID`-style
+authoring defaults and bare `44069507_VOLUME_ID` numeric IDs should suppress
+`hasnicetitle` and force the unidentified path rather than seeding a title search.
+That is a small, well-bounded change: a deny-list check before identification runs,
+setting the job to unidentified instead of accepting whatever OMDb returns.
+
+Worth noting the two UDF fields disagree, which is its own small trap for anyone
+diagnosing this: `blkid` reads the *Logical Volume Identifier* and reported
+`LOGICAL_VOLUME_ID`, while the kernel's UDF driver reads the *Volume Identifier*
+and logged `Mounting volume '44069507_VOLUME_ID'`. Both are placeholders, but a
+check written against one field will not see the other.
+
+**Related but distinct: the disc was not the one expected.** The volume timestamp
+reads 2007/09/04, and The Rescuers 35th Anniversary is a 2012 release, so the
+disc in the tray is independently confirmed as a different one. That is a physical
+swap during the hours the tray sat open, not a misread — worth separating from
+D12 itself, which is about what ARM does with an unlabelled disc however it got
+there.
+
+Direct reads of the BDMV return `Illegal Request / Invalid field in cdb` and
+`critical target error`. That is ordinary AACS protection refusing plain reads,
+not disc damage; MakeMKV decrypts and is unaffected. Recorded because the kernel
+log looks alarming and will otherwise be re-investigated.
+
+> **Wrong — corrected 2026-09-21.** A protection refusal is ASC `0x6F`, not
+> `Invalid field in cdb`. These are oversized reads that the host rejects; see
+> [the 2026-09-21 entry](#2026-09-21--the-invalid-field-in-cdb-flood-is-a-transfer-size-limit-not-protection).
+> The CDB lengths from this disc weren't recorded, so it isn't proven that this
+> instance had the same cause. It carries the same signature, though.
+
+#### How it resolved, and the cheap check that falls out
+
+The disc was **The Polar Express** (2004) — a Warner Blu-ray released
+2007-10-30, authored 2007-09-04, eight weeks before release. Every measured
+property agrees: 1:39:56 against a stated 1h40m runtime, 1080p **VC-1** exactly as
+Warner encoded it, 2.40:1 scope, and standard-definition extras as early Warner
+discs carried. It had been sitting in the wrong case, which is why it arrived
+labelled as a Rescuers disc.
+
+**The authoring timestamp is not the release date, and searching it as one finds
+nothing.** Eight weeks separated the two here. The timestamp is still useful — it
+bounds the release from below and pins the era — but only as a range.
+
+**A human misidentified this disc too, and the same check caught both.** The
+title offered from the physical case was *The Rescuers Down Under*, which runs
+77 minutes against this disc's 99:56, and no 77-minute title existed anywhere on
+it. That is the same evidence that exposed OMDb's guess, applied to a human's.
+Worth stating plainly because it generalises:
+
+> **Compare the main title's runtime against the runtime of the film it is
+> claimed to be.** A disc holding a 100-minute feature is not a 77-minute film,
+> whoever says otherwise. The check costs one lookup, needs no disc metadata, and
+> is independent of whatever produced the title — OMDb, a label, or a person
+> reading a sleeve.
+
+This belongs with the placeholder deny-list rather than replacing it: the
+deny-list stops a bad title being *generated*, and the runtime check catches a
+bad title from any source, including the manual-override path the deny-list would
+push unlabelled discs onto. Neither subsumes the other.
+
+### D13 — an unreadable disc region wedges the drive indefinitely, and the failure restarts itself
+
+Three separate faults, all triggered by one marginal disc. They compound, and
+only the first is about the disc at all.
+
+**A blocked read has no timeout.** On job 30 the log runs from 17:27 to 00:10
+with *nothing in between* and the output file stops growing at 18:28. MakeMKV was
+not retrying and reporting — it sat blocked on a single read for **5 hours 42
+minutes**, holding the drive, and came loose only when somebody opened the tray.
+Job 31 stalled 95 minutes before MakeMKV gave up on its own. Nothing crashes and
+nothing restarts, so `RipperRestarted` cannot fire: this is invisible to every
+alert that exists. It is the `MANUAL_WAIT` wedge of D1 again, arrived at from a
+different direction, and the same consequence — the drive is held and nobody
+knows.
+
+**Failure re-triggers itself, without bound.** When the drive faults it drops the
+medium, which fires a udev event, which starts a fresh job on the same disc:
+
+```
+job 30 fails 00:10:32  ->  job 31 starts 00:11:08
+job 31 fails 03:37:51  ->  job 32 starts 03:38:44
+```
+
+Roughly 3.5 hours per cycle, forever, until a person intervenes. The media-property
+gate and flock from D2 correctly admit each of these: a disc really is present and
+no other job holds the drive. Nothing in the chain asks whether *this disc has
+just failed*.
+
+**A failed secondary title discards a good primary one.** The worst of the three,
+because it destroys work that succeeded. ARM selected two titles over
+`MINLENGTH`; title 0 (105.1m, the film) ripped perfectly on both attempts, and
+title 1 (88.4m) was unreadable. ARM fails the whole job, so the feature is never
+transcoded and never leaves `raw/`. On marginal media that is exactly the wrong
+trade — one bad extra throws away the film.
+
+#### What the disc and drive actually did
+
+The drive's own report, which is the part worth keeping:
+
+```
+Sense Key : Not Ready       Add. Sense: Medium not present - tray open
+Sense Key : Hardware Error  Add. Sense: Internal target failure
+```
+
+`Internal target failure` is the drive reporting an unrecoverable fault of its
+own, after which it drops the disc entirely. **The drive is healthy** — the
+control is unambiguous:
+
+| disc | MakeMKV read errors |
+|---|---|
+| Shrek the Third (DVD) | 0 |
+| The Great Race (DVD) | 0 |
+| The Rescuers (Blu-ray) | 0 |
+| Field of Dreams, attempt 1 | 11 |
+| Field of Dreams, attempt 2 | 11 |
+
+Throughput agrees: title 0 read at 1.07 MB/s against 1.10–1.35 MB/s on the discs
+either side of it, so the drive performed normally right up to the moment it
+stopped.
+
+**It is not a scratch.** The two attempts failed at *different* offsets — 141 MB
+and 44 MB into `VTS_02_1.VOB` — where a fixed defect fails at a fixed sector. The
+disc was later cleaned and inspected and looks undamaged, which points at disc
+rot or a manufacturing defect in the reflective layer rather than anything on the
+surface.
+
+#### Two diagnostic gaps this exposed
+
+**Kernel logs are not persisted anywhere.** Alloy collects pod logs only, so
+`victoria-logs` has nothing from the kernel; the evidence for job 30's failure
+window is gone for good. Everything above had to be reconstructed from ARM's own
+log and from throughput controls.
+
+**CSS refusals flood the ring buffer.** Reading a protected DVD generates a
+constant stream of `Illegal Request / Invalid field in cdb` — 588 in one seven
+minute window — which is *normal* and means nothing, but rolls `dmesg` so fast
+that its useful history is minutes deep. Any real medium error is pushed out
+before anyone can look. Capture the kernel log while a failure is still fresh, or
+it will not be there.
+
+> **The diagnosis above is wrong; the consequence stands — corrected
+> 2026-09-21.** The flood is neither CSS nor normal: every entry is a 384 KiB
+> read over the host's 128 KiB limit, and it has a fix; see
+> [the 2026-09-21 entry](#2026-09-21--the-invalid-field-in-cdb-flood-is-a-transfer-size-limit-not-protection).
+> "588" is also not a rate. It is how many of these 13-line entries fit in the
+> ring buffer, and a second capture on 2026-09-21 held exactly 588 as well.
+
+---
+
+### 2026-09-17 — phase 3 closes: a Blu-ray end to end
+
+Job 27, The Rescuers, **02:51 → 12:34 (9h42m)**, 71 titles scanned, 5 selected,
+success. This is the same disc whose transcode the node OOM killed on 2026-09-04,
+run again after worker-1 went to 16 GiB, and it completed without incident. The
+resize is therefore confirmed by the workload that exposed the problem rather
+than by a proxy.
+
+Two DVDs followed without drama — Shrek the Third (job 28, 4h17m) and The Great
+Race (job 29, 5h33m) — so the DVD path is steady across repeat use, which it had
+not been before phase 0.
+
+### 2026-09-19/20 — Field of Dreams, and three faults behind one error
+
+A DVD failed twice and took most of two nights doing it. The disc is at fault,
+but almost nothing about the *outcome* was, and the three defects it exposed are
+recorded as [D13](#d13--an-unreadable-disc-region-wedges-the-drive-indefinitely-and-the-failure-restarts-itself).
+
+**What was lost is small and now bounded.** ARM selected two titles: the feature
+at 105.1m and a second at 88.4m. Only the second is unreadable, and nothing was
+queued behind it — the remaining thirteen titles are 24–35 second menu stingers
+plus one 2:27 clip, all under `MINLENGTH`. So the loss is exactly one 88-minute
+title.
+
+What that title *is* stayed unresolved, because identifying it requires reading
+the disc, which is the thing that fails. It is 4:3, 29.97 fps, 31 chapters, in
+its own title set, using 41 cells against the feature's 48 — an 85% ratio
+tracking its 84% duration ratio, at essentially the same chapter density. That
+reads as an alternate cut or second feature rather than a bonus documentary, but
+it is inference and should not be written down as more.
+
+**It is not the commentary, and that is worth stating because it was the obvious
+guess.** The commentary is an alternate *audio track* on the feature itself, not
+a separate title: HandBrake's scan shows source track 3 as plain `AC3, 2.0 ch`
+where tracks 1 and 2 are `Dolby Surround` — the signature of a flat stereo
+commentary recording. It was captured with the film and survives into the
+transcode as output audio track 4. A commentary would also run the film's length,
+not 88 minutes.
+
+#### Recovering the film without the disc
+
+The feature had ripped correctly *twice*, and ARM had thrown both away by failing
+the job. Running HandBrake by hand over the surviving raw MKV, with ARM's own
+preset and command shape, produced the file ARM would have:
+
+```
+completed/movies/Field-of-Dreams (1989)/Field-of-Dreams (1989).mkv
+980 MB · 105.6 min · AV1 · 4 audio (incl. commentary) · 2 subtitle tracks
+```
+
+Write to a `.part` name and rename only on a zero exit, so a partial cannot be
+mistaken for a finished file — D4 is still live and this path has no ARM job
+tracking it.
+
+**Two independent rips are a stronger integrity check than any single one.**
+Jobs 30 and 31 each produced the feature, and their video streams hash
+identically:
+
+```
+MD5=263d67e648a8fa091b47e5bd322aef4e   (job 30)
+MD5=263d67e648a8fa091b47e5bd322aef4e   (job 31)
+```
+
+The files differ by one byte of container metadata and not at all in content. Use
+this whenever a disc has been ripped more than once; it costs one demux per copy
+and proves far more than a decode pass, which only shows the file is internally
+consistent. Both source and output also decode clean — every message ffmpeg emits
+is the same benign muxer `dts` warning from writing DVD subtitles to a null
+muxer, and zero are decode errors.
+
+**Aspect handling is correct, and looks wrong at a glance.** The output is
+718x358, which is not an error: the source is a 4:3 letterboxed transfer and
+HandBrake auto-cropped the bars (60 top, 62 bottom, asymmetric because the
+transfer is). With `SAR 8:9` it displays 1.783:1 against a nominal 1.85:1, so it
+**under**-cropped by about 4% — a few black lines kept rather than picture cut,
+which is the safe direction. HandBrake also detected the true film rate of 23.976
+where ARM's database records the DVD's nominal 29.97, and produced 151,917 frames
+= exactly 105.6 minutes.
+
+### 2026-09-21 — the `Invalid field in cdb` flood is a transfer-size limit, not protection
+
+Raised as "worker-1's logs are constantly spammed trying to mount sr0". Nothing
+mounts sr0, and nothing outside ARM touches the drive:
+
+- **Only MakeMKV holds the drive.** During job 36, `makemkvcon` was the only
+  process with it open: `/dev/sr0` with flags `0140000` (`O_DIRECT`, read-only)
+  and `/dev/sg0` read-write. `/proc/mounts` had no sr0.
+- **There is no background reader.** `node_disk_reads_completed_total{device="sr0"}`
+  on worker-1 was exactly zero between jobs over 2026-09-18 → 21, and non-zero
+  only inside the windows of jobs 29–36. That is unlike the NDM scanner in
+  `docs/automatic-ripping-machine.md`, which read the drive continuously. Talos's
+  `DiscoveredVolume sr0` was at version 23, meaning one probe per media change.
+
+The failures themselves:
+
+- All 588 in the ring buffer were `Read(10)` with transfer length `0xc0`
+  (384 KiB), marching in a fixed 384-block stride.
+- All 588 had the same sense: `Illegal Request / Invalid field in cdb`.
+- The rate was ~1.5/s, about equal to sr0's whole block-read rate at the time.
+  So nearly every block-layer read MakeMKV made failed.
+- The host's limit (`/sys/block/sr0/queue/max_hw_sectors_kb` on vulcanus) is 128.
+  The guest's is 32766, which is virtio-scsi's default `max_sectors=0xFFFF` in
+  2048-byte blocks. `scsi-generic` never passes the host limit through.
+- A request over the host limit gets `EINVAL` from the host's `sg` driver, which
+  QEMU returns to the guest as `Invalid field in cdb` with `DID_OK`.
+
+A protection refusal would have been ASC `0x6F`, and would have depended on
+which sector was read rather than how many. The two D12/D13 notes calling this
+normal are marked wrong where they stand.
+
+**Fix:** `max_sectors=256` on the `virtio-scsi-pci` device in
+`terraform/modules/proxmox_talos_vm/main.tf`. The mechanism is in
+`docs/automatic-ripping-machine.md`. It needs a QEMU restart of worker-1, so it
+takes effect on the next `tofu apply` made between rips.
+
+**Still to confirm, once applied:**
+
+1. Guest `max_hw_sectors_kb` for sr0 reads `128`, not `32766`.
+2. A full rip leaves `dmesg` free of `Invalid field in cdb`.
+3. Throughput is compared against job 36. Job 36 wrote its first two titles,
+   3.96 GB, between 13:36:15 and 14:34:47, about 1.1 MB/s, while every block
+   read failed. Whether the fix changes rip speed is open. Don't claim either
+   way until a rip has been measured.
