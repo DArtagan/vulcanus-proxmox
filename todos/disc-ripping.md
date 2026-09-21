@@ -2067,7 +2067,10 @@ takes effect on the next `tofu apply` made between rips.
 
 **Still to confirm, once applied:**
 
-1. Guest `max_hw_sectors_kb` for sr0 reads `128`, not `32766`.
+1. ~~Guest `max_hw_sectors_kb` for sr0 reads `128`, not `32766`.~~ Confirmed
+   2026-09-21 after `tofu apply` restarted VM 911. `max_sectors_kb` is also
+   `128`, `events_poll_msecs` is still `2000`, and ARM's fresh allocation
+   reports the Pioneer on both `sr0` and `sg0`.
 2. A full rip leaves `dmesg` free of `Invalid field in cdb`.
 3. Throughput is compared against job 36. Job 36 wrote its first two titles,
    3.96 GB, between 13:36:15 and 14:34:47, about 1.1 MB/s, while every block
