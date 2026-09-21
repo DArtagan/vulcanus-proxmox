@@ -1682,8 +1682,12 @@ This chart has hit it once before.
 
 **The operator's metrics, as scraped.** Only `k8up_jobs_total` and
 `k8up_jobs_successful_counter` have series so far. `k8up_jobs_failed_counter`
-appears only after a first failure, and `k8up_schedule_last_job_succeeded`
-only once a Schedule exists. The Backup's namespace is in
+appears only after a first failure. **`k8up_schedule_last_job_succeeded` never
+covers a backup.** The backup controller settles its multi-Job status itself
+and never calls `SetScheduleLastJobStatus`. Only the Check, Prune, Restore and
+Archive controllers do, through `job.ReconcileJobStatus`. So a backup's absence
+of success has to come from kube-state-metrics' Job completion times or from
+the store. The Backup's namespace is in
 **`exported_namespace`**, because the scrape's own `namespace` label,
 `infrastructure`, where the operator runs, takes the plain name. Step 8's rules
 must group by `exported_namespace`.
@@ -1823,7 +1827,13 @@ of the dumping containers has an ephemeral-storage limit or a memory-backed
 `/tmp` (checked 2026-09-21). The one failure it cannot cover is the stream
 breaking during `cat`, after a good dump, from an apiserver or kubelet restart.
 For that there is only #1027's exit, racing restic, and behind it the size
-check. Testing the commands showed what such a break looks like. A `kubectl
+check. [#1109](https://github.com/k8up-io/k8up/issues/1109) is the silent form
+of it. K8up's old SPDY exec streaming dropped the tail of dumps as small as tens
+of megabytes, with no error anywhere, and that included dumps written to a file
+first. Its fix, websocket streaming, shipped in `v2.15.0`. SPDY now returns
+only with `INSECURE_ALLOW_PODEXEC_SPDY_FALLBACK`, whose own help text
+warns of silent corruption. It is unset here and must stay so. Testing the
+commands showed what such a break looks like. A `kubectl
 exec` of Plex's dump from the workstation had its connection reset on the
 tailnet path, with no apiserver restart, after 86.7 of 88.2 MB. The result
 started with a valid `SQLite format 3` header, and only the exit status said it
