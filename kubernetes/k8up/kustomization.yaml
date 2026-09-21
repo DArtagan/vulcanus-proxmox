@@ -8,7 +8,9 @@ resources:
   - secret-apps.sops.yaml
   - secret-automatic-ripping-machine.sops.yaml
   - secret-infrastructure.sops.yaml
+  - schedule-apps.yaml
   - schedule-automatic-ripping-machine.yaml
+  - schedule-infrastructure.yaml
 patches:
   - path: schedule-defaults.yaml
     target:
