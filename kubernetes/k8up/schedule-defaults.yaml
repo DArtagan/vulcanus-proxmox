@@ -1,0 +1,27 @@
+# Patched onto every Schedule by kustomization.yaml, so these are written once.
+# The repository string must be byte-identical in every Schedule: the operator
+# hashes it to find other namespaces' jobs, and a Check or Prune waits only for
+# the ones it can see. And every Job runs as root, because as K8up's default uid
+# 65532 it cannot read most of these volumes and reports Succeeded anyway. See
+# docs/backups.md.
+apiVersion: k8up.io/v1
+kind: Schedule
+metadata:
+  name: every-schedule
+spec:
+  podSecurityContext:
+    runAsUser: 0
+  backend:
+    repoPasswordSecretRef:
+      name: k8up-repository
+      key: repository-password
+    rest:
+      url: http://192.168.0.108:8000/
+      userSecretRef:
+        name: k8up-repository
+        key: rest-username
+      # Not a typo here: the upstream field is spelled `passwordSecretReg`, and
+      # `passwordSecretRef` is silently ignored.
+      passwordSecretReg:
+        name: k8up-repository
+        key: rest-password

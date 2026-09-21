@@ -29,7 +29,7 @@ Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
 | A | Record the spec, open the review | **done** 2026-09-01 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3) |
 | 0 | Stop the bleeding — replication, retention, scrub | **done 2026-09-03.** Key escrow, retention, scrub, monitoring on both hosts, prune and diverged-dataset repair (30,404 → 1,083 snapshots, 89% → **76%**, **2.32 TiB reclaimed**), with the five datasets re-seeded — `syncoid-vulcanus-data` completed with zero errors for the first time since 2026-01-14 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3), merged 2026-09-18 |
 | 1 | Reclaim — dead guests, orphans | **done 2026-09-18.** Five orphaned datasets, guests 100/101/106, `rpool/rancheros`, three replicas, four PVCs, seven hostpath dirs and three PBS groups destroyed; vulcanus 28.3→**27.7 T**, mini-nas 77→**73%**, worker-0 **25.1 GiB** back. `zfs-replication-freshness` **green for the first time since inception**; `pbs-freshness` built and deployed here rather than in Phase 6, reports 5→2, zero failures — [PR #11](https://github.com/DArtagan/vulcanus-proxmox/pull/11) |
-| 2 | Application backups — K8up + restic | **in progress**, opened 2026-09-20 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13). **Steps 0–4 done 2026-09-21:** exclusions live (no RWX claim in scope), repo LXC 108 on NixOS serving append-only (403 on `forget` through the URL, proven), escrow complete, mass-file first run done (296.6 GiB in 2 h 09 m, 247.6 GiB stored), K8up operator installed with no Schedules. **Step 5 done 2026-09-21:** all seven dumps (annotations for the relational databases, PreBackupPods for SQLite) taken by one-off dumps-only Backups and verified in the store. **Every Schedule must set `runAsUser: 0`**: as K8up's default uid 65532 the Job cannot read 13 of 22 volumes, and reports Succeeded anyway (see *Checked against K8up #910 and #1032*). Next: step 6 |
+| 2 | Application backups — K8up + restic | **in progress**, opened 2026-09-20 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13). **Steps 0–4 done 2026-09-21:** exclusions live (no RWX claim in scope), repo LXC 108 on NixOS serving append-only (403 on `forget` through the URL, proven), escrow complete, mass-file first run done (296.6 GiB in 2 h 09 m, 247.6 GiB stored), K8up operator installed with no Schedules. **Step 5 done 2026-09-21:** all seven dumps (annotations for the relational databases, PreBackupPods for SQLite) taken by one-off dumps-only Backups and verified in the store. **Every Schedule must set `runAsUser: 0`**: as K8up's default uid 65532 the Job cannot read 13 of 22 volumes, and reports Succeeded anyway (see *Checked against K8up #910 and #1032*). **Step 6 written 2026-09-21:** ARM canary backed up and restored byte-identical, the first restore this estate has done; its Schedule awaits deploy. Next: deploy step 6, verify its 02:00 UTC run, then step 7 |
 | 2b | Delete the borg tree, after a restore is proven | not started |
 | 3 | Performance — drop the OpenEBS disks from vzdump | not started |
 | 4 | Platform images offsite — PBS #2 + sync | not started; **gated on the mini-nas disks** |
@@ -1478,8 +1478,9 @@ newest snapshot in the whole repository, which will not contain the file.
 - **SQLite:** the same `restic dump` into a file. Scale the application to zero,
   put the file in place, and remove its `-wal` and `-shm`.
 
-Six databases get file-level treatment and no dump — `stump`, `mumble`,
-`speedtest-tracker`, `youtube-dl`, `headplane`, `beets`. All are journal-mode
+Seven databases get file-level treatment and no dump — `stump`, `mumble`,
+`speedtest-tracker`, `youtube-dl`, `headplane`, `beets`, and ARM's `arm.db`
+(148 KB, written only during a rip). All are journal-mode
 rather than WAL with negligible write rates, so a file copy is very likely
 consistent; "very likely" is the honest word, and `beets` could be torn
 mid-import. A known limit, not an oversight.
@@ -1848,6 +1849,39 @@ was short. The retry matched the live database byte for byte.
 stop at the first failure. So a dump that fails every time runs that Job seven
 times, and each attempt redoes every dump listed before it and none after. The
 volume Jobs carry `SKIP_PREBACKUP` and are unaffected.
+
+#### Step 6, the canary -- 2026-09-21
+
+**Backed up once by hand before any Schedule existed**, as root and with the
+Schedules' own backend string. `video-arm-pvc` (5 Ti) and `audio-rw-arm-pvc`
+(1 Ti) were confirmed excluded on the live objects first. One Job ran on
+worker-1, the PVC's node: 13 s, 44 files, 82 MB, 0 errors.
+
+**The shape of a volume snapshot**, which step 8 builds on: host
+`automatic-ripping-machine` (the namespace), paths
+`["/data/automatic-ripping-machine-pvc"]`, username `root`, and a `summary` of
+44 files. With the root and its three directories, that is 48 entries, the
+probe's count exactly.
+
+**The first restore this estate has performed, and it is exact.** A K8up
+`Restore` (folder method, root) put the snapshot into a scratch `openebs-hostpath`
+PVC. K8up restores `<snapshot>:/data/<pvc>` with the prefix trimmed, so the
+claim's root mirrors the original's. A pod mounting both read-only compared all
+47 entries: path, type, mode, owner, size, sub-second mtime, and the SHA-256 of
+every file. Identical. The restore ran on worker-1 because that is where the
+scratch claim bound. Restoring into a *live* claim would pin it there too.
+
+What this canary cannot show: ARM's volume is fully readable as uid 65532, so it
+does not exercise the `runAsUser: 0` fix. That check belongs to the first `apps`
+run (see *Checked against K8up #910 and #1032*).
+
+**The Schedule.** `full` in `automatic-ripping-machine`, `0 2 * * *`. That is
+UTC: `cron.New()` uses the process's local zone, and the operator's container
+has no `TZ` and no `/etc/localtime`. The backend and `runAsUser: 0` are not in
+the Schedule file. `kubernetes/k8up/schedule-defaults.yaml` holds them, and
+`kustomization.yaml` patches it onto every `kind: Schedule`. That makes the
+byte-identical repository string a property of the build, not of care taken in
+three files. The rendered Schedule passed a server-side dry run.
 
 #### Escrow, including what Phase 0 left open -- done 2026-09-21
 
