@@ -1,0 +1,38 @@
+# A copy of grafana's database, taken by a pod of our own: grafana's image has no sqlite3.
+# It holds the admin password, which is no longer in SOPS. See
+# docs/backups.md.
+apiVersion: k8up.io/v1
+kind: PreBackupPod
+metadata:
+  name: grafana-sqlite
+  labels:
+    # Selected by the dumps-only K8up Schedule as well as the nightly one.
+    k8up-dump: "true"
+spec:
+  # The backup API copies pages, so the copy is consistent under a running
+  # writer; it needs a seekable destination, hence the file before the cat.
+  # Nothing is streamed unless the copy is non-empty.
+  backupCommand: >-
+    sh -c 'set -e; f=/tmp/k8up-dump; trap "rm -f $f" EXIT;
+    sqlite3 "/data/grafana.db" ".backup $f"; test -s "$f"; cat "$f"'
+  fileExtension: .grafana.sqlite
+  pod:
+    spec:
+      # The database's owner, so a -wal or -shm this pod has to create is one
+      # grafana can still open afterwards.
+      securityContext:
+        runAsUser: 472
+        runAsGroup: 472
+      containers:
+        - name: sqlite
+          image: keinos/sqlite3:3.53.4 # {"$imagepolicy": "infrastructure:sqlite3"}
+          # Held open for K8up to exec into; tini, the image's entrypoint,
+          # passes the stop signal through when K8up removes the pod.
+          args: [tail, -f, /dev/null]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: kube-prometheus-grafana

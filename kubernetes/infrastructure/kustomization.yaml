@@ -7,6 +7,8 @@ resources:
   - audio-rw-arm-pv.yaml
   - audio-rw-beets-pv.yaml
   - audio-rw-pv.yaml
+  - grafana-prebackup-pod.yaml
+  - sqlite3-image.yaml
   #- authentik.yaml
   - basic-auth.sops.yaml
   - books-pv.yaml

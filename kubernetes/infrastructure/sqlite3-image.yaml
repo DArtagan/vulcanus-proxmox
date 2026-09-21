@@ -1,0 +1,21 @@
+# The image the PreBackupPods here take their SQLite copies with. It carries the
+# sqlite3 binary the applications' own images lack.
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: sqlite3
+spec:
+  image: keinos/sqlite3
+  interval: 15m0s
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: sqlite3
+spec:
+  imageRepositoryRef:
+    name: sqlite3
+  policy:
+    semver:
+      range: '>=3.53.4 <4.0.0'
