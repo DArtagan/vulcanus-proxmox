@@ -1360,7 +1360,7 @@ dump fails its own Job and leaves the volume Jobs running.
   run and restic could not deduplicate it.
 - **photoprism, salamander:** `mariadb-dump --single-transaction`. InnoDB, so the
   read is consistent without locking. Plain SQL, which deduplicates well.
-- **SQLite:** `sqlite3 <db> ".backup /tmp/dump"`, then `cat`. The backup API
+- **SQLite:** `sqlite3 <db> ".backup $f"`, then `cat`. The backup API
   copies pages, so it is consistent under concurrent writers, reads through the
   WAL, and is indifferent to Plex's custom ICU collations. `VACUUM INTO`, which
   rebuilds indexes, can trip on those. `.backup` needs a seekable destination,
@@ -1369,6 +1369,12 @@ dump fails its own Job and leaves the volume Jobs running.
 - **Every command** runs `test -s` before its `cat`, so it exits non-zero on
   empty output. Otherwise a silently failing dump writes a zero-byte snapshot
   that satisfies the coverage assertion.
+- **Every command's file comes from `mktemp`**, never a fixed path. K8up does
+  not serialise Backups, so two can exec into one container at once. With a
+  shared path, the later dump truncates the file the earlier one is still
+  streaming, and the earlier one exits 0 with a partial dump. A harness
+  reproduced that on 2026-09-21 as exactly half of a 20 MB dump, and the same
+  harness streamed both runs whole under `mktemp`.
 
 **Two per-application findings behind the table:**
 
@@ -1742,7 +1748,11 @@ of the dumping containers has an ephemeral-storage limit or a memory-backed
 `/tmp` (checked 2026-09-21). The one failure it cannot cover is the stream
 breaking during `cat`, after a good dump, from an apiserver or kubelet restart.
 For that there is only #1027's exit, racing restic, and behind it the size
-check.
+check. Testing the commands showed what such a break looks like. A `kubectl
+exec` of Plex's dump from the workstation had its connection reset on the
+tailnet path, with no apiserver restart, after 86.7 of 88.2 MB. The result
+started with a valid `SQLite format 3` header, and only the exit status said it
+was short. The retry matched the live database byte for byte.
 
 **#1027 also gave every backup Job a `backoffLimit` of 6**
 (`BACKUP_GLOBAL_BACKOFF_LIMIT`). The dumps run in their own `prebackup` Job and

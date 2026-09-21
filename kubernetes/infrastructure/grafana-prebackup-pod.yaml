@@ -11,9 +11,11 @@ metadata:
 spec:
   # The backup API copies pages, so the copy is consistent under a running
   # writer; it needs a seekable destination, hence the file before the cat.
-  # Nothing is streamed unless the copy is non-empty.
+  # Nothing is streamed unless the copy is non-empty, and the file is this
+  # run's own, so overlapping Backups cannot read each other's half-written
+  # copy.
   backupCommand: >-
-    sh -c 'set -e; f=/tmp/k8up-dump; trap "rm -f $f" EXIT;
+    sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT;
     sqlite3 "/data/grafana.db" ".backup $f"; test -s "$f"; cat "$f"'
   fileExtension: .grafana.sqlite
   pod:

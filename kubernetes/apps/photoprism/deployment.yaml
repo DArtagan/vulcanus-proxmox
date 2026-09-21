@@ -15,12 +15,12 @@ spec:
         # Selected by the dumps-only K8up Schedule as well as the nightly one.
         k8up-dump: "true"
       annotations:
-        # Dumped beside its server, written to a file and checked before a byte is
-        # streamed: K8up closes restic's stdin before it notices a failed command,
-        # so a dump that died halfway would otherwise be saved as a plausible
-        # snapshot. See docs/backups.md.
+        # Dumped beside its server, into a file of this run's own that is checked
+        # before a byte is streamed: a failed dump streams nothing, and
+        # overlapping Backups cannot read each other's half-written file. See
+        # docs/backups.md.
         k8up.io/backupcommand: >-
-          sh -c 'set -e; f=/tmp/k8up-dump; trap "rm -f $f" EXIT;
+          sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT;
           MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb-dump -u root
           --single-transaction --databases "$MARIADB_DATABASE" > "$f";
           test -s "$f"; cat "$f"'
