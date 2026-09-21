@@ -1420,10 +1420,41 @@ application:
 since append-only refuses it. The repo host's monthly prune applies one policy
 per host-and-path group, and every dump path is its own group.
 
-**Open: whether any Schedule carries a K8up `Check`.** restic 0.19's `check`
-takes an exclusive lock, so through the cluster it would contend with backups.
-The stronger home is the repo host's weekly check from Phase 6. The proposal is
-to bring that forward rather than add a K8up `Check` at all.
+**Open: whether a Schedule carries a K8up `Check`.** First framed as a lock
+contention risk, which was wrong: K8up already prevents it (below). What a K8up
+`Check` is, read from the source at `v2.16.0`:
+
+- **Structural only, always.** `CheckSpec` has no field for check options, and
+  the wrapper runs a bare `restic check` plus global flags. So it can never pass
+  `--read-data` or `--read-data-subset`. It verifies the index, the pack list
+  and that every snapshot's trees resolve -- never the bytes inside the packs.
+  restic's own help says the same.
+- **Coordinated with every K8up job on the repository, cluster-wide.** Check,
+  Prune and Restore are *exclusive*. The operator's locker lists running Jobs by
+  a hash of the repository string, with no namespace filter, and runs an
+  exclusive job only when none is active. A Backup, in turn, will not start
+  while one runs. A Check that is turned away waits, retrying every 30 s; it
+  does not fail.
+- **The repository string must therefore be byte-identical in every
+  Schedule.** Otherwise the hashes differ and the namespaces stop seeing each
+  other's jobs.
+- **Blind to the repo host's own jobs.** The nightly mass-file backup and the
+  monthly prune are not K8up Jobs. `check` takes an exclusive restic lock and
+  exits 11 if the repository is already locked, and K8up never passes
+  `--retry-lock`, so a clash fails at once. Timing, not the locker, keeps a
+  K8up `Check` clear of 08:00 and of 09:00 on the 1st.
+- **Reported through** the `Check` object's conditions and the operator's
+  `k8up_jobs_{total,successful,failed}_counter` and
+  `k8up_schedule_last_job_succeeded`. The absence-of-success rule would be
+  "no successful check in 8 days", with the usual caveat that a check which has
+  never run leaves no series to alert on.
+- **One is enough.** There is one repository, so a `Check` on each of the three
+  Schedules would be three identical checks, run one after another.
+
+So the two checks are complementary rather than alternatives. A weekly K8up
+`Check` is structural, coordinated, and exercises the served read path from the
+cluster. The repo host's `restic check --read-data-subset` is the only one that
+can catch damaged data, and belongs to Phase 6 unless brought forward.
 
 **Restoring, by route** -- the runbook's spine, written now so Phase 6 starts
 from it. `latest` must be narrowed with `--host` and `--path`, or it names the
