@@ -243,7 +243,11 @@ module "talos_worker_1" {
   hostname = "piraeus-worker-1"
   vmid = 911
   target_node = var.proxmox_host_node
-  memory = 8192
+  # Sized for HandBrake rather than for the node's baseline. SVT-AV1 at 1080p
+  # 10-bit reaches ~3 GiB resident, and Talos reserves enough that an 8192 VM
+  # leaves only 5.26 GiB allocatable — so the node's OOM controller kills whole
+  # pod cgroups before a 4 GiB container limit is ever reached.
+  memory = 16384
   cores = 4
   ip_address = "192.168.0.196"
   boot_disk_size = "100G"

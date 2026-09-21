@@ -1,0 +1,36 @@
+# ARM needs its own automation because it has its own namespace. Flux's Setters
+# strategy only resolves ImagePolicies in the same namespace as the
+# ImageUpdateAutomation, so the `apps` one scans this file, reads the marker
+# `automatic-ripping-machine:automatic-ripping-machine`, finds no such policy in
+# `apps`, and reports "repository up-to-date". Nothing errors.
+#
+# That is not hypothetical. 32a1918 moved ARM into this namespace on 2026-04-16
+# and changed the marker to match; the image then sat at 2.23.2 while 2.24.0
+# through 2.24.3 shipped, and the MakeMKV bundled in 2.23.2 aged past its own
+# version check — every DVD and Blu-ray rip failing at disc-open with "This
+# application version is too old". Five months, no alert, and the ImagePolicy
+# reporting the new tag correctly the whole time.
+#
+# The path is this app's directory rather than ./kubernetes/apps so this and the
+# apps automation cannot both rewrite and push the same commit.
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageUpdateAutomation
+metadata:
+  name: image-update-automation
+spec:
+  interval: 5m0s
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  update:
+    path: ./kubernetes/apps/automatic-ripping-machine
+    strategy: Setters
+  git:
+    checkout:
+      ref:
+        branch: main
+    commit:
+      author:
+        email: william+fluxcd@weiskopf.me
+        name: Flux Bot

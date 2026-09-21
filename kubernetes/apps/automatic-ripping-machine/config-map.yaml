@@ -710,12 +710,19 @@ data:
     # exit code, so a scratched disc would rip to patched audio and still report
     # success.
     #
-    # What to look for in the job log, from `cdparanoia --help`:
-    #   :-)  clean          :-|  jitter, corrected     :-/  read drift
-    #   :-P  unreported loss of streaming              8-|  hard to correct
-    #   :-0  SCSI/ATAPI transport error                :-(  scratch detected
-    #   ;-(  gave up trying to correct                 :^D  finished
-    # `;-(` and `:-(` are the ones that mean the audio may be wrong.
+    # -e is the machine-readable callback stream, not the smiley progress bar
+    # (that is -E). Each line is `##: <code> [<action>] @ <sector>`, which is
+    # the more useful of the two here because it can be counted.
+    #
+    # A clean disc produces only these, measured over an 11-track CD:
+    #   -2 [wrote]    188899      0 [read]     14512
+    #    1 [verify]     1068      9 [overlap]    225      -1 [finished]  11
+    # `overlap` is paranoia adjusting its read overlap, not an error. Anything
+    # else — scratch, skip, readerr, fixup dropped/duped, repair, backoff —
+    # means the audio may be wrong.
+    #
+    # It is verbose: that disc's job log is 5.4 MB. LOGLIFE ages it out at 90
+    # days, and the logs live on the OpenEBS PVC rather than the share.
     #
     # Not paired with -z: plain --never-skip retries a bad sector indefinitely,
     # which on a damaged disc holds the drive until someone notices. Decide the

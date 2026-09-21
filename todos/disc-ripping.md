@@ -29,9 +29,10 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 | Phase | What | State |
 |---|---|---|
 | 0 | Unwedge the drive, close the cross-cutting defects | **done** — reconciled and verified in the container, 2026-08-25 |
-| 1 | Audio CD | rip **proven end to end** 2026-08-26; handoff to beets still racy |
-| 2 | DVD | not started |
-| 3 | Blu-ray | not started |
+| 1 | Audio CD | **done** 2026-08-31 — one loose end, see below |
+| 2 | DVD — movie | **done** 2026-09-01 — first video file ARM has ever produced |
+| 2b | DVD — TV series | **done** 2026-09-04 — two discs of one season; play-all and multi-disc findings drive the ingest design |
+| 3 | Blu-ray | **done** 2026-09-17 — The Rescuers end to end in 9h42m once worker-1 was resized to 16 GiB |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
 
 Phase 0 is a prerequisite for all of the others: until it is done, the drive
@@ -43,11 +44,15 @@ wedges on the first disc and stays wedged.
 
 Check these three before starting, because two of them will mislead you:
 
-- **Check the container, not the ConfigMap.** Phase 0 reconciled on 2026-08-25
-  and the running pod has it, but the general point stands and cost two
-  surprises that day: ARM rewrites its own config file (D10) and the init
-  container leaves an unresolved `${...}` verbatim, so the ConfigMap in git and
-  the config in the process are different artefacts. Confirm with
+- **Check the container, not the ConfigMap** — this has now caught something on
+  every single deploy. ARM rewrites its own config file (D10); the init container
+  leaves an unresolved `${...}` verbatim; and **`init-scripts` is mounted with
+  `subPath`, which Kubernetes never updates in place**, so the scripts in
+  `/usr/local/bin/` are frozen at pod start no matter what Flux applies. That
+  last one is worse than the stale-ConfigMap case in
+  [config-change-rollouts.md](config-change-rollouts.md), because there is no
+  interval after which it corrects itself: **every change to
+  `init-scripts.yaml` requires `kubectl rollout restart`.** Confirm with
   `kubectl exec -n automatic-ripping-machine deploy/automatic-ripping-machine -- grep MANUAL_WAIT_TIME /etc/arm/config/arm.yaml`
   and do not trust `flux get kustomizations`, which reports healthy either way —
   see [config-change-rollouts.md](config-change-rollouts.md).
@@ -413,6 +418,17 @@ a 4-core node likewise never throttles.
 Bring both under the node's real capacity. This is a targeted fix for the
 mechanism in D3, not general hardening.
 
+**The first correction was also wrong, and the error is worth keeping.** Dropping
+the limit to 4Gi looked like it satisfied this, because 4Gi is comfortably under
+the VM's 8 GiB. It is not under *allocatable*, which was 5.26 GiB — and with the
+rest of the node's workload resident, ARM could never reach 4Gi before the node
+died. The lesson is that "the node's real capacity" means
+`kubectl get node -o jsonpath='{.status.allocatable.memory}'` minus what else is
+already resident on it, never the VM's RAM. Sized against the VM, a limit reads
+as generous while being unreachable, and the symptom is indistinguishable from
+having set no limit at all. See the 2026-09-04 entry in the progress log for the
+measurement that exposed it.
+
 ### D7 — `makemkvcon` **is** usable as a diagnostic. `docs/` says otherwise, and is wrong.
 
 `docs/automatic-ripping-machine.md:160` states that `makemkvcon` reports "This
@@ -640,10 +656,30 @@ Open questions for this phase:
   and `-X` aborts outright — pick one once real discs have reported something,
   rather than guessing a retry count now.
 
-  **Nothing reads this yet.** D4 still stands: `rip_music()` checks abcde's exit
-  code alone, so a disc full of `;-(` still reports success. The log is now
-  worth reading; making the job fail on it is the next step, and it needs a
-  sample of what ordinary discs produce before a threshold means anything.
+  **`-e` is the machine-readable callback stream, not the smiley progress bar** —
+  that is `-E`. Each line is `##: <code> [<action>] @ <sector>`, which is the
+  better of the two here because it can be counted rather than eyeballed. The
+  config comment said smilies until 2026-08-29; it was written from
+  `cdparanoia --help`'s legend without checking which format the flag selects.
+
+  **Baseline for a clean disc**, from job 14, an 11-track CD:
+
+  | callback | count |
+  |---|---|
+  | `-2 [wrote]` | 188899 |
+  | `0 [read]` | 14512 |
+  | `1 [verify]` | 1068 |
+  | `9 [overlap]` | 225 |
+  | `-1 [finished]` | 11 |
+
+  `overlap` is paranoia adjusting its read overlap, not an error. Anything else
+  — scratch, skip, readerr, fixup dropped/duped, repair, backoff — means the
+  audio may be wrong. That is the threshold: **any callback outside those five
+  is worth failing on.** It costs 5.4 MB of job log per disc.
+
+  **Nothing reads it yet.** D4 still stands: `rip_music()` checks abcde's exit
+  code alone. Making the job fail on a bad read is now a well-defined change
+  rather than a guess, and it needs the `BASH_SCRIPT` hook or a fork.
 
   Only then is the `whipper` question worth answering. AccurateRip verifies the
   read against other people's rips of the same pressing, which is a stronger
@@ -765,10 +801,38 @@ completion message `Music CD: <title> processing complete.` Because the drive is
 exclusive, only one album can be in staging, so the script moves whatever it
 finds rather than parsing the title out.
 
-**Untested against a real disc.** The unit tests cover the decision and the
-naming; what they cannot cover is whether beets-flask actually stays quiet
-through a live copy. Phase 1 is not finished until a second CD goes in and lands
-in the library without a manual rename.
+**Colliding album names are disambiguated, not refused.** Every disc MusicBrainz
+cannot identify is called `Unknown Artist Unknown Album`, so two unidentified
+discs in a row collide — which is not a corner case once a stack is being fed in.
+
+The first version refused the handoff and kept the album in staging. That looks
+safe and is not, for two reasons found on 2026-08-29 by reproducing it:
+
+- Staging is container-local, so a retained album dies at the next pod restart.
+- abcde rips the *next* disc into that same directory. An 8-track disc landing on
+  a retained 11-track one leaves tracks 1–8 from the new disc and 9–11 from the
+  old — an album that looks complete and is two discs. Silent corruption, worse
+  than either losing it or failing loudly.
+
+So the destination gets a ` (2)`, ` (3)` suffix and the album always lands, and
+staging is cleared on every success. The one path that still keeps a rip is a
+failed copy, and it moves the directory aside to `<album>.failed-<epoch>` for the
+same reason — that was the last route by which the next disc could merge into an
+existing album.
+
+> **Loose end, deliberately left 2026-08-31.** The disambiguation is covered by
+> sixteen unit tests and has **never run against a real rip** — the fixture needs
+> a second disc MusicBrainz cannot identify, and one was not to hand. Re-ripping
+> the *same* unidentified disc exercises the identical path if a second is hard
+> to find. Until then, the expected behaviour on a colliding rip is
+> `Unknown Artist Unknown Album (2)` beside the existing folder, and a
+> `handed off … to …(2)` line in `arm.log`. If instead the log says `refusing to
+> overwrite`, the container is running a stale script — see below.
+
+**Proven on a real disc, 2026-08-29.** Job 14: eleven tracks handed off in one
+step, and beets-flask created its session **70 seconds after** the handoff,
+reaching `PREVIEW_COMPLETED` rather than the `NOT_STARTED` dead-end job 13 hit.
+It saw a complete album. No `.part` files left behind.
 
 **(b) belongs to `~/repositories/beets-flask/todos/`**, not here.
 
@@ -814,10 +878,55 @@ job it first looks like. That is well within a pod's uptime — which is why D3
 (silent death) matters more than encoder speed. It is also why D8 matters: the
 disc is locked in the drive for all of it.
 
+**The code path, read from the source and cross-checked against the DVD runs.**
+Worth writing down because it is not what the config file suggests. `RIPMETHOD`
+reads `backup_dvd`, and `rip_with_mkv` (`arm_ripper.py:235`) turns that into
+"always use MakeMKV" for *every* disc type — the DVD comment about `mkv` mode
+never applies. What differs is the MakeMKV *mode*, chosen at `makemkv.py:753`:
+
+- **Blu-ray** → `makemkv_backup`, a full BDMV backup (~43 GB). HandBrake then
+  title-scans that structure natively.
+- **DVD** → `makemkv_mkv`, extracting each title to its own MKV. HandBrake then
+  scans the *directory*, treating each file as a title.
+
+Both then land in `handbrake_all`, because the `handbrake_mkv` branch requires
+`RIPMETHOD == "mkv"` exactly and `backup_dvd` does not match. So the Blu-ray is
+not entering untested code — it reaches the same transcode function the two TV
+discs and the phase 2 movie already proved, by a different route.
+
+**April got much further than "MakeMKV failed" suggests.** The leftover transcode
+directories show titles 43, 44, 46 and 70 encoded on 2026-04-22 before the job
+died, and 43 and 44 on 2026-04-21. That matches this section's predicted
+selection of five titles from 71 almost exactly, and means the failure was late
+in transcode rather than at the rip. It also left a partial `title_44.mkv`
+(150 MB on the 21st, 539 MB when redone on the 22nd) — an instance of D4, a
+half-written file with nothing marking it incomplete.
+
+Three stale `The Rescuers` raw backups (129 GB) and four stale transcode
+directories are still on the share from those attempts. The share has 11 TB free
+so they are not urgent, but they are why this job's folders carry a stage suffix,
+and any cleanup should happen after this phase closes, not during it.
+
 Two things to settle here:
 
-- **The duplicate main feature.** Two near-identical 77-minute titles is
-  ambiguous for anything downstream. Decide whether ARM should pick one.
+- **The duplicate main feature — answered by running it, and the answer is not
+  the obvious one.** ARM keeps *both* 77-minute titles: one becomes the feature,
+  the other is filed under `extras/`. What it picks is the surprise:
+
+  | | duration | size |
+  |---|---|---|
+  | `The Rescuers (1977).mkv` | 77.2m | 1435 MB |
+  | `extras/title_71.mkv` | 77.1m | **1719 MB** |
+
+  The copy promoted to feature is the **smaller** one. `skip_transcode_movie`
+  does select the largest file, but it only runs when `track.source ==
+  "MakeMKV"`, and a Blu-ray reaches `handbrake_all` with tracks registered by
+  HandBrake's own scan — so `move_files_post` takes the other branch and trusts
+  HandBrake's `main_feature` flag instead. At a fixed CRF a 20% larger file means
+  more retained detail, so the better encode is the one sitting in `extras/`.
+  Downstream cannot tell them apart by name, and 3.1 GB is being spent on one
+  film. This is the ingest's problem to resolve, not the ripper's, and it is
+  recorded in [video-library-ingest.md](video-library-ingest.md).
 - **Audio.** `docs/` claims TrueHD/DTS-HD MA passthrough. The preset does not do
   it: `AudioCopyMask` lists `copy:truehd` and `copy:dtshd`, but **both
   `AudioList` entries specify `AudioEncoder: opus`**, and HandBrake only passes
@@ -1108,3 +1217,859 @@ Three findings worth carrying into phases 2–4:
   whipper: adopting it means writing a wrapper to invoke it anyway, and a
   wrapper is a superset of a hook. The hook question only matters when bolting
   it into someone else's pipeline.
+
+### 2026-08-29 — phase 1 closes
+
+Job 14, an unrelated CD, ran unattended while the site was unreachable and did
+every part of it right.
+
+- **One job**, straight to `CD` — the media gate again.
+- **`-e` produced real read data**, and the disc read clean: only `read`,
+  `verify`, `wrote`, `overlap` and `finished`. That is the baseline recorded
+  above, and it is what a threshold can now be set against.
+- **The handoff worked.** Eleven tracks moved in one step, and beets-flask's
+  session was created 70s later at `PREVIEW_COMPLETED` — it saw a complete
+  album, where job 13's saw one track and died.
+- **The tray opened** on its own.
+
+It stopped at preview rather than importing, which is **correct**: MusicBrainz
+returned HTTP 404 for disc ID `me52FDJAZbLLImDQaZV1kydxfSI-`, so the album is
+`Unknown Artist / Track 1…11` and beets is waiting for a person. An
+unidentifiable disc should wait, not guess. Nothing to fix — but note the rip
+still succeeds and still lands, so the failure mode is "needs a human", not
+"lost".
+
+`getalbumart` fetched nothing, for the same reason: no identification, nothing
+to look art up by.
+
+**Phase 2 is next: DVD.** There is a known-good raw rip on the share already —
+job 3's Le Mans — so the transcode can be exercised without re-reading a disc.
+Watch for D4: a DVD that reports success having produced nothing is exactly what
+happened before, and `find /root/video/completed -type f` is the check.
+
+### 2026-08-31 — phase 1 closed, with one thing unproven
+
+Deployed and verified in the running container: the collision fix, the abort
+path moving staging aside, `CDPARANOIAOPTS="-e"`, `ACTIONS` without
+`embedalbumart`, `OUTPUTDIR` on container-local staging, and `BASH_SCRIPT`.
+
+**The restart was not optional and the check is what caught it.** After Flux
+reconciled, the cluster ConfigMap held the new script while the running container
+still had the old one, because `init-scripts` is mounted with `subPath`. Recorded
+in "Where things stand" — it is a harder version of
+[config-change-rollouts.md](config-change-rollouts.md), since a subPath mount
+never corrects itself.
+
+**The loose end** is the collision fix never having run against a real rip. Noted
+above with what to look for. Everything else in phase 1 is proven on real discs.
+
+Carried into phase 2, from what phase 1 cost:
+
+- **"Success" means nothing without checking the output.** For audio that was
+  `flac -t`; for video it is `find /root/video/completed -type f`. Jobs 3 and 5
+  reported success having produced no file at all, and that went unnoticed for
+  four months.
+- **Watch the notification ordering.** `utils.notify` runs `bash_notify` before
+  sending to Pushover, so "processing complete" goes out whether or not the
+  post-processing worked. Fine for the video path, which has no handoff — but it
+  means the message is a statement about ARM's pipeline, not about files landing.
+- **A DVD holds the drive for the whole transcode**, not just the rip (D8), so
+  the throughput question phase 1 never had to face arrives here.
+
+### 2026-09-01 — phase 2 begins
+
+A DVD is in the drive. The tray was open — `eject -t /dev/sr0` on the Proxmox
+host closes it, which is the same manual step D2b leaves in place deliberately,
+since automatic tray movement is ruled out by the enclosure door.
+
+Job 15 identified cleanly, which is a better start than the CDs had:
+
+| | |
+|---|---|
+| title | `The-Hallelujah-Trail` |
+| year | 1965 |
+| IMDb | `tt0059250` |
+| video_type | movie |
+| CRC64 | `c664091933fa7782` |
+| label | `HALLELUJAH_TRAIL` |
+
+One job, disc type `dvd`, `hasnicetitle`, OMDb hit on the first try. The
+1337server CRC64 lookup ran first and OMDb supplied the metadata.
+
+What to check when it finishes, in order of what has actually gone wrong before:
+
+1. **`find /root/video/completed -type f`.** Non-empty is the only proof. Jobs 3
+   and 5 reported success with nothing there.
+2. **How many files, and are two of them the same film.** `MINLENGTH: 420` and
+   `MAINFEATURE: false` mean every title over seven minutes is transcoded; on the
+   Blu-ray that produced two near-identical main features (D8's phase 3 note).
+3. **Whether the raw backup survived** — `DELRAWFILES: false`, so
+   `/root/video/raw/HALLELUJAH_TRAIL*` should hold the full `VIDEO_TS`. That is
+   the archival copy and the thing that makes a bad transcode recoverable.
+4. **How long the drive was held.** The disc is locked in for rip *and*
+   transcode (D8), so the tray will not open until the whole job ends.
+
+### 2026-09-01 — the video path has been broken by a stalled image bump
+
+Jobs 15 and 16, the same DVD twice, both `Error while running MakeMKV`, exit code
+253. MakeMKV's own message:
+
+```
+MSG:5021  This application version is too old.  Please download the latest
+          version at http://www.makemkv.com/ or enter a registration key to
+          continue using the current version.
+```
+
+**Root cause: ARM has not been updated since 2026-04-16, and nothing said so.**
+
+`32a1918` moved ARM into its own namespace that day and changed the marker to
+`{"$imagepolicy": "automatic-ripping-machine:automatic-ripping-machine"}`. Flux's
+`Setters` strategy only resolves ImagePolicies in **the same namespace as the
+ImageUpdateAutomation**, and the only two automations live in `apps` and
+`infrastructure`. So the `apps` automation scans this file, cannot resolve the
+marker, and reports `repository up-to-date`. Nothing errors, and the ImagePolicy
+reports the newest tag correctly the entire time:
+
+| | |
+|---|---|
+| ImagePolicy `latestRef.tag` | 2.24.3 |
+| deployment pins | 2.23.2 |
+| last automated bump | `0bf421b`, 2026-04-02 |
+| ARM releases missed | 2.24.0, 2.24.1, 2.24.2, 2.24.3 |
+
+ARM is the **only** app in `kubernetes/apps/` whose marker is not `apps:`, which
+is why it is the only one affected. This is a concrete instance of
+[version-notification-prompt.md](version-notification-prompt.md) — and the cost
+of that class of bug, which that spec argues about in the abstract, is five
+months of every DVD and Blu-ray failing.
+
+Fixed by giving ARM its own `ImageUpdateAutomation`, scoped to this app's
+directory so it cannot race the `apps` one, plus a manual bump to 2.24.3 so it is
+testable now rather than at the next reconcile.
+
+**Confirmed.** Job 18 on 2.24.3 (MakeMKV 1.18.4) ripped and transcoded The
+Hallelujah Trail end to end — the first video file ARM has ever produced. A
+single patch release of MakeMKV was the whole difference; 1.18.3 refused every
+disc, 1.18.4 refuses none.
+
+### What was ruled out first, so it is not re-tested
+
+Each of these was checked and is **not** the cause:
+
+- **The key is not installed too late.** `prep_mkv` runs `update_key.sh` before
+  the first `makemkvcon` call, in that order, confirmed in the job log.
+- **`update_key.sh`'s bash bug is harmless.** Line 52 does throw
+  `((: > 0 : syntax error` on a missing settings file, but it sits inside an
+  `if` condition where `set -e` does not apply, so the script continues and
+  writes the key. Verified by running it.
+- **The key is accepted for drive listing.** With it installed,
+  `makemkvcon -r --cache=1 info disc:9999` identifies the drive with no
+  complaint. The version check only fires when a disc is actually opened, which
+  is why an empty tray cannot reproduce this.
+- **It is not the first MakeMKV run in a fresh container.** Deleting
+  `settings.conf`, and separately deleting all of `settings.conf`,
+  `update.conf` and the 3 MB `_private_data.tar`, then replaying ARM's exact
+  sequence: both succeed. This theory fitted the April pattern well and was
+  wrong.
+- **Warm MakeMKV state changes nothing.** Job 16 ran with all of it present and
+  failed identically.
+
+One live thread: **`MAKEMKV_PERMA_KEY` being populated disables ARM's beta-key
+updater**, by ARM's own documentation of the setting. The updater works — it
+fetches the current month's `T-` key from the forum, verified 2026-09-01. Will
+holds a real licence, so the intended fix is the newer version rather than
+falling back to beta keys; but if a current MakeMKV still rejects the stored
+key, the stored *value* is the next thing to check, since a purchased key is
+perpetual and should not be refused.
+
+### 2026-09-01 — phase 2 done: the first video file ARM has ever produced
+
+Job 18, The Hallelujah Trail (1965), on ARM 2.24.3 / MakeMKV 1.18.4.
+
+| stage | | |
+|---|---|---|
+| identified | 05:57 | OMDb, `tt0059250`, `hasnicetitle` |
+| manual wait | 05:57 → 06:07 | 600s, released on its own |
+| MakeMKV `backup_dvd` | 06:07 → 07:54 | 1h47m, 7.1 GB of `VIDEO_TS` |
+| HandBrake | 07:54 → 09:13 | 1h19m |
+| success | 09:14 | tray ejected on its own |
+
+**Three hours seventeen minutes from insert to done, and the drive was held for
+all of it** (D8). Verified rather than assumed, because status alone has lied
+before:
+
+```
+/root/video/completed/movies/The-Hallelujah-Trail (1965)_178824223068/The-Hallelujah-Trail (1965).mkv
+  1,293,281,925 bytes — av1 video, 2× opus stereo, dvd_subtitle, 9332s
+```
+
+`ffprobe` confirms it decodes. The 7.1 GB raw backup survives, so a bad
+transcode is recoverable without re-reading the disc.
+
+**The multi-title worry did not materialise.** Two tracks passed `MINLENGTH`,
+13 seconds apart — the same near-duplicate shape the Blu-ray showed. ARM's
+`skip_transcode_movie` picked the largest and moved only that, renaming it to
+`<Title> (<Year>).mkv`; the other was discarded with the transcode directory.
+For a movie that is the behaviour you want, and it is better than the Blu-ray
+note in D8 predicted. Whether it still holds for a TV disc, where every title
+matters, is untested.
+
+**Housekeeping left behind.** Eight empty directories under
+`completed/movies` and `transcode/movies`, from the failed jobs 15–17 and the
+April Rescuers/Le Mans runs. They also cause the `_<stage>` suffix on the
+output path, because `check_for_dupe_folder` finds the name taken. Harmless,
+untidy, and it means the tidy path `The-Hallelujah-Trail (1965)` is occupied by
+an empty directory while the real film sits in the suffixed one.
+
+**Phase 3 is Blu-ray**, and the case for it is now much stronger than it was:
+the April Blu-ray failures were on 2.23.2, and every one of them may have been
+this same MakeMKV expiry. The Rescuers' 43 GB raw backup is still on the share,
+so the transcode half can be exercised without re-reading the disc — but the
+rip half needs the disc, and is now worth retrying.
+
+## Phase 2b — a TV disc
+
+**Why it is 2b and not phase 5.** The numbered phases are physical formats —
+CD, DVD, Blu-ray, UHD. Movie versus series is a *content* axis that crosses DVD,
+Blu-ray and UHD alike, so it does not want its own place in that sequence.
+Running it on DVD, the format just proven, means any failure isolates to the
+multi-title path rather than to the format.
+
+**What ARM does differently**, read from the source rather than assumed:
+
+- `convert_job_type("series")` returns `"tv"`, so the output lands in
+  `completed/tv/<Title>/` — **not** `completed/movies/`.
+- `move_files_post` (`arm_ripper.py:198`) takes the series branch and calls
+  `move_files(..., is_main_feature=False)` for **every** track. There is no
+  largest-file selection, which is the behaviour a TV disc needs.
+- `move_files` (`utils.py:210`) sets `extras_path = movie_path` for a series —
+  "for series there are no extras" — so every episode lands flat in one
+  directory.
+- Because nothing is the main feature, nothing gets renamed to
+  `<Title> (<Year>).mkv`. **Every episode keeps its `title_N.mkv` name.**
+
+That last point is the one worth running the disc to confirm, because it decides
+[video-library-ingest.md](video-library-ingest.md): ARM knows the *show* but
+cannot know which title is which episode. A mover built on ARM's own metadata,
+which is enough for a film, cannot file TV. Only content matching — FileBot, or
+a person — can.
+
+**What to check:**
+
+1. Does `VIDEOTYPE: "auto"` actually resolve `series`? If it comes back `movie`,
+   everything above is moot and the disc files as one film plus extras.
+2. Do all episodes transcode? `MINLENGTH: 420` passes a 22-minute episode
+   comfortably; the risk is at the short end, not the long.
+3. Does `title_N` ordering match episode order? If it reliably does, a mover
+   could map positionally — worth knowing even though it is fragile.
+4. `completed/tv/` versus the library's `/video/shows/`. The names differ, which
+   is another thing any ingest has to reconcile.
+5. Time. The movie ran ~2× realtime on transcode; a 4-episode disc is roughly
+   90 minutes of video, so budget a couple of hours all-in and remember the
+   drive is held throughout (D8).
+
+### 2026-09-02 — two more discs, two unrelated failures
+
+Neither is a regression, and neither is the MakeMKV expiry fixed on 2026-09-01.
+
+**Job 20, The Sylvester and Tweety Mysteries — phase 2b, blocked by the
+fileserver.** ARM identified it correctly as `video_type: series`, which is the
+first confirmation that `VIDEOTYPE: "auto"` resolves a TV disc. It then failed
+creating its output directory:
+
+```
+OSError: [Errno 5] Input/output error:
+  '/root/video/transcode/tv/The-Sylvester-and-Tweety-Mysteries (1995–2002)'
+```
+
+Not ARM's fault. Samba runs `unix charset = ISO-8859-1`, so any character above
+U+00FF fails to write on every share — OMDb returns a series' year range with an
+**en dash**. Measured boundary and migration plan in
+[smb-charset-utf8.md](smb-charset-utf8.md). It also explains why `Mànran` worked
+earlier: `à` is inside Latin-1, by luck.
+
+The `tv/` destination predicted from the source is confirmed, so the rest of the
+phase 2b plan still stands — it just cannot run until the name can be written.
+**Worked around**, so phase 2b can proceed while the charset migration waits:
+`arm-title-charset.sh` in `init-scripts.yaml`, tested in
+`tools/arm-title-charset/`.
+
+`clean_for_filename` is not the tool for it, despite being the obvious candidate.
+It is applied to *titles* only (`identify.py:141`, `:274`) while the en dash
+arrives through `job.year`, which `fix_job_title` interpolates raw — and it
+*strips* rather than replaces, turning `1995–2002` into `19952002`, a different
+year.
+
+So the patch wraps `fix_job_title` itself, the one funnel every output path goes
+through, mapping the punctuation metadata providers actually emit and dropping
+what has no Latin-1 form. `1995–2002` becomes `1995-2002`; `Ocean's Eleven`
+keeps its apostrophe as ASCII; `Mànran` is untouched, because the share accepts
+Latin-1 and that name already exists in the library.
+
+It is appended rather than edited into the function body, since every call site
+resolves the name at call time, so rebinding the module global reaches all of
+them without depending on internals. **It refuses loudly and exits non-zero if
+`def fix_job_title` is not found** — ARM auto-updates now, and a patch that
+silently stops applying would present as a TV rip dying on EIO again with
+nothing pointing back to it.
+
+**Job 19, An American Tail: Fievel Goes West — a bad disc, probably.**
+
+```
+MakeMKV v1.18.4 started        ← no version complaint; the 2.24.3 fix holds
+Failed to open disc
+Call to MakeMKV failed with code: 11
+```
+
+Different from every earlier failure. Identification succeeded, which means the
+disc mounted and `pydvdid` read `VIDEO_TS` — so it is readable as a filesystem
+and MakeMKV specifically could not open it for decryption. No `ata4` events on
+the host during the job, so the drive is not at fault.
+
+That leaves the disc: physical damage, or a protection scheme MakeMKV 1.18.4
+does not handle. Universal DVDs of that era used ARccOS deliberate-bad-sector
+protection. **Not yet diagnosed** — retry it, clean it, and if it fails again
+compare against another disc from the same studio before concluding anything.
+
+### 2026-09-03 — phase 2b: a TV disc rips, and shows what TV costs
+
+Job 21, The Sylvester & Tweety Mysteries Season 1 Disc 1. The charset patch did
+its job — the folder is `tv/The-Sylvester-and-Tweety-Mysteries (1995-2002)` with
+an ASCII hyphen, where job 20 died on the en dash.
+
+**10 hours 47 minutes**, 15:44 → 02:31, with the drive locked throughout (D8).
+14.6 GB ripped in 3h48m, then 7 hours of transcoding.
+
+Nine files landed in `completed/tv/`, and eight of them are right:
+
+| file | duration | size |
+|---|---|---|
+| `title_0.mkv` | 21m | 239 MB |
+| **`title_1.mkv`** | **168m** | **1.88 GB** |
+| `title_2.mkv` … `title_8.mkv` | 20–21m | 215–252 MB |
+
+**`title_1.mkv` is the disc's "play all" title** — every episode concatenated,
+2h48m, transcoded in full at a cost of about three and a half hours and 1.88 GB
+that duplicates the other eight files exactly.
+
+`MINLENGTH: 420` passes it, `MAINFEATURE: false` transcodes it, and nothing in
+ARM distinguishes a compilation from an episode: both are simply titles over the
+threshold. The series branch of `move_files_post` has no equivalent of
+`skip_transcode_movie`'s largest-file selection, and it should not — for a TV
+disc every title genuinely might matter.
+
+**Two consequences.**
+
+**Phase 3 is affected.** A Blu-ray TV set will have the same shape with larger
+files, and 3.5 hours of wasted encoding per disc is worse there. Worth deciding
+whether to filter play-all titles before running many discs — a compilation is
+recognisable as *a title whose length is close to the sum of the others*, which
+ARM's track table has the data for even if ARM does not use it.
+
+**It settles [video-library-ingest.md](video-library-ingest.md).** Positional
+mapping is not merely fragile, it is wrong: `title_1` is the play-all, so the
+numbering is `episode 1, compilation, episode 2, episode 3…`. Any mover assuming
+`title_N` → episode N files seven of eight episodes under the wrong number and
+files a 2h48m compilation as an episode. Only content matching can sort this
+out.
+
+**Left as it is, deliberately.** The play-all is not deleted: it is a legitimate
+artefact of the disc, `DELRAWFILES: false` keeps the raw copy regardless, and
+deciding what to discard belongs with the ingest work rather than here.
+
+Also confirmed: the destination is `completed/tv/` while the Plex library is
+`/video/shows/`, so the ingest has a folder-name reconciliation to do as well.
+
+### 2026-09-04 — disc 2 of the same season, and the play-all heuristic measured
+
+Job 22, `SYLVESTER_TWEETY_MYSTERY_D2`, 04:29 → 11:36 UTC (**7h07m**), six titles,
+success with no errors. The format itself raised nothing new — the value of this
+disc is that it is the *second* of a set, which tests two things one disc cannot.
+
+**The play-all heuristic is now measured, not proposed.** Phase 2b suggested a
+compilation is recognisable as a title whose length is close to the sum of the
+others. Across both discs it holds to within a tenth of a minute:
+
+| disc | play-all | sum of the other titles | delta | episodes |
+|---|---|---|---|---|
+| 1 | 168.8 min | 168.9 min | 0.1 min | 8 |
+| 2 | 105.7 min | 105.8 min | 0.1 min | 5 |
+
+Two discs is a small sample and the rule needs a guard — a disc holding exactly
+one episode makes "the sum of the others" meaningless, and a genuine feature-length
+title on a mixed disc could sit near the sum by coincidence. But the separation is
+wide enough to act on: the play-all is ~8× the length of any single episode, and
+the agreement with the sum is three orders of magnitude tighter than the gap to
+the next-longest title. Filtering it would have saved **3h30m on disc 1 and
+roughly 2h10m on disc 2** — around 40% of each job's transcode time, for output
+that duplicates the rest of the disc exactly.
+
+**Multi-disc sets do not merge, and the numbering restarts.** This is the finding
+that matters for ingest. Disc 2 did not join disc 1's folder; `have_dupes` was
+true, so `check_for_dupe_folder` appended the job's stage to make a second
+directory:
+
+```
+completed/tv/The-Sylvester-and-Tweety-Mysteries (1995-2002)                 <- disc 1, title_0..title_8
+completed/tv/The-Sylvester-and-Tweety-Mysteries (1995-2002)_178840975618    <- disc 2, title_0..title_5
+```
+
+Both discs number from `title_0`, so the season now has two `title_0.mkv`, two
+`title_1.mkv` and so on, in sibling directories distinguished only by an opaque
+stage number. Nothing in the tree records that these are discs 1 and 2 of one
+season, or which came first — the stage integer happens to sort correctly, but it
+is a timestamp of when the job ran, not a disc ordinal, and re-ripping disc 1
+tomorrow would sort it last.
+
+The disc *label* is the only place the ordinal survives: `SYLVESTER_TWEETY_MYSTERY_D1`
+and `..._D2`, held on the job row, not in the filesystem. Any ingest that wants to
+reassemble a season has to read it from the database, and even then `D1`/`D2` is a
+convention of this particular publisher rather than something that can be relied on
+generally.
+
+This compounds the positional-mapping conclusion rather than changing it. It was
+already true that `title_N` does not map to episode N within a disc, because the
+play-all sits at `title_1`. It is now also true that the same filename means
+different episodes in different folders of the same season. **Content matching is
+not one option among several for TV ingest; it is the only thing that can work.**
+Recorded in [video-library-ingest.md](video-library-ingest.md).
+
+**Still unproven: multi-disc *movies*.** A Lord of the Rings Extended Edition
+spans two discs holding halves of *one* film, which is a different problem again —
+there the two parts must be concatenated or presented as one item, and the
+largest-file selection in `skip_transcode_movie` would pick a main feature per
+disc rather than recognising the pair. Worth ripping one when a phase has room;
+it is a movie-path question, so it does not block phase 3.
+
+### 2026-09-04 — phase 3: the Blu-ray rips, then the node kills the transcode
+
+Job 23, The Rescuers. MakeMKV backed the disc up cleanly — **43 GB of BDMV in
+57 minutes**, identified as `bluray`/`movie`, 71 titles found. Then the transcode
+died at 02:31:12, and the cause is one no earlier guess had reached.
+
+**Talos' node-level OOM controller killed three pod cgroups in 1.5 seconds** —
+ARM first (13 processes), then `victoria-logs`, then `metallb-speaker`. ARM
+restarted 18 seconds later with the transcode gone.
+
+**ARM never reached its own 4Gi limit.** It was at 2.9Gi. The *node* ran out:
+
+| time | node MemAvailable | ARM RSS | ARM page cache |
+|---|---|---|---|
+| 01:22–02:14 (MakeMKV backup) | ~3.1 GB steady | ~400 MiB | 1.6 GiB |
+| 02:16 (transcode starts) | 2.7 GB | 805 MiB | 1.2 GiB |
+| 02:26 | 994 MB | 2551 MiB | 130 MiB |
+| 02:30 | 699 MB | 2836 MiB | 89 MiB |
+| 02:31:11 | **SIGKILL to three cgroups** | | |
+
+It is genuine anonymous memory, not a page-cache accounting artefact — the third
+column is the proof. The kernel evicted ARM's page cache from 1.6 GiB to 89 MiB
+trying to feed the encoder, and still could not keep up.
+
+**The sizing error, which is D6 one level down.** `piraeus-worker-1` is an 8 GiB
+VM, but Talos reserves enough that only **5.26 GiB is allocatable**. The 4Gi
+container limit set when D6 was closed was chosen against the VM size, not
+against allocatable, and with ~3.4 GiB used by everything else on that node ARM
+could never reach 4Gi. An unreachable limit is not a limit: the node dies first,
+and the container OOM is never recorded — which is why the job sat marked
+`transcoding` with `errors: None` and nothing running. D3, produced by D6.
+
+**Why phases 1–2b passed.** The matched control, from the same metric over the
+two TV discs:
+
+| workload | resolution | peak container RSS |
+|---|---|---|
+| jobs 21+22, DVD | 720×480 | **1242 MiB** across two full jobs |
+| job 23, Blu-ray | 1920×1080 | **3008 MiB and still climbing** when killed |
+
+Six times the pixels, and `VideoOptionExtra` is empty so SVT-AV1 preset 4 10-bit
+runs with unbounded parallelism. DVD resolution kept every earlier phase under
+the ceiling; Blu-ray is the first workload that goes over it.
+
+**This is probably what killed the April Blu-rays, but that is not proven.** The
+signature matches closely: April's job 8 left `title_43.mkv` complete and
+`title_44.mkv` partial, and job 23 died at *exactly the same point* — same title
+complete, next one truncated, no error recorded, late in transcode. Same node,
+same 8 GiB, same encoder. April's ARM logs and Prometheus data are both long
+gone, so the match is a signature and not a cause. Recorded so it is not
+re-derived, and not stronger than the evidence.
+
+**The instrumentation worked.** `RipperRestarted` went pending 02:36 and fired
+02:41–03:26, which is how the restart was noticed at all. Phase 0 earning its
+keep, and the reason this was diagnosed the same morning rather than in April.
+
+#### The fix
+
+`piraeus-worker-1` goes from **8192 to 16384 MiB** (`terraform/main.tf`), taking
+allocatable from 5.26 GiB to **13.1 GiB**. The Proxmox host has room: 62 GiB
+total, 38 GiB committed to running VMs, and 19.2 GiB of ZFS ARC that gives way
+under pressure. The provider restarted the VM in place — `0 added, 1 changed,
+0 destroyed` — so the guest saw the new memory immediately.
+
+ARM's limits move with it: **request 1.5Gi → 4Gi, limit 4Gi → 8Gi**. Both halves
+matter. The limit is now a number the node can honour, so an over-running encode
+dies as a recorded container OOM instead of taking `victoria-logs` and
+`metallb-speaker` down with it. The request is sized to the encode rather than to
+the idle daemon, because the OOM controller picks victims by usage-over-request
+and ARM at 2.9 GiB against a 1.5 GiB request was the obvious candidate.
+
+#### What survives, and what phase 3 still owes
+
+The **43 GB raw BDMV backup is complete and intact**, so the disc does not need
+re-ripping — only the transcode. `title_43.mkv` finished at 149.5 MB (within
+0.2% of April's 149.3 MB, which is a pleasing sign the encode is deterministic);
+`title_44.mkv` is a 25 MB partial, another instance of D4.
+
+The track table confirms this section's original prediction exactly: **5 titles
+selected from 71**, being `title_70` (77.2m) and `title_71` (77.1m) — the same
+feature via two playlists — plus extras at 30.7m, 10.6m and 8.8m. So the
+duplicate-main-feature question is still open and still needs deciding, and
+neither feature title has been encoded yet.
+
+#### On 4K, asked while sizing the VM
+
+**16 GiB is right for Blu-ray and marginal for UHD.** SVT-AV1's own documentation
+says memory scales with `--lp` (cores targeted), resolution, bit depth, lookahead
+distance and hierarchical levels. The published figures for 4K 10-bit are 14 GB
+at 8 vCPU, 24 GB at 40 vCPU and 48 GB at 112 cores — the scaling with core count
+matters here, because worker-1 has only 4. Measured 1080p peak is >3 GiB, and 4K
+is 4× the pixels with linear scaling in the frame buffers, which extrapolates to
+roughly 12–16 GiB against 13.1 GiB allocatable.
+
+Two levers exist that cost no RAM, and phase 4 should choose deliberately rather
+than inherit the 1080p preset:
+
+- **Cap `--lp`** through `VideoOptionExtra`. The largest single memory lever, paid
+  for in encode speed.
+- **Do not transcode UHD at all.** Independent of memory, CRF 30 AV1 discards
+  most of what makes a UHD disc worth having, and HDR10+/Dolby Vision metadata
+  often does not survive HandBrake. A remux keeps the stream intact.
+
+The VM is not being sized for this today: phase 4 is still blocked on whether the
+BDR-212U can obtain volume keys at all, and the honest number comes from
+measuring a completed 1080p encode and scaling it.
+
+### D12 — a disc with no volume label is confidently misidentified, and only the person holding it can tell
+
+A Blu-ray whose UDF label was never set reports the literal placeholder string
+`LOGICAL_VOLUME_ID`. ARM passes that to its identification step, which fuzzy-matches
+it against OMDb and returns a real film — in the observed case *The Adventures of
+Mary-Kate and Ashley: The Case of the Logical i Ranch* (1994, `tt0282341`),
+presumably off the word "Logical". The job is then created with
+`hasnicetitle: 1`, meaning ARM considers the identification good and will rip,
+transcode, name and file the disc under that title without hesitating.
+
+**Why this is worse than an ordinary failure.** The Pushover notification reads
+`Found disc: The-Adventures-of-Mary-Kate-and-Ashley--The-Case-of-the-Logical-i-Ranch.
+Disc type is bluray.` — well-formed, plausible, and indistinguishable from a
+correct identification. Nothing about it signals a problem. **Only the person who
+physically put the disc in the tray can tell it is wrong**, and only if they read
+the notification and recognise the title as not theirs. That makes it the sharpest
+failure mode yet for the self-service goal, because the whole point of the
+notification is that Will's brother can load discs without anyone watching the
+cluster.
+
+The ten-minute `MANUAL_WAIT` is the existing remedy, and it does work — the job
+sits in `waiting` and the title can be corrected in the web UI at
+`/jobdetail?job_id=<id>` before the rip starts. But it only helps someone who
+already suspects the identification is wrong.
+
+**The exact mechanism**, read from `arm/ripper/identify.py`, because it is more
+actionable than the symptom.
+
+`identify_bluray` (line 96) reads the disc's own metadata from
+`BDMV/META/DL/bdmt_eng.xml`. **This disc has an empty `META/DL/` directory**, so
+the open raises `OSError` and control reaches the fallback at line 106 — which
+upstream itself marks with `# Maybe call OMdb with label when we can't find any
+ident on disc ?`. That fallback takes `job.label`, replaces underscores with
+spaces and title-cases it, giving `Logical Volume Id`, then **returns `True`**.
+Returning true is the defect: the caller cannot distinguish *identified from disc
+metadata* from *guessed from a label*, so `hasnicetitle` is set either way and the
+OMDb search that follows matches on the word "Logical".
+
+**Blu-rays have no content-based fallback at all, and DVDs do.** `identify_dvd`
+(line 149) computes `pydvdid.compute()` over the mounted disc and queries
+`1337server.pythonanywhere.com` with the CRC64, which maps a disc *hash* to a
+title and is immune to labels entirely. Nothing equivalent runs for Blu-ray.
+So the disc type least likely to carry a useful label is the one with no fallback
+when the label is useless — which is why this surfaced on a Blu-ray and never on
+a DVD.
+
+Worth noting a second oddity found while reading this: on the successful path,
+`bluray_year` is taken from the **file mtime of `bdmt_eng.xml`** (line 130), not
+from any metadata field. That is the disc's authoring date standing in for the
+film's release year, and it will be wrong for every catalogue re-issue.
+
+**The signal ARM has and does not use.** A label that is exactly a known
+placeholder is not weak evidence, it is *no* evidence, and the two are being
+treated identically. `LOGICAL_VOLUME_ID`, `DVD_VIDEO`, `LOGICAL_VOLUME_ID`-style
+authoring defaults and bare `44069507_VOLUME_ID` numeric IDs should suppress
+`hasnicetitle` and force the unidentified path rather than seeding a title search.
+That is a small, well-bounded change: a deny-list check before identification runs,
+setting the job to unidentified instead of accepting whatever OMDb returns.
+
+Worth noting the two UDF fields disagree, which is its own small trap for anyone
+diagnosing this: `blkid` reads the *Logical Volume Identifier* and reported
+`LOGICAL_VOLUME_ID`, while the kernel's UDF driver reads the *Volume Identifier*
+and logged `Mounting volume '44069507_VOLUME_ID'`. Both are placeholders, but a
+check written against one field will not see the other.
+
+**Related but distinct: the disc was not the one expected.** The volume timestamp
+reads 2007/09/04, and The Rescuers 35th Anniversary is a 2012 release, so the
+disc in the tray is independently confirmed as a different one. That is a physical
+swap during the hours the tray sat open, not a misread — worth separating from
+D12 itself, which is about what ARM does with an unlabelled disc however it got
+there.
+
+Direct reads of the BDMV return `Illegal Request / Invalid field in cdb` and
+`critical target error`. That is ordinary AACS protection refusing plain reads,
+not disc damage; MakeMKV decrypts and is unaffected. Recorded because the kernel
+log looks alarming and will otherwise be re-investigated.
+
+> **Wrong — corrected 2026-09-21.** A protection refusal is ASC `0x6F`, not
+> `Invalid field in cdb`. These are oversized reads that the host rejects; see
+> [the 2026-09-21 entry](#2026-09-21--the-invalid-field-in-cdb-flood-is-a-transfer-size-limit-not-protection).
+> The CDB lengths from this disc weren't recorded, so it isn't proven that this
+> instance had the same cause. It carries the same signature, though.
+
+#### How it resolved, and the cheap check that falls out
+
+The disc was **The Polar Express** (2004) — a Warner Blu-ray released
+2007-10-30, authored 2007-09-04, eight weeks before release. Every measured
+property agrees: 1:39:56 against a stated 1h40m runtime, 1080p **VC-1** exactly as
+Warner encoded it, 2.40:1 scope, and standard-definition extras as early Warner
+discs carried. It had been sitting in the wrong case, which is why it arrived
+labelled as a Rescuers disc.
+
+**The authoring timestamp is not the release date, and searching it as one finds
+nothing.** Eight weeks separated the two here. The timestamp is still useful — it
+bounds the release from below and pins the era — but only as a range.
+
+**A human misidentified this disc too, and the same check caught both.** The
+title offered from the physical case was *The Rescuers Down Under*, which runs
+77 minutes against this disc's 99:56, and no 77-minute title existed anywhere on
+it. That is the same evidence that exposed OMDb's guess, applied to a human's.
+Worth stating plainly because it generalises:
+
+> **Compare the main title's runtime against the runtime of the film it is
+> claimed to be.** A disc holding a 100-minute feature is not a 77-minute film,
+> whoever says otherwise. The check costs one lookup, needs no disc metadata, and
+> is independent of whatever produced the title — OMDb, a label, or a person
+> reading a sleeve.
+
+This belongs with the placeholder deny-list rather than replacing it: the
+deny-list stops a bad title being *generated*, and the runtime check catches a
+bad title from any source, including the manual-override path the deny-list would
+push unlabelled discs onto. Neither subsumes the other.
+
+### D13 — an unreadable disc region wedges the drive indefinitely, and the failure restarts itself
+
+Three separate faults, all triggered by one marginal disc. They compound, and
+only the first is about the disc at all.
+
+**A blocked read has no timeout.** On job 30 the log runs from 17:27 to 00:10
+with *nothing in between* and the output file stops growing at 18:28. MakeMKV was
+not retrying and reporting — it sat blocked on a single read for **5 hours 42
+minutes**, holding the drive, and came loose only when somebody opened the tray.
+Job 31 stalled 95 minutes before MakeMKV gave up on its own. Nothing crashes and
+nothing restarts, so `RipperRestarted` cannot fire: this is invisible to every
+alert that exists. It is the `MANUAL_WAIT` wedge of D1 again, arrived at from a
+different direction, and the same consequence — the drive is held and nobody
+knows.
+
+**Failure re-triggers itself, without bound.** When the drive faults it drops the
+medium, which fires a udev event, which starts a fresh job on the same disc:
+
+```
+job 30 fails 00:10:32  ->  job 31 starts 00:11:08
+job 31 fails 03:37:51  ->  job 32 starts 03:38:44
+```
+
+Roughly 3.5 hours per cycle, forever, until a person intervenes. The media-property
+gate and flock from D2 correctly admit each of these: a disc really is present and
+no other job holds the drive. Nothing in the chain asks whether *this disc has
+just failed*.
+
+**A failed secondary title discards a good primary one.** The worst of the three,
+because it destroys work that succeeded. ARM selected two titles over
+`MINLENGTH`; title 0 (105.1m, the film) ripped perfectly on both attempts, and
+title 1 (88.4m) was unreadable. ARM fails the whole job, so the feature is never
+transcoded and never leaves `raw/`. On marginal media that is exactly the wrong
+trade — one bad extra throws away the film.
+
+#### What the disc and drive actually did
+
+The drive's own report, which is the part worth keeping:
+
+```
+Sense Key : Not Ready       Add. Sense: Medium not present - tray open
+Sense Key : Hardware Error  Add. Sense: Internal target failure
+```
+
+`Internal target failure` is the drive reporting an unrecoverable fault of its
+own, after which it drops the disc entirely. **The drive is healthy** — the
+control is unambiguous:
+
+| disc | MakeMKV read errors |
+|---|---|
+| Shrek the Third (DVD) | 0 |
+| The Great Race (DVD) | 0 |
+| The Rescuers (Blu-ray) | 0 |
+| Field of Dreams, attempt 1 | 11 |
+| Field of Dreams, attempt 2 | 11 |
+
+Throughput agrees: title 0 read at 1.07 MB/s against 1.10–1.35 MB/s on the discs
+either side of it, so the drive performed normally right up to the moment it
+stopped.
+
+**It is not a scratch.** The two attempts failed at *different* offsets — 141 MB
+and 44 MB into `VTS_02_1.VOB` — where a fixed defect fails at a fixed sector. The
+disc was later cleaned and inspected and looks undamaged, which points at disc
+rot or a manufacturing defect in the reflective layer rather than anything on the
+surface.
+
+#### Two diagnostic gaps this exposed
+
+**Kernel logs are not persisted anywhere.** Alloy collects pod logs only, so
+`victoria-logs` has nothing from the kernel; the evidence for job 30's failure
+window is gone for good. Everything above had to be reconstructed from ARM's own
+log and from throughput controls.
+
+**CSS refusals flood the ring buffer.** Reading a protected DVD generates a
+constant stream of `Illegal Request / Invalid field in cdb` — 588 in one seven
+minute window — which is *normal* and means nothing, but rolls `dmesg` so fast
+that its useful history is minutes deep. Any real medium error is pushed out
+before anyone can look. Capture the kernel log while a failure is still fresh, or
+it will not be there.
+
+> **The diagnosis above is wrong; the consequence stands — corrected
+> 2026-09-21.** The flood is neither CSS nor normal: every entry is a 384 KiB
+> read over the host's 128 KiB limit, and it has a fix; see
+> [the 2026-09-21 entry](#2026-09-21--the-invalid-field-in-cdb-flood-is-a-transfer-size-limit-not-protection).
+> "588" is also not a rate. It is how many of these 13-line entries fit in the
+> ring buffer, and a second capture on 2026-09-21 held exactly 588 as well.
+
+---
+
+### 2026-09-17 — phase 3 closes: a Blu-ray end to end
+
+Job 27, The Rescuers, **02:51 → 12:34 (9h42m)**, 71 titles scanned, 5 selected,
+success. This is the same disc whose transcode the node OOM killed on 2026-09-04,
+run again after worker-1 went to 16 GiB, and it completed without incident. The
+resize is therefore confirmed by the workload that exposed the problem rather
+than by a proxy.
+
+Two DVDs followed without drama — Shrek the Third (job 28, 4h17m) and The Great
+Race (job 29, 5h33m) — so the DVD path is steady across repeat use, which it had
+not been before phase 0.
+
+### 2026-09-19/20 — Field of Dreams, and three faults behind one error
+
+A DVD failed twice and took most of two nights doing it. The disc is at fault,
+but almost nothing about the *outcome* was, and the three defects it exposed are
+recorded as [D13](#d13--an-unreadable-disc-region-wedges-the-drive-indefinitely-and-the-failure-restarts-itself).
+
+**What was lost is small and now bounded.** ARM selected two titles: the feature
+at 105.1m and a second at 88.4m. Only the second is unreadable, and nothing was
+queued behind it — the remaining thirteen titles are 24–35 second menu stingers
+plus one 2:27 clip, all under `MINLENGTH`. So the loss is exactly one 88-minute
+title.
+
+What that title *is* stayed unresolved, because identifying it requires reading
+the disc, which is the thing that fails. It is 4:3, 29.97 fps, 31 chapters, in
+its own title set, using 41 cells against the feature's 48 — an 85% ratio
+tracking its 84% duration ratio, at essentially the same chapter density. That
+reads as an alternate cut or second feature rather than a bonus documentary, but
+it is inference and should not be written down as more.
+
+**It is not the commentary, and that is worth stating because it was the obvious
+guess.** The commentary is an alternate *audio track* on the feature itself, not
+a separate title: HandBrake's scan shows source track 3 as plain `AC3, 2.0 ch`
+where tracks 1 and 2 are `Dolby Surround` — the signature of a flat stereo
+commentary recording. It was captured with the film and survives into the
+transcode as output audio track 4. A commentary would also run the film's length,
+not 88 minutes.
+
+#### Recovering the film without the disc
+
+The feature had ripped correctly *twice*, and ARM had thrown both away by failing
+the job. Running HandBrake by hand over the surviving raw MKV, with ARM's own
+preset and command shape, produced the file ARM would have:
+
+```
+completed/movies/Field-of-Dreams (1989)/Field-of-Dreams (1989).mkv
+980 MB · 105.6 min · AV1 · 4 audio (incl. commentary) · 2 subtitle tracks
+```
+
+Write to a `.part` name and rename only on a zero exit, so a partial cannot be
+mistaken for a finished file — D4 is still live and this path has no ARM job
+tracking it.
+
+**Two independent rips are a stronger integrity check than any single one.**
+Jobs 30 and 31 each produced the feature, and their video streams hash
+identically:
+
+```
+MD5=263d67e648a8fa091b47e5bd322aef4e   (job 30)
+MD5=263d67e648a8fa091b47e5bd322aef4e   (job 31)
+```
+
+The files differ by one byte of container metadata and not at all in content. Use
+this whenever a disc has been ripped more than once; it costs one demux per copy
+and proves far more than a decode pass, which only shows the file is internally
+consistent. Both source and output also decode clean — every message ffmpeg emits
+is the same benign muxer `dts` warning from writing DVD subtitles to a null
+muxer, and zero are decode errors.
+
+**Aspect handling is correct, and looks wrong at a glance.** The output is
+718x358, which is not an error: the source is a 4:3 letterboxed transfer and
+HandBrake auto-cropped the bars (60 top, 62 bottom, asymmetric because the
+transfer is). With `SAR 8:9` it displays 1.783:1 against a nominal 1.85:1, so it
+**under**-cropped by about 4% — a few black lines kept rather than picture cut,
+which is the safe direction. HandBrake also detected the true film rate of 23.976
+where ARM's database records the DVD's nominal 29.97, and produced 151,917 frames
+= exactly 105.6 minutes.
+
+### 2026-09-21 — the `Invalid field in cdb` flood is a transfer-size limit, not protection
+
+Raised as "worker-1's logs are constantly spammed trying to mount sr0". Nothing
+mounts sr0, and nothing outside ARM touches the drive:
+
+- **Only MakeMKV holds the drive.** During job 36, `makemkvcon` was the only
+  process with it open: `/dev/sr0` with flags `0140000` (`O_DIRECT`, read-only)
+  and `/dev/sg0` read-write. `/proc/mounts` had no sr0.
+- **There is no background reader.** `node_disk_reads_completed_total{device="sr0"}`
+  on worker-1 was exactly zero between jobs over 2026-09-18 → 21, and non-zero
+  only inside the windows of jobs 29–36. That is unlike the NDM scanner in
+  `docs/automatic-ripping-machine.md`, which read the drive continuously. Talos's
+  `DiscoveredVolume sr0` was at version 23, meaning one probe per media change.
+
+The failures themselves:
+
+- All 588 in the ring buffer were `Read(10)` with transfer length `0xc0`
+  (384 KiB), marching in a fixed 384-block stride.
+- All 588 had the same sense: `Illegal Request / Invalid field in cdb`.
+- The rate was ~1.5/s, about equal to sr0's whole block-read rate at the time.
+  So nearly every block-layer read MakeMKV made failed.
+- The host's limit (`/sys/block/sr0/queue/max_hw_sectors_kb` on vulcanus) is 128.
+  The guest's is 32766, which is virtio-scsi's default `max_sectors=0xFFFF` in
+  2048-byte blocks. `scsi-generic` never passes the host limit through.
+- A request over the host limit gets `EINVAL` from the host's `sg` driver, which
+  QEMU returns to the guest as `Invalid field in cdb` with `DID_OK`.
+
+A protection refusal would have been ASC `0x6F`, and would have depended on
+which sector was read rather than how many. The two D12/D13 notes calling this
+normal are marked wrong where they stand.
+
+**Fix:** `max_sectors=256` on the `virtio-scsi-pci` device in
+`terraform/modules/proxmox_talos_vm/main.tf`. The mechanism is in
+`docs/automatic-ripping-machine.md`. It needs a QEMU restart of worker-1, so it
+takes effect on the next `tofu apply` made between rips.
+
+**Still to confirm, once applied:**
+
+1. Guest `max_hw_sectors_kb` for sr0 reads `128`, not `32766`.
+2. A full rip leaves `dmesg` free of `Invalid field in cdb`.
+3. Throughput is compared against job 36. Job 36 wrote its first two titles,
+   3.96 GB, between 13:36:15 and 14:34:47, about 1.1 MB/s, while every block
+   read failed. Whether the fix changes rip speed is open. Don't claim either
+   way until a rip has been measured.
