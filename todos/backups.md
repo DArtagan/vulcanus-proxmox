@@ -1340,56 +1340,6 @@ Pin colmena explicitly, and say in a comment whether it tracks the nixpkgs
 package or a `main` revision. An untagged dependency on the host holding every
 application backup is a standing obligation worth naming rather than inheriting.
 
-##### Apply the container with `-target`
-
-`tofu plan` against `main` reports **1 to add, 4 to change, 1 to destroy**
-before this phase adds anything. None of it is Phase 2's:
-`local_sensitive_file.kubeconfig` wants replacing, `proxmox_lxc.fileserver` and
-the PBS VM want in-place refreshes, and both
-`talos_machine_configuration_apply.worker` entries differ only by
-`jsonencode( # whitespace changes )` -- a semantically identical re-encoding of
-a config patch.
-
-Harmless individually, but a plain `tofu apply` from this phase would push
-machine configuration to both Kubernetes workers as a side effect of creating a
-container. The container was created with
-`tofu apply -target=proxmox_lxc.restic_repository` instead.
-
-**Then the drift was run down, because one item was neither cosmetic nor
-someone else's.** Each was traced to a cause rather than assumed:
-
-| Drift | Cause | What an apply would do |
-|---|---|---|
-| PBS VM `virtio1` `backup false → true` | **this project.** Phase 0/1 set `backup=0` on the datastore disk by hand and never wrote it back to `terraform/modules/proxmox_backup_server/main.tf`, which still said `true` | **Put the 2 TB datastore back into vzdump's scope** -- backing the backups up onto the pool they already live on, the exact circularity Phase 0 removed |
-| `talos_machine_configuration_apply.worker` ×2 | **the `treefmt` project.** Commit `59707955` reindented `openebs-kubelet-patch.json` from four spaces to two; state holds the old bytes | Pushes a semantically identical machine config to both workers |
-| `proxmox_lxc` mountpoint `+ storage` on *both* the fileserver and the new container | **the provider.** `storage` is optional and not computed, and is not read back for a bind mount, so config and state can never agree | Attempts a `move_volume` PVE rejects with a 400, whose error the provider discards -- nothing is moved |
-| `local_sensitive_file.kubeconfig` replaced | **inherent.** `data.talos_cluster_kubeconfig` returns fresh content every plan, and is deprecated in favour of the resource form | Rewrites the local `.kubeconfig` |
-
-The first is fixed here: the module now says `backup = false`, matching the host,
-so an apply no longer silently re-enables it. **The lesson generalises past this
-one flag** -- a setting changed by hand on the host is not merely undocumented,
-it is *armed*, because the next apply asserts the old value.
-
-The third is fixed here too: the nine bind-mount blocks no longer set `storage`,
-and both containers now refresh clean. The fear that held it back -- that the
-provider might need the attribute to tell a bind mount from an allocated volume,
-so dropping it risks remounting the fileserver's data -- does not survive
-reading the code. `FormatDiskParam` names `storage` in its ignored keys and
-builds the `mpN` line from `volume` whenever that is set, which for a bind mount
-it always is. The attribute reaches nothing but the provider's own comparison
-that fabricated the diff.
-
-The second was done on purpose rather than swept up, which was the whole of what
-it needed: an untargeted `tofu apply` on 2026-09-20 pushed the re-encoded patch
-to both workers and neither restarted -- their `Ready` conditions still
-transition at 2026-09-16, and no pod left `Running`. That retires the `-target`
-rule with it; `tofu plan` now reports no changes to any of the first three.
-
-The fourth stands, and will until `data.talos_cluster_kubeconfig` is swapped for
-the resource form it is deprecated in favour of. It rewrites a local file and
-reaches nothing else, so a plan here is expected to show it and is not drift to
-chase.
-
 ##### What the spike found, 2026-09-20
 
 **It applies.** A throwaway unprivileged LXC was created from the flake's own
