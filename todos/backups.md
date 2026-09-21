@@ -29,7 +29,7 @@ Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
 | A | Record the spec, open the review | **done** 2026-09-01 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3) |
 | 0 | Stop the bleeding — replication, retention, scrub | **done 2026-09-03.** Key escrow, retention, scrub, monitoring on both hosts, prune and diverged-dataset repair (30,404 → 1,083 snapshots, 89% → **76%**, **2.32 TiB reclaimed**), with the five datasets re-seeded — `syncoid-vulcanus-data` completed with zero errors for the first time since 2026-01-14 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3), merged 2026-09-18 |
 | 1 | Reclaim — dead guests, orphans | **done 2026-09-18.** Five orphaned datasets, guests 100/101/106, `rpool/rancheros`, three replicas, four PVCs, seven hostpath dirs and three PBS groups destroyed; vulcanus 28.3→**27.7 T**, mini-nas 77→**73%**, worker-0 **25.1 GiB** back. `zfs-replication-freshness` **green for the first time since inception**; `pbs-freshness` built and deployed here rather than in Phase 6, reports 5→2, zero failures — [PR #11](https://github.com/DArtagan/vulcanus-proxmox/pull/11) |
-| 2 | Application backups — K8up + restic | **in progress**, opened 2026-09-20 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13). **Steps 0–3 done 2026-09-21:** exclusions live (no RWX claim in scope), repo LXC 108 on NixOS serving append-only (403 on `forget` through the URL, proven), mass-file and prune timers deployed, escrow complete. Next: step 4, the K8up operator |
+| 2 | Application backups — K8up + restic | **in progress**, opened 2026-09-20 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13). **Steps 0–4 done 2026-09-21:** exclusions live (no RWX claim in scope), repo LXC 108 on NixOS serving append-only (403 on `forget` through the URL, proven), escrow complete, mass-file first run done (296.6 GiB in 2 h 09 m, 247.6 GiB stored), K8up operator installed with no Schedules. Next: step 5, the PreBackupPods — one design fork open, below |
 | 2b | Delete the borg tree, after a restore is proven | not started |
 | 3 | Performance — drop the OpenEBS disks from vzdump | not started |
 | 4 | Platform images offsite — PBS #2 + sync | not started; **gated on the mini-nas disks** |
@@ -1419,9 +1419,78 @@ What was checked rather than assumed:
   encrypting or writing anything. The first mass-file run reads ~300 GB, so it
   takes two hours or more. Started at 02:00, it would still be running when
   vzdump begins at 04:00. Every run after it is a small delta.
-- **The container runs restic 0.19.1.** K8up bundles its own restic, and a
-  newer writer's pack format can be unreadable to an older `prune`. Confirm the
-  two are compatible before step 4 lets the cluster write here.
+- **The container runs restic 0.19.1; the K8up operator bundles 0.19.0**
+  (`go.mod` at `v2.16.0`). Compatible: the repository reports format version 2,
+  which every restic since 0.14 reads and writes identically, and restic never
+  changes a repository's format without an explicit `restic migrate`.
+
+#### The first mass-file run -- 2026-09-21, 15:45-17:54 UTC
+
+Started by hand in the afternoon rather than left to the 02:00 timer. That was
+the plan's own rule for a first big run, and the dry-run's rate put a 02:00 start
+still running at the 04:00 vzdump.
+
+| | |
+|---|---|
+| Processed | 296.58 GiB, 109,969 files, in 2 h 08 m 46 s |
+| Added | 251.47 GiB unique -- **45.1 GiB was duplicate content** across the three datasets, stored once |
+| Stored | 247.59 GiB; restic's compression saved only 1.5%, as expected for JPEG |
+| Result | success; snapshot `82daf60d`; completion ping `status=0`; `restic check` clean in 4.9 s |
+
+**etcd, against the same window a day earlier:** mean WAL fsync p99 0.651 s
+against 0.245 s, and peak 1.912 s against 0.402 s. `etcdHighFsyncDurations`
+reached **critical**, and its warning and `etcdHighCommitDurations` fired too.
+**No container anywhere restarted.** For proportion, vzdump nights reach
+3.8-8.7 s. Every later run is a delta, so this is the heaviest read the job will
+ever make; the 02:00 run on 2026-09-22 is its first ordinary night, and its
+duration and added size are the figures to check.
+
+**`/proc/<pid>/io` does not measure a restic backup's progress.** The progress
+monitor used `read_bytes`, and it overshot the data's logical size -- as did
+`rchar`, which reached 617 GiB against 296 GiB of source. restic buffers each
+pack in a temporary file, then reads it back to copy it into the repository and
+to verify it, so both counters include restic's own traffic. ETAs built on them
+were wrong in both directions. The repository's size against the source's
+per-inode `du` is the measure that means something.
+
+Two suspects for the overshoot were ruled out on the way, both worth knowing:
+`snapdir` is `hidden` on all three datasets, so restic never walks
+`.zfs/snapshot`, and none of them contains a single hard-linked file.
+
+**`restic check` takes an exclusive lock** in 0.19. Harmless at 5 seconds, but
+Phase 6's weekly check must not overlap a backup.
+
+#### Step 4, the operator -- 2026-09-21
+
+Installed with no Schedules and verified on the live objects, not the manifests:
+`Recreate` on the Deployment (Flux applied the post-renderer),
+`BACKUP_ENABLE_LEADER_ELECTION=false` in the running pod, **no K8up Lease in the
+cluster at all**, nine CRDs, the chart's `k8up-cleanup` hook run and removed, and
+`up{job="k8up-metrics"} = 1`. The operator landed on worker-1.
+
+**A version label corrected.** This spec cited K8up source as "v4.10.0". That
+is the Helm chart's tag. The chart deploys operator image `v2.16.0`, built from a
+different commit, two behind. Those two commits touch only `Chart.yaml`,
+`README.md` and `values.yaml`, so every finding here holds for the code that
+runs.
+
+#### Step 5 is not what the plan says it is
+
+The plan has the relational PreBackupPods "connect over the pod's own loopback".
+They cannot: a PreBackupPod is its own pod, with its own network namespace, and
+the databases are containers inside pinepods, photoprism and salamander. Two ways
+through, and the choice is open:
+
+- **PreBackupPods throughout, plus a ClusterIP Service per relational
+  database.** One mechanism, and no application Deployment edited. The Service
+  adds no real exposure: the databases already listen on their pod IPs, and a
+  Service only gives them a stable name. They authenticate with the existing
+  `pinepods` and `photoprism` Secrets. Recommended.
+- **`backupcommand` annotations for the three relational databases**, whose
+  `pg_dump` and `mariadb-dump` already sit beside their servers, with the
+  containers renamed to break the `/apps-database` collision; PreBackupPods only
+  for SQLite. The cost is three rollouts, a change to the photoprism chart for
+  salamander, and two mechanisms to maintain.
 
 #### Escrow, including what Phase 0 left open -- done 2026-09-21
 
