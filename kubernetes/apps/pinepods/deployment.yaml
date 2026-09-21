@@ -16,6 +16,22 @@ spec:
     metadata:
       labels:
         app: pinepods
+        # Selected by the dumps-only K8up Schedule as well as the nightly one.
+        k8up-dump: "true"
+      annotations:
+        # Dumped beside its server over the local socket, written to a file and
+        # checked before a byte is streamed: K8up closes restic's stdin before it
+        # notices a failed command, so a dump that died halfway would otherwise be
+        # saved as a plausible snapshot. See docs/backups.md.
+        k8up.io/backupcommand: >-
+          sh -c 'set -e; f=/tmp/k8up-dump; trap "rm -f $f" EXIT;
+          pg_dump -U postgres -d "$POSTGRES_DB" -Fc -Z0 -f "$f";
+          test -s "$f"; cat "$f"'
+        k8up.io/backupcommand-container: database
+        # K8up names a dump /<namespace>-<container><extension>, and every
+        # database container here is called `database`, so the extension carries
+        # the application's name or the dumps overwrite each other's history.
+        k8up.io/file-extension: .pinepods.pgdump
     spec:
       containers:
         - name: pinepods
