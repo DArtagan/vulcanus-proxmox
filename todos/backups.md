@@ -1700,8 +1700,13 @@ A Pushgateway would not be worth running for these metrics:
   every dump, with `Add()`, an HTTP `POST`, under the grouping key `job`,
   `instance` (the namespace) and `cluster`. The PVC is only a label. The
   Pushgateway's documented rule is that a `POST` replaces every metric of the
-  same name under the same grouping key. So each push erases the one before,
-  and after a night the gateway holds whichever PVC or dump pushed last.
+  same name under the same grouping key. Reproduced against Pushgateway
+  1.11.3 with K8up's exact grouping path: a push for linkding removed
+  headscale's series from `/metrics` outright, while the same two pushes
+  with the item in the grouping key kept both. Items finish seconds apart
+  and Prometheus here scrapes every 30 s, so most items would never be
+  scraped at all. What survives each night is whichever PVC or dump pushed
+  last.
 - **Everything else it carries is already in the store.** The pushed values are
   files and directories new, changed and unmodified per item. The snapshot
   `summary` holds all of that per PVC and per dump, with history, and the
