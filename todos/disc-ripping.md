@@ -1825,6 +1825,12 @@ Direct reads of the BDMV return `Illegal Request / Invalid field in cdb` and
 not disc damage; MakeMKV decrypts and is unaffected. Recorded because the kernel
 log looks alarming and will otherwise be re-investigated.
 
+> **Wrong — corrected 2026-09-21.** A protection refusal is ASC `0x6F`, not
+> `Invalid field in cdb`. These are oversized reads that the host rejects; see
+> [the 2026-09-21 entry](#2026-09-21--the-invalid-field-in-cdb-flood-is-a-transfer-size-limit-not-protection).
+> The CDB lengths from this disc weren't recorded, so it isn't proven that this
+> instance had the same cause. It carries the same signature, though.
+
 #### How it resolved, and the cheap check that falls out
 
 The disc was **The Polar Express** (2004) — a Warner Blu-ray released
@@ -1935,6 +1941,13 @@ that its useful history is minutes deep. Any real medium error is pushed out
 before anyone can look. Capture the kernel log while a failure is still fresh, or
 it will not be there.
 
+> **The diagnosis above is wrong; the consequence stands — corrected
+> 2026-09-21.** The flood is neither CSS nor normal: every entry is a 384 KiB
+> read over the host's 128 KiB limit, and it has a fix; see
+> [the 2026-09-21 entry](#2026-09-21--the-invalid-field-in-cdb-flood-is-a-transfer-size-limit-not-protection).
+> "588" is also not a rate. It is how many of these 13-line entries fit in the
+> ring buffer, and a second capture on 2026-09-21 held exactly 588 as well.
+
 ---
 
 ### 2026-09-17 — phase 3 closes: a Blu-ray end to end
@@ -2015,3 +2028,48 @@ transfer is). With `SAR 8:9` it displays 1.783:1 against a nominal 1.85:1, so it
 which is the safe direction. HandBrake also detected the true film rate of 23.976
 where ARM's database records the DVD's nominal 29.97, and produced 151,917 frames
 = exactly 105.6 minutes.
+
+### 2026-09-21 — the `Invalid field in cdb` flood is a transfer-size limit, not protection
+
+Raised as "worker-1's logs are constantly spammed trying to mount sr0". Nothing
+mounts sr0, and nothing outside ARM touches the drive:
+
+- **Only MakeMKV holds the drive.** During job 36, `makemkvcon` was the only
+  process with it open: `/dev/sr0` with flags `0140000` (`O_DIRECT`, read-only)
+  and `/dev/sg0` read-write. `/proc/mounts` had no sr0.
+- **There is no background reader.** `node_disk_reads_completed_total{device="sr0"}`
+  on worker-1 was exactly zero between jobs over 2026-09-18 → 21, and non-zero
+  only inside the windows of jobs 29–36. That is unlike the NDM scanner in
+  `docs/automatic-ripping-machine.md`, which read the drive continuously. Talos's
+  `DiscoveredVolume sr0` was at version 23, meaning one probe per media change.
+
+The failures themselves:
+
+- All 588 in the ring buffer were `Read(10)` with transfer length `0xc0`
+  (384 KiB), marching in a fixed 384-block stride.
+- All 588 had the same sense: `Illegal Request / Invalid field in cdb`.
+- The rate was ~1.5/s, about equal to sr0's whole block-read rate at the time.
+  So nearly every block-layer read MakeMKV made failed.
+- The host's limit (`/sys/block/sr0/queue/max_hw_sectors_kb` on vulcanus) is 128.
+  The guest's is 32766, which is virtio-scsi's default `max_sectors=0xFFFF` in
+  2048-byte blocks. `scsi-generic` never passes the host limit through.
+- A request over the host limit gets `EINVAL` from the host's `sg` driver, which
+  QEMU returns to the guest as `Invalid field in cdb` with `DID_OK`.
+
+A protection refusal would have been ASC `0x6F`, and would have depended on
+which sector was read rather than how many. The two D12/D13 notes calling this
+normal are marked wrong where they stand.
+
+**Fix:** `max_sectors=256` on the `virtio-scsi-pci` device in
+`terraform/modules/proxmox_talos_vm/main.tf`. The mechanism is in
+`docs/automatic-ripping-machine.md`. It needs a QEMU restart of worker-1, so it
+takes effect on the next `tofu apply` made between rips.
+
+**Still to confirm, once applied:**
+
+1. Guest `max_hw_sectors_kb` for sr0 reads `128`, not `32766`.
+2. A full rip leaves `dmesg` free of `Invalid field in cdb`.
+3. Throughput is compared against job 36. Job 36 wrote its first two titles,
+   3.96 GB, between 13:36:15 and 14:34:47, about 1.1 MB/s, while every block
+   read failed. Whether the fix changes rip speed is open. Don't claim either
+   way until a rip has been measured.
