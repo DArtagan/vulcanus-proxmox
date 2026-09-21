@@ -156,6 +156,12 @@ in
     prometheus = true;
   };
 
+  # NixOS's firewall is on by default and the module does not open its own
+  # port: without this the cluster's backup Jobs time out while every test run
+  # from inside the container, against 127.0.0.1, still passes. Authentication
+  # and append-only are what guard it, not the network.
+  networking.firewall.allowedTCPPorts = [ 8000 ];
+
   # restic itself, for the repository's own maintenance: init, check, and the
   # retention pass that append-only refuses to serve.
   environment.systemPackages = [ pkgs.restic ];
