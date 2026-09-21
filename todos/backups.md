@@ -29,7 +29,7 @@ Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
 | A | Record the spec, open the review | **done** 2026-09-01 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3) |
 | 0 | Stop the bleeding — replication, retention, scrub | **done 2026-09-03.** Key escrow, retention, scrub, monitoring on both hosts, prune and diverged-dataset repair (30,404 → 1,083 snapshots, 89% → **76%**, **2.32 TiB reclaimed**), with the five datasets re-seeded — `syncoid-vulcanus-data` completed with zero errors for the first time since 2026-01-14 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3), merged 2026-09-18 |
 | 1 | Reclaim — dead guests, orphans | **done 2026-09-18.** Five orphaned datasets, guests 100/101/106, `rpool/rancheros`, three replicas, four PVCs, seven hostpath dirs and three PBS groups destroyed; vulcanus 28.3→**27.7 T**, mini-nas 77→**73%**, worker-0 **25.1 GiB** back. `zfs-replication-freshness` **green for the first time since inception**; `pbs-freshness` built and deployed here rather than in Phase 6, reports 5→2, zero failures — [PR #11](https://github.com/DArtagan/vulcanus-proxmox/pull/11) |
-| 2 | Application backups — K8up + restic | **in progress**, opened 2026-09-20. Design verified against K8up v4.10.0 source and the live cluster; six corrections to this spec recorded below |
+| 2 | Application backups — K8up + restic | **in progress**, opened 2026-09-20 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13). **Steps 0–3 done 2026-09-21:** exclusions live (no RWX claim in scope), repo LXC 108 on NixOS serving append-only (403 on `forget` through the URL, proven), mass-file and prune timers deployed, escrow complete. Next: step 4, the K8up operator |
 | 2b | Delete the borg tree, after a restore is proven | not started |
 | 3 | Performance — drop the OpenEBS disks from vzdump | not started |
 | 4 | Platform images offsite — PBS #2 + sync | not started; **gated on the mini-nas disks** |
@@ -513,9 +513,11 @@ health vulcanus · pool health mini-nas · ZFS freshness · vzdump · PBS GC · 
 · PBS sync · PBS #2 verify · PBS freshness · restic mass-file · restic forget/prune ·
 restic check · **cluster backup dead-man's switch** · restore drill · external disk
 
-**Eight exist as of 2026-09-02** — Watchdog, syncoid-storage, syncoid-root,
+**Eleven exist as of 2026-09-21** — Watchdog, syncoid-storage, syncoid-root,
 syncoid-data, sanoid-mini-nas, sanoid-vulcanus, pool-health-mini-nas and
-pool-health-vulcanus. syncoid-data narrows rather than retires at Phase 4 and keeps its slot.
+pool-health-vulcanus from Phase 0; pbs-freshness from Phase 1; restic-massfiles
+and restic-prune from Phase 2. syncoid-data narrows rather than retires at Phase 4
+and keeps its slot.
 
 The split is principled rather than a bundling compromise: checks are spent only on
 what Prometheus **cannot** see — the two hosts, PBS, and the disk. Everything
@@ -796,7 +798,10 @@ first deploy.
   carries three recipients and any one private half opens every file, local `sops -d`
   goes through the `thenixbeast_will` ssh-ed25519 key, and Flux decrypts from the
   in-cluster `sops-age` Secret in `flux-system`, which still holds the key.
-  Still outstanding: `.talosconfig` and the Talos machine secrets.
+  ~~Still outstanding: `.talosconfig` and the Talos machine secrets.~~ Closed
+  in Phase 2, 2026-09-21: the machine secrets are escrowed, and the
+  `.talosconfig` deliberately is not, being derived from them. See *Escrow,
+  including what Phase 0 left open*.
 - Repair the five diverged syncoid datasets — the procedure is below.
 - Declare `services.sanoid.datasets` on mini-nas per the retention table. **Expect the
   first run to be long and I/O-heavy**: it destroys roughly 27,000 snapshots in one
@@ -1340,56 +1345,6 @@ Pin colmena explicitly, and say in a comment whether it tracks the nixpkgs
 package or a `main` revision. An untagged dependency on the host holding every
 application backup is a standing obligation worth naming rather than inheriting.
 
-##### Apply the container with `-target`
-
-`tofu plan` against `main` reports **1 to add, 4 to change, 1 to destroy**
-before this phase adds anything. None of it is Phase 2's:
-`local_sensitive_file.kubeconfig` wants replacing, `proxmox_lxc.fileserver` and
-the PBS VM want in-place refreshes, and both
-`talos_machine_configuration_apply.worker` entries differ only by
-`jsonencode( # whitespace changes )` -- a semantically identical re-encoding of
-a config patch.
-
-Harmless individually, but a plain `tofu apply` from this phase would push
-machine configuration to both Kubernetes workers as a side effect of creating a
-container. The container was created with
-`tofu apply -target=proxmox_lxc.restic_repository` instead.
-
-**Then the drift was run down, because one item was neither cosmetic nor
-someone else's.** Each was traced to a cause rather than assumed:
-
-| Drift | Cause | What an apply would do |
-|---|---|---|
-| PBS VM `virtio1` `backup false → true` | **this project.** Phase 0/1 set `backup=0` on the datastore disk by hand and never wrote it back to `terraform/modules/proxmox_backup_server/main.tf`, which still said `true` | **Put the 2 TB datastore back into vzdump's scope** -- backing the backups up onto the pool they already live on, the exact circularity Phase 0 removed |
-| `talos_machine_configuration_apply.worker` ×2 | **the `treefmt` project.** Commit `59707955` reindented `openebs-kubelet-patch.json` from four spaces to two; state holds the old bytes | Pushes a semantically identical machine config to both workers |
-| `proxmox_lxc` mountpoint `+ storage` on *both* the fileserver and the new container | **the provider.** `storage` is optional and not computed, and is not read back for a bind mount, so config and state can never agree | Attempts a `move_volume` PVE rejects with a 400, whose error the provider discards -- nothing is moved |
-| `local_sensitive_file.kubeconfig` replaced | **inherent.** `data.talos_cluster_kubeconfig` returns fresh content every plan, and is deprecated in favour of the resource form | Rewrites the local `.kubeconfig` |
-
-The first is fixed here: the module now says `backup = false`, matching the host,
-so an apply no longer silently re-enables it. **The lesson generalises past this
-one flag** -- a setting changed by hand on the host is not merely undocumented,
-it is *armed*, because the next apply asserts the old value.
-
-The third is fixed here too: the nine bind-mount blocks no longer set `storage`,
-and both containers now refresh clean. The fear that held it back -- that the
-provider might need the attribute to tell a bind mount from an allocated volume,
-so dropping it risks remounting the fileserver's data -- does not survive
-reading the code. `FormatDiskParam` names `storage` in its ignored keys and
-builds the `mpN` line from `volume` whenever that is set, which for a bind mount
-it always is. The attribute reaches nothing but the provider's own comparison
-that fabricated the diff.
-
-The second was done on purpose rather than swept up, which was the whole of what
-it needed: an untargeted `tofu apply` on 2026-09-20 pushed the re-encoded patch
-to both workers and neither restarted -- their `Ready` conditions still
-transition at 2026-09-16, and no pod left `Running`. That retires the `-target`
-rule with it; `tofu plan` now reports no changes to any of the first three.
-
-The fourth stands, and will until `data.talos_cluster_kubeconfig` is swapped for
-the resource form it is deprecated in favour of. It rewrites a local file and
-reaches nothing else, so a plan here is expected to show it and is not drift to
-chase.
-
 ##### What the spike found, 2026-09-20
 
 **It applies.** A throwaway unprivileged LXC was created from the flake's own
@@ -1432,28 +1387,109 @@ exactly as that predicts. **Deploying from off-LAN needs a grant added to
 fileserver's, and a row in `docs/tailnet.md`. That is an access-control change
 and it is the user's call, so it is recorded here rather than made.
 
-#### Escrow, including what Phase 0 left open
+#### What step 3 built, and measured -- 2026-09-21
 
-Three credentials go to the password manager as step 3 builds the host, before
-the repository is first written:
+The repository host is LXC 108, `restic-repository`, on NixOS. It serves
+`rest-server --append-only` on 8000, and runs two jobs of its own against the
+local path:
 
-- **The restic repository passphrase.** Objective 7 covers the age key and the
-  Phase 5 disk passphrase and never mentions this one, which after this phase is
-  the single credential whose loss makes every application backup permanently
-  unreadable.
-- **`.talosconfig` and the Talos machine secrets** — closing the item Phase 0
-  recorded as *"Still outstanding"* and which still is. They live only in the
-  gitignored `terraform/terraform.tfstate` on one workstation, and the
-  failure-domain table's justification for giving guest images two copies rather
-  than three is that they are "reconstructible from `terraform` plus `talosctl`".
-  That claim is not true while its input is single-copy: losing it turns a node
-  replacement into a cluster rebuild with fresh identity. Extract the machine
-  secrets from tfstate rather than escrowing the whole state file, which also
-  carries provider credentials that do not belong in the same entry.
+- `restic-backups-massfiles`, nightly at 02:00 local.
+- `restic-prune`, at 03:00 on the 1st of each month.
 
-An escrow that has never been read back is not an escrow — the same standard
-Phase 5 applies to the external disk. Verify by authenticating the escrowed
-`.talosconfig` against a live node.
+Each reports to healthchecks.io from `ExecStopPost` with the `hc-report` contract.
+
+What was checked rather than assumed:
+
+- **The append-only boundary, both ways.** `forget` through the served URL is
+  refused with `403 Forbidden`; the same `forget` against the local path
+  succeeds. An earlier attempt at this check was itself broken: `| tail` hid the
+  exit code, and the flags were invalid, so both paths failed for one unrelated
+  reason and it read as a pass.
+- **Read access to what it backs up.** Nothing is unreadable as the `restic`
+  user in photos (62,026 entries) or filesync (57,448). A dry-run of `books`
+  processes 985 files and exits 0.
+- **The prune path, end to end.** Run for real against the empty repository, it
+  succeeded, and systemd recorded its ping command at `status=0`.
+- **The rendered units, not the Nix.** The massfiles unit carries two
+  `ExecStopPost` lines: the module's own `postStop` cleanup, then the report.
+
+**Two figures the next steps need:**
+
+- **The dry-run's rate was ~55 MiB/s** (1.54 GiB in 28 s), and that is without
+  encrypting or writing anything. The first mass-file run reads ~300 GB, so it
+  takes two hours or more. Started at 02:00, it would still be running when
+  vzdump begins at 04:00. Every run after it is a small delta.
+- **The container runs restic 0.19.1.** K8up bundles its own restic, and a
+  newer writer's pack format can be unreadable to an older `prune`. Confirm the
+  two are compatible before step 4 lets the cluster write here.
+
+#### Escrow, including what Phase 0 left open -- done 2026-09-21
+
+Escrowed by the user into the password manager, before the repository held any
+data:
+
+- **The restic repository passphrase**, with the REST password beside it. The
+  passphrase is what matters. The REST password protects no data and can be
+  regenerated, so its entry is a convenience.
+- **The Talos machine secrets**, closing the item Phase 0 recorded as *"Still
+  outstanding"*. Taken from the running control plane rather than from tfstate:
+
+  ```
+  talosctl -n 192.168.0.190 get machineconfig v1alpha1 -o jsonpath='{.spec}' \
+    | talosctl gen secrets --from-controlplane-config /dev/stdin -o /dev/shm/talos-secrets.yaml
+  ```
+
+  This uses talosctl's own converter rather than a hand-written reshape of the
+  provider's field names. All 14 fields were checked equal, by hash, to tfstate's
+  `talos_machine_secrets.main`; the one field present only in state,
+  `secretboxencryptionsecret`, is empty. It writes to `/dev/shm` so the plaintext
+  never lands on the workstation's unencrypted disk.
+- **Not the `.talosconfig` -- deliberately; user's call, 2026-09-21.** It is
+  derived from the secrets: its certificate is signed by the OS CA inside them.
+  It also expires 2026-11-07, while the CAs run to 2032-11-03. This was read back,
+  not assumed: a talosconfig minted from the secrets with
+  `talosctl gen config --with-secrets` was accepted by the control plane. The
+  expiry is a small problem of its own, specced in
+  [`talosconfig-renewal.md`](talosconfig-renewal.md).
+
+With the secrets escrowed, the failure-domain table's reason for giving guest
+images two copies rather than three -- that they are "reconstructible from
+`terraform` plus `talosctl`" -- holds for the first time.
+
+**Why escrow a passphrase SOPS already holds.** The question was asked directly,
+and the first answer overstated the case. Before the escrow, the passphrase was
+already recoverable: Phase 0 escrowed the Flux age key, which opens
+`kubernetes/k8up/secret-*.sops.yaml`. The direct entry buys two things.
+
+- **The shortest chain.** A restore needs the passphrase and the backup media,
+  rather than a repo copy, sops, a key, and knowing which field to read.
+- **Independence from recipient drift -- and that drift is not hypothetical.**
+  The NixOS rule added in this phase left the NixOS secrets file as the one file
+  in 33 that the Flux key could not open. That silently made Phase 0's "any one
+  private half opens every file" untrue. The rule carries `*flux` again, applied
+  with `sops updatekeys`.
+
+Phase 5's acceptance test -- restore using only the passphrase -- depends on the
+direct entry.
+
+**How the credentials were generated, and where they could have leaked.**
+`secrets.token_urlsafe` (the kernel's CSPRNG) for both passwords, and bcrypt via
+`htpasswd -nbB`. All inside one shell with `umask 077`, written straight into the
+files and encrypted with `sops -e -i` seconds later; only lengths were ever
+printed. It took five generations. Only the fifth is live, and none of the others
+ever protected data.
+
+Checked 2026-09-21 by streaming every candidate location to the container and
+searching against `/run/secrets` there, so only counts came back. Result: 0 hits
+in 144 MB -- every transcript in the project, the scratch space, memory, and
+every git object including unreachable ones -- with positive controls confirming
+the search could find a hit. There is no audit logging and there are no snapshots
+on the workstation.
+
+**The residue is freed blocks.** The plaintext existed for seconds on
+`rpool/home`, which is unencrypted and copy-on-write, so freed blocks may still
+hold it. They are recoverable only by raw-disk forensics. **Generate any future
+secret into `/dev/shm`**, so it never touches that disk.
 
 #### The coverage assertion
 

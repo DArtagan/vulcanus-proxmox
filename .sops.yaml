@@ -23,11 +23,18 @@ creation_rules:
   # repository would have the secret.
   #
   # No `encrypted_regex` here: encrypt every value.
+  #
+  # *flux is here although nothing in the cluster reads this file: it is the
+  # key escrowed in the password manager, and every file carrying it is what
+  # makes that one escrowed key sufficient to open everything in the repo.
+  # It adds no exposure -- the Kubernetes copies of these values already
+  # carry it.
   - path_regex: "^nixos/hosts/restic-repository/.*\\.sops\\.yaml$"
     key_groups:
       - age:
         - *steamdeck_willy
         - *thenixbeast_will
+        - *flux
         - *restic_repository
 
   # Kubernetes Secrets, which Flux decrypts. Only data/stringData is encrypted

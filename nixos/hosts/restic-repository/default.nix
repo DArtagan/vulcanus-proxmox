@@ -12,6 +12,37 @@
   pkgs,
   ...
 }:
+let
+  # Both jobs below reach the repository through the local filesystem, never
+  # through rest-server: append-only refuses the deletes a prune needs, and a
+  # local read is cheaper for the backup too.
+  repository = "/srv/restic";
+  passwordFile = config.sops.secrets."restic/password".path;
+
+  # Reports a unit's real outcome to healthchecks.io from ExecStopPost, where
+  # systemd has set $SERVICE_RESULT because the job has actually exited. The
+  # contract is ansible/templates/hc-report.j2's, and it is kept in step with that
+  # and with the mini-nas copy by hand -- three copies, since this host cannot
+  # import either. See docs/backups.md for why ExecStartPost is never used.
+  hcReport = pkgs.writeShellScript "hc-report" ''
+    set -eu
+    url="$(cat "$1")"
+    case "$url" in
+      https://*) ;;
+      *)
+        echo "hc-report: $1 holds no https:// URL" >&2
+        exit 1
+        ;;
+    esac
+    case "''${SERVICE_RESULT:-}" in
+      success) exec ${pkgs.curl}/bin/curl -fsS -g -m 10 --retry 3 -o /dev/null "$url" ;;
+      *) exec ${pkgs.curl}/bin/curl -fsS -g -m 10 --retry 3 -o /dev/null "$url/fail" ;;
+    esac
+  '';
+
+  # The leading "-" keeps a failed ping from failing the job it reports on.
+  report = check: "-${hcReport} ${config.sops.secrets."healthchecks/${check}".path}";
+in
 {
   imports = [
     # Drops the bootloader and switches on systemd-networkd. Its two `manage*`
@@ -95,6 +126,9 @@
       # succeeds. No exposure it does not already have: anything that can read
       # this directory already holds the repository passphrase beside it.
       "rest-server/password".owner = "restic";
+      # Read by the report above, which runs as the unit's own user.
+      "healthchecks/restic-massfiles".owner = "restic";
+      "healthchecks/restic-prune".owner = "restic";
     };
   };
 
@@ -125,6 +159,80 @@
   # restic itself, for the repository's own maintenance: init, check, and the
   # retention pass that append-only refuses to serve.
   environment.systemPackages = [ pkgs.restic ];
+
+  # The mass-file datasets, bind-mounted from rpool/storage. See
+  # terraform/main.tf for why the mounts are writable in principle and safe in
+  # practice.
+  services.restic.backups.massfiles = {
+    inherit repository passwordFile;
+    user = "restic";
+    paths = [
+      "/srv/storage/photos"
+      "/srv/storage/books"
+      "/srv/storage/filesync"
+    ];
+    # 02:00 here is 08:00 UTC in summer: clear of the cluster's 01:00 UTC
+    # backups and finished well before vzdump at 04:00. docs/backups.md carries
+    # the schedule in UTC.
+    timerConfig = {
+      OnCalendar = "*-*-* 02:00:00";
+      Persistent = true;
+    };
+    # No pruneOpts. The module runs `forget --prune` after every backup when it
+    # has them, and a prune rewrites pack files, so mini-nas would receive the
+    # rewrite in the next hourly send and pin it for 60 days. Retention is the
+    # monthly job below instead.
+  };
+
+  # A list, so it joins the module's own postStop cleanup rather than replacing it.
+  systemd.services.restic-backups-massfiles.serviceConfig.ExecStopPost = [
+    (report "restic-massfiles")
+  ];
+
+  # Retention for the whole repository -- the cluster's snapshots and the ones
+  # above alike, grouped by host and path as restic does by default.
+  systemd.services.restic-prune = {
+    description = "Apply the restic repository's retention policy";
+    environment = {
+      RESTIC_REPOSITORY = repository;
+      RESTIC_PASSWORD_FILE = passwordFile;
+      RESTIC_CACHE_DIR = "/var/cache/restic-prune";
+    };
+    serviceConfig = {
+      Type = "oneshot";
+      User = "restic";
+      Group = "restic";
+      CacheDirectory = "restic-prune";
+      CacheDirectoryMode = "0700";
+      ExecStopPost = [ (report "restic-prune") ];
+    };
+    # The policy in todos/backups.md's retention table. --keep-tag keeps the
+    # final snapshot of a decommissioned workload past the normal window, since
+    # months later is exactly when it is wanted.
+    #
+    # --max-repack-size bounds what one run rewrites, and with it the next
+    # syncoid send and what mini-nas's snapshots pin; garbage beyond it waits a
+    # month. 20G is a first figure, not a measured one: revisit once the first
+    # few prunes report how much they left behind.
+    script = ''
+      ${pkgs.restic}/bin/restic forget --prune \
+        --keep-last 10 --keep-hourly 24 --keep-daily 30 \
+        --keep-weekly 8 --keep-monthly 24 \
+        --keep-tag decommissioned \
+        --max-repack-size 20G
+    '';
+  };
+
+  systemd.timers.restic-prune = {
+    wantedBy = [ "timers.target" ];
+    # Monthly, not weekly: every prune costs a large ZFS send. 03:00 on the 1st
+    # is 09:00 UTC, between the cluster's backups rather than inside them, since
+    # a prune holds the repository's exclusive lock for its whole run.
+    timerConfig = {
+      OnCalendar = "*-*-01 03:00:00";
+      Persistent = true;
+    };
+  };
 
   # Never changes once set. It is the release this host was first built on, not
   # the one it currently runs.
