@@ -29,7 +29,7 @@ Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
 | A | Record the spec, open the review | **done** 2026-09-01 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3) |
 | 0 | Stop the bleeding — replication, retention, scrub | **done 2026-09-03.** Key escrow, retention, scrub, monitoring on both hosts, prune and diverged-dataset repair (30,404 → 1,083 snapshots, 89% → **76%**, **2.32 TiB reclaimed**), with the five datasets re-seeded — `syncoid-vulcanus-data` completed with zero errors for the first time since 2026-01-14 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3), merged 2026-09-18 |
 | 1 | Reclaim — dead guests, orphans | **done 2026-09-18.** Five orphaned datasets, guests 100/101/106, `rpool/rancheros`, three replicas, four PVCs, seven hostpath dirs and three PBS groups destroyed; vulcanus 28.3→**27.7 T**, mini-nas 77→**73%**, worker-0 **25.1 GiB** back. `zfs-replication-freshness` **green for the first time since inception**; `pbs-freshness` built and deployed here rather than in Phase 6, reports 5→2, zero failures — [PR #11](https://github.com/DArtagan/vulcanus-proxmox/pull/11) |
-| 2 | Application backups — K8up + restic | **in progress**, opened 2026-09-20 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13). **Steps 0–4 done 2026-09-21:** exclusions live (no RWX claim in scope), repo LXC 108 on NixOS serving append-only (403 on `forget` through the URL, proven), escrow complete, mass-file first run done (296.6 GiB in 2 h 09 m, 247.6 GiB stored), K8up operator installed with no Schedules. Next: step 5, the PreBackupPods — one design fork open, below |
+| 2 | Application backups — K8up + restic | **in progress**, opened 2026-09-20 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13). **Steps 0–4 done 2026-09-21:** exclusions live (no RWX claim in scope), repo LXC 108 on NixOS serving append-only (403 on `forget` through the URL, proven), escrow complete, mass-file first run done (296.6 GiB in 2 h 09 m, 247.6 GiB stored), K8up operator installed with no Schedules. Step 5 design decided (annotations for the relational databases, PreBackupPods for SQLite, dumps-only Schedules for the 6 h RPO). Next: step 5 |
 | 2b | Delete the borg tree, after a restore is proven | not started |
 | 3 | Performance — drop the OpenEBS disks from vzdump | not started |
 | 4 | Platform images offsite — PBS #2 + sync | not started; **gated on the mini-nas disks** |
@@ -1266,57 +1266,175 @@ every object type *except* `locks`, so restic's locking works normally while
 `forget` still cannot run through it: the reasoning below holds, now with the
 mechanism confirmed rather than assumed.
 
-#### Dump method per application
+#### Every K8up backup route -- decided 2026-09-21
 
-`A` = volume backup only. `PBP` = a `PreBackupPod` dump as well. `D` = excluded.
+Four routes. Every snapshot's host is its **namespace** -- the backup Job's
+`$HOSTNAME`, which the operator sets to it -- and each route has its own path
+shape, which is what the coverage assertion keys on.
 
-| Application | PVC | Size | | Why |
+| Route | Captures | Path in the repository | Mechanism |
+|---|---|---|---|
+| **Volume** | a PVC's files as they are | `/data/<pvc-name>` | the PVC mounted read-only into K8up's backup Job, one Job per node |
+| **Annotation** | a relational dump, run beside its server | `/<namespace>-<container><extension>` | `k8up.io/backupcommand` on the app's pod; K8up execs it and streams stdout to `restic --stdin` |
+| **PreBackupPod** | a SQLite copy, taken by a pod of our own | `/<namespace>-<container><extension>` | a `PreBackupPod` mounting the PVC and carrying `sqlite3`; K8up starts it, execs it, removes it |
+| **Excluded** | nothing | -- | `k8up.io/backup: "false"` on the PVC |
+
+**Every PVC, and its route.** 22 in scope, 18 excluded -- the live split
+verified on 2026-09-21. "Volume" alone means the file copy is sufficient:
+
+| Namespace | PVC | Route | Why |
+|---|---|---|---|
+| apps | `headscale-data` | Volume + PreBackupPod | `noise_private.key` is a file; the dump is insurance for the node table |
+| apps | `linkding-data` | Volume + PreBackupPod | the rows are the whole value |
+| apps | `plex-config` | Volume + PreBackupPod | watch state; Plex's own 3-day copies ride the volume too |
+| apps | `pinepods-database` | Volume + Annotation | PostgreSQL. The live datadir's file copy is only crash-consistent; the dump is what a restore uses |
+| apps | `photoprism-database` | Volume + Annotation | MariaDB; same |
+| apps | `salamander-database` | Volume + Annotation | MariaDB; same |
+| apps | `rustdesk-data` | Volume | `id_ed25519` is a file; the peer table regenerates |
+| apps | `syncthing-data` | Volume | the device ID *is* `key.pem` |
+| apps | `photoprism-data`, `salamander-data` | Volume | sidecars, thumbnails, PhotoPrism's own SQL dumps -- whole, per the no-per-path-exclusions decision |
+| apps | `rclone-dropbox-config` | Volume | holds the OAuth token, so not regenerable |
+| apps | `stump-config`, `mumble-data`, `speedtest-tracker`, `youtube-dl`, `headplane-data`, `beets-library`, `beets-flask-config`, `filebot` | Volume | journal-mode SQLite or plain files; see the known limit below |
+| apps | `pinepods-backups` | Volume | empty, made for a `pg_dump` that never ran; retire it once the annotation dump is proven |
+| automatic-ripping-machine | `automatic-ripping-machine-pvc` | Volume | the step 6 canary, on worker-1 |
+| infrastructure | `kube-prometheus-grafana` | Volume + PreBackupPod | its admin password is no longer in SOPS |
+| apps | the twelve SMB claims, incl. `borg-backups` | Excluded | the ZFS layer and the repo host's own job cover them |
+| apps | `borgmatic-data`, `rclone-dropbox-bisync-cache`, `pinepods-valkey` | Excluded | regenerable |
+| infrastructure | Prometheus TSDB, Alertmanager, VictoriaLogs | Excluded | regenerable |
+
+**The dump path format is verified four ways**, not assumed:
+
+- **Source** at `v2.16.0`: `fmt.Sprintf("/%s-%s", hostname, pod.ContainerName)`,
+  unchanged on `master`.
+- **Upstream's own end-to-end test**, which restores
+  `/k8up-e2e-subject-subject-container.txt`.
+- **Issue #1068**, a user's real log and `restic snapshots` output showing
+  `/internal-main.sql` under host `internal`.
+- **The documentation**, which does not state it at all.
+
+It gets confirmed in this cluster when step 5's first dump lands.
+
+**The application goes in the extension.** #1068 describes our exact collision:
+pinepods, photoprism and salamander all name their database container
+`database`, so all three would write `/apps-database.sql` and rotate each other
+out of retention. The workaround two users report there is taken here over a
+ClusterIP Service per database (user's call, 2026-09-21). `k8up.io/file-extension`
+is free text, so it can carry the application's name:
+
+| Source | Route | Path |
+|---|---|---|
+| pinepods | Annotation | `/apps-database.pinepods.pgdump` |
+| photoprism | Annotation | `/apps-database.photoprism.sql` |
+| salamander | Annotation | `/apps-database.salamander.sql` |
+| headscale | PreBackupPod | `/apps-sqlite.headscale.sqlite` |
+| linkding | PreBackupPod | `/apps-sqlite.linkding.sqlite` |
+| plex | PreBackupPod | `/apps-sqlite.plex.sqlite` |
+| grafana | PreBackupPod | `/infrastructure-sqlite.grafana.sqlite` |
+
+The PreBackupPods follow the same rule even though their container name is ours
+to choose, so one parse serves the coverage assertion for both mechanisms. The
+container says what produced a dump; the extension says whose it is.
+
+**Why annotations for the relational three, and PreBackupPods for SQLite.** The
+annotation runs `pg_dump` or `mariadb-dump` inside the database container, beside
+its server and over its socket. That is the documented Application-Aware Backups
+pattern, and it needs no address. A PreBackupPod is its own pod with its own
+network namespace, so for those three it would have needed a Service per database
+to reach them. The databases do listen on all addresses and no NetworkPolicy
+applies in `apps` (measured 2026-09-21), so it would have worked -- but it is
+more machinery for the same result.
+
+The SQLite applications are the opposite case. headscale and rustdesk have no
+shell, and linkding and stump have no `sqlite3`, so the tool has to arrive in a
+pod of our own.
+
+The blast radius also differs. Only PreBackupPods carry the all-or-nothing
+readiness gate that can block a namespace's volume backups. A failed annotation
+dump fails its own Job and leaves the volume Jobs running.
+
+**How each dump is taken:**
+
+- **pinepods:** `pg_dump -Fc -Z0`. Custom format so `pg_restore --list` can verify
+  it in Phase 6's drill; `-Z0` because a compressed dump changes wholesale every
+  run and restic could not deduplicate it.
+- **photoprism, salamander:** `mariadb-dump --single-transaction`. InnoDB, so the
+  read is consistent without locking. Plain SQL, which deduplicates well.
+- **SQLite:** `sqlite3 <db> ".backup /tmp/dump"`, then `cat`. The backup API
+  copies pages, so it is consistent under concurrent writers, reads through the
+  WAL, and is indifferent to Plex's custom ICU collations. `VACUUM INTO`, which
+  rebuilds indexes, can trip on those. `.backup` needs a seekable destination,
+  hence the file first. The result is a SQLite database, restored by putting it
+  back in place.
+- **Every command** runs `test -s` before its `cat`, so it exits non-zero on
+  empty output. Otherwise a silently failing dump writes a zero-byte snapshot
+  that satisfies the coverage assertion.
+
+**Two per-application findings behind the table:**
+
+- **Plex already backs up its own database** every three days
+  (`library.db-2026-09-19` and so on), as PhotoPrism does. The volume backup
+  captures those consistent copies. But it is a Plex setting, not declared here,
+  so the dump is ours.
+- **linkding's second database, `tasks.sqlite3`, is its Huey task queue**
+  (`SqliteHuey`, `results: False`). Only `db.sqlite3` is dumped; the queue rides
+  the volume backup.
+
+**Cadence: two Schedules for each namespace with dumps.** A K8up Backup does
+volumes and dumps together. But `labelSelectors` narrow all three things it picks
+up -- PVCs, annotated pods and PreBackupPod templates. Verified at `v2.16.0` in
+`fetchPVCs`, `fetchCandidatePods` and `fetchPreBackupPodTemplates`.
+
+| Schedule | Namespace | UTC | Selects | Covers |
 |---|---|---|---|---|
-| headscale | `headscale-data` | 304 KB | **A + PBP** | `noise_private.key` is a file; first PBP built |
-| rustdesk | `rustdesk-data` | 141 KB | **A** | `id_ed25519` is a file; peer table regenerates |
-| syncthing | `syncthing-data` | 140 MB | **A** | device ID *is* `key.pem`; the WAL index rides along |
-| linkding | `linkding-data` | 1.33 GB | **PBP** | the rows are the whole value; two WAL DBs |
-| plex | `plex-config` | 3.27 GB | **A + PBP** | watch state; whole PVC is small |
-| grafana | `kube-prometheus-grafana` | 755 MB | **A + PBP** | admin password no longer in SOPS |
-| stump | `stump-config` | 24.7 MB | **A** | not WAL; library rescans |
-| mumble, speedtest, youtube-dl, headplane, beets | | 8 MB–257 MB | **A** | not WAL, negligible write rate |
-| pinepods | `pinepods-database` | 82 MB | **PBP** | PostgreSQL; retires the empty `pinepods-backups-pvc` |
-| photoprism | `photoprism-database` | 443 MB | **PBP** | MariaDB |
-| salamander | `salamander-database` | 686 MB | **PBP** | MariaDB |
-| photoprism, salamander data | | 26.5 / 27.9 GB | **A** | whole; the cache is one-time, not nightly churn |
-| rclone config | `dropbox-config` | 1.7 KB | **A** | holds the OAuth token — not regenerable despite the name |
-| borgmatic, valkey, rclone cache, prometheus, alertmanager, victoria-logs | | | **D** | regenerable |
-| the twelve SMB volumes | incl. `borg-backups` | ~16 TiB | **D** | the ZFS layer covers them |
+| full | `apps` | 01:00 | everything | every in-scope volume and all six dumps |
+| dumps | `apps` | 07:00, 13:00, 19:00 | label `k8up-dump: "true"` | the six dumps; no volume is read |
+| full | `infrastructure` | 01:30 | everything | grafana's volume and dump (the rest there is excluded) |
+| dumps | `infrastructure` | 07:30, 13:30, 19:30 | the same label | grafana's dump |
+| full | `automatic-ripping-machine` | 02:00 | everything | its one volume -- the step 6 canary |
 
-##### Exclusions, and the one step chart values cannot do
+Six-hourly dumps meet the 6-hour database RPO without re-reading ~56 GB of
+volumes four times a day. The label goes on the three annotated pod templates
+and on the four PreBackupPod objects, never on a PVC.
 
-Eighteen PVCs are excluded and twenty-two remain in scope. The check that
-matters is that **no ReadWriteMany claim is left in scope**, asserted as a set
-difference between the live PVC list and the annotations the repository
-declares -- run while no Schedule exists, because a check that can only run after
-the first backup is not a check.
+The full Schedules are staggered because K8up's exclusivity is per namespace:
+three at once would be three restic writers on eight spindles. Everything stays
+clear of 08:00 (mass files, on the repo host), 09:00 on the 1st (the prune, which
+takes an exclusive lock) and 10:00 (vzdump).
 
-Three of the eighteen are StatefulSet `volumeClaimTemplates`, annotated through
-their chart values. **That reaches claims created from here on and no others**:
-the template is immutable on a live StatefulSet and nothing propagates it to the
-claim already bound. They were annotated by hand once --
+**Where each piece lives** -- fleet policy central, exceptions with the
+application:
 
-```
-kubectl annotate pvc -n infrastructure <claim> k8up.io/backup=false --overwrite
-```
+- **Schedules, and the three namespaced repository Secrets:**
+  `kubernetes/k8up/`. It has its own Flux Kustomization depending on
+  `infrastructure`, and no `namespace:` line.
+- **Annotations and the `k8up-dump` label:** each application's own manifests --
+  `pinepods/deployment.yaml`, `photoprism/deployment.yaml`, and the photoprism
+  chart's deployment template for salamander. Each is a pod-template change, so
+  one rollout each, once.
+- **PreBackupPods:** beside their application -- `kubernetes/apps/` for
+  headscale, linkding and plex, and `kubernetes/infrastructure/` for grafana,
+  where that directory's namespace transformer is exactly right.
+- **Exclusions:** on the PVCs, where they already are.
 
--- against the Prometheus TSDB, the Alertmanager claim and
-`server-volume-victoria-logs-0`. A cluster rebuild recreates them from the chart
-values and needs no repeat; a chart that renames its claim does. Verified against
-the chart source rather than assumed: `victoria-logs-single` 0.13.9 really does
-render `server.persistentVolume.annotations` into the claim template.
+**Retention and integrity stay off the cluster.** No Schedule carries a `Prune`,
+since append-only refuses it. The repo host's monthly prune applies one policy
+per host-and-path group, and every dump path is its own group.
 
-Grafana is deliberately *not* excluded -- see the dump table above.
+**Open: whether any Schedule carries a K8up `Check`.** restic 0.19's `check`
+takes an exclusive lock, so through the cluster it would contend with backups.
+The stronger home is the repo host's weekly check from Phase 6. The proposal is
+to bring that forward rather than add a K8up `Check` at all.
 
-Seven PreBackupPods: six in `apps`, one in `infrastructure`. **Every dump command
-exits non-zero on empty output** — otherwise a silently failing dump writes a
-zero-byte snapshot that satisfies the coverage assertion and is found only by a
-restore.
+**Restoring, by route** -- the runbook's spine, written now so Phase 6 starts
+from it. `latest` must be narrowed with `--host` and `--path`, or it names the
+newest snapshot in the whole repository, which will not contain the file.
+
+- **Volume:** a K8up `Restore` into a scratch PVC or the original, or
+  `restic restore latest --host <ns> --path /data/<pvc>` on the repo host.
+- **Relational:** `restic dump --host apps --path <path> latest <path>`, piped
+  into `pg_restore` or `mariadb`.
+- **SQLite:** the same `restic dump` into a file. Scale the application to zero,
+  put the file in place, and remove its `-wal` and `-shm`.
 
 Six databases get file-level treatment and no dump — `stump`, `mumble`,
 `speedtest-tracker`, `youtube-dl`, `headplane`, `beets`. All are journal-mode
@@ -1474,23 +1592,13 @@ different commit, two behind. Those two commits touch only `Chart.yaml`,
 `README.md` and `values.yaml`, so every finding here holds for the code that
 runs.
 
-#### Step 5 is not what the plan says it is
+#### Step 5 was not what the plan said it was
 
-The plan has the relational PreBackupPods "connect over the pod's own loopback".
-They cannot: a PreBackupPod is its own pod, with its own network namespace, and
-the databases are containers inside pinepods, photoprism and salamander. Two ways
-through, and the choice is open:
-
-- **PreBackupPods throughout, plus a ClusterIP Service per relational
-  database.** One mechanism, and no application Deployment edited. The Service
-  adds no real exposure: the databases already listen on their pod IPs, and a
-  Service only gives them a stable name. They authenticate with the existing
-  `pinepods` and `photoprism` Secrets. Recommended.
-- **`backupcommand` annotations for the three relational databases**, whose
-  `pg_dump` and `mariadb-dump` already sit beside their servers, with the
-  containers renamed to break the `/apps-database` collision; PreBackupPods only
-  for SQLite. The cost is three rollouts, a change to the photoprism chart for
-  salamander, and two mechanisms to maintain.
+The plan had the relational PreBackupPods "connect over the pod's own loopback".
+They cannot: a PreBackupPod has its own network namespace. Two ways through were
+weighed -- a ClusterIP Service per database, or `backupcommand` annotations with
+the file-extension workaround from #1068 -- and the annotations were chosen (user's
+call, 2026-09-21). The result is recorded under *Every K8up backup route*.
 
 #### Escrow, including what Phase 0 left open -- done 2026-09-21
 
