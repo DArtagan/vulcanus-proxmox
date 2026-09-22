@@ -29,7 +29,7 @@ Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
 | A | Record the spec, open the review | **done** 2026-09-01 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3) |
 | 0 | Stop the bleeding — replication, retention, scrub | **done 2026-09-03.** Key escrow, retention, scrub, monitoring on both hosts, prune and diverged-dataset repair (30,404 → 1,083 snapshots, 89% → **76%**, **2.32 TiB reclaimed**), with the five datasets re-seeded — `syncoid-vulcanus-data` completed with zero errors for the first time since 2026-01-14 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3), merged 2026-09-18 |
 | 1 | Reclaim — dead guests, orphans | **done 2026-09-18.** Five orphaned datasets, guests 100/101/106, `rpool/rancheros`, three replicas, four PVCs, seven hostpath dirs and three PBS groups destroyed; vulcanus 28.3→**27.7 T**, mini-nas 77→**73%**, worker-0 **25.1 GiB** back. `zfs-replication-freshness` **green for the first time since inception**; `pbs-freshness` built and deployed here rather than in Phase 6, reports 5→2, zero failures — [PR #11](https://github.com/DArtagan/vulcanus-proxmox/pull/11) |
-| 2 | Application backups — K8up + restic | **in progress**, opened 2026-09-20 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13). **Steps 0–4 done 2026-09-21:** exclusions live (no RWX claim in scope), repo LXC 108 on NixOS serving append-only (403 on `forget` through the URL, proven), escrow complete, mass-file first run done (296.6 GiB in 2 h 09 m, 247.6 GiB stored), K8up operator installed with no Schedules. **Step 5 done 2026-09-21:** all seven dumps (annotations for the relational databases, PreBackupPods for SQLite) taken by one-off dumps-only Backups and verified in the store. **Every Schedule must set `runAsUser: 0`**: as K8up's default uid 65532 the Job cannot read 13 of 22 volumes, and reports Succeeded anyway (see *Checked against K8up #910 and #1032*). **Step 6 done 2026-09-21:** ARM canary backed up and restored byte-identical, the first restore this estate has done; its Schedule is live. **Step 7:** first full runs of `apps` (20 PVCs, 66.1 GB read, 0 errors, 99 min) and `infrastructure` taken by hand; the five Schedules await deploy. Next: deploy step 7, check the first scheduled night (01:00, 01:30, 02:00 UTC), then step 8 |
+| 2 | Application backups — K8up + restic | **in progress**, opened 2026-09-20 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13). **Steps 0–4 done 2026-09-21:** exclusions live (no RWX claim in scope), repo LXC 108 on NixOS serving append-only (403 on `forget` through the URL, proven), escrow complete, mass-file first run done (296.6 GiB in 2 h 09 m, 247.6 GiB stored), K8up operator installed with no Schedules. **Step 5 done 2026-09-21:** all seven dumps (annotations for the relational databases, PreBackupPods for SQLite) taken by one-off dumps-only Backups and verified in the store. **Every Schedule must set `runAsUser: 0`**: as K8up's default uid 65532 the Job cannot read 13 of 22 volumes, and reports Succeeded anyway (see *Checked against K8up #910 and #1032*). **Step 6 done 2026-09-21:** ARM canary backed up and restored byte-identical, the first restore this estate has done; its Schedule is live. **Step 7:** first full runs of `apps` (20 PVCs, 66.1 GB read, 0 errors, 99 min) and `infrastructure` taken by hand; all five Schedules live. Next: check the first scheduled night (01:00, 01:30, 02:00 UTC, dumps from 07:00), then step 8 |
 | 2b | Delete the borg tree, after a restore is proven | not started |
 | 3 | Performance — drop the OpenEBS disks from vzdump | not started |
 | 4 | Platform images offsite — PBS #2 + sync | not started; **gated on the mini-nas disks** |
@@ -1929,6 +1929,14 @@ included. Its dump ran too.
 one identical backend block, from the shared patch, and `runAsUser: 0`, and all
 five pass a server-side dry run. With every first run taken by hand, the
 Schedules' first night is incremental.
+
+Deployed the same evening. All five are Ready, and `k8up_schedules_gauge`
+counts the six cron entries the operator registered: `apps` 3 (the full
+backup, the Check, the dumps), `infrastructure` 2, ARM 1. On both deploys the
+`k8up` Kustomization first reported "dependency 'flux-system/apps' is not
+ready". Flux holds a dependent until its dependency has applied the same
+revision, and `apps` reconciles on every commit. So this is expected on each
+deploy and clears on the next retry, a minute later.
 
 #### Escrow, including what Phase 0 left open -- done 2026-09-21
 
