@@ -2071,8 +2071,21 @@ takes effect on the next `tofu apply` made between rips.
    2026-09-21 after `tofu apply` restarted VM 911. `max_sectors_kb` is also
    `128`, `events_poll_msecs` is still `2000`, and ARM's fresh allocation
    reports the Pioneer on both `sr0` and `sg0`.
-2. A full rip leaves `dmesg` free of `Invalid field in cdb`.
-3. Throughput is compared against job 36. Job 36 wrote its first two titles,
+2. ~~A full rip leaves `dmesg` free of `Invalid field in cdb`.~~ Confirmed
+   2026-09-22 on job 39 (Around the World in 80 Days, DVD). The first 47 minutes
+   of bulk reads had zero `Invalid field in cdb` in a ring buffer holding
+   everything since boot. sr0 did 12.8 block reads/s averaging exactly
+   **128.0 KiB**. MakeMKV still opens `/dev/sr0` `O_DIRECT` and asks for
+   384 KiB; the guest kernel now splits each into three requests the host
+   accepts. The only sr0 errors are six single `Read of scrambled sector
+   without authentication` (ASC `0x6F`), at insertion and at the rip's start.
+   That is a real protection refusal, and useful as a control for what one
+   looks like.
+3. Throughput: job 39 read 1.68 MB/s through sr0 and wrote title 0's 4.8 GB at
+   a matching rate. That's against ~1.1 MB/s on job 36 and 1.07–1.35 MB/s on
+   the discs before it. This is one disc against another, so it's suggestive,
+   not proven. It is still about 1.2x DVD, far under the drive's rating, so
+   whatever limits rip speed is somewhere else. Compare against job 36. Job 36 wrote its first two titles,
    3.96 GB, between 13:36:15 and 14:34:47, about 1.1 MB/s, while every block
    read failed. Whether the fix changes rip speed is open. Don't claim either
    way until a rip has been measured.
