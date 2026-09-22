@@ -517,7 +517,10 @@ restic check · **cluster backup dead-man's switch** · restore drill · externa
 syncoid-data, sanoid-mini-nas, sanoid-vulcanus, pool-health-mini-nas and
 pool-health-vulcanus from Phase 0; pbs-freshness from Phase 1; restic-massfiles
 and restic-prune from Phase 2. syncoid-data narrows rather than retires at Phase 4
-and keeps its slot.
+and keeps its slot. **A twelfth, `backup-coverage`, from 2026-09-22**: the cluster
+backup dead-man's switch, pinged by the coverage CronJob on cron `45 2,8,14,20 * * *`
+UTC with an hour's grace. It shares its name with the CronJob, so one search finds
+both.
 
 The split is principled rather than a bundling compromise: checks are spent only on
 what Prometheus **cannot** see — the two hosts, PBS, and the disk. Everything
