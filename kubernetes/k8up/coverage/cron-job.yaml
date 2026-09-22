@@ -1,0 +1,106 @@
+# Asserts backup coverage per claim and per dump, from the repository. See
+# docs/backups.md.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-coverage
+  namespace: infrastructure
+spec:
+  # UTC, at :45 past every sixth hour: after the nightly full Schedules
+  # (01:00-02:00) and after each dumps slot. The healthchecks check expects this
+  # cadence, and the script's age limits assume it.
+  schedule: "45 2,8,14,20 * * *"
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  successfulJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      # Do not retry: the run has already pinged, and a retry would ping again.
+      backoffLimit: 0
+      activeDeadlineSeconds: 600
+      template:
+        spec:
+          serviceAccountName: backup-coverage
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            # The python image has no restic and the restic image no python, so
+            # this copies the binary across.
+            - name: restic
+              image: restic/restic:0.19.1 # {"$imagepolicy": "infrastructure:backup-coverage-restic"}
+              command: [cp, /usr/bin/restic, /tools/restic]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  memory: 64Mi
+              volumeMounts:
+                - name: tools
+                  mountPath: /tools
+          containers:
+            - name: coverage
+              image: python:3.14.7-alpine # {"$imagepolicy": "infrastructure:backup-coverage-python"}
+              command: [python3, /script/backup_coverage.py]
+              env:
+                - name: PATH
+                  value: /tools:/usr/local/bin:/usr/bin:/bin
+                - name: RESTIC_REPOSITORY
+                  # The rest-server every Schedule writes to, from
+                  # ../schedule-defaults.yaml. Credentials come from the
+                  # environment below, not the URL.
+                  value: rest:http://192.168.0.108:8000/
+                - name: RESTIC_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: k8up-repository
+                      key: repository-password
+                - name: RESTIC_REST_USERNAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: k8up-repository
+                      key: rest-username
+                - name: RESTIC_REST_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: k8up-repository
+                      key: rest-password
+                - name: HC_PING_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-coverage-healthchecks
+                      key: ping-url
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  memory: 256Mi
+              volumeMounts:
+                - name: script
+                  mountPath: /script
+                - name: tools
+                  mountPath: /tools
+          volumes:
+            - name: script
+              configMap:
+                name: backup-coverage
+            - name: tools
+              emptyDir: {}

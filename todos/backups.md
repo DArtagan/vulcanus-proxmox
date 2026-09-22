@@ -29,7 +29,7 @@ Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
 | A | Record the spec, open the review | **done** 2026-09-01 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3) |
 | 0 | Stop the bleeding — replication, retention, scrub | **done 2026-09-03.** Key escrow, retention, scrub, monitoring on both hosts, prune and diverged-dataset repair (30,404 → 1,083 snapshots, 89% → **76%**, **2.32 TiB reclaimed**), with the five datasets re-seeded — `syncoid-vulcanus-data` completed with zero errors for the first time since 2026-01-14 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3), merged 2026-09-18 |
 | 1 | Reclaim — dead guests, orphans | **done 2026-09-18.** Five orphaned datasets, guests 100/101/106, `rpool/rancheros`, three replicas, four PVCs, seven hostpath dirs and three PBS groups destroyed; vulcanus 28.3→**27.7 T**, mini-nas 77→**73%**, worker-0 **25.1 GiB** back. `zfs-replication-freshness` **green for the first time since inception**; `pbs-freshness` built and deployed here rather than in Phase 6, reports 5→2, zero failures — [PR #11](https://github.com/DArtagan/vulcanus-proxmox/pull/11) |
-| 2 | Application backups — K8up + restic | **in progress**, opened 2026-09-20 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13). **Steps 0–4 done 2026-09-21:** exclusions live (no RWX claim in scope), repo LXC 108 on NixOS serving append-only (403 on `forget` through the URL, proven), escrow complete, mass-file first run done (296.6 GiB in 2 h 09 m, 247.6 GiB stored), K8up operator installed with no Schedules. **Step 5 done 2026-09-21:** all seven dumps (annotations for the relational databases, PreBackupPods for SQLite) taken by one-off dumps-only Backups and verified in the store. **Every Schedule must set `runAsUser: 0`**: as K8up's default uid 65532 the Job cannot read 13 of 22 volumes, and reports Succeeded anyway (see *Checked against K8up #910 and #1032*). **Step 6 done 2026-09-21:** ARM canary backed up and restored byte-identical, the first restore this estate has done; its Schedule is live. **Step 7:** first full runs of `apps` (20 PVCs, 66.1 GB read, 0 errors, 99 min) and `infrastructure` taken by hand; all five Schedules live. Next: check the first scheduled night (01:00, 01:30, 02:00 UTC, dumps from 07:00), then step 8 |
+| 2 | Application backups — K8up + restic | **in progress**, opened 2026-09-20 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13). **Steps 0–4 done 2026-09-21:** exclusions live (no RWX claim in scope), repo LXC 108 on NixOS serving append-only (403 on `forget` through the URL, proven), escrow complete, mass-file first run done (296.6 GiB in 2 h 09 m, 247.6 GiB stored), K8up operator installed with no Schedules. **Step 5 done 2026-09-21:** all seven dumps (annotations for the relational databases, PreBackupPods for SQLite) taken by one-off dumps-only Backups and verified in the store. **Every Schedule must set `runAsUser: 0`**: as K8up's default uid 65532 the Job cannot read 13 of 22 volumes, and reports Succeeded anyway (see *Checked against K8up #910 and #1032*). **Step 6 done 2026-09-21:** ARM canary backed up and restored byte-identical, the first restore this estate has done; its Schedule is live. **Step 7:** first full runs of `apps` (20 PVCs, 66.1 GB read, 0 errors, 99 min) and `infrastructure` taken by hand; all five Schedules live; the first scheduled night succeeded (`apps` incremental in 78 s). **Step 8 built 2026-09-22:** the coverage CronJob, run live against the cluster, both directions; awaits its healthchecks check and deploy. Next: deploy step 8, then step 9 |
 | 2b | Delete the borg tree, after a restore is proven | not started |
 | 3 | Performance — drop the OpenEBS disks from vzdump | not started |
 | 4 | Platform images offsite — PBS #2 + sync | not started; **gated on the mini-nas disks** |
@@ -2028,6 +2028,67 @@ pass until Phase 6's restore drill. Hence the non-zero-exit-on-empty rule above,
 and comparing each dump snapshot's *size* against its previous run rather than
 only its age. Follow `ansible/files/pbs_freshness.py`: a pure-function classifier
 with a stdlib `unittest` suite beside it.
+
+#### The first scheduled night -- 2026-09-22
+
+The Schedules' own Backups, one per namespace: `apps` at 01:00:00,
+`infrastructure` at 01:30 and ARM at 02:00, all Succeeded. The `apps` volume Job
+ran 01:00:30-01:01:48, **78 seconds** against the first run's 99 minutes: 20
+items, 66.1 GB read as metadata, 68 MB added, 0 errors on every one. The Backup
+objects are named `<schedule>-backup-<random>`, their Jobs `backup-<backup>-<n>`
+and `-prebackup`.
+
+#### Step 8, the coverage check -- built 2026-09-22
+
+The user's call, 2026-09-22: a CronJob reading the repository per claim and per
+dump against the cluster API, with restic's per-item unreadable-file count from
+the Job logs built in where it came cleanly. The healthchecks ping means a broken
+check is never silently blind. A kube-state-metrics rule was weighed and left
+out. restic-exporter was ruled out.
+
+**What it is.** `kubernetes/k8up/coverage/`: `backup_coverage.py`, stdlib only,
+shaped like `pbs_freshness.py` (a pure `classify` returning failures and
+reports), with 46 `unittest` cases beside it (`python3 -m unittest discover
+kubernetes/k8up/coverage`). They include a class built from the estate as
+measured. A `configMapGenerator` ships the file itself, so the tests run against
+what is deployed and a change to it rolls the CronJob onto a new ConfigMap name.
+It runs in `infrastructure`, where a `k8up-repository` Secret already is, at :45
+past every sixth hour UTC. It uses `python:3.14.7-alpine`, plus restic 0.19.1
+copied in by an init container, and runs as uid 65534 with a read-only root and
+no capabilities. Its RBAC is read-only and cluster-wide: list claims, pods, Jobs
+and PreBackupPods, and get pod logs.
+
+**Image automation now covers `kubernetes/k8up/`** (the user's suggestion, over
+moving the check into `infrastructure/`). It is a third ImageUpdateAutomation, in
+`infrastructure` because that is where the ImagePolicies are, scoped to
+`./kubernetes/k8up` as the other two are to theirs.
+
+**The verdicts:**
+
+| Fails | Reports |
+|---|---|
+| an in-scope claim never backed up, past 26 h from its creation | a new claim or producer, inside those 26 h |
+| a volume's newest snapshot over 26 h old; a dump's over 7 h | every excluded claim |
+| an in-scope `ReadWriteMany` claim: every one here is a share | an in-scope claim that has always been empty (`pinepods-backups-pvc`) |
+| a volume that went empty; any empty dump | a snapshot series whose claim or producer is gone, or which is tagged `decommissioned` |
+| an item under half its previous size, from 1 MiB up | a non-zero unreadable-file count on an item's latest run |
+
+Snapshots the repository host takes itself (`restic-repository`) are outside it,
+because their own timer reports to healthchecks.
+
+**Run live before committing, both directions.** Against the real cluster and
+repository, it printed `22 claims in scope, 7 dumps, 0 failing, 19 reported`:
+the 18 exclusions and `pinepods-backups-pvc`, exactly what the measured-estate
+test predicts. Then scratch claims went into `default`, a namespace no Schedule
+covers. A `ReadWriteOnce` one reported as new, and a `ReadWriteMany` one failed
+the run with exit 1. Error counts were read for all 29 items, every one 0.
+restic took its rest-server credentials from `RESTIC_REST_USERNAME` and
+`RESTIC_REST_PASSWORD`, so none sits in the URL.
+
+**A flaw the live run exposed, fixed test-first.** `ping` is meant never to
+raise. But a malformed URL -- the Secret's placeholder -- raised `ValueError`
+while the request was still being built, outside the `try`. The failing test
+came first, then the fix.
 
 #### Two things this phase does not close
 

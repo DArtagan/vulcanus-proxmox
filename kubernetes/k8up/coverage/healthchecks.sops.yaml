@@ -1,0 +1,44 @@
+# The ping URL of the healthchecks check for the backup coverage CronJob:
+# period 6 hours, grace 1 hour. See coverage/cron-job.yaml for the cadence.
+apiVersion: v1
+kind: Secret
+metadata:
+    name: backup-coverage-healthchecks
+    namespace: infrastructure
+stringData:
+    ping-url: ENC[AES256_GCM,data:j0NMfU1sepFBOCNc/uCDUZx10LSS4RbSg87StuTXPA==,iv:5UIUtvkgLJ5UvFkJFiYBbJOY2/jtUBG7H8OzHAUbMU4=,tag:6YxXY81c7oap0LG+nUXuFA==,type:str]
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IHNzaC1lZDI1NTE5IG5iMUw5QSArUFJ0
+            Z2dZUDBoeXlMRWw3ZmZYNnYwU2l6bnVHV3FpTHhJbjR4TFowazJFCnpIS0VwRDVy
+            akxicEdKeGI2cFlnaXlWVzh3UVVITndoTXhaTWQ1TkYxWXMKLS0tIHRJa01qdFh3
+            SzVDdXV1Mk1lQytDOWFNcEJPZFpsWURub2dtcGc2Zm9EMzAKkd2FbXVwC6WPeHwc
+            Ye+rpSTslufux9wSPp+OEoxADKRn/BuGxBd0TyUeWVrJ2mQkzE9AvR2Xyg6Yw44X
+            rXx6jw==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKYSwODOrerKkBNuitwqjNioFXLDRBKqSJTayFoo1Ude
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IHNzaC1lZDI1NTE5IEMzS05TQSBLS0Z0
+            SGZBNzlmR0lYakFiaFBxSEltQWxzR3drSUhldWEzY3BrUWo3ZURjCjQ3T21VVU4z
+            RjNvaWxaNGRlLzlvb1JiZUhYcjErVEtJYUtwNkgvdm5vUlEKLS0tIDNQTFYxRWI3
+            Z21xaTA1anRWSjRzeHJQYnV5STBIRzNNSGFnSmVCZ1ptQWsKLvNAaBlRAmFAV1U4
+            rxuPX5uQUSMX3avU5si3Hicwedc0WslMcvhIcLfytWVL8a+BxhJuY2YfhOV8NFhI
+            Y0+yDA==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIyPkfTI0io9dZsJstcf29tddyrsHr9bnM8UXKtaVJwm
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBBUExid2dqbXI2SHJWbCtM
+            NGlkWjZsMzVJaFBBMjBwb2RvZXBMZ1d0blcwCldIUU1IbWhwY0lHa3F4QlhmOC9t
+            bW9NVFZ4RXVFb2RZcjU3QnJmS2o2cWsKLS0tIGx0amd3NWdSc2VTd0dVSFhBMnFR
+            QU5tZ1V6OXNMV1Y4RVd3SHFIclE0NEkKtWw6rtCbAUGg8fkBCD7tFdRXFIp5W475
+            cr+rDKgbPjrLF8E2amQf+w1ynFImYpspI68wfott1COmB7Fx9Np1Ng==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age1rkkc3rmwczelakcy57fh3schs5qv6488hujf9c9s7zh3jpng6acsxuradu
+    encrypted_regex: ^(data|stringData)$
+    lastmodified: "2026-09-22T02:39:07Z"
+    mac: ENC[AES256_GCM,data:ossPOv4snc3rvO2s1Kov4/oqfPQzubvcsDx1fX9FAZ/Ld2LRCw5mB2HFKeBAEvEer/fH7hm5ln3RJwjeFd8Jn1QzBhPpYvEB0b8I46lyz4ETSBERJXium76rR/t72Nyk2wCGaWXV/tWrfIWZv2HRWzeOaccU9JXtervInJUM8vo=,iv:onv0LpaLi+PLTHbWA02WbLIvDWWzp+MKY17jGLN7mBE=,tag:PAriTyzMbGpaQjEZt+ztXw==,type:str]
+    version: 3.13.3

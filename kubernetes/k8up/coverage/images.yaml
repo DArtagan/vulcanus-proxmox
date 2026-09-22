@@ -1,0 +1,50 @@
+# Updated by ../image-update-automation.yaml.
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: backup-coverage-python
+  namespace: infrastructure
+spec:
+  image: python
+  interval: 24h
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: backup-coverage-python
+  namespace: infrastructure
+spec:
+  imageRepositoryRef:
+    name: backup-coverage-python
+  filterTags:
+    pattern: '^(?P<version>3\.[0-9]+\.[0-9]+)-alpine$'
+    extract: '$version'
+  policy:
+    semver:
+      # The script is stdlib only and its tests run on 3.12, so a minor
+      # Python release is no boundary for it.
+      range: '>=3.14.7 <4.0.0'
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: backup-coverage-restic
+  namespace: infrastructure
+spec:
+  image: restic/restic
+  interval: 24h
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: backup-coverage-restic
+  namespace: infrastructure
+spec:
+  imageRepositoryRef:
+    name: backup-coverage-restic
+  policy:
+    semver:
+      range: '>=0.19.1 <1.0.0'

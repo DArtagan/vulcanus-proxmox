@@ -5,6 +5,8 @@ kind: Kustomization
 # apps Schedule included, leaving apps backed up by nothing while Flux reports
 # Ready. Each object names its own. See docs/backups.md.
 resources:
+  - coverage
+  - image-update-automation.yaml
   - secret-apps.sops.yaml
   - secret-automatic-ripping-machine.sops.yaml
   - secret-infrastructure.sops.yaml
