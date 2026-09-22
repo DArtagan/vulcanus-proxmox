@@ -1889,6 +1889,15 @@ gate and flock from D2 correctly admit each of these: a disc really is present a
 no other job holds the drive. Nothing in the chain asks whether *this disc has
 just failed*.
 
+> **Wrong — corrected 2026-09-22.** Job 32 was not Field of Dreams. It was
+> *The Sylvester and Tweety Mysteries* disc 2 (label `SYLVESTER_TWEETY_MYSTERY_D2`),
+> loaded by hand. It was abandoned in error while in `waiting`, on the assumption
+> it was a retry, without its title being checked — which is the `Received
+> SIGTERM` on its record. It was re-run as job 33, which succeeded. Job 31 is the
+> same disc as job 30 and started 36 seconds after job 30's `TRAY OPEN` error, but
+> nothing recorded whether a person reinserted it. No instance of a failure
+> starting a new job on its own has been observed.
+
 **A failed secondary title discards a good primary one.** The worst of the three,
 because it destroys work that succeeded. ARM selected two titles over
 `MINLENGTH`; title 0 (105.1m, the film) ripped perfectly on both attempts, and
@@ -2089,3 +2098,149 @@ takes effect on the next `tofu apply` made between rips.
    3.96 GB, between 13:36:15 and 14:34:47, about 1.1 MB/s, while every block
    read failed. Whether the fix changes rip speed is open. Don't claim either
    way until a rip has been measured.
+
+### 2026-09-22 — the drive stops answering its SATA link
+
+Observations only, kept for future troubleshooting. No cause has been
+established, and none is proposed here.
+
+Times are UTC unless marked Denver (UTC−6), which is what the host's journal
+uses. `max_sectors=256` from the 2026-09-21 entry was in effect throughout.
+
+#### Sherlock Holmes in the 22nd Century — jobs 37 and 38
+
+- Both inserts logged `Starting ARM for Data Disk on sr0 with File System udf`.
+  They're the only two `Data Disk` lines in the wrapper log. Every other insert
+  since 2026-09-01 logged `Starting ARM for DVD on sr0`, including the ones
+  after it. The job record still reads `disctype: dvd`.
+- **Job 37.** Manual wait began 00:57:12. The wrapper logged six `a job already
+  holds /dev/sr0, skipping` between 01:00:00 and 01:00:04. The job received
+  `SIGTERM` at 01:01:37 while still in `check_for_wait`.
+- **Job 38.** `makemkvcon ... info --cache=1 disc:9999` started 01:11:00. The host
+  logged the sequence below from 01:11:31. At 01:12:32 MakeMKV reported
+  `Internal error - Operation result is incorrect (132)` while reading
+  `BD-RE PIONEER BD-RW BDR-212U 1.01 ALDL017235WL` — the drive, not a file — at
+  offsets 32768, 524288 and 1048576, then `Failed to open disc`, then
+  `Unknown device - '/dev/sr0'`. Exit code 11. This job never logged `Using
+  direct disc access mode`.
+
+Host kernel, Denver time:
+
+```
+19:11:31  ata4.00: exception Emask 0x0 SAct 0x0 SErr 0x0 action 0x6 frozen
+19:11:31  ata4.00: cmd a0/00:00:00:04:00/00:00:00:00:00/a0 tag 9 pio 16388 in
+19:11:31  ata4.00: status: { DRDY }
+19:11:31  ata4: hard resetting link
+19:11:37  ata4: link is slow to respond, please be patient (ready=0)
+          ... hard resetting link / slow to respond, x4 over 55 s ...
+19:12:31  ata4: hardreset failed
+19:12:31  ata4: reset failed, giving up
+19:12:31  ata4.00: disable device
+19:12:32  sr 3:0:0:0: [sr0] ... FAILED Result: hostbyte=DID_BAD_TARGET
+```
+
+#### The drive after the disable
+
+- Every SCSI command to `sr0` returned `DID_BAD_TARGET`. That included
+  `Prevent/Allow Medium Removal` and `Start/Stop Unit 1b 00 00 00 02 00` — an
+  eject — at 19:12:35 and 19:17:39 Denver.
+- `CDROM_DRIVE_STATUS` read `2` (tray open) on both the host and the guest, with
+  the disc physically in a closed tray. There were no `ID_CDROM_MEDIA_*` udev
+  properties.
+- Nothing in the ARM container held `/dev/sr0`, and nothing had it mounted.
+- Reported from the house: the disc wouldn't eject with the drive's own button,
+  the ARM UI's eject button, or `eject /dev/sr0` on the VM.
+
+#### Recovery attempts, in order
+
+1. **Delete and rescan, VM stopped.** With worker-1 drained, VM 911 stopped and
+   nothing holding `/dev/sg3`:
+   `echo 1 > /sys/class/scsi_device/3:0:0:0/device/delete`, then
+   `echo "- - -" > /sys/class/scsi_host/host3/scan`. It failed the same way:
+   `link is slow to respond (ready=0)` x3, `limiting SATA link speed to
+   <unknown>`, `hardreset failed`, `reset failed, giving up`. Neither `/dev/sr0`
+   nor `/dev/optical-drive-sg` came back.
+2. **VM 911 in that state.** `qm showcmd 911` opens
+   `-drive file=/dev/optical-drive-sg`, which did not exist. Starting it wasn't
+   attempted.
+3. **Cold power cycle.** Worked. `poweroff` on the host, at least 30 s fully off,
+   then power on through JetKVM. On boot: `ata4: SATA link up 1.5 Gbps`,
+   `ATAPI: PIONEER BD-RW BDR-212U, 1.01`, `configured for UDMA/100`, and
+   `/dev/optical-drive-sg -> sg3` came back. VM 911 started through `onboot`,
+   and all nodes came up Ready. Worker-1 was still cordoned from the drain
+   until someone uncordoned it.
+
+Checked before the power cycle, for anyone repeating it: every VM and CT had
+`onboot=1`, no vzdump or `zfs send` was running, and `zpool status -x` was
+healthy.
+
+After the power cycle, before anything had opened the drive, the drive's own
+button ejected the Sherlock disc.
+
+#### Around the World in 80 Days — job 39, after the power cycle
+
+- Logged `Starting ARM for DVD on sr0`.
+- The first `makemkvcon` (the info scan, ~04:50) ran with no `ata4` event.
+- The second, the rip, started at 05:11:46. At 05:12:18 the host logged:
+
+  ```
+  ata4.00: exception Emask 0x0 SAct 0x0 SErr 0x0 action 0x6 frozen
+  ata4.00: cmd a0/00:00:00:04:00/00:00:00:00:00/a0 tag 15 pio 16388 in
+  ata4.00: status: { DRDY }
+  ata4: hard resetting link
+  ata4: EH complete
+  ```
+
+  MakeMKV logged `Using direct disc access mode` at 05:12:23. It then ripped
+  7311 MB with no `MSG:2003` read errors.
+- ARM's auto-eject at 06:47:07 (`eject --verbose --cdrom --scsi /dev/sr0`)
+  succeeded. The record shows `ejected: 1`, the drive read `2` afterwards, and the
+  host logged no `sr0` or `ata4` lines around it.
+
+#### The two `ata4` events side by side
+
+| | `makemkvcon` start | `ata4` exception | offset | reset |
+|---|---|---|---|---|
+| job 38, Sherlock | 01:11:00 | 01:11:31 | 31 s | failed, device disabled |
+| job 39, Around the World | 05:11:46 | 05:12:18 | 32 s | `EH complete` within the second |
+
+Both had the same exception line, the same `cmd a0/...` ATAPI packet command
+with a 16,388-byte PIO transfer, and `status: { DRDY }`. Job 39 logged `Using
+direct disc access mode` 5 s after its exception. Job 38 never logged it.
+
+#### Reference data
+
+- **Negotiated link speed** was 1.5 Gbps on every boot checked: 2026-05-04,
+  09-15, 09-16 and 09-21.
+- **Count of `ata4` lines** matching `ata4.*(exception|reset|disable)`: 34 on the
+  boot holding the Sherlock event, and 0 on the boot after the power cycle up to
+  job 39's event.
+- **The 09-16 boot** logged 12 `ata4.00: exception` lines that day. The host
+  booted at 2026-09-15 23:35 and again at 09-16 00:20 Denver. ARM pod `8b4g8`
+  failed `UnexpectedAdmissionError ... no healthy devices` at 09-15 23:39 Denver.
+  Nothing was recorded about why the host booted twice.
+- **Job 19** (An American Tail, exit code 11, 2026-09-01 19:45–19:56 Denver)
+  has no `ata4` or `sr0` kernel lines in its window. The same query returns
+  other kernel lines for that window and finds the 09-21 events, so the empty
+  result is real.
+
+#### Where the evidence lives
+
+- The host's kernel journal persists across boots:
+  `journalctl _TRANSPORT=kernel --since ... --until ...` on vulcanus. Note that
+  `journalctl -k` implies the current boot only.
+- Alloy doesn't ship the guest's kernel log, so `talosctl -n 192.168.0.196
+  dmesg` holds only worker-1's current ring buffer.
+- `qm showcmd 911 --pretty` shows the QEMU arguments actually in use, rather than
+  what Terraform declares.
+- `sr0` on the host is `3:0:0:0`, on `host3`, which is `ata4`.
+  `/dev/optical-drive-sg` is a udev symlink matched on the model string, so it
+  follows the drive to whatever `sg` node it gets.
+
+#### The drive's own button during a job
+
+- `dev.cdrom.lock` is `1` on worker-1.
+- ARM unmounts at the end of `identify()` (`identify.py:93`, via `os.system`, so
+  it never appears in the job log), before `check_for_wait`.
+- During a rip, `makemkvcon` holds `/dev/sr0` open. See the 2026-09-21 entry.
+- What held the drive during job 37's manual wait was not identified.
