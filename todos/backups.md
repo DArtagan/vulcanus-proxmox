@@ -1324,7 +1324,7 @@ is free text, so it can carry the application's name:
 
 | Source | Route | Path |
 |---|---|---|
-| pinepods | Annotation | `/apps-database.pinepods.pgdump` |
+| pinepods | Annotation | `/apps-database.pinepods.sql` |
 | photoprism | Annotation | `/apps-database.photoprism.sql` |
 | salamander | Annotation | `/apps-database.salamander.sql` |
 | headscale | PreBackupPod | `/apps-sqlite.headscale.sqlite` |
@@ -1355,9 +1355,13 @@ dump fails its own Job and leaves the volume Jobs running.
 
 **How each dump is taken:**
 
-- **pinepods:** `pg_dump -Fc -Z0`. Custom format so `pg_restore --list` can verify
-  it in Phase 6's drill; `-Z0` because a compressed dump changes wholesale every
-  run and restic could not deduplicate it.
+- **pinepods:** `pg_dump`, plain SQL. It ends in `-- PostgreSQL database dump
+  complete`, which the coverage check reads to know the dump is whole. A
+  truncated custom-format dump still lists cleanly under `pg_restore --list`, so
+  custom format was given up for this (user's call, 2026-09-22). Like the MariaDB
+  dumps it is uncompressed, so restic can deduplicate it. `pg_dump` 18 brackets it
+  in `\restrict`/`\unrestrict`, so it restores with `psql` 17.6 or later --
+  pinepods' own 18.6 qualifies.
 - **photoprism, salamander:** `mariadb-dump --single-transaction`. InnoDB, so the
   read is consistent without locking. Plain SQL, which deduplicates well.
 - **SQLite:** `sqlite3 <db> ".backup $f"`, then `cat`. The backup API
@@ -1474,7 +1478,7 @@ newest snapshot in the whole repository, which will not contain the file.
 - **Volume:** a K8up `Restore` into a scratch PVC or the original, or
   `restic restore latest --host <ns> --path /data/<pvc>` on the repo host.
 - **Relational:** `restic dump --host apps --path <path> latest <path>`, piped
-  into `pg_restore` or `mariadb`.
+  into `psql` or `mariadb`.
 - **SQLite:** the same `restic dump` into a file. Scale the application to zero,
   put the file in place, and remove its `-wal` and `-shm`.
 
@@ -2071,6 +2075,7 @@ moving the check into `infrastructure/`). It is a third ImageUpdateAutomation, i
 | a volume's newest snapshot over 26 h old; a dump's over 7 h | every excluded claim |
 | an in-scope `ReadWriteMany` claim: every one here is a share | an in-scope claim that has always been empty (`pinepods-backups-pvc`) |
 | a volume that went empty; any empty dump | a snapshot series whose claim or producer is gone, or which is tagged `decommissioned` |
+| a current dump that is not whole: a SQLite copy shorter than its header says, a SQL dump with no completion marker | a dump that could not be read back, or whose SQLite header is not current |
 | an item under half its previous size, from 1 MiB up | a non-zero unreadable-file count on an item's latest run |
 
 Snapshots the repository host takes itself (`restic-repository`) are outside it,
@@ -2089,6 +2094,48 @@ restic took its rest-server credentials from `RESTIC_REST_USERNAME` and
 raise. But a malformed URL -- the Secret's placeholder -- raised `ValueError`
 while the request was still being built, outside the `try`. The failing test
 came first, then the fix.
+
+#### Step 8, the content checks -- 2026-09-22
+
+**Why, and how likely.** After Step 8 was built, the question was whether to
+catch a dump truncated with exit 0. From the dump side, each command runs under
+`set -e` with no pipes, the tools exit non-zero on a failed write, and `test -s`
+refuses an empty file. It would take a bug in a dump tool. From the transport
+side, it has happened: k8up#1109 dropped the last ~1% of dumps with no error
+anywhere, until websocket streaming in `v2.15.0`. What remains is an
+undiscovered bug in that path, or a regression when K8up is upgraded, since the
+chart is bumped by hand and each upgrade is the moment to watch. The size check
+cannot see that pattern: 343 MB to 340 MB is nowhere near its halving floor.
+Likelihood low, impact silent until a restore, and the checks cheap. **User's
+call, 2026-09-22: build checks for all three formats, switching pinepods to plain
+SQL** so that it has one.
+
+**What they read, measured against the real snapshots:**
+
+| Dumps | Check | Cost |
+|---|---|---|
+| the four SQLite copies | the header's page size times page count equals the snapshot summary's byte count | 100 bytes each. Matched exactly on all four |
+| photoprism, salamander, pinepods | a completion marker in the last kilobyte: `-- Dump completed on` or `-- PostgreSQL database dump complete` | the whole dump streamed: 276 MB of MariaDB in 7.3 s read on the repo host |
+
+`pg_dump` 18.6 follows its marker with `\unrestrict <key>`, 118 bytes from the
+end, which is why the check reads a window and not the last line. Streaming
+matters for memory: restic holds the 48 MB index in memory while it reads a
+dump, and peaked at 253 MiB for salamander's. So the container's limit went from
+256 MiB, which would have been OOM-killed, to 1 GiB, and a per-run restic cache
+loads the index once rather than seven times.
+
+**Verified.** 59 tests: the new ones went in first and failed, 42 errors, before
+the code. Run live against the store before committing, the two MariaDB dumps
+and four SQLite copies all read back whole: 0 failing, 11 s, no OOM. pinepods'
+switch was run for real in its database container first: 18.2 MB, exit 0,
+marker present. Its dumps land at a new path, `/apps-database.pinepods.sql`, so
+the old `.pgdump` series will report as "producer gone" for as long as retention
+keeps it.
+
+**(b)'s limit, seen live.** The same run read error counts from 21 items rather
+than 29. worker-1 had begun a graceful shutdown at 03:45:59, and that deletes the
+completed pods on it, logs and all: both dumps Jobs' pods and ARM's. The
+counts are simply absent, and the summary line says how many were read.
 
 #### Two things this phase does not close
 
@@ -2272,7 +2319,7 @@ mini-nas site. Passphrase to the password manager.
   Phase 1; what remains is the restic layer and the external disk.
 - **The automated restore drill**, weekly: restore designated canaries — one Postgres
   dump, one WAL-mode SQLite DB, one config directory — into scratch space and assert
-  integrity (`pg_restore --list` parses, `PRAGMA integrity_check` returns `ok`, a
+  integrity (the Postgres dump loads, `PRAGMA integrity_check` returns `ok`, a
   manifest checksum matches), then ping a check. This is the "0" in 3-2-1-0 and the
   leg nobody builds.
 - Prometheus rules for the in-cluster layer, following the `cronjob-health`
@@ -2333,9 +2380,9 @@ the session become alert rules rather than notes, per the Documentation Protocol
   `--append-only` is doing anything. The repository lands near ~60 GB after the first
   `apps` run **and the second night's delta is small**, which is what says the
   thumbnail caches are a one-time cost rather than nightly churn — `restic stats`
-  twice, not once. And the dumps restore rather than merely exist: `pg_restore
-  --list` parses, the MariaDB dumps load into a scratch database, each SQLite dump
-  returns `ok` from `PRAGMA integrity_check`.
+  twice, not once. And the dumps restore rather than merely exist: each SQL dump
+  loads into a scratch database, and each SQLite dump returns `ok` from `PRAGMA
+  integrity_check`.
 
   The offsite leg has its own: `restic check` against the mini-nas replica with
   `--no-lock` and against `.zfs/snapshot/<latest>/` rather than the live dataset, or

@@ -56,6 +56,10 @@ spec:
               env:
                 - name: PATH
                   value: /tools:/usr/local/bin:/usr/bin:/bin
+                # Each dump read back loads the 48 MB index; a cache for the run
+                # loads it once rather than seven times.
+                - name: RESTIC_CACHE_DIR
+                  value: /cache
                 - name: RESTIC_REPOSITORY
                   # The rest-server every Schedule writes to, from
                   # ../schedule-defaults.yaml. Credentials come from the
@@ -87,20 +91,27 @@ spec:
                 capabilities:
                   drop:
                     - ALL
+              # restic holds the repository's index in this container's memory
+              # while it reads a dump back: 253 MiB at its peak for salamander's,
+              # with the repository at 302 GB. The limit leaves room to grow.
               resources:
                 requests:
                   cpu: 10m
-                  memory: 64Mi
+                  memory: 320Mi
                 limits:
-                  memory: 256Mi
+                  memory: 1Gi
               volumeMounts:
                 - name: script
                   mountPath: /script
                 - name: tools
                   mountPath: /tools
+                - name: cache
+                  mountPath: /cache
           volumes:
             - name: script
               configMap:
                 name: backup-coverage
             - name: tools
+              emptyDir: {}
+            - name: cache
               emptyDir: {}

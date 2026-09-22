@@ -17,9 +17,15 @@ non-zero; reports print and ride along in the ping's body. An excluded claim, or
 a retired application's last snapshot, is a statement rather than a failure --
 failing on it would make this the always-on warning docs/README.md warns against.
 
+Each current dump is also read back from the store to see that it is whole:
+a SQLite copy's header states its own length, and a SQL dump ends in a
+completion marker. k8up#1109 once dropped the last ~1% of dumps with no error
+anywhere, well inside what a size comparison can see.
+
 Restic's count of unreadable files exists only in each backup Job's log, so it
 is read from there, and only reports: files deleted mid-scan count too, and a
-Job's pods go when K8up prunes its history. See docs/backups.md.
+Job's pods go when K8up prunes its history or their node restarts. See
+docs/backups.md.
 """
 
 import json
@@ -60,6 +66,17 @@ SHRINK_FLOOR_BYTES = 1 << 20
 REPOSITORY_HOSTS = frozenset({"restic-repository"})
 # The tag the repository host's prune keeps forever. See docs/backups.md.
 DECOMMISSIONED = "decommissioned"
+
+# The first 100 bytes of a SQLite file are its header.
+SQLITE_HEADER_BYTES = 100
+SQLITE_MAGIC = b"SQLite format 3\x00"
+# pg_dump 18 follows its marker with an \unrestrict line, 118 bytes from the end
+# of the pinepods dump; mariadb-dump's is its last line. A kilobyte covers both.
+TRAILER_WINDOW_BYTES = 1024
+SQL_COMPLETION_MARKERS = (
+    b"-- Dump completed on ",
+    b"-- PostgreSQL database dump complete",
+)
 
 # healthchecks keeps the first 100 kB of a ping's body.
 PING_BODY_BYTES = 100_000
@@ -240,6 +257,55 @@ def parse_job_log(text: str) -> dict[str, int]:
     return errors
 
 
+def content_kind(path: str) -> str | None:
+    """Name the content check a dump's path calls for, by its extension."""
+    if path.endswith(".sqlite"):
+        return "sqlite"
+    if path.endswith(".sql"):
+        return "sql"
+    return None
+
+
+def sqlite_header_verdict(
+    header: bytes, size: int | None
+) -> tuple[str | None, str | None]:
+    """Compare a SQLite copy's stated length with the bytes the snapshot holds.
+
+    The header records the page size and, while its version-valid-for number
+    matches the change counter, the database's length in pages -- so a copy
+    cut short is shorter than its own header says. `.backup` writes a current
+    header, so a stale one is reported rather than guessed around.
+    """
+    if len(header) < SQLITE_HEADER_BYTES:
+        return f"only {len(header)} bytes, not even a SQLite header", None
+    if not header.startswith(SQLITE_MAGIC):
+        return "not a SQLite database", None
+    raw_page_size = int.from_bytes(header[16:18], "big")
+    page_size = 65536 if raw_page_size == 1 else raw_page_size
+    change_counter = int.from_bytes(header[24:28], "big")
+    pages = int.from_bytes(header[28:32], "big")
+    valid_for = int.from_bytes(header[92:96], "big")
+    if valid_for != change_counter:
+        return None, "could not verify: the header's page count is not current"
+    expected = page_size * pages
+    if size is not None and size != expected:
+        return (
+            f"the header says {expected} bytes, the snapshot holds {size}",
+            None,
+        )
+    return None, None
+
+
+def sql_trailer_verdict(tail: bytes) -> tuple[str | None, str | None]:
+    """Look for mariadb-dump's or pg_dump's completion marker at the end."""
+    if any(marker in tail for marker in SQL_COMPLETION_MARKERS):
+        return None, None
+    return (
+        f"no completion marker in its last {TRAILER_WINDOW_BYTES} bytes -- cut short?",
+        None,
+    )
+
+
 def _shrank(held: Series) -> bool:
     return (
         held.size is not None
@@ -287,17 +353,10 @@ def _judge_volume(
     return _volume_contents(name, held)
 
 
-def _judge_dump(
-    name: str, producer: Producer, held: Series | None, now: int
+def _dump_contents(
+    name: str, held: Series, content: tuple[str | None, str | None]
 ) -> tuple[str | None, str | None]:
-    """Return (problem, report) for one dump. A dump is never rightly empty."""
-    if held is None:
-        if _hours(now, producer.created) < NEW_GRACE_HOURS:
-            return None, f"{name}: new, awaiting its first dump ({producer.source})"
-        return f"{name}: never dumped ({producer.source})", None
-    age = _hours(now, held.newest)
-    if age > DUMP_MAX_AGE_HOURS:
-        return f"{name}: newest dump {age}h old, limit {DUMP_MAX_AGE_HOURS}h", None
+    """Judge what a current dump holds: never empty, not halved, and whole."""
     if held.size == 0:
         return f"{name}: the newest dump is empty", None
     if _shrank(held):
@@ -305,7 +364,29 @@ def _judge_dump(
             f"{name}: shrank from {held.previous_size} to {held.size} bytes "
             "between its last two dumps"
         ), None
-    return None, None
+    problem, report = content
+    return (
+        f"{name}: {problem}" if problem else None,
+        f"{name}: {report}" if report else None,
+    )
+
+
+def _judge_dump(
+    name: str,
+    producer: Producer,
+    held: Series | None,
+    now: int,
+    content: tuple[str | None, str | None],
+) -> tuple[str | None, str | None]:
+    """Return (problem, report) for one dump; at most one of each."""
+    if held is None:
+        if _hours(now, producer.created) < NEW_GRACE_HOURS:
+            return None, f"{name}: new, awaiting its first dump ({producer.source})"
+        return f"{name}: never dumped ({producer.source})", None
+    age = _hours(now, held.newest)
+    if age > DUMP_MAX_AGE_HOURS:
+        return f"{name}: newest dump {age}h old, limit {DUMP_MAX_AGE_HOURS}h", None
+    return _dump_contents(name, held, content)
 
 
 def _orphan_report(held: Series, now: int) -> str:
@@ -323,12 +404,16 @@ def _orphan_report(held: Series, now: int) -> str:
     return f"{held.host} dump {held.path}: producer gone, newest dump {age}h old"
 
 
-def classify(
+# Each argument is a separate source the verdicts read; bundling them would hide
+# which one a test varies.
+def classify(  # noqa: PLR0913
     claims: Iterable[Claim],
     producers: Iterable[Producer],
     held: Mapping[tuple[str, str], Series],
+    *,
     now: int,
     item_errors: Mapping[tuple[str, str], int],
+    dump_contents: Mapping[tuple[str, str], tuple[str | None, str | None]],
 ) -> tuple[list[str], list[str]]:
     """Sort every claim, dump and snapshot series into failures and reports.
 
@@ -373,6 +458,7 @@ def classify(
                 producer,
                 held.get(key),
                 now,
+                dump_contents.get(key, (None, None)),
             )
         )
 
@@ -410,7 +496,7 @@ def collect_snapshots() -> dict[tuple[str, str], Series]:
     lock file left by a killed run would be one more thing to clean up.
     """
     result = subprocess.run(
-        ["restic", "snapshots", "--json", "--no-lock", "--no-cache"],
+        ["restic", "snapshots", "--json", "--no-lock"],
         capture_output=True,
         check=False,
         timeout=300,
@@ -420,6 +506,76 @@ def collect_snapshots() -> dict[tuple[str, str], Series]:
         message = f"restic snapshots exited {result.returncode}: {stderr}"
         raise RuntimeError(message)
     return parse_snapshots(result.stdout)
+
+
+def _dump_command(host: str, path: str) -> list[str]:
+    return [
+        "restic",
+        "dump",
+        "--no-lock",
+        "--host",
+        host,
+        "--path",
+        path,
+        "latest",
+        path,
+    ]
+
+
+def _dump_head(host: str, path: str, count: int) -> bytes:
+    """Read the first bytes of an item's newest snapshot, then stop restic."""
+    with subprocess.Popen(
+        _dump_command(host, path), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+    ) as process:
+        head = process.stdout.read(count)
+        process.kill()
+    return head
+
+
+def _dump_tail(host: str, path: str, count: int) -> bytes:
+    """Stream an item's newest snapshot and keep only its last bytes.
+
+    Streamed rather than read whole: salamander's dump is 203 MB, and restic
+    itself already holds the index in this container's memory.
+    """
+    tail = b""
+    with subprocess.Popen(
+        _dump_command(host, path), stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    ) as process:
+        while chunk := process.stdout.read(1 << 20):
+            tail = (tail + chunk)[-count:]
+        stderr = process.stderr.read().decode().strip()
+    if process.returncode != 0:
+        message = f"restic dump exited {process.returncode}: {stderr}"
+        raise RuntimeError(message)
+    return tail
+
+
+def inspect_dumps(
+    producers: Iterable[Producer], held: Mapping[tuple[str, str], Series]
+) -> dict[tuple[str, str], tuple[str | None, str | None]]:
+    """Read each current dump back from the store and judge whether it is whole.
+
+    A dump that cannot be read at all is reported: which snapshots the store
+    can serve is the weekly Check's question, not this one's.
+    """
+    contents = {}
+    for producer in producers:
+        key = (producer.namespace, producer.path)
+        series = held.get(key)
+        kind = content_kind(producer.path)
+        if series is None or kind is None:
+            continue
+        try:
+            if kind == "sqlite":
+                head = _dump_head(series.host, series.path, SQLITE_HEADER_BYTES)
+                contents[key] = sqlite_header_verdict(head, series.size)
+            else:
+                tail = _dump_tail(series.host, series.path, TRAILER_WINDOW_BYTES)
+                contents[key] = sql_trailer_verdict(tail)
+        except (OSError, RuntimeError) as error:
+            contents[key] = (None, f"could not read it back to check: {error}")
+    return contents
 
 
 def collect_item_errors() -> dict[tuple[str, str], int]:
@@ -501,7 +657,12 @@ def main() -> int:
         extra.append(f"could not read restic's per-item error counts: {error}")
 
     problems, reports = classify(
-        claims, producers, held, now=int(time.time()), item_errors=item_errors
+        claims,
+        producers,
+        held,
+        now=int(time.time()),
+        item_errors=item_errors,
+        dump_contents=inspect_dumps(producers, held),
     )
     reports.extend(extra)
 

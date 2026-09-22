@@ -24,6 +24,8 @@ HOUR = 3600
 NOW = 1_790_000_000
 FRESH = NOW - HOUR
 OLD = NOW - 40 * HOUR
+# SQLite writes its largest page size, 65536, into the header as 1.
+LARGEST_PAGE = 65536
 
 
 def claim(
@@ -80,6 +82,7 @@ def verdicts(
     producers: list[backup_coverage.Producer],
     held: list[backup_coverage.Series],
     errors: dict[tuple[str, str], int] | None = None,
+    contents: dict[tuple[str, str], tuple[str | None, str | None]] | None = None,
 ) -> tuple[list[str], list[str]]:
     return backup_coverage.classify(
         claims,
@@ -87,7 +90,21 @@ def verdicts(
         {(s.host, s.path): s for s in held},
         now=NOW,
         item_errors=errors or {},
+        dump_contents=contents or {},
     )
+
+
+def sqlite_header(
+    page_size: int, pages: int, *, valid_for: int = 7, change_counter: int = 7
+) -> bytes:
+    """Build the 100-byte header SQLite writes, with the fields the check reads."""
+    header = bytearray(100)
+    header[0:16] = b"SQLite format 3\x00"
+    header[16:18] = (1 if page_size == LARGEST_PAGE else page_size).to_bytes(2, "big")
+    header[24:28] = change_counter.to_bytes(4, "big")
+    header[28:32] = pages.to_bytes(4, "big")
+    header[92:96] = valid_for.to_bytes(4, "big")
+    return bytes(header)
 
 
 class SnapshotParsing(unittest.TestCase):
@@ -624,6 +641,115 @@ class TheEstateAsMeasured(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ContentChecks(unittest.TestCase):
+    """Whether a dump is whole, read from the store rather than its size alone.
+
+    k8up#1109 lost the last ~1% of dumps silently: 343 MB became 340 MB, far
+    inside the size check's halving floor. Each format says for itself where
+    its end is, and these read that.
+    """
+
+    PLEX_SIZE = 1024 * 86119  # the Plex copy measured on 2026-09-22
+
+    def test_a_sqlite_copy_whose_header_matches_its_size_is_whole(self) -> None:
+        verdict = backup_coverage.sqlite_header_verdict(
+            sqlite_header(1024, 86119), self.PLEX_SIZE
+        )
+        self.assertEqual(verdict, (None, None))
+
+    def test_a_sqlite_copy_shorter_than_its_header_says_fails(self) -> None:
+        problem, _ = backup_coverage.sqlite_header_verdict(
+            sqlite_header(1024, 86119), self.PLEX_SIZE - 3_000_000
+        )
+        self.assertIn(str(self.PLEX_SIZE), problem)
+
+    def test_the_largest_page_size_is_written_as_one(self) -> None:
+        verdict = backup_coverage.sqlite_header_verdict(
+            sqlite_header(LARGEST_PAGE, 10), 10 * LARGEST_PAGE
+        )
+        self.assertEqual(verdict, (None, None))
+
+    def test_something_that_is_not_sqlite_fails(self) -> None:
+        problem, _ = backup_coverage.sqlite_header_verdict(b"-- a sql file" * 10, 130)
+        self.assertIn("not a SQLite", problem)
+
+    def test_a_header_cut_short_fails(self) -> None:
+        problem, _ = backup_coverage.sqlite_header_verdict(
+            sqlite_header(4096, 22)[:40], 90112
+        )
+        self.assertIn("header", problem)
+
+    def test_a_header_whose_page_count_is_stale_reports_rather_than_guessing(
+        self,
+    ) -> None:
+        verdict = backup_coverage.sqlite_header_verdict(
+            sqlite_header(4096, 22, valid_for=6, change_counter=7), 90112
+        )
+        self.assertIsNone(verdict[0])
+        self.assertIn("could not verify", verdict[1])
+
+    def test_a_mariadb_dump_ending_in_its_trailer_is_whole(self) -> None:
+        tail = b"UNLOCK TABLES;\n\n-- Dump completed on 2026-09-22  1:00:39\n"
+        self.assertEqual(backup_coverage.sql_trailer_verdict(tail), (None, None))
+
+    def test_a_postgres_dump_with_its_unrestrict_after_the_marker_is_whole(
+        self,
+    ) -> None:
+        # pg_dump 18.6: the marker is followed by \unrestrict, 118 bytes from
+        # the end of the real pinepods dump.
+        tail = (
+            b"\n\n--\n-- PostgreSQL database dump complete\n--\n\n"
+            b"\\unrestrict AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcdefghijklmnopq\n\n"
+        )
+        self.assertEqual(backup_coverage.sql_trailer_verdict(tail), (None, None))
+
+    def test_a_sql_dump_cut_off_mid_row_fails(self) -> None:
+        tail = b"INSERT INTO `photos` VALUES (1,'2019-04-01','IMG_0"
+        problem, _ = backup_coverage.sql_trailer_verdict(tail)
+        self.assertIn("completion marker", problem)
+
+    def test_the_check_follows_the_extension(self) -> None:
+        kind = backup_coverage.content_kind
+        self.assertEqual(kind("/apps-sqlite.plex.sqlite"), "sqlite")
+        self.assertEqual(kind("/apps-database.pinepods.sql"), "sql")
+        self.assertEqual(kind("/apps-database.salamander.sql"), "sql")
+        self.assertIsNone(kind("/apps-database.pinepods.pgdump"))
+        self.assertIsNone(kind("/data/plex-config-pvc"))
+
+    def test_a_current_dump_that_is_not_whole_fails(self) -> None:
+        path = "/apps-x.sql"
+        problems, _ = verdicts(
+            [],
+            [producer(path)],
+            [series(path)],
+            contents={("apps", path): ("no completion marker", None)},
+        )
+        self.assertEqual(len(problems), 1)
+        self.assertIn("no completion marker", problems[0])
+
+    def test_a_stale_dump_fails_once_not_twice(self) -> None:
+        path = "/apps-x.sql"
+        problems, _ = verdicts(
+            [],
+            [producer(path)],
+            [series(path, newest=NOW - 8 * HOUR)],
+            contents={("apps", path): ("no completion marker", None)},
+        )
+        self.assertEqual(len(problems), 1)
+        self.assertIn("8h", problems[0])
+
+    def test_a_content_report_rides_along(self) -> None:
+        path = "/apps-x.sqlite"
+        problems, reports = verdicts(
+            [],
+            [producer(path)],
+            [series(path)],
+            contents={("apps", path): (None, "could not verify the header")},
+        )
+        self.assertEqual(problems, [])
+        self.assertIn("could not verify", reports[0])
 
 
 class PingNeverRaises(unittest.TestCase):
