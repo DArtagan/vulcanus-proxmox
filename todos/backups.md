@@ -29,7 +29,7 @@ Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
 | A | Record the spec, open the review | **done** 2026-09-01 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3) |
 | 0 | Stop the bleeding — replication, retention, scrub | **done 2026-09-03.** Key escrow, retention, scrub, monitoring on both hosts, prune and diverged-dataset repair (30,404 → 1,083 snapshots, 89% → **76%**, **2.32 TiB reclaimed**), with the five datasets re-seeded — `syncoid-vulcanus-data` completed with zero errors for the first time since 2026-01-14 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3), merged 2026-09-18 |
 | 1 | Reclaim — dead guests, orphans | **done 2026-09-18.** Five orphaned datasets, guests 100/101/106, `rpool/rancheros`, three replicas, four PVCs, seven hostpath dirs and three PBS groups destroyed; vulcanus 28.3→**27.7 T**, mini-nas 77→**73%**, worker-0 **25.1 GiB** back. `zfs-replication-freshness` **green for the first time since inception**; `pbs-freshness` built and deployed here rather than in Phase 6, reports 5→2, zero failures — [PR #11](https://github.com/DArtagan/vulcanus-proxmox/pull/11) |
-| 2 | Application backups — K8up + restic | **in progress**, opened 2026-09-20 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13). **Steps 0–4 done 2026-09-21:** exclusions live (no RWX claim in scope), repo LXC 108 on NixOS serving append-only (403 on `forget` through the URL, proven), escrow complete, mass-file first run done (296.6 GiB in 2 h 09 m, 247.6 GiB stored), K8up operator installed with no Schedules. **Step 5 done 2026-09-21:** all seven dumps (annotations for the relational databases, PreBackupPods for SQLite) taken by one-off dumps-only Backups and verified in the store. **Every Schedule must set `runAsUser: 0`**: as K8up's default uid 65532 the Job cannot read 13 of 22 volumes, and reports Succeeded anyway (see *Checked against K8up #910 and #1032*). **Step 6 done 2026-09-21:** ARM canary backed up and restored byte-identical, the first restore this estate has done; its Schedule is live. **Step 7:** first full runs of `apps` (20 PVCs, 66.1 GB read, 0 errors, 99 min) and `infrastructure` taken by hand; all five Schedules live; the first scheduled night succeeded (`apps` incremental in 78 s). **Step 8 built 2026-09-22:** the coverage CronJob, run live against the cluster, both directions; awaits its healthchecks check and deploy. Next: deploy step 8, then step 9 |
+| 2 | Application backups — K8up + restic | **in progress**, opened 2026-09-20 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13). **Steps 0–4 done 2026-09-21:** exclusions live (no RWX claim in scope), repo LXC 108 on NixOS serving append-only (403 on `forget` through the URL, proven), escrow complete, mass-file first run done (296.6 GiB in 2 h 09 m, 247.6 GiB stored), K8up operator installed with no Schedules. **Step 5 done 2026-09-21:** all seven dumps (annotations for the relational databases, PreBackupPods for SQLite) taken by one-off dumps-only Backups and verified in the store. **Every Schedule must set `runAsUser: 0`**: as K8up's default uid 65532 the Job cannot read 13 of 22 volumes, and reports Succeeded anyway (see *Checked against K8up #910 and #1032*). **Step 6 done 2026-09-21:** ARM canary backed up and restored byte-identical, the first restore this estate has done; its Schedule is live. **Step 7:** first full runs of `apps` (20 PVCs, 66.1 GB read, 0 errors, 99 min) and `infrastructure` taken by hand; all five Schedules live; the first scheduled night succeeded (`apps` incremental in 78 s). **Step 8 done 2026-09-22:** the coverage CronJob is live and pinging `backup-coverage`, reading every dump back whole (pinepods now plain SQL); 0 failing, 19 reported. Next: step 9 |
 | 2b | Delete the borg tree, after a restore is proven | not started |
 | 3 | Performance — drop the OpenEBS disks from vzdump | not started |
 | 4 | Platform images offsite — PBS #2 + sync | not started; **gated on the mini-nas disks** |
@@ -2139,6 +2139,28 @@ keeps it.
 than 29. worker-1 had begun a graceful shutdown at 03:45:59, and that deletes the
 completed pods on it, logs and all: both dumps Jobs' pods and ARM's. The
 counts are simply absent, and the summary line says how many were read.
+
+#### Step 8, deployed -- 2026-09-22
+
+Deployed at 04:49 UTC; pinepods rolled onto the plain-SQL command. A run
+triggered by hand from the CronJob exited 0 in 15 s and pinged `backup-coverage`.
+It reported pinepods' new `.sql` dump as awaiting its first run and the old
+`.pgdump` series as "producer gone". A one-off dumps-only Backup then took the
+first plain dump, and the next run read it back whole. The four `.pgdump`
+snapshots (`9dfe219a`, `9168139e`, `f0aec5c8`, `19c5e339`) were then forgotten
+on the repository host at 04:53 UTC (user's call, 2026-09-22), with no K8up Job
+running and neither host job active. Their data goes at the next monthly prune.
+The run after that is the baseline: **22 claims in scope, 7 dumps, 0 failing, 19
+reported**. Both ImagePolicies resolved to the pinned tags, `3.14.7-alpine` and
+`0.19.1`.
+
+**Both workers rebooted at about 04:10 UTC**, worker-0 as well as worker-1, and
+the first run read error counts from 0 items. Every completed backup pod had
+gone with its log. The counts return with the next backup's pods, and the
+summary line says how many were read. A check of the log RBAC on the way,
+`kubectl auth can-i get pods/log`, answered "no". That was the check's fault,
+not the role's: the form parses as a pod named `log`. `--subresource=log`
+answers "yes".
 
 #### Two things this phase does not close
 
