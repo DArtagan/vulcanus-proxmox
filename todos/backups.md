@@ -29,7 +29,7 @@ Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
 | A | Record the spec, open the review | **done** 2026-09-01 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3) |
 | 0 | Stop the bleeding — replication, retention, scrub | **done 2026-09-03.** Key escrow, retention, scrub, monitoring on both hosts, prune and diverged-dataset repair (30,404 → 1,083 snapshots, 89% → **76%**, **2.32 TiB reclaimed**), with the five datasets re-seeded — `syncoid-vulcanus-data` completed with zero errors for the first time since 2026-01-14 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3), merged 2026-09-18 |
 | 1 | Reclaim — dead guests, orphans | **done 2026-09-18.** Five orphaned datasets, guests 100/101/106, `rpool/rancheros`, three replicas, four PVCs, seven hostpath dirs and three PBS groups destroyed; vulcanus 28.3→**27.7 T**, mini-nas 77→**73%**, worker-0 **25.1 GiB** back. `zfs-replication-freshness` **green for the first time since inception**; `pbs-freshness` built and deployed here rather than in Phase 6, reports 5→2, zero failures — [PR #11](https://github.com/DArtagan/vulcanus-proxmox/pull/11) |
-| 2 | Application backups — K8up + restic | **in progress**, opened 2026-09-20 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13). **Steps 0–4 done 2026-09-21:** exclusions live (no RWX claim in scope), repo LXC 108 on NixOS serving append-only (403 on `forget` through the URL, proven), escrow complete, mass-file first run done (296.6 GiB in 2 h 09 m, 247.6 GiB stored), K8up operator installed with no Schedules. **Step 5 done 2026-09-21:** all seven dumps (annotations for the relational databases, PreBackupPods for SQLite) taken by one-off dumps-only Backups and verified in the store. **Every Schedule must set `runAsUser: 0`**: as K8up's default uid 65532 the Job cannot read 13 of 22 volumes, and reports Succeeded anyway (see *Checked against K8up #910 and #1032*). **Step 6 written 2026-09-21:** ARM canary backed up and restored byte-identical, the first restore this estate has done; its Schedule awaits deploy. Next: deploy step 6, verify its 02:00 UTC run, then step 7 |
+| 2 | Application backups — K8up + restic | **in progress**, opened 2026-09-20 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13). **Steps 0–4 done 2026-09-21:** exclusions live (no RWX claim in scope), repo LXC 108 on NixOS serving append-only (403 on `forget` through the URL, proven), escrow complete, mass-file first run done (296.6 GiB in 2 h 09 m, 247.6 GiB stored), K8up operator installed with no Schedules. **Step 5 done 2026-09-21:** all seven dumps (annotations for the relational databases, PreBackupPods for SQLite) taken by one-off dumps-only Backups and verified in the store. **Every Schedule must set `runAsUser: 0`**: as K8up's default uid 65532 the Job cannot read 13 of 22 volumes, and reports Succeeded anyway (see *Checked against K8up #910 and #1032*). **Step 6 done 2026-09-21:** ARM canary backed up and restored byte-identical, the first restore this estate has done; its Schedule is live. **Step 7:** first full runs of `apps` (20 PVCs, 66.1 GB read, 0 errors, 99 min) and `infrastructure` taken by hand; the five Schedules await deploy. Next: deploy step 7, check the first scheduled night (01:00, 01:30, 02:00 UTC), then step 8 |
 | 2b | Delete the borg tree, after a restore is proven | not started |
 | 3 | Performance — drop the OpenEBS disks from vzdump | not started |
 | 4 | Platform images offsite — PBS #2 + sync | not started; **gated on the mini-nas disks** |
@@ -1882,6 +1882,53 @@ the Schedule file. `kubernetes/k8up/schedule-defaults.yaml` holds them, and
 `kustomization.yaml` patches it onto every `kind: Schedule`. That makes the
 byte-identical repository string a property of the build, not of care taken in
 three files. The rendered Schedule passed a server-side dry run.
+
+#### Step 7, the first full runs -- 2026-09-21
+
+**`apps`, by hand, 21:05-22:45 UTC.** A one-off `Backup` with the Schedules'
+backend string, started once the scope was re-checked on the live objects: 20
+PVCs, all on worker-0, none RWX. It ran two Jobs. The dumps Job took 39 s for
+all six dumps. The volume Job was pinned to worker-0, mounted all 20 PVCs in one
+pod and backed them up one after another, in name order, in 99 minutes:
+
+| | Files | Read | Added | Time |
+|---|---|---|---|---|
+| `photoprism-data` | 324,931 | 26.4 GB | 26.4 GB | 49 min |
+| `salamander-data` | 327,372 | 27.8 GB | 26.8 GB | 42 min |
+| `plex-config` | 24,625 | 8.7 GB | 3.5 GB | 6 min |
+| the other 17 | 3,973 | 3.1 GB | 2.8 GB | 2 min |
+| **all 20** | **680,901** | **66.1 GB** | **59.4 GB** | 99 min |
+
+**0 errors on every PVC**, and no `during scan` or `during archival` line in the
+log. Plex reads 8.7 GB but adds 3.5 GB, near the 3.27 GB its volume occupies,
+so the difference is duplicate content that restic stores once. The repository
+is 302 GB on disk after this run.
+
+**The `runAsUser: 0` check, from the store.** Every file the readability probe
+found closed to 65532 is in the snapshots: `noise_private.key`, syncthing's
+`key.pem` and `cert.pem`, headplane's `tailscaled.state`, both PhotoPrism
+`signing.key`s, RustDesk's `RustDesk.toml`, speedtest's `cert.key` and Plex's
+`.LocalAdminToken`. The counts match the probe exactly: syncthing's 24 entries,
+and 1,570 under pinepods' `pgdata`.
+
+**etcd, against a control taken just before:** WAL fsync p99, sampled every 2
+minutes, averaged 0.368 s (control 0.241 s), median 0.294 s, peak 1.745 s.
+That is milder than the first mass-file run (0.651 s mean, 1.912 s peak), and
+`etcdHighFsyncDurations` did not fire. `KubeAPIErrorBudgetBurn` (warning) was
+firing, but it had gone pending at 18:48 and started firing at 20:55, both
+before this run began. It is a slow-burn alert over 6-hour and 3-day windows.
+
+**`infrastructure`, by hand, straight after.** Grafana's volume: 994 files,
+755 MB, 0 errors, `grafana.db` and the `png`, `csv` and `pdf` directories
+included. Its dump ran too.
+
+**The Schedules**, exactly as *Every K8up backup route* decided. `apps`:
+`full` at 01:00, carrying the weekly `Check` (Sunday 03:00), and `dumps` at
+07:00, 13:00 and 19:00. `infrastructure`: `full` at 01:30 and `dumps` at
+07:30, 13:30 and 19:30. ARM's `full` stays at 02:00. All five render with
+one identical backend block, from the shared patch, and `runAsUser: 0`, and all
+five pass a server-side dry run. With every first run taken by hand, the
+Schedules' first night is incremental.
 
 #### Escrow, including what Phase 0 left open -- done 2026-09-21
 
