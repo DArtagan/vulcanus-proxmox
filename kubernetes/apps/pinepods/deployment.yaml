@@ -22,16 +22,18 @@ spec:
         # Dumped beside its server over the local socket, into a file of this
         # run's own that is checked before a byte is streamed: a failed dump
         # streams nothing, and overlapping Backups cannot read each other's
-        # half-written file. See docs/backups.md.
+        # half-written file. Plain SQL rather than custom format: it ends in a
+        # completion marker the coverage check reads, where a truncated
+        # custom-format dump still lists cleanly. See docs/backups.md.
         k8up.io/backupcommand: >-
           sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT;
-          pg_dump -U postgres -d "$POSTGRES_DB" -Fc -Z0 -f "$f";
+          pg_dump -U postgres -d "$POSTGRES_DB" -f "$f";
           test -s "$f"; cat "$f"'
         k8up.io/backupcommand-container: database
         # K8up names a dump /<namespace>-<container><extension>, and every
         # database container here is called `database`, so the extension carries
         # the application's name or the dumps overwrite each other's history.
-        k8up.io/file-extension: .pinepods.pgdump
+        k8up.io/file-extension: .pinepods.sql
     spec:
       containers:
         - name: pinepods
