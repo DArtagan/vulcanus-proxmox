@@ -150,6 +150,11 @@ kubectl get sc -o custom-columns='NAME:.metadata.name,RECLAIM:.reclaimPolicy'
 kubectl get sts <name> -n <ns> -o jsonpath='{.spec.persistentVolumeClaimRetentionPolicy}'
 ```
 
+**Tag its final restic snapshots `decommissioned` before the claims go.** Once a
+workload stops being backed up, its snapshots age out on the ordinary retention
+windows, and months later is exactly when they are wanted. The tag keeps them
+through every prune. See *Retention* in [`backups.md`](backups.md) for the command.
+
 ## Versions and automation
 
 - **Chart versions are automated where the chart is published as an OCI

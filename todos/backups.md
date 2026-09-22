@@ -29,7 +29,7 @@ Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
 | A | Record the spec, open the review | **done** 2026-09-01 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3) |
 | 0 | Stop the bleeding — replication, retention, scrub | **done 2026-09-03.** Key escrow, retention, scrub, monitoring on both hosts, prune and diverged-dataset repair (30,404 → 1,083 snapshots, 89% → **76%**, **2.32 TiB reclaimed**), with the five datasets re-seeded — `syncoid-vulcanus-data` completed with zero errors for the first time since 2026-01-14 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3), merged 2026-09-18 |
 | 1 | Reclaim — dead guests, orphans | **done 2026-09-18.** Five orphaned datasets, guests 100/101/106, `rpool/rancheros`, three replicas, four PVCs, seven hostpath dirs and three PBS groups destroyed; vulcanus 28.3→**27.7 T**, mini-nas 77→**73%**, worker-0 **25.1 GiB** back. `zfs-replication-freshness` **green for the first time since inception**; `pbs-freshness` built and deployed here rather than in Phase 6, reports 5→2, zero failures — [PR #11](https://github.com/DArtagan/vulcanus-proxmox/pull/11) |
-| 2 | Application backups — K8up + restic | **in progress**, opened 2026-09-20 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13). **Steps 0–4 done 2026-09-21:** exclusions live (no RWX claim in scope), repo LXC 108 on NixOS serving append-only (403 on `forget` through the URL, proven), escrow complete, mass-file first run done (296.6 GiB in 2 h 09 m, 247.6 GiB stored), K8up operator installed with no Schedules. **Step 5 done 2026-09-21:** all seven dumps (annotations for the relational databases, PreBackupPods for SQLite) taken by one-off dumps-only Backups and verified in the store. **Every Schedule must set `runAsUser: 0`**: as K8up's default uid 65532 the Job cannot read 13 of 22 volumes, and reports Succeeded anyway (see *Checked against K8up #910 and #1032*). **Step 6 done 2026-09-21:** ARM canary backed up and restored byte-identical, the first restore this estate has done; its Schedule is live. **Step 7:** first full runs of `apps` (20 PVCs, 66.1 GB read, 0 errors, 99 min) and `infrastructure` taken by hand; all five Schedules live; the first scheduled night succeeded (`apps` incremental in 78 s). **Step 8 done 2026-09-22:** the coverage CronJob is live and pinging `backup-coverage`, reading every dump back whole (pinepods now plain SQL); 0 failing, 19 reported. Next: step 9 |
+| 2 | Application backups — K8up + restic | **in progress**, opened 2026-09-20 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13). **Steps 0–4 done 2026-09-21:** exclusions live (no RWX claim in scope), repo LXC 108 on NixOS serving append-only (403 on `forget` through the URL, proven), escrow complete, mass-file first run done (296.6 GiB in 2 h 09 m, 247.6 GiB stored), K8up operator installed with no Schedules. **Step 5 done 2026-09-21:** all seven dumps (annotations for the relational databases, PreBackupPods for SQLite) taken by one-off dumps-only Backups and verified in the store. **Every Schedule must set `runAsUser: 0`**: as K8up's default uid 65532 the Job cannot read 13 of 22 volumes, and reports Succeeded anyway (see *Checked against K8up #910 and #1032*). **Step 6 done 2026-09-21:** ARM canary backed up and restored byte-identical, the first restore this estate has done; its Schedule is live. **Step 7:** first full runs of `apps` (20 PVCs, 66.1 GB read, 0 errors, 99 min) and `infrastructure` taken by hand; all five Schedules live; the first scheduled night succeeded (`apps` incremental in 78 s). **Step 8 done 2026-09-22:** the coverage CronJob is live and pinging `backup-coverage`, reading every dump back whole (pinepods now plain SQL); 0 failing, 19 reported. **Step 9 done 2026-09-22:** syncthing's identity restored exact; `docs/backups.md`, `docs/nixos.md` and the kubernetes/tailnet entries written; no homepage entry, as nothing added has a web UI. Next: step 10, offsite, in `~/repositories/mini-nas` |
 | 2b | Delete the borg tree, after a restore is proven | not started |
 | 3 | Performance — drop the OpenEBS disks from vzdump | not started |
 | 4 | Platform images offsite — PBS #2 + sync | not started; **gated on the mini-nas disks** |
@@ -2161,6 +2161,46 @@ summary line says how many were read. A check of the log RBAC on the way,
 `kubectl auth can-i get pods/log`, answered "no". That was the check's fault,
 not the role's: the form parses as a pod named `log`. `--subresource=log`
 answers "yes".
+
+#### Step 9 -- 2026-09-22
+
+**The identity-material restore.** `syncthing-data` rather than
+`headscale-data`: its whole volume is `0700` uid 1000, the case the
+`runAsUser: 0` finding was about, and its `key.pem` is the device's identity. A
+K8up `Restore` of the 01:01 UTC snapshot, as root, went into a scratch claim
+pre-assigned to worker-0 with the `volume.kubernetes.io/selected-node`
+annotation, so a pod could mount it beside the live one. `cert.pem`, `key.pem`,
+`config.xml` and the HTTPS pair came back **identical in content, mode, owner and
+size**. Only the index databases differed, which syncthing had kept writing since
+01:01.
+
+**A finding the ARM canary could not show: a restore does not reproduce the
+claim's root directory.** It came back `0777 root:root` where the live one is
+`0700` uid 1000. K8up restores `<snapshot>:/data/<pvc>` with the prefix trimmed:
+the contents land in the claim, but not the root's own metadata. The ARM
+comparison had excluded the root (`-mindepth 1`), so it could not have seen this.
+The snapshot does record it (`drwx------ 1000 1000` on `restic ls -l`), so the
+runbook step is to apply it after restoring into a fresh claim. A restore into
+the original claim keeps the root it has. The first identity comparison also
+printed nothing, through a bug in the diff script (`%P` paths have no `./`),
+and was rerun rather than read as a pass.
+
+**No homepage entry.** The user's convention is that entries are for services
+with a web UI. rest-server is an API and K8up has no interface, so nothing added
+here qualifies.
+
+**The docs.** `docs/backups.md` gains the restic repository (placement, the
+append-only boundary, the passphrase), Kubernetes volumes and databases (scope and
+exclusions with the one-time `kubectl annotate`, the Schedules and the schedule in
+UTC, the dumps, the operator), restic retention and decommissioning, restoring,
+the coverage check under Reporting, capacity, and restic's operational notes.
+Each of the 44 manifest and code comments that point there now lands on
+something. `docs/nixos.md` is new, with a row in `docs/README.md`.
+`docs/kubernetes.md`'s teardown section gains the `decommissioned` step.
+`docs/tailnet.md` gains the `192.168.0.108:22` grant, which had been made but not
+written down. `restic tag` taking an exclusive lock, and resolving `latest`
+through the host and path filter, were read from restic 0.19.1's source before
+the docs said so.
 
 #### Two things this phase does not close
 

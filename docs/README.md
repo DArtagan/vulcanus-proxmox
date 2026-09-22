@@ -13,7 +13,8 @@ Work that has not been done yet lives in [`todos/`](../todos/), not here.
 | [kubernetes.md](kubernetes.md) | Workload conventions: probes, config rollouts, chart automation, safe teardown |
 | [talos.md](talos.md) | Talos cluster operations and upgrades |
 | [disk_management.md](disk_management.md) | Storage layout and resizing |
-| [backups.md](backups.md) | What protects what, retention, reporting, and how large a disk to buy |
+| [backups.md](backups.md) | What protects what — ZFS, PBS, restic and K8up — retention, restoring, reporting, and how large a disk to buy |
+| [nixos.md](nixos.md) | NixOS hosts: the flake, colmena deploys, sops-nix secrets, and NixOS in a Proxmox container |
 | [logging.md](logging.md) | Alloy → OTLP → VictoriaLogs pipeline, field model, retention |
 | [automatic-ripping-machine.md](automatic-ripping-machine.md) | ARM setup and disc handling |
 | [beets.md](beets.md) | Music/audiobook library, beets-flask, getting files in, import model, library concurrency |
