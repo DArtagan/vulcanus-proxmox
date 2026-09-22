@@ -65,7 +65,11 @@ resource "proxmox_vm_qemu" "proxmox-backup-server" {
         disk {
           size = var.backup_disk_size
           storage = var.backup_disk_storage_pool
-          backup = true
+          # The datastore holding every guest backup. Including it in vzdump
+          # would back the backups up onto the pool they already live on, so
+          # the flag is off on the host; saying true here would mean any apply
+          # silently switched it back on. See docs/backups.md.
+          backup = false
         }
       }
     }

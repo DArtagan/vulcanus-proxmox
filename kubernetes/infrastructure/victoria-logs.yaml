@@ -76,6 +76,11 @@ spec:
 
       persistentVolume:
         enabled: true
+        annotations:
+          # Logs, regenerable and already bounded by retentionPeriod above.
+          # K8up's default is opt-out, so this has to be said. Same
+          # StatefulSet immutability caveat as the Prometheus claim.
+          k8up.io/backup: "false"
         # No StorageClass is marked default in this cluster, so without this the
         # claim would never bind. Same reason it is explicit for Grafana.
         storageClassName: openebs-hostpath

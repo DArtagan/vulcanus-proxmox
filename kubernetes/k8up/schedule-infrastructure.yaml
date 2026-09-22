@@ -1,0 +1,24 @@
+apiVersion: k8up.io/v1
+kind: Schedule
+metadata:
+  name: full
+  namespace: infrastructure
+spec:
+  backup:
+    # UTC, the operator's clock. Staggered against the other namespaces' full
+    # Schedules and the repo host's own jobs -- see docs/backups.md.
+    schedule: "30 1 * * *"
+---
+apiVersion: k8up.io/v1
+kind: Schedule
+metadata:
+  name: dumps
+  namespace: infrastructure
+spec:
+  backup:
+    # The six-hourly database RPO without re-reading every volume: the label
+    # narrows this to the dumps. `full` covers the 01:30 slot.
+    schedule: "30 7,13,19 * * *"
+    labelSelectors:
+      - matchLabels:
+          k8up-dump: "true"
