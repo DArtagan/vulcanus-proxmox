@@ -29,7 +29,7 @@ Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
 | A | Record the spec, open the review | **done** 2026-09-01 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3) |
 | 0 | Stop the bleeding — replication, retention, scrub | **done 2026-09-03.** Key escrow, retention, scrub, monitoring on both hosts, prune and diverged-dataset repair (30,404 → 1,083 snapshots, 89% → **76%**, **2.32 TiB reclaimed**), with the five datasets re-seeded — `syncoid-vulcanus-data` completed with zero errors for the first time since 2026-01-14 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3), merged 2026-09-18 |
 | 1 | Reclaim — dead guests, orphans | **done 2026-09-18.** Five orphaned datasets, guests 100/101/106, `rpool/rancheros`, three replicas, four PVCs, seven hostpath dirs and three PBS groups destroyed; vulcanus 28.3→**27.7 T**, mini-nas 77→**73%**, worker-0 **25.1 GiB** back. `zfs-replication-freshness` **green for the first time since inception**; `pbs-freshness` built and deployed here rather than in Phase 6, reports 5→2, zero failures — [PR #11](https://github.com/DArtagan/vulcanus-proxmox/pull/11) |
-| 2 | Application backups — K8up + restic | **in progress**, opened 2026-09-20 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13). **Steps 0–4 done 2026-09-21:** exclusions live (no RWX claim in scope), repo LXC 108 on NixOS serving append-only (403 on `forget` through the URL, proven), escrow complete, mass-file first run done (296.6 GiB in 2 h 09 m, 247.6 GiB stored), K8up operator installed with no Schedules. **Step 5 done 2026-09-21:** all seven dumps (annotations for the relational databases, PreBackupPods for SQLite) taken by one-off dumps-only Backups and verified in the store. **Every Schedule must set `runAsUser: 0`**: as K8up's default uid 65532 the Job cannot read 13 of 22 volumes, and reports Succeeded anyway (see *Checked against K8up #910 and #1032*). **Step 6 done 2026-09-21:** ARM canary backed up and restored byte-identical, the first restore this estate has done; its Schedule is live. **Step 7:** first full runs of `apps` (20 PVCs, 66.1 GB read, 0 errors, 99 min) and `infrastructure` taken by hand; all five Schedules live; the first scheduled night succeeded (`apps` incremental in 78 s). **Step 8 done 2026-09-22:** the coverage CronJob is live and pinging `backup-coverage`, reading every dump back whole (pinepods now plain SQL); 0 failing, 19 reported. **Step 9 done 2026-09-22:** syncthing's identity restored exact; `docs/backups.md`, `docs/nixos.md` and the kubernetes/tailnet entries written; no homepage entry, as nothing added has a web UI. Next: step 10, offsite, in `~/repositories/mini-nas` |
+| 2 | Application backups — K8up + restic | **in progress**, opened 2026-09-20 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13). **Steps 0–4 done 2026-09-21:** exclusions live (no RWX claim in scope), repo LXC 108 on NixOS serving append-only (403 on `forget` through the URL, proven), escrow complete, mass-file first run done (296.6 GiB in 2 h 09 m, 247.6 GiB stored), K8up operator installed with no Schedules. **Step 5 done 2026-09-21:** all seven dumps (annotations for the relational databases, PreBackupPods for SQLite) taken by one-off dumps-only Backups and verified in the store. **Every Schedule must set `runAsUser: 0`**: as K8up's default uid 65532 the Job cannot read 13 of 22 volumes, and reports Succeeded anyway (see *Checked against K8up #910 and #1032*). **Step 6 done 2026-09-21:** ARM canary backed up and restored byte-identical, the first restore this estate has done; its Schedule is live. **Step 7:** first full runs of `apps` (20 PVCs, 66.1 GB read, 0 errors, 99 min) and `infrastructure` taken by hand; all five Schedules live; the first scheduled night succeeded (`apps` incremental in 78 s). **Step 8 done 2026-09-22:** the coverage CronJob is live and pinging `backup-coverage`, reading every dump back whole (pinepods now plain SQL); 0 failing, 19 reported. **Steps 9-10 done 2026-09-22:** syncthing's identity restored exact; the docs written; the repository replicated to mini-nas (301 GiB in ~4 h) and verified there by `restic check` against a read-only snapshot mount. **Phase 2 is complete**; 2b remains. Next: phase 2b |
 | 2b | Delete the borg tree, after a restore is proven | not started |
 | 3 | Performance — drop the OpenEBS disks from vzdump | not started |
 | 4 | Platform images offsite — PBS #2 + sync | not started; **gated on the mini-nas disks** |
@@ -2201,6 +2201,43 @@ something. `docs/nixos.md` is new, with a row in `docs/README.md`.
 written down. `restic tag` taking an exclusive lock, and resolving `latest`
 through the host and path filter, were read from restic 0.19.1's source before
 the docs said so.
+
+#### Step 10, offsite -- 2026-09-22
+
+**What landed.** On vulcanus, `rpool/backups/restic` gets its own sanoid template:
+30 dailies, no hourlies and no monthlies, because each snapshot pins what restic's
+monthly prune rewrites. The dry run said it would prune 37 of that dataset's
+snapshots and nothing elsewhere; applying it left the 3 dailies. On mini-nas,
+syncoid pulls that dataset alone -- not `rpool/backups`, whose borg tree would take
+the pool from 74% to ~90% -- into `rpool/foreign-backups/vulcanus/backups/restic`,
+kept at 60 dailies by a `replica-restic` template.
+
+**The target's parent is a `canmount=off` container made by hand.** `zfs receive`
+creates no parents, and the syncoid module delegates a missing target's permissions
+to its parent, so it has to exist first. The freshness check now skips such
+containers: they receive nothing, so they have no snapshot to age, and every dataset
+that does receive is `canmount=on` -- 13 of 13 measured before the change -- so a
+retired replica still fails as intended.
+
+**No new healthchecks check**, the budget having none left: the unit's `OnFailure`
+reports to `zfs-replication-freshness`, which also gained `rpool/backups/restic`
+among its source roots.
+
+**The first pull: 302.9 GB in about four hours**, 16-28 MB/s, ending
+`Result=success`. The replica holds 301 GiB against the source's 302 GiB and the
+same three dailies. No vulcanus-side permission change was needed: the pull user
+already holds `hold,send` on all of `rpool`.
+
+**Verified offsite, which is the point of a dataset.** On mini-nas alone, with a
+read-only mount of the replica's newest snapshot, restic listed 43 snapshots and
+`restic check` reported no errors. `zfs-replication-freshness` then ran green with
+the replica among the 24 datasets it asserts.
+
+**A stale grant noticed in passing, not fixed:** `zfs allow` on
+`rpool/foreign-backups/vulcanus` names `user (unknown: 994)` while the syncoid user
+is uid 993. Replication works because the syncoid module grants and revokes the
+permissions it needs around every run, so this is leftover cruft rather than a
+dependency.
 
 #### Two things this phase does not close
 
