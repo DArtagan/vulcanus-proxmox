@@ -42,7 +42,8 @@ the original reading. Treat anything undated as 2026-08-19.
 | Is the flip in-process or at startup? | **in-process**, settled 2026-09-17 — 27/29 onsets, median 495× step at median age 5.2 min |
 | What flips a process into degrading? | **open, and now the whole question** — next move is "Catching a flip" |
 | Upstream bug report | **not filed** — draft at the end of this file, Will files it |
-| Did C work? | **3 days, zero restarts** at 2026-09-20, against ~400 expected — strong, but the old regime once ran 5 days clean |
+| Did C work? | **no** — clean for ~5 days, then the failure returned; worker-0 at 11 restarts/24h and OOMKilled on 2026-09-23 |
+| Flip captured? | **yes**, 2026-09-22 04:31:10Z on worker-1 — see "The capture" |
 
 The state the fixes were applied against, 2026-08-26: worker-0 wedged and ten
 hours down, the control plane having flapped four times that day, 7-day
@@ -795,17 +796,59 @@ Both recovered unaided, with no restart — which also retires "a restart is the
 only thing that clears a wedge", true of the old regime and not of this one.
 Neither process was reaped; all three have run since 03:32Z with zero restarts.
 
-**Fix C holds at three days**, 2026-09-20: all three processes have run since
-2026-09-17 03:32Z with **zero restarts**. Worker-1 alone would have taken ~400
-at its pre-C rate of one every ~11 minutes. The longest stable run at the old
-15 s rate was five days (09-11…09-15), so this is strong but not yet past that
-bar — at a week it is past anything the old regime produced.
+**Fix C did not hold, 2026-09-23.** It bought about five clean days —
+2026-09-17 03:32Z to the first real flip on 2026-09-22 04:31Z — and then the
+failure returned. By 2026-09-23 worker-0 is at **11 restarts in 24 h with
+`OOMKilled` exit 137**, the memory backstop doing the reaping again, while
+worker-1 sits degraded around 700 ms without being reaped at all, in the same
+bounded mode the control plane held on 2026-09-16.
 
-It still sits awkwardly with the 117 req/s test showing load does not cause
-degradation. If C works, the mechanism is not the one it was shipped on: halving
-gather arrivals cannot matter if arrivals are not the trigger. Something else
-about the 60 s cadence is doing the work, or the flip rate simply fell on its
-own. Do not resolve that by assuming.
+Five days is not distinguishable from the 09-11…09-15 stable run at the old
+15 s rate, so C cannot be credited with it. That resolves the tension the
+2026-09-20 reading flagged, and in the direction the 117 req/s test predicted:
+arrival rate is not the trigger, so halving it was never going to prevent a
+flip. **Fix C is a mitigation that bought time and nothing more.** Leave it —
+a quarter of the gather traffic costs nothing — but stop treating it as the
+experiment.
+
+### The capture, 2026-09-22
+
+Taken 04:31:10Z on worker-1, two minutes into a flip, at
+`captures/gdp-flip/piraeus-worker-1-20260922t043110.{threads,goroutines}.txt` in
+the **main checkout**. The ledger entry that triggered it shows three distinct
+climbing scrapes, which is the dedupe working:
+
+```
+{"event": "flip", "node": "piraeus-worker-1",
+ "samples": [53.934736, 91.496143, 413.358715], "t": "2026-09-22T04:31:10Z"}
+```
+
+**There is no metrics machinery in the process at all.** Zero occurrences of
+`Gather`, `promhttp`, `client_golang`, `goCollector`, `metrics.Read`,
+`ServeHTTP` or `stopTheWorld` across the whole dump, taken while scrapes were
+costing 413 ms. All 26 goroutines are parked — `chan receive`, `IO wait`,
+`select`, GC workers idle — and the only non-Go frames are the plugin's own run
+loops and gRPC transports.
+
+That retires the queueing family of explanations for the *trigger*. A flip is
+not a stuck gather, a queued gather, or a mutex someone is holding: between
+scrapes the process is entirely idle, and when a scrape arrives it completes,
+just slowly. The eight aged `Registry.Gather` calls in the lost 2026-08-19 dump
+were a late-stage consequence of hours of amplification, not the cause.
+
+**The system-time signature is real and early.** Per-thread `utime`/`stime` from
+the same capture:
+
+| | utime | stime | stime:utime |
+|---|---|---|---|
+| healthy, worker-0 idle 2026-09-17 | 61–93 | 26–35 | 0.42:1 |
+| **flipped, worker-1 2026-09-22** | **27** | **178** | **6.59:1** |
+| quoted 2026-08-19, dump lost | 111 | 17482 | 157:1 |
+
+A 16× shift toward the kernel two minutes in, on a process whose goroutines are
+all asleep. Whatever the flip is, it makes the syscalls a gather performs
+expensive, rather than making Go code run longer — which is where to look next,
+and the `/proc` read is now the cheap instrument for it.
 
 ### The ledger oversampled, 2026-09-20
 
