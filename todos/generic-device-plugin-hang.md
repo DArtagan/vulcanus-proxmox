@@ -850,6 +850,56 @@ all asleep. Whatever the flip is, it makes the syscalls a gather performs
 expensive, rather than making Go code run longer — which is where to look next,
 and the `/proc` read is now the cheap instrument for it.
 
+### The flip is GC stop-the-world inflation, 2026-09-23
+
+Matched sample, all three pods within the same minute, pulled straight from each
+`/metrics` rather than through Prometheus:
+
+| | GC pause median | GC pause max | heap inuse | goroutines | gather |
+|---|---|---|---|---|---|
+| control-plane (healthy) | **64.8 µs** | 17.6 ms | 4.36 MB | 19 | 1.54 ms |
+| worker-0 (degraded) | **11.4 ms** | 291 ms | 4.44 MB | 17 | 655 ms |
+| worker-1 (degraded) | **13.6 ms** | 99.8 ms | 5.39 MB | 17 | 1625 ms |
+
+**Median stop-the-world pause rises ~200× on an unchanged heap.** Heap inuse and
+goroutine counts are the same across all three; only the pause time moves.
+
+That is the flip, and it closes every loose end this file has accumulated. Every
+`/metrics` gather calls `runtime/metrics.Read()`, which stops the world, so a
+gather cannot complete faster than one STW pause — gather latency simply tracks
+STW. Stopping and resuming threads is futex and signal work, which is why the
+capture shows `stime:utime` at 6.59:1 with the process otherwise idle. Nothing
+is stuck, which is why no `Gather` appears in the dump. A restart gives a fresh
+runtime, which is why restarts clear it. Arrival rate is irrelevant, which is
+why 117 req/s changed nothing. And the control plane's bounded mode is the same
+phenomenon at a smaller amplitude — its max pause is 17.6 ms, elevated but never
+near the 5 s probe timeout.
+
+**Open: why STW inflates.** Pause time is dominated by how long it takes to
+preempt every P, not by heap size, so the suspects are scheduling and memory
+pressure rather than allocation. Two specifics worth testing first: `GOMEMLIMIT`
+is unset, so the Go runtime does not know about the 20Mi cgroup limit and lets
+the heap grow until the cgroup reclaims — `go_gc_gomemlimit_bytes` confirms it
+is at the default. And the container has no CPU limit but a 50m request, so
+under node contention it is among the first throttled by share.
+
+**This reopens the memory limit.** This file has said since 2026-08-19 not to
+raise it, on the grounds that `anon-rss` at kill time is well under 20Mi. That
+reasoning addressed whether memory *causes* the kill, not whether the cgroup
+being near its limit inflates GC pauses. Setting `GOMEMLIMIT` below the cgroup
+limit is the cheaper of the two experiments and does not require raising
+anything.
+
+**A dead end, recorded so it is not re-run.** A vantage-point comparison looked
+compelling for an hour: `curl` from inside the pod, from a same-node pod and
+from a cross-node pod all returned 0 ms while Prometheus reported 295–905 ms for
+the same endpoints. That is not a vantage-point effect. A one-off `curl` usually
+misses the GC pause; Prometheus forces `metrics.Read()` on every scrape and so
+pays for one every time. The first measurement that seemed to show it — 60 ms
+in-pod against 1932 ms from Prometheus — compared two different minutes on a
+process that fluctuates, which is the matched-sample trap this repo already
+warns about.
+
 ### The ledger oversampled, 2026-09-20
 
 The first three days of `excursions.jsonl` record four "confirmed flips" on
