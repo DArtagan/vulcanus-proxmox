@@ -901,12 +901,32 @@ done by restoring the CPU limit, which would also set GOMAXPROCS: CFS throttling
 is what turned a slow gather into a permanent collapse, and removing it is the
 one thing that demonstrably helped.
 
-The prediction, and what falsifies it: **worker-0 and worker-1 should fall to
-control-plane pause times**, tens of microseconds median, and gather latency
-with them. If pauses stay high on 8-core worker-0 after GOMAXPROCS drops to 2,
-P count is not the mechanism and the correlation was node identity wearing a
-core count. Read `go_gc_duration_seconds{quantile="0.5"}` straight off each
-`/metrics`, not through Prometheus, and compare against the table above.
+**Result, 2026-09-23 18:25Z**, 39 minutes after the rollout, 20 GCs on each:
+
+| | GOMAXPROCS | GC p50 before → after | GC max after | gather before → after |
+|---|---|---|---|---|
+| control-plane | 2 → 2 | 67 µs → 78.3 µs | 495 µs | 1.54 ms → 1.65 ms |
+| worker-1 | 4 → 2 | 13.7 ms → **82.0 µs** (167×) | 261 µs | 1625 ms → 3.49 ms |
+| worker-0 | 8 → 2 | 18.3 ms → **62.8 µs** (291×) | 159 µs | 655 ms → 1.49 ms |
+
+The control plane is the control in both senses: its GOMAXPROCS did not change
+and neither did its pause time. The two nodes whose GOMAXPROCS dropped are
+exactly the two whose pauses collapsed, and worker-0's *maximum* pause fell from
+291 ms to 159 µs — a factor of 1830. Gather latency followed, as it must when a
+gather cannot finish faster than one stop-the-world.
+
+**The mechanism is settled. Whether it is a durable fix is not.** Every process
+here restarted at 17:46Z, and a fresh process is healthy regardless — that is
+what made 16 restarts on worker-0 look survivable. Thirty-nine minutes is past
+the 5.2-minute median onset age of the old regime, but Fix C also looked
+untouchable for five days. The discriminating test is worker-0, which was
+running **11 restarts/day** before this: a clean 24 hours there is ~11 expected
+events that did not happen, and is a far faster signal than worker-1 offers.
+
+Watch for the partial outcome too. If pauses later settle at 1–2 ms rather than
+staying in the tens of microseconds, P count is only part of it and the 50m CPU
+share is the rest, since two Ps still have to be scheduled — that would argue
+for `GOMAXPROCS=1` rather than for declaring this done.
 
 **What this is not.** Two experiments proposed on 2026-09-23 were killed by the
 control before being run, and should not be revived without new evidence:
