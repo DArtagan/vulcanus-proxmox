@@ -24,14 +24,13 @@ import argparse
 import collections
 import datetime
 import json
+import os
 import subprocess
 import sys
 import time
-from pathlib import Path
-from typing import Any
 
-HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
 import detect  # noqa: E402
 
 NS = "infrastructure"
@@ -40,21 +39,17 @@ ALERTMANAGER = "alertmanager-kube-prometheus-kube-prome-alertmanager-0"
 PROM = "http://kube-prometheus-kube-prome-prometheus.infrastructure.svc:9090"
 
 
-def run(args: list[str], timeout: int = 60) -> subprocess.CompletedProcess[str]:
-    """Run a command, leaving its return code for the caller to judge."""
-    return subprocess.run(
-        args, capture_output=True, text=True, timeout=timeout, check=False
-    )
+def run(args, timeout=60):
+    return subprocess.run(args, capture_output=True, text=True, timeout=timeout)
 
 
-def log(msg: str) -> None:
-    """Print a line stamped with the UTC time."""
+def log(msg):
     stamp = datetime.datetime.now(datetime.UTC).strftime("%H:%M:%SZ")
     print(f"{stamp} {msg}", flush=True)
 
 
-def promq(query: str) -> list[dict[str, Any]]:
-    """Run an instant query from inside the cluster, via the Alertmanager pod."""
+def promq(query):
+    """Instant query, run from inside the cluster via the Alertmanager pod."""
     url = f"{PROM}/api/v1/query?query={query}"
     res = run(
         [
@@ -76,19 +71,32 @@ def promq(query: str) -> list[dict[str, Any]]:
     return json.loads(res.stdout)["data"]["result"]
 
 
-def sample() -> dict[str, tuple[float, float | None]]:
-    """Return {pod_ip: (gather_ms, process_start)} for every plugin instance."""
+def sample():
+    """Return {pod_ip: (gather_ms, process_start, scrape_ts)} per plugin instance.
+
+    `scrape_ts` is the timestamp of the sample itself, via `timestamp()`, not the
+    query's evaluation time. The loop polls faster than Prometheus scrapes, so an
+    instant query returns the same value repeatedly; without this the history is
+    mostly duplicates and both `MIN_RUN` and `CONFIRM_RUN` count reads rather
+    than scrapes.
+    """
     out = {}
     for r in promq('scrape_duration_seconds{job=~".*generic-device-plugin.*"}'):
-        out[r["metric"]["instance"]] = [float(r["value"][1]) * 1000.0, None]
+        out[r["metric"]["instance"]] = [float(r["value"][1]) * 1000.0, None, None]
     for r in promq('process_start_time_seconds{job=~".*generic-device-plugin.*"}'):
         inst = r["metric"]["instance"]
         if inst in out:
             out[inst][1] = float(r["value"][1])
+    for r in promq(
+        'timestamp(scrape_duration_seconds{job=~".*generic-device-plugin.*"})'
+    ):
+        inst = r["metric"]["instance"]
+        if inst in out:
+            out[inst][2] = float(r["value"][1])
     return {k: tuple(v) for k, v in out.items()}
 
 
-def pod_map() -> dict[str, tuple[str, str]]:
+def pod_map():
     """{pod_ip: (pod_name, node)} — refreshed each poll, since pods are reaped."""
     res = run(["kubectl", "get", "pods", "-n", NS, "-l", SELECTOR, "-o", "json"])
     res.check_returncode()
@@ -100,8 +108,7 @@ def pod_map() -> dict[str, tuple[str, str]]:
     return out
 
 
-def restart_count(pod: str) -> int:
-    """Read the plugin container's restart count, or -1 if it cannot be read."""
+def restart_count(pod):
     res = run(
         [
             "kubectl",
@@ -117,7 +124,7 @@ def restart_count(pod: str) -> int:
     return int(res.stdout.strip() or -1)
 
 
-def debug_exec(pod: str, name: str, script: str) -> str:
+def debug_exec(pod, name, script):
     """Run `script` in an ephemeral container sharing the plugin's namespaces.
 
     Container names are RFC 1123 labels, so `name` must be lowercase with no
@@ -145,12 +152,11 @@ def debug_exec(pod: str, name: str, script: str) -> str:
         timeout=180,
     )
     if res.returncode != 0:
-        message = f"kubectl debug {name} failed: {res.stderr.strip()[:300]}"
-        raise RuntimeError(message)
+        raise RuntimeError(f"kubectl debug {name} failed: {res.stderr.strip()[:300]}")
     return name
 
 
-def wait_for_container(pod: str, name: str, timeout: int = 180) -> bool:
+def wait_for_container(pod, name, timeout=180):
     """Block until the ephemeral container has run, rather than guessing a sleep."""
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -165,12 +171,12 @@ def wait_for_container(pod: str, name: str, timeout: int = 180) -> bool:
     return False
 
 
-def capture(pod: str, node: str, out_dir: Path, gather_ms: float) -> None:
+def capture(pod, node, out_dir, gather_ms):
     """Collect thread state, then SIGQUIT and keep the goroutine dump."""
     stamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dt%H%M%S")
-    base = f"{node}-{stamp}"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    log(f"CAPTURE {pod} on {node} at {gather_ms:.1f}ms -> {out_dir / base}.*")
+    base = os.path.join(out_dir, f"{node}-{stamp}")
+    os.makedirs(out_dir, exist_ok=True)
+    log(f"CAPTURE {pod} on {node} at {gather_ms:.1f}ms -> {base}.*")
 
     # Per-thread utime/stime first: the one unexplained clue is that the CPU is
     # overwhelmingly system time, and SIGQUIT destroys the evidence.
@@ -185,9 +191,9 @@ def capture(pod: str, node: str, out_dir: Path, gather_ms: float) -> None:
     res = run(["kubectl", "logs", "-n", NS, pod, "-c", proc_c], timeout=120)
     if not res.stdout:
         log(f"  WARNING: {proc_c} produced no output: {res.stderr.strip()[:200]}")
-    threads = out_dir / f"{base}.threads.txt"
-    threads.write_text(res.stdout)
-    log(f"  wrote {threads} ({len(res.stdout)} bytes)")
+    with open(f"{base}.threads.txt", "w") as fh:
+        fh.write(res.stdout)
+    log(f"  wrote {base}.threads.txt ({len(res.stdout)} bytes)")
 
     before = restart_count(pod)
     debug_exec(pod, f"dbg-kill-{stamp[-6:]}", "kill -QUIT 1")
@@ -204,92 +210,14 @@ def capture(pod: str, node: str, out_dir: Path, gather_ms: float) -> None:
         ["kubectl", "logs", "-n", NS, pod, "-c", "generic-device-plugin", "--previous"],
         timeout=120,
     )
-    goroutines = out_dir / f"{base}.goroutines.txt"
-    goroutines.write_text(res.stdout)
-    log(f"  wrote {goroutines} ({len(res.stdout)} bytes)")
+    with open(f"{base}.goroutines.txt", "w") as fh:
+        fh.write(res.stdout)
+    log(f"  wrote {base}.goroutines.txt ({len(res.stdout)} bytes)")
 
 
-class Watcher:
-    """Every instance's recent samples, and the excursion each is in, if any."""
-
-    def __init__(self, arguments: argparse.Namespace) -> None:
-        """Watch as `arguments` says, keeping the ledger in its --out directory."""
-        self.arguments = arguments
-        self.ledger = arguments.out / "excursions.jsonl"
-        self.history = collections.defaultdict(list)
-        self.prev_start = {}
-        self.excursion = {}
-
-    def record(self, **fields: object) -> None:
-        """Log every excursion, whether or not it is worth capturing.
-
-        Whether flips begin as transients is unanswered, and the only way to
-        find out is to keep the ones that recover as well as the ones that do
-        not. This costs nothing and needs no destructive action.
-        """
-        fields["t"] = datetime.datetime.now(datetime.UTC).isoformat()
-        with self.ledger.open("a") as fh:
-            fh.write(json.dumps(fields) + "\n")
-
-    def observe(self, inst: str, ms: float, start: float | None) -> list[float] | None:
-        """Take one sample, returning the excursion's samples once it is a flip."""
-        hist = self.history[inst]
-        onset = detect.is_flip(hist, ms, self.prev_start.get(inst), start)
-        hist.append(ms)
-        del hist[:-40]
-        self.prev_start[inst] = start
-
-        if onset:
-            self.excursion[inst] = [ms]
-            log(f"ONSET {inst}: {hist[-2]:.1f}ms -> {ms:.1f}ms")
-            self.record(event="onset", instance=inst, ms=ms)
-            return None
-        if inst not in self.excursion:
-            return None
-
-        # In an excursion: either it recovers, or it holds and is a flip.
-        if ms <= detect.FLIP_MS:
-            samples = self.excursion.pop(inst)
-            log(f"  transient on {inst} ended after {len(samples)} sample(s)")
-            self.record(event="transient", instance=inst, samples=samples)
-            return None
-        self.excursion[inst].append(ms)
-        if not detect.is_sustained(self.excursion[inst]):
-            return None
-        return self.excursion.pop(inst)
-
-    def respond(
-        self, inst: str, pod: str | None, node: str | None, samples: list[float]
-    ) -> bool:
-        """Capture a confirmed flip if allowed; True once --once is satisfied."""
-        log(f"FLIP CONFIRMED {node or inst}: {samples}")
-        self.record(event="flip", instance=inst, node=node, samples=samples)
-        if pod is None:
-            log(f"  no pod matches {inst}; cannot capture")
-            return False
-        if self.arguments.node and node not in self.arguments.node:
-            log(f"  {node} not in capture list; watching only")
-            return False
-        if self.arguments.dry_run:
-            log("  dry run; not capturing")
-            return True
-        try:
-            capture(pod, node, self.arguments.out, samples[-1])
-        except Exception as exc:  # noqa: BLE001 - one failed capture must not end hours of watching
-            log(f"  CAPTURE FAILED: {exc}")
-            self.record(event="capture_failed", instance=inst, error=str(exc))
-            return False
-        return True
-
-
-def main() -> None:
-    """Poll every plugin instance until a flip is captured, or forever."""
+def main():
     ap = argparse.ArgumentParser()
-    # captures/ in this checkout, which git ignores; see "Debugging captures"
-    # in CLAUDE.md.
-    ap.add_argument(
-        "--out", type=Path, default=HERE.parent.parent / "captures" / "gdp-flip"
-    )
+    ap.add_argument("--out", default="captures/gdp-flip")
     ap.add_argument(
         "--node",
         action="append",
@@ -300,29 +228,85 @@ def main() -> None:
     ap.add_argument("--once", action="store_true", help="capture one flip, then exit")
     args = ap.parse_args()
 
-    args.out.mkdir(parents=True, exist_ok=True)
-    watcher = Watcher(args)
+    hist = collections.defaultdict(list)
+    prev_start = {}
+    excursion = {}
+    seen_ts = {}
+    os.makedirs(args.out, exist_ok=True)
+    ledger = os.path.join(args.out, "excursions.jsonl")
     log(
         f"watching; capture on {args.node or 'any node'}"
-        f"{' (dry run)' if args.dry_run else ''}; ledger {watcher.ledger}"
+        f"{' (dry run)' if args.dry_run else ''}; ledger {ledger}"
     )
+
+    def record(**fields):
+        """Every excursion is logged whether or not it is worth capturing.
+
+        Whether flips begin as transients is unanswered, and the only way to
+        find out is to keep the ones that recover as well as the ones that do
+        not. This costs nothing and needs no destructive action.
+        """
+        fields["t"] = datetime.datetime.now(datetime.UTC).isoformat()
+        with open(ledger, "a") as fh:
+            fh.write(json.dumps(fields) + "\n")
 
     while True:
         try:
             cur = sample()
-        except Exception as exc:  # noqa: BLE001 - a failed query must not end hours of watching
+        except Exception as exc:
             log(f"query failed, retrying: {exc}")
             time.sleep(args.interval)
             continue
         pods = None
-        for inst, (ms, start) in sorted(cur.items()):
-            samples = watcher.observe(inst, ms, start)
-            if samples is None:
+        for inst, (ms, start, scrape_ts) in sorted(cur.items()):
+            if scrape_ts is not None and seen_ts.get(inst) == scrape_ts:
+                continue  # same scrape, already counted
+            seen_ts[inst] = scrape_ts
+            onset = detect.is_flip(hist[inst], ms, prev_start.get(inst), start)
+            hist[inst].append(ms)
+            del hist[inst][:-40]
+            prev_start[inst] = start
+
+            if onset:
+                excursion[inst] = [ms]
+                log(f"ONSET {inst}: {hist[inst][-2]:.1f}ms -> {ms:.1f}ms")
+                record(event="onset", instance=inst, ms=ms)
                 continue
+            if inst not in excursion:
+                continue
+
+            # In an excursion: either it recovers, or it holds and is a flip.
+            if ms <= detect.FLIP_MS:
+                samples = excursion.pop(inst)
+                log(f"  transient on {inst} ended after {len(samples)} sample(s)")
+                record(event="transient", instance=inst, samples=samples)
+                continue
+            excursion[inst].append(ms)
+            if not detect.is_sustained(excursion[inst]):
+                continue
+
+            samples = excursion.pop(inst)
             if pods is None:
                 pods = pod_map()
             pod, node = pods.get(inst, (None, None))
-            if watcher.respond(inst, pod, node, samples) and args.once:
+            log(f"FLIP CONFIRMED {node or inst}: {samples}")
+            record(event="flip", instance=inst, node=node, samples=samples)
+            if pod is None:
+                log(f"  no pod matches {inst}; cannot capture")
+                continue
+            if args.node and node not in args.node:
+                log(f"  {node} not in capture list; watching only")
+                continue
+            if args.dry_run:
+                log("  dry run; not capturing")
+            else:
+                try:
+                    capture(pod, node, args.out, samples[-1])
+                except Exception as exc:
+                    log(f"  CAPTURE FAILED: {exc}")
+                    record(event="capture_failed", instance=inst, error=str(exc))
+                    continue
+            if args.once:
                 return
         time.sleep(args.interval)
 

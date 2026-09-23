@@ -56,4 +56,10 @@ def is_sustained(recent_ms: Sequence[float]) -> bool:
     """
     if len(recent_ms) < CONFIRM_RUN:
         return False
-    return all(sample > FLIP_MS for sample in recent_ms[-CONFIRM_RUN:])
+    tail = recent_ms[-CONFIRM_RUN:]
+    if not all(sample > FLIP_MS for sample in tail):
+        return False
+    # Exact repeats are one scrape read several times, not several scrapes.
+    # `watch.py` already drops those by scrape timestamp; this is the backstop,
+    # because the failure is silent and reads as a confirmed flip.
+    return len(set(tail)) == len(tail)

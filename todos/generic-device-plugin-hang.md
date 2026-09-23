@@ -42,7 +42,8 @@ the original reading. Treat anything undated as 2026-08-19.
 | Is the flip in-process or at startup? | **in-process**, settled 2026-09-17 — 27/29 onsets, median 495× step at median age 5.2 min |
 | What flips a process into degrading? | **open, and now the whole question** — next move is "Catching a flip" |
 | Upstream bug report | **not filed** — draft at the end of this file, Will files it |
-| Did C work? | **unknown, needs days of quiet** — see "The sawtooth, 2026-09-17" |
+| Did C work? | **no** — clean for ~5 days, then the failure returned; worker-0 at 11 restarts/24h and OOMKilled on 2026-09-23 |
+| Flip captured? | **yes**, 2026-09-22 04:31:10Z on worker-1 — see "The capture" |
 
 The state the fixes were applied against, 2026-08-26: worker-0 wedged and ten
 hours down, the control plane having flapped four times that day, 7-day
@@ -89,7 +90,9 @@ than verifiable. They also describe the pre-2026-08-26 regime, which no longer
 occurs, so their loss costs less than it appears: a report about the flip wants
 a *fresh* capture, not these. Keep new captures at the `--out` path
 `tools/gdp-flip-watch/watch.py` was run with, and record that path here when one
-is taken — writing down where they went is the step that was missed.
+is taken. Captures go under `captures/<tool>/` in the checkout — see "Debugging
+captures" in CLAUDE.md — which is `.gitignore`d and dies with the worktree;
+writing down where they went is the step that was missed.
 
 **Prometheus scrapes accumulate inside the process and never terminate.** The
 scrape interval is 15s and the scrape timeout is 10s. When a `Gather` exceeds
@@ -793,14 +796,180 @@ Both recovered unaided, with no restart — which also retires "a restart is the
 only thing that clears a wedge", true of the old regime and not of this one.
 Neither process was reaped; all three have run since 03:32Z with zero restarts.
 
-**Worker-1 went 12.5 hours without a sustained flip**, against a pre-C baseline
-of one every ~11 minutes. That is the first real evidence for Fix C, and it is
-not conclusive: 09-11…09-15 was five naturally stable days at the old 15 s rate,
-so a quiet spell explains it equally well. It also sits awkwardly with the
-117 req/s test showing load does not cause degradation — if C is working, the
-mechanism is not what it was shipped on. Do not resolve that tension by
-assuming; it needs more days, and the `excursions.jsonl` ledger is what will
-answer it.
+**Fix C did not hold, 2026-09-23.** It bought about five clean days —
+2026-09-17 03:32Z to the first real flip on 2026-09-22 04:31Z — and then the
+failure returned. By 2026-09-23 worker-0 is at **11 restarts in 24 h with
+`OOMKilled` exit 137**, the memory backstop doing the reaping again, while
+worker-1 sits degraded around 700 ms without being reaped at all, in the same
+bounded mode the control plane held on 2026-09-16.
+
+Five days is not distinguishable from the 09-11…09-15 stable run at the old
+15 s rate, so C cannot be credited with it. That resolves the tension the
+2026-09-20 reading flagged, and in the direction the 117 req/s test predicted:
+arrival rate is not the trigger, so halving it was never going to prevent a
+flip. **Fix C is a mitigation that bought time and nothing more.** Leave it —
+a quarter of the gather traffic costs nothing — but stop treating it as the
+experiment.
+
+### The capture, 2026-09-22
+
+Taken 04:31:10Z on worker-1, two minutes into a flip, at
+`captures/gdp-flip/piraeus-worker-1-20260922t043110.{threads,goroutines}.txt` in
+the **main checkout**. The ledger entry that triggered it shows three distinct
+climbing scrapes, which is the dedupe working:
+
+```
+{"event": "flip", "node": "piraeus-worker-1",
+ "samples": [53.934736, 91.496143, 413.358715], "t": "2026-09-22T04:31:10Z"}
+```
+
+**There is no metrics machinery in the process at all.** Zero occurrences of
+`Gather`, `promhttp`, `client_golang`, `goCollector`, `metrics.Read`,
+`ServeHTTP` or `stopTheWorld` across the whole dump, taken while scrapes were
+costing 413 ms. All 26 goroutines are parked — `chan receive`, `IO wait`,
+`select`, GC workers idle — and the only non-Go frames are the plugin's own run
+loops and gRPC transports.
+
+That retires the queueing family of explanations for the *trigger*. A flip is
+not a stuck gather, a queued gather, or a mutex someone is holding: between
+scrapes the process is entirely idle, and when a scrape arrives it completes,
+just slowly. The eight aged `Registry.Gather` calls in the lost 2026-08-19 dump
+were a late-stage consequence of hours of amplification, not the cause.
+
+**The system-time signature is real and early.** Per-thread `utime`/`stime` from
+the same capture:
+
+| | utime | stime | stime:utime |
+|---|---|---|---|
+| healthy, worker-0 idle 2026-09-17 | 61–93 | 26–35 | 0.42:1 |
+| **flipped, worker-1 2026-09-22** | **27** | **178** | **6.59:1** |
+| quoted 2026-08-19, dump lost | 111 | 17482 | 157:1 |
+
+A 16× shift toward the kernel two minutes in, on a process whose goroutines are
+all asleep. Whatever the flip is, it makes the syscalls a gather performs
+expensive, rather than making Go code run longer — which is where to look next,
+and the `/proc` read is now the cheap instrument for it.
+
+### The flip is GC stop-the-world inflation, 2026-09-23
+
+Matched sample, all three pods within the same minute, pulled straight from each
+`/metrics` rather than through Prometheus:
+
+| | GC pause median | GC pause max | heap inuse | goroutines | gather |
+|---|---|---|---|---|---|
+| control-plane (healthy) | **64.8 µs** | 17.6 ms | 4.36 MB | 19 | 1.54 ms |
+| worker-0 (degraded) | **11.4 ms** | 291 ms | 4.44 MB | 17 | 655 ms |
+| worker-1 (degraded) | **13.6 ms** | 99.8 ms | 5.39 MB | 17 | 1625 ms |
+
+**Median stop-the-world pause rises ~200× on an unchanged heap.** Heap inuse and
+goroutine counts are the same across all three; only the pause time moves.
+
+That is the flip, and it closes every loose end this file has accumulated. Every
+`/metrics` gather calls `runtime/metrics.Read()`, which stops the world, so a
+gather cannot complete faster than one STW pause — gather latency simply tracks
+STW. Stopping and resuming threads is futex and signal work, which is why the
+capture shows `stime:utime` at 6.59:1 with the process otherwise idle. Nothing
+is stuck, which is why no `Gather` appears in the dump. A restart gives a fresh
+runtime, which is why restarts clear it. Arrival rate is irrelevant, which is
+why 117 req/s changed nothing. And the control plane's bounded mode is the same
+phenomenon at a smaller amplitude — its max pause is 17.6 ms, elevated but never
+near the 5 s probe timeout.
+
+**Why STW inflates: GOMAXPROCS, 2026-09-23.** Pause time scales with the number
+of Ps the runtime must halt, and the three nodes line up on it exactly:
+
+| | node cores | GOMAXPROCS | GC median | GC max |
+|---|---|---|---|---|
+| control-plane | 2 | **2** | 67 µs | 17.6 ms |
+| worker-1 | 4 | **4** | 13.7 ms | 99.8 ms |
+| worker-0 | 8 | **8** | 18.3 ms | 291 ms |
+
+Monotonic in both columns. With no CPU limit set, this Go version derives
+GOMAXPROCS from the node's core count — the dump's `GOMAXPROCS updater`
+goroutine is that mechanism — so the plugin runs 8 Ps on worker-0 while entitled
+to a 50m share. Every stop-the-world must halt all of them.
+
+**Fix A is implicated in the current failure.** Removing the CPU limit on
+2026-08-26 is what let GOMAXPROCS rise from 1 to the node core count, and
+worker-1 began degrading on **08-27, the day after**, going from 0 restarts to
+~22/day. The file already noted a regression correlating with an earlier change;
+this is a second one, and it is ours.
+
+**Fix D — pin `GOMAXPROCS: "2"`** (`kubernetes/infrastructure/devices.yaml`).
+Two because that is what the node whose pauses stay in microseconds runs. Not
+done by restoring the CPU limit, which would also set GOMAXPROCS: CFS throttling
+is what turned a slow gather into a permanent collapse, and removing it is the
+one thing that demonstrably helped.
+
+The prediction, and what falsifies it: **worker-0 and worker-1 should fall to
+control-plane pause times**, tens of microseconds median, and gather latency
+with them. If pauses stay high on 8-core worker-0 after GOMAXPROCS drops to 2,
+P count is not the mechanism and the correlation was node identity wearing a
+core count. Read `go_gc_duration_seconds{quantile="0.5"}` straight off each
+`/metrics`, not through Prometheus, and compare against the table above.
+
+**What this is not.** Two experiments proposed on 2026-09-23 were killed by the
+control before being run, and should not be revived without new evidence:
+
+- *Memory pressure.* The healthy pod uses **more** memory than a degraded one —
+  working set 11.95 MiB on the control plane against 11.63 MiB on worker-1 — and
+  page cache is within 0.5 MiB across all three. `container_memory_failcnt` is 0
+  everywhere.
+- *`GOMEMLIMIT`.* Unset on all three, healthy included
+  (`go_gc_gomemlimit_bytes` at its `MaxInt64` default), so it cannot explain a
+  difference between them.
+
+**Superseded: why STW inflates.** Pause time is dominated by how long it takes to
+preempt every P, not by heap size, so the suspects are scheduling and memory
+pressure rather than allocation. Two specifics worth testing first: `GOMEMLIMIT`
+is unset, so the Go runtime does not know about the 20Mi cgroup limit and lets
+the heap grow until the cgroup reclaims — `go_gc_gomemlimit_bytes` confirms it
+is at the default. And the container has no CPU limit but a 50m request, so
+under node contention it is among the first throttled by share.
+
+**This reopens the memory limit.** This file has said since 2026-08-19 not to
+raise it, on the grounds that `anon-rss` at kill time is well under 20Mi. That
+reasoning addressed whether memory *causes* the kill, not whether the cgroup
+being near its limit inflates GC pauses. Setting `GOMEMLIMIT` below the cgroup
+limit is the cheaper of the two experiments and does not require raising
+anything.
+
+**A dead end, recorded so it is not re-run.** A vantage-point comparison looked
+compelling for an hour: `curl` from inside the pod, from a same-node pod and
+from a cross-node pod all returned 0 ms while Prometheus reported 295–905 ms for
+the same endpoints. That is not a vantage-point effect. A one-off `curl` usually
+misses the GC pause; Prometheus forces `metrics.Read()` on every scrape and so
+pays for one every time. The first measurement that seemed to show it — 60 ms
+in-pod against 1932 ms from Prometheus — compared two different minutes on a
+process that fluctuates, which is the matched-sample trap this repo already
+warns about.
+
+### The ledger oversampled, 2026-09-20
+
+The first three days of `excursions.jsonl` record four "confirmed flips" on
+worker-0 and they are all artefacts. Their sample arrays are byte-identical
+floats:
+
+```
+{"event": "flip", "node": "piraeus-worker-0",
+ "samples": [887.510338, 887.510338, 887.510338], "t": "2026-09-19T17:05:04Z"}
+```
+
+Three reads of one scrape, not three scrapes. The watcher polls every 15 s while
+the PodMonitor scrapes every 60 s, so an instant query returns the same value
+four times over, and `CONFIRM_RUN` counted reads. `MIN_RUN` was compromised the
+same way: ten "stable" samples were two and a half real scrapes. Nothing was
+captured only because `--node` was worker-1 and every artefact was on worker-0.
+
+`sample()` now carries each sample's own timestamp from `timestamp()` — not the
+query evaluation time, which is the same for every poll — and the loop skips an
+instance whose scrape has not advanced. `is_sustained` also rejects exact
+repeats as a backstop, because this failure is silent and reads as success.
+
+**The general trap:** polling a derived store faster than it updates does not
+oversample, it fabricates agreement. Any rule of the form "N consecutive
+samples" needs those samples to be distinct observations, and the way to know
+is to carry the source timestamp rather than the read time.
 
 **The capture is destructive and the watcher must be aimed deliberately.**
 `SIGQUIT` is fatal to a Go process, so the container restarts; on worker-1 that
@@ -833,6 +1002,12 @@ indefinitely, which is how this was found — twelve days late. **Nothing alerts
 `UnexpectedAdmissionError`**, and a rule for it is the gap worth closing: a
 device outage too short for `OpticalDriveUnavailable`'s 30m `for:` still leaves a
 permanent casualty.
+
+Both pods were deleted 2026-09-20 after checking they held nothing the above
+does not already record — same rejection message, same resources block, same
+container states, and their Events had long since aged out. Their full JSON is
+archived under `captures/arm-zombies/`. Deleting them is what silences the
+`KubeContainerWaiting` that had been firing on the 09-04 corpse for 16 days.
 ---
 
 # Upstream bug report — draft
