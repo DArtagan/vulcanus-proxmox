@@ -875,7 +875,51 @@ why 117 req/s changed nothing. And the control plane's bounded mode is the same
 phenomenon at a smaller amplitude — its max pause is 17.6 ms, elevated but never
 near the 5 s probe timeout.
 
-**Open: why STW inflates.** Pause time is dominated by how long it takes to
+**Why STW inflates: GOMAXPROCS, 2026-09-23.** Pause time scales with the number
+of Ps the runtime must halt, and the three nodes line up on it exactly:
+
+| | node cores | GOMAXPROCS | GC median | GC max |
+|---|---|---|---|---|
+| control-plane | 2 | **2** | 67 µs | 17.6 ms |
+| worker-1 | 4 | **4** | 13.7 ms | 99.8 ms |
+| worker-0 | 8 | **8** | 18.3 ms | 291 ms |
+
+Monotonic in both columns. With no CPU limit set, this Go version derives
+GOMAXPROCS from the node's core count — the dump's `GOMAXPROCS updater`
+goroutine is that mechanism — so the plugin runs 8 Ps on worker-0 while entitled
+to a 50m share. Every stop-the-world must halt all of them.
+
+**Fix A is implicated in the current failure.** Removing the CPU limit on
+2026-08-26 is what let GOMAXPROCS rise from 1 to the node core count, and
+worker-1 began degrading on **08-27, the day after**, going from 0 restarts to
+~22/day. The file already noted a regression correlating with an earlier change;
+this is a second one, and it is ours.
+
+**Fix D — pin `GOMAXPROCS: "2"`** (`kubernetes/infrastructure/devices.yaml`).
+Two because that is what the node whose pauses stay in microseconds runs. Not
+done by restoring the CPU limit, which would also set GOMAXPROCS: CFS throttling
+is what turned a slow gather into a permanent collapse, and removing it is the
+one thing that demonstrably helped.
+
+The prediction, and what falsifies it: **worker-0 and worker-1 should fall to
+control-plane pause times**, tens of microseconds median, and gather latency
+with them. If pauses stay high on 8-core worker-0 after GOMAXPROCS drops to 2,
+P count is not the mechanism and the correlation was node identity wearing a
+core count. Read `go_gc_duration_seconds{quantile="0.5"}` straight off each
+`/metrics`, not through Prometheus, and compare against the table above.
+
+**What this is not.** Two experiments proposed on 2026-09-23 were killed by the
+control before being run, and should not be revived without new evidence:
+
+- *Memory pressure.* The healthy pod uses **more** memory than a degraded one —
+  working set 11.95 MiB on the control plane against 11.63 MiB on worker-1 — and
+  page cache is within 0.5 MiB across all three. `container_memory_failcnt` is 0
+  everywhere.
+- *`GOMEMLIMIT`.* Unset on all three, healthy included
+  (`go_gc_gomemlimit_bytes` at its `MaxInt64` default), so it cannot explain a
+  difference between them.
+
+**Superseded: why STW inflates.** Pause time is dominated by how long it takes to
 preempt every P, not by heap size, so the suspects are scheduling and memory
 pressure rather than allocation. Two specifics worth testing first: `GOMEMLIMIT`
 is unset, so the Go runtime does not know about the 20Mi cgroup limit and lets

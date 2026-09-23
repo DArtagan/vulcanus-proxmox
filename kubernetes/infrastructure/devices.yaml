@@ -63,14 +63,25 @@ spec:
                     - path: /dev/sg0
           name: generic-device-plugin
           env:
-            # Makes SIGQUIT dump *all* goroutines rather than only the running one.
-            # The pod periodically stops serving HTTP entirely: a scrape Prometheus
-            # abandons at its 10s timeout is never cancelled, so gathers pile up on
-            # client_golang's goCollector mutex and the queue can never drain.  This
-            # is here so a wedge can be dumped for the upstream report.  Remove once
-            # that is filed and fixed — see todos/generic-device-plugin-hang.md.
+            # Makes SIGQUIT dump *all* goroutines rather than only the running one,
+            # so a degraded process can be captured for the upstream report.  Remove
+            # once that is filed — see todos/generic-device-plugin-hang.md.
             - name: GOTRACEBACK
               value: all
+            # A `/metrics` gather calls runtime/metrics.Read, which stops the world,
+            # so a gather can never finish faster than one stop-the-world pause.
+            # Pause time scales with the number of Ps the runtime must halt, and
+            # with no CPU limit set the runtime takes GOMAXPROCS from the node's
+            # core count: pauses run ~67us on the 2-core control plane against a
+            # 291ms maximum on the 8-core worker, on an identical heap.
+            #
+            # Pinned rather than restored by re-adding a CPU limit, which would also
+            # set GOMAXPROCS: CFS throttling is what turned a slow gather into a
+            # permanent collapse, and removing it is the one thing that demonstrably
+            # helped.  Two, because that is what the node whose pauses stay in
+            # microseconds runs.
+            - name: GOMAXPROCS
+              value: "2"
           resources:
             # No CPU limit, deliberately.  A wedged pod was throttled for 97% of
             # every CFS period and so could not drain its gather queue however
@@ -91,9 +102,10 @@ spec:
             limits:
               memory: 20Mi
           # docs/kubernetes.md says default to readiness and be wary of liveness.
-          # This is the carve-out.  A restart is the only thing that clears a
-          # wedge; a healthy /metrics answers in 1.6ms, so there is no long
-          # synchronous work in the probe path; and /metrics has no external
+          # This is the carve-out.  A restart clears a degraded process outright
+          # where nothing else reliably does; a healthy /metrics answers in 1.6ms,
+          # so there is no long synchronous work in the probe path; and /metrics
+          # has no external
           # dependency, so this cannot turn one outage into many.  Readiness would
           # accomplish nothing — the DaemonSet sits behind no Service, so NotReady
           # would neither restore the device nor silence the alert.
@@ -102,12 +114,12 @@ spec:
           # already stopped serving scrapes and only hangs once the wedge is
           # total, so it never distinguishes the state worth acting on.
           #
-          # `periodSeconds` matches the PodMonitor's interval below, and neither
-          # goes lower.  A GET on /metrics is a full registry gather — the same
-          # work the scrape does — and gather cost compounds with how often
-          # gathers arrive, so the probe is load on the process it measures.
-          # Probing faster buys detection and pays for it in the failure being
-          # detected.  See todos/generic-device-plugin-hang.md.
+          # `periodSeconds` matches the PodMonitor's interval below.  A GET on
+          # /metrics is a full registry gather — the same work the scrape does —
+          # and each gather stops the world, so probing faster adds pauses to a
+          # process whose pauses are the thing being measured.  Arrival rate does
+          # not cause the degradation: 117 req/s leaves a healthy process at
+          # 2.93ms.  See todos/generic-device-plugin-hang.md.
           #
           # No startupProbe: the plugin serves ~95ms after start, and three
           # failures at 60s apart give it 180s before the first restart.
