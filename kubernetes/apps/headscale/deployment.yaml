@@ -17,7 +17,7 @@ spec:
       serviceAccountName: default
       containers:
         - name: headscale
-          image: headscale/headscale:v0.29.3 # {"$imagepolicy": "apps:headscale"}
+          image: headscale/headscale:v0.29.4 # {"$imagepolicy": "apps:headscale"}
           command: ["headscale", "serve"]
           ports:
             - containerPort: 8080
