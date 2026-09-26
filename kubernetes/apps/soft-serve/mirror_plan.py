@@ -8,8 +8,11 @@ Writes one line per repository, tab-separated and sorted:
 
     github/<owner>/<name>  <private 0|1>  <pushed_at, epoch seconds>  <clone URL>
 
-The token is read-only and fine-grained, so its one resource owner is the user;
-the organisations' repositories are public, which any token can list.
+The token is read-only and fine-grained, so its one resource owner is the user.
+GitHub refuses it for any other owner's endpoints, public ones included, so the
+organisations are listed without it: their repositories are all public, and
+three unauthenticated calls an hour sit well inside the limit of 60. A private
+organisation repository would need a token of its own.
 """
 
 import json
@@ -49,19 +52,21 @@ def plan(repos: list[dict]) -> list[str]:
     return sorted(plan_line(r) for r in repos if in_scope(r))
 
 
-def get(path: str, token: str) -> list[dict]:
-    """Every page of a listing endpoint."""
+def get(path: str, token: str | None) -> list[dict]:
+    """Every page of a listing endpoint, anonymously when token is None."""
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if token is not None:
+        headers["Authorization"] = f"Bearer {token}"
     items: list[dict] = []
     page = 1
     while True:
         sep = "&" if "?" in path else "?"
         req = urllib.request.Request(  # noqa: S310 -- API is a fixed https URL
             f"{API}{path}{sep}per_page={PER_PAGE}&page={page}",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {token}",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            headers=headers,
         )
         with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
             batch = json.load(resp)
@@ -77,7 +82,7 @@ def fetch(token: str) -> list[dict]:
     # listing includes private repositories.
     repos = get("/user/repos?affiliation=owner", token)
     for org in ORGS:
-        repos.extend(get(f"/orgs/{org}/repos?type=all", token))
+        repos.extend(get(f"/orgs/{org}/repos?type=all", None))
     return repos
 
 
