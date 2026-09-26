@@ -10,6 +10,13 @@ data:
   allowlist.txt: |
     # Household exceptions. Upstream's recommended allowlists cover banks,
     # URL shorteners, Discord, Firefox sync and platform telemetry already.
+    archive.today
+    archive.ph
+    archive.is
+    archive.li
+    archive.vn
+    archive.md
+    archive.fo
   # Reconciled into Cloudflare by the cloudflare-gateway-policy CronJob.
   ensure-security-policy.py: |
     """Reconcile the Gateway DNS policy that blocks Cloudflare's security categories.
