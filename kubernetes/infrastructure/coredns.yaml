@@ -142,7 +142,8 @@ spec:
           ; 192.168.0.204 = rustdesk (hbbs + hbbr)
           ; 192.168.0.205 = mumble (64738 tcp+udp)
           ; 192.168.0.206 = syncthing sync (22000 tcp+udp)
-          ; Pool is 192.168.0.201-210, so 207-210 remain. Check the router's
+          ; 192.168.0.207 = soft-serve ssh (22 tcp), named git.forge.local by Headscale
+          ; Pool is 192.168.0.201-210, so 208-210 remain. Check the router's
           ; DHCP range before widening it.
           ;
           ; --- Router DHCP DNS settings ---

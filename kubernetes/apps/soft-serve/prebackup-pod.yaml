@@ -1,0 +1,40 @@
+# A copy of Soft Serve's database, taken by a pod of our own: Soft Serve's image
+# has no sqlite3. The repositories themselves ride the volume backup. See
+# docs/backups.md, and docs/git.md for restoring.
+apiVersion: k8up.io/v1
+kind: PreBackupPod
+metadata:
+  name: soft-serve-sqlite
+  labels:
+    # Selected by the dumps-only K8up Schedule as well as the nightly one.
+    k8up-dump: "true"
+spec:
+  # The backup API copies pages, so the copy is consistent under a running
+  # writer; it needs a seekable destination, hence the file before the cat.
+  # Nothing is streamed unless the copy is non-empty, and the file is this
+  # run's own, so overlapping Backups cannot read each other's half-written
+  # copy.
+  backupCommand: >-
+    sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT;
+    sqlite3 "/data/soft-serve.db" ".backup $f"; test -s "$f"; cat "$f"'
+  fileExtension: .soft-serve.sqlite
+  pod:
+    spec:
+      # The database's owner: Soft Serve's image runs as root. A journal this
+      # pod has to create is then one Soft Serve can still open afterwards.
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      containers:
+        - name: sqlite
+          image: keinos/sqlite3:3.53.4 # {"$imagepolicy": "apps:sqlite3"}
+          # Held open for K8up to exec into; tini, the image's entrypoint,
+          # passes the stop signal through when K8up removes the pod.
+          args: [tail, -f, /dev/null]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: soft-serve-data-pvc

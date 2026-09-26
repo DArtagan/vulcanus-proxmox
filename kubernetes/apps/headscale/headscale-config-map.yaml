@@ -299,13 +299,16 @@ data:
       # Extra DNS records
       # so far only A-records are supported (on the tailscale side)
       # See https://github.com/juanfont/headscale/blob/main/docs/dns-records.md#Limitations
-      extra_records: []
-      #   - name: "grafana.myvpn.example.com"
-      #     type: "A"
-      #     value: "100.64.0.3"
       #
-      #   # you can also put it in one line
-      #   - { name: "prometheus.myvpn.example.com", type: "A", value: "100.64.0.3" }
+      # A LAN address here is reached through the vulcanus subnet route, and
+      # only as far as the policy grants. Read at startup: a change needs the
+      # pod restarted. See docs/tailnet.md.
+      extra_records:
+        # Soft Serve's SSH, on its own LoadBalancer address so clone URLs need
+        # no port. See docs/git.md.
+        - name: git.forge.local
+          type: A
+          value: 192.168.0.207
 
     # Unix socket used for the CLI to connect without authentication
     # Note: for production you will want to set this to something like:

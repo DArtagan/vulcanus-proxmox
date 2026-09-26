@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: soft-serve
+  labels:
+    app: soft-serve
+spec:
+  # The claim is ReadWriteOnce.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: soft-serve
+  template:
+    metadata:
+      labels:
+        app: soft-serve
+    spec:
+      containers:
+        - name: soft-serve
+          image: charmcli/soft-serve:v0.12.2 # {"$imagepolicy": "apps:soft-serve"}
+          env:
+            - name: SOFT_SERVE_INITIAL_ADMIN_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: soft-serve
+                  key: initial-admin-keys
+            - name: SOFT_SERVE_ANON_ACCESS
+              value: no-access
+            - name: SOFT_SERVE_SSH_PUBLIC_URL
+              value: ssh://git.forge.local
+            - name: SOFT_SERVE_HTTP_PUBLIC_URL
+              value: https://git.immortalkeep.com
+            # Nothing should speak unauthenticated git://.
+            - name: SOFT_SERVE_GIT_ENABLED
+              value: "false"
+            - name: GIT_CONFIG_GLOBAL
+              value: /etc/soft-serve/gitconfig
+            # There is no terminal, but git must never be able to wait on a
+            # prompt: GitHub answers 401 for a repository that is gone.
+            - name: GIT_TERMINAL_PROMPT
+              value: "0"
+          ports:
+            - name: ssh
+              containerPort: 23231
+            - name: http
+              containerPort: 23232
+          readinessProbe:
+            tcpSocket:
+              port: ssh
+            periodSeconds: 10
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /soft-serve
+            - name: gitconfig
+              mountPath: /etc/soft-serve
+              readOnly: true
+            - name: github-token
+              mountPath: /run/secrets/github
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: soft-serve-data-pvc
+        - name: gitconfig
+          configMap:
+            name: soft-serve-gitconfig
+        - name: github-token
+          secret:
+            secretName: soft-serve
+            items:
+              - key: github-token
+                path: token

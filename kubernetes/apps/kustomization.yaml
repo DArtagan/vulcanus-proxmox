@@ -32,6 +32,7 @@ resources:
   - rancher-key.sops.yaml
   - rustdesk
   - salamander.yaml
+  - soft-serve
   - stump
   #- sftpgo  # Effectively replaced with rclone dropbox bisync
   - speedtest-tracker

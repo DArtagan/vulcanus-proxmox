@@ -1,0 +1,8 @@
+# Git's global configuration for Soft Serve and its mirror CronJob, through
+# GIT_CONFIG_GLOBAL. Git consults the helper only when github.com answers 401,
+# so public repositories never see the token. Mirror remotes stay plain
+# https://github.com/... URLs: a token inside a URL would be written into each
+# private mirror's git config on the claim, and from there into restic.
+# See docs/git.md.
+[credential "https://github.com"]
+	helper = "!f() { test \"$1\" = get || exit 0; echo username=x-access-token; echo password=$(cat /run/secrets/github/token); }; f"

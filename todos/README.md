@@ -88,6 +88,13 @@ unexamined. Last because nothing is broken today: the
 cluster-level fallback admits these pods, and the work is auditing what each
 workload actually needs rather than setting a label.
 
+**11. [soft-serve.md](soft-serve.md) — a private git server and GitHub mirror**
+Soft Serve at `git.forge.local` (SSH) and `git.immortalkeep.com` (HTTPS),
+LAN and tailnet only, mirroring 71 GitHub repositories automatically. The
+forge, names, mirror scope and HTTPS path are decided; Forgejo is the recorded
+upgrade path if a web UI is ever wanted. Last because nothing is broken
+without it — it comes from a new want, as `tailnet-multi-user` does.
+
 ## Waiting on a decision
 
 **[generic-device-plugin-hang.md](generic-device-plugin-hang.md) — find what flips a process into degrading**
