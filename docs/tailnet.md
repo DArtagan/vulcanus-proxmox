@@ -68,6 +68,7 @@ narrow:
 | `will@` | `192.168.0.202:53` | CoreDNS, or no internal name resolves |
 | `will@` | `192.168.0.203:80,443` | Internal ingress — one door to every HTTP service |
 | `will@` | `192.168.0.205:64738` | Mumble, TCP and UDP. Split DNS answers this address, so a roaming client cannot fall back to the public port forward |
+| `will@` | `192.168.0.207:22` | Soft Serve's SSH, as `git.forge.local` — a Headscale extra record. Its HTTPS rides the internal ingress grant above |
 
 Everything else on the LAN is routed but denied. RustDesk and Syncthing sync
 keep using their public port forwards rather than the tailnet.
