@@ -105,6 +105,15 @@ supported mechanism is the `ALLOWLIST_URLS` environment variable, and setting it
 *replaces* upstream's recommended allowlists rather than extending them — which
 is why they are repeated verbatim in the CronJob and re-checked on an image bump.
 
+The same file exempts its domains from the Security threats policy below: the
+policy CronJob mounts it — safe there, because nothing rewrites it — and carves
+each entry, with its subdomains, out of the block rule. One list holds every
+household exception, so an entry means "trust this domain" rather than "not an
+ad". Upstream's recommended allowlists are not carved out: they include URL
+shorteners, which the Phishing category is there to catch. archive.today and
+its mirrors are the case that prompted this; Cloudflare places them in a
+security category.
+
 ## The Apple configuration profile
 
 Served at `dns.immortalkeep.com` and installed by hand on family devices.

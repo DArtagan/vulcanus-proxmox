@@ -51,6 +51,12 @@ spec:
                   mountPath: /app/ensure-security-policy.py
                   subPath: ensure-security-policy.py
                   readOnly: true
+                # Read, never rewritten, so this mount is safe where the sync
+                # job's is not. See docs/dns-filtering.md.
+                - name: script
+                  mountPath: /app/allowlist.txt
+                  subPath: allowlist.txt
+                  readOnly: true
           volumes:
             - name: script
               configMap:

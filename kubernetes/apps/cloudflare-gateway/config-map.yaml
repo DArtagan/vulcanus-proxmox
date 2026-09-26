@@ -3,10 +3,11 @@ kind: ConfigMap
 metadata:
   name: cloudflare-gateway
 data:
-  # Domains that must never be blocked. Add exceptions here, one per line; they
-  # reach Cloudflare on the next sync run. Served to the sync job over HTTP
-  # rather than mounted into it -- see docs/dns-filtering.md for why mounting
-  # cannot work.
+  # Domains that must never be blocked. Add exceptions here, one plain domain
+  # per line; they reach Cloudflare on the next run of each CronJob. Exempts
+  # them from the filter lists and from the Security threats policy alike.
+  # Served to the sync job over HTTP rather than mounted into it -- see
+  # docs/dns-filtering.md for why mounting cannot work.
   allowlist.txt: |
     # Household exceptions. Upstream's recommended allowlists cover banks,
     # URL shorteners, Discord, Firefox sync and platform telemetry already.
@@ -32,9 +33,14 @@ data:
     Anonymizer (68) is deliberately absent from an otherwise complete set of the
     free Security threats subcategories -- it blocks VPN, Tor and proxy sites, which
     are wanted here.
+
+    The household allowlist is carved out of the rule, so one file holds every
+    exception. Only that file: upstream's recommended allowlists include URL
+    shorteners, which must stay subject to the Phishing category.
     """
     import json
     import os
+    import re
     import sys
     import urllib.error
     import urllib.request
@@ -56,7 +62,31 @@ data:
         188,  # Potentially Unwanted Software
         191,  # Scam
     ]
-    TRAFFIC = "any(dns.security_category[*] in {%s})" % " ".join(str(c) for c in CATEGORIES)
+    ALLOWLIST = "/app/allowlist.txt"
+    DOMAIN = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)+$")
+
+
+    def allowed_domains(text):
+        domains = set()
+        for line in text.splitlines():
+            line = line.strip().lower()
+            if not line or line.startswith("#"):
+                continue
+            # Spliced into the filter expression below, where anything but a
+            # plain domain would change what the rule matches.
+            if not DOMAIN.match(line):
+                raise ValueError("not a plain domain in the allowlist: %r" % line)
+            domains.add(line)
+        return sorted(domains)
+
+
+    def traffic(exceptions):
+        expression = "any(dns.security_category[*] in {%s})" % " ".join(str(c) for c in CATEGORIES)
+        if exceptions:
+            # dns.domains carries the queried name and each of its parents, so
+            # an entry covers its subdomains too.
+            expression += ' and not(any(dns.domains[*] in {%s}))' % " ".join('"%s"' % d for d in exceptions)
+        return expression
 
 
     def http(method, url, token, body=None):
@@ -81,8 +111,10 @@ data:
         sys.exit(1)
 
 
-    def main(request=None):
+    def main(request=None, allowlist=ALLOWLIST):
         request = request or http
+        with open(allowlist) as f:
+            exceptions = allowed_domains(f.read())
         token = os.environ["CLOUDFLARE_API_TOKEN"]
         account = os.environ["CLOUDFLARE_ACCOUNT_ID"]
         base = "%s/accounts/%s/gateway/rules" % (API, account)
@@ -93,7 +125,7 @@ data:
             "action": "block",
             "enabled": True,
             "filters": ["dns"],
-            "traffic": TRAFFIC,
+            "traffic": traffic(exceptions),
         }
 
         listing = request("GET", base, token)
@@ -106,7 +138,7 @@ data:
             resp = request("POST", base, token, desired)
             if not resp.get("success"):
                 fail(resp, "could not create the policy")
-            print("created %r blocking %d categories" % (NAME, len(CATEGORIES)))
+            print("created %r blocking %d categories, %d exceptions" % (NAME, len(CATEGORIES), len(exceptions)))
             return 0
 
         current = mine[0]
@@ -115,7 +147,7 @@ data:
             if current.get(k) != desired[k]
         ]
         if not drift:
-            print("%r already correct: %d categories, enabled" % (NAME, len(CATEGORIES)))
+            print("%r already correct: %d categories, %d exceptions, enabled" % (NAME, len(CATEGORIES), len(exceptions)))
             return 0
 
         resp = request("PUT", "%s/%s" % (base, current["id"]), token, desired)
