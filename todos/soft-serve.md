@@ -6,8 +6,8 @@
 > GitHub repositories. SSH at `git.forge.local`, HTTPS at `git.immortalkeep.com`,
 > reachable from the LAN and the tailnet and nowhere else. Read
 > `todos/soft-serve.md`. The forge choice, the names, the mirror scope and the
-> HTTPS path are all decided — do not reopen them. Start with the open
-> verifications, since two of them decide details of the manifests.
+> HTTPS path are all decided — do not reopen them. The verifications are done
+> except the iPhone one, which needs the Headscale record deployed.
 
 Researched and decided **2026-09-26**, in a session that surveyed the options,
 reported on them, and interviewed for requirements. Facts below say where they
@@ -228,26 +228,56 @@ git-lfs 3.0 or later on each client.
   fine-grained token covering one private repository today. If a better route
   turns up (a credential helper in the image, say), prefer it.
 - **The job is also the watch.** A mirror sync that fails is otherwise only a
-  log line. So each run compares every mirror's newest commit with GitHub's
-  `pushed_at` and **fails when one is stale** beyond a margin. It also
-  **reports**, without failing, repositories that are gone upstream, per the
-  decision above. A failing CronJob already reaches Pushover through the
-  existing alert rules. That is CLAUDE.md's "verification that outlives the
-  session belongs in a rule": nobody has to remember to look.
+  log line. So each run compares every mirror's `refs/heads` and `refs/tags`
+  with GitHub's, and **fails when they differ** and GitHub's `pushed_at` is
+  older than a margin. It also **reports**, without failing, repositories that
+  are gone upstream, per the decision above. A failing CronJob already reaches
+  Pushover through the existing alert rules. That is CLAUDE.md's "verification
+  that outlives the session belongs in a rule": nobody has to remember to look.
+- **Why refs and not commit dates**, which was the first design: comparing the
+  mirror's newest commit date with `pushed_at` false-alarms for good. Deleting
+  a branch bumps `pushed_at` without adding a commit, and GitHub deletes merged
+  pull-request branches by itself, so an in-sync mirror would read stale
+  forever after the first merge.
+- **Shape of the job.** No image in use has Python, `git` and `ssh` together.
+  A stdlib Python initContainer applies the scope rule to GitHub's API and
+  writes a plain-text plan, tested like `kubernetes/k8up/coverage/`; the main
+  container runs in the Soft Serve image (git, ssh, bash) and does the imports
+  and the ref comparison from that plan.
 
-## Open verifications
+## Verifications — done 2026-09-26
 
-Do these first; the first two decide manifest details.
+Against v0.12.2: the image's config from the registry, and a throwaway
+`soft serve` from nixpkgs (also 0.12.2) run locally with two real mirrors.
 
-1. **The image's runtime uid** — for the PreBackupPod's `runAsUser`, and for
-   whether the claim needs its ownership set.
-2. **Does an `extra_records` entry resolve on the iPhone?** MagicDNS extra
-   records outside a node name are what this relies on. Test from iOS before
-   writing it into `docs/`.
-3. **What a mirror does when its upstream disappears** — errors loudly each
-   run, or goes quiet? It decides how the CronJob tells "gone" from "stale".
-4. **`--lfs` on a repository with no LFS objects** is harmless, so the job can
-   pass it unconditionally.
+1. **Runtime uid: 0.** The image sets no `User`, and upstream's Dockerfile has
+   no `USER`. Its revision label, `db5f041`, is the commit the `v0.12.2` tag
+   points at. So the PreBackupPod runs as `runAsUser: 0`, and the claim needs
+   no ownership set.
+2. **Does an `extra_records` entry resolve on the iPhone?** **Still open** —
+   needs the record deployed and a test from iOS before it goes in `docs/`.
+3. **A mirror whose upstream disappears errors loudly, every run, forever** —
+   two `ERRO jobs.mirror: error running git remote update` lines per run, and
+   nothing recorded that can be queried. The error is **not** "not found":
+   GitHub answers an unauthenticated request for a missing repository with 401,
+   so git reports `could not read Username … terminal prompts disabled`. Hence
+   the job takes "gone" from GitHub's listing, never from Soft Serve.
+   - Soft Serve runs every mirror git command with `http.followRedirects=false`
+     (`pkg/ssrf/git.go`, its SSRF guard), so a renamed repository's old mirror
+     stops syncing rather than following GitHub's redirect — which is what the
+     rename decision above wants anyway.
+   - `GIT_TERMINAL_PROMPT=0` is set on the Deployment. The image has no
+     askpass and no terminal, but git must never be able to wait on a prompt.
+     Found the hard way: the first local run inherited the desktop's
+     `SSH_ASKPASS` and raised a GitHub password dialog every sync.
+   - A token in a remote's userinfo passes the SSRF guard, which checks only
+     the hostname, so private remotes of the form
+     `https://x-access-token:<token>@github.com/…` are accepted.
+   - `FETCH_HEAD`'s mtime is no evidence of a successful sync: git truncates it
+     at the start of every fetch, failed or not.
+4. **`--lfs` on a repository with no LFS objects is harmless.** The import
+   exits 0 and writes `lfs.url` into the repository config; five subsequent
+   sync runs logged no error for it. The job passes `--lfs` unconditionally.
 
 ## Closing
 
