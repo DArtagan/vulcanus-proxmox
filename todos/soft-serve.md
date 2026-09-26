@@ -41,6 +41,10 @@ were checked. Slug `soft-serve`.
   it is reported, and it is never deleted automatically — the mirror is a
   backup, and a deletion upstream is precisely when it is wanted. A rename
   therefore yields a new mirror beside the old one.
+- **Mirrors are named `github/<owner>/<repo>`**, chosen 2026-09-26 over
+  `<owner>/<repo>` and a flat namespace: mirrors stay apart from the user's own
+  repositories, the organisations cannot collide with the user, and "under
+  `github/` but not in GitHub's listing" is how the job spots a gone one.
 - **Two names, one per protocol.** SSH at `git.forge.local`, HTTPS at
   `git.immortalkeep.com` through the internal ingress. Asked for by name: the
   user wanted the tailnet name to be memorable for connecting. Why HTTPS does
@@ -219,14 +223,23 @@ git-lfs 3.0 or later on each client.
     three org repositories are public, so the orgs can be listed without it. A
     private org repository would need a second token.
   - It runs `repo import --mirror --lfs [--private]` over SSH for any not yet
-    present. The job authenticates with its own SSH key, registered through
+    present, under `timeout`: **a failed import never returns** (measured
+    2026-09-26). `ImportRepository` ends `return <-repoc, <-done`, and only a
+    successful clone sends on `repoc`, so a failed clone blocks the SSH
+    command — and leaves a goroutine in the server — until something kills
+    it. The job authenticates with its own SSH key, registered through
     `INITIAL_ADMIN_KEYS` or afterwards as a user with create rights. Both keys
     and the token live in `secrets.sops.yaml`.
-- **Private remotes carry the token in the clone URL**, because `repo import`
-  has no credential flag. The token then sits in each private mirror's git
-  config on the claim, and so in restic. Acceptable for a read-only
-  fine-grained token covering one private repository today. If a better route
-  turns up (a credential helper in the image, say), prefer it.
+- **The token reaches git through a credential helper, not the clone URL.**
+  `repo import` has no credential flag, and the first design put the token in
+  each private remote's URL — and so in its git config on the claim, and in
+  restic. Instead a ConfigMap `gitconfig`, pointed at by `GIT_CONFIG_GLOBAL`,
+  defines a helper for `https://github.com` that reads the token from the
+  mounted Secret. Soft Serve's git subprocesses inherit it: measured
+  2026-09-26 with a marker helper, called on import and on every sync. Git
+  asks only on a 401, so public repositories never see the token; rotating it
+  is one Secret edit. As a side effect a gone repository fails with GitHub's
+  "not found" rather than the misleading username error.
 - **The job is also the watch.** A mirror sync that fails is otherwise only a
   log line. So each run compares every mirror's `refs/heads` and `refs/tags`
   with GitHub's, and **fails when they differ** and GitHub's `pushed_at` is

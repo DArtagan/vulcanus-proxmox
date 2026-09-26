@@ -1,0 +1,27 @@
+# Internal only: from the internet the name reaches ingress-nginx-external,
+# which has no rule for it.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: soft-serve
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    # Git LFS uploads whole objects in one request.
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+spec:
+  ingressClassName: ingress-nginx-internal
+  tls:
+    - hosts:
+        - git.immortalkeep.com
+      secretName: soft-serve-ingress-tls
+  rules:
+    - host: git.immortalkeep.com
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: soft-serve
+                port:
+                  name: http

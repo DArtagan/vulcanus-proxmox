@@ -1,0 +1,126 @@
+# Mirrors every GitHub repository in scope into Soft Serve, and fails when a
+# mirror has stopped following GitHub, which CronJobNotSucceeding then reports.
+# See docs/git.md.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: soft-serve-mirror
+spec:
+  schedule: "17 * * * *"
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  successfulJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      # A retry would only repeat the verdict; the next hour's run is the retry.
+      backoffLimit: 0
+      activeDeadlineSeconds: 3000
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            # Makes the mounted SSH key readable to this user; the script
+            # copies it to a file ssh accepts.
+            fsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            # No image in use has Python, git and ssh together, so the plan is
+            # written here and carried out below, in Soft Serve's own image.
+            - name: plan
+              image: python:3.14.7-alpine # {"$imagepolicy": "apps:soft-serve-python"}
+              command: [python3, /scripts/mirror_plan.py]
+              env:
+                - name: GITHUB_TOKEN_FILE
+                  value: /run/secrets/github/token
+                - name: PLAN_FILE
+                  value: /plan/plan.tsv
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 256Mi
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                - name: plan
+                  mountPath: /plan
+                - name: github-token
+                  mountPath: /run/secrets/github
+                  readOnly: true
+          containers:
+            - name: sync
+              image: charmcli/soft-serve:v0.12.2 # {"$imagepolicy": "apps:soft-serve"}
+              command: [bash, /scripts/mirror_sync.sh]
+              env:
+                - name: PLAN_FILE
+                  value: /plan/plan.tsv
+                - name: HOME
+                  value: /work
+                - name: GIT_CONFIG_GLOBAL
+                  value: /etc/soft-serve/gitconfig
+                - name: GIT_TERMINAL_PROMPT
+                  value: "0"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 256Mi
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                - name: plan
+                  mountPath: /plan
+                - name: work
+                  mountPath: /work
+                - name: gitconfig
+                  mountPath: /etc/soft-serve
+                  readOnly: true
+                - name: github-token
+                  mountPath: /run/secrets/github
+                  readOnly: true
+                - name: mirror-key
+                  mountPath: /run/secrets/mirror
+                  readOnly: true
+          volumes:
+            - name: scripts
+              configMap:
+                name: soft-serve-mirror
+            - name: plan
+              emptyDir: {}
+            - name: work
+              emptyDir: {}
+            - name: gitconfig
+              configMap:
+                name: soft-serve-gitconfig
+            - name: github-token
+              secret:
+                secretName: soft-serve
+                items:
+                  - key: github-token
+                    path: token
+                defaultMode: 0440
+            - name: mirror-key
+              secret:
+                secretName: soft-serve
+                items:
+                  - key: mirror-ssh-key
+                    path: ssh-key
+                defaultMode: 0440

@@ -1,0 +1,37 @@
+# The stable in-cluster address, for Flux and CI when they come to depend on
+# Soft Serve, and the ingress's backend.
+apiVersion: v1
+kind: Service
+metadata:
+  name: soft-serve
+spec:
+  selector:
+    app: soft-serve
+  ports:
+    - name: ssh
+      protocol: TCP
+      port: 22
+      targetPort: ssh
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: http
+
+---
+# SSH on its own address so clone URLs need no port: git.forge.local, a
+# Headscale extra record. HTTP is deliberately absent; it goes through the
+# internal ingress, which terminates TLS. See docs/git.md.
+apiVersion: v1
+kind: Service
+metadata:
+  name: soft-serve-ssh
+spec:
+  type: LoadBalancer
+  loadBalancerIP: "192.168.0.207"
+  selector:
+    app: soft-serve
+  ports:
+    - name: ssh
+      protocol: TCP
+      port: 22
+      targetPort: ssh

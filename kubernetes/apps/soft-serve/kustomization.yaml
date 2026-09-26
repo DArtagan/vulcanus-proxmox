@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - data-pvc.yaml
+  - deployment.yaml
+  - image.yaml
+  - ingress.yaml
+  - mirror-cron-job.yaml
+  - prebackup-pod.yaml
+  - secrets.sops.yaml
+  - service.yaml
+# From the files themselves, so the plan script deployed is the one the tests
+# beside it run against, and a change rolls whatever mounts them onto a new
+# ConfigMap name.
+configMapGenerator:
+  - name: soft-serve-gitconfig
+    files:
+      - gitconfig
+  - name: soft-serve-mirror
+    files:
+      - mirror_plan.py
+      - mirror_sync.sh
