@@ -9,7 +9,7 @@ Work still outstanding lives in [`todos/backups.md`](../todos/backups.md), not h
 | Layer | Covers | Where it lands |
 |---|---|---|
 | ZFS snapshots (sanoid) | everything on `rpool` | vulcanus, in place |
-| ZFS replication (syncoid) | `rpool/storage`, `rpool/ROOT`, `rpool/data` | mini-nas, offsite |
+| ZFS replication (syncoid) | `rpool/storage`, `rpool/ROOT`, `rpool/data`, `rpool/backups/restic` | mini-nas, offsite |
 | vzdump → PBS | every guest except `107` | PBS VM 107, on `rpool` |
 | restic, via K8up | every Kubernetes volume in scope, and seven database dumps | the restic repository, LXC 108 |
 | restic, from the repository host | `rpool/storage/{photos,books,filesync}` | the same repository |
@@ -20,9 +20,10 @@ image backup, and the only one that restores a whole guest with a single command
 restic is the granular layer: one volume, one file, or one database, as it stood on
 any night retention still holds.
 
-**The restic repository is not replicated yet**, so it shares `rpool`'s spindles with
-the volumes it protects. Until it is, the only offsite copy of Kubernetes state is the
-raw `rpool/data` zvol syncoid carries, which restores whole or not at all.
+**mini-nas pulls the repository too**, so Kubernetes state has a second failure
+domain that restores one file at a time. Only `rpool/backups/restic` is pulled, not
+`rpool/backups`: that is also the parent of the 2.14 TiB borg tree, which would take
+mini-nas from 74% to about 90%.
 
 **Replication is a pull, not a push.** mini-nas holds the SSH key and runs syncoid;
 vulcanus grants it `hold,send` on `rpool` and nothing more. A host that is compromised
@@ -86,6 +87,19 @@ compromised or misbehaving workload could use to erase its own history.
 served URL returns `403 Forbidden`, and the same `forget` against the local path
 succeeds. It is also why retention runs on the host, as a local client, and never in
 the cluster.
+
+**The offsite copy can be verified where it lies.** A dataset is what makes that
+possible, and it is the reason for the choice above. On mini-nas, with vulcanus
+uninvolved:
+
+```bash
+mount -t zfs -o ro rpool/foreign-backups/vulcanus/backups/restic@<snapshot> /mnt/verify
+restic -r /mnt/verify --no-lock check
+```
+
+A snapshot rather than the live dataset, because the live one can be mid-receive.
+`--no-lock` because the mount is read-only. The replica is not mounted otherwise:
+like every replica here it inherits `mountpoint=none` and `readonly=on`.
 
 **The repository passphrase is the one credential whose loss makes every snapshot
 unreadable.** It is escrowed in the password manager, with the REST password beside
@@ -268,6 +282,7 @@ sanoid on vulcanus, from [`ansible/templates/sanoid.conf`](../ansible/templates/
 |---|---|---|---|
 | `rpool` (recursive) | 36 | 30 | 24 |
 | `rpool/backups` | 36 | 30 | 12 |
+| `rpool/backups/restic` | 0 | 30 | 0 |
 | `rpool/ROOT`, `rpool/data`, `rpool/proxmox_backup_server` | 0 | 30 | 0 |
 
 sanoid on mini-nas, from `~/repositories/mini-nas/configuration.nix`:
@@ -276,6 +291,7 @@ sanoid on mini-nas, from `~/repositories/mini-nas/configuration.nix`:
 |---|---|---|---|
 | `…/vulcanus/storage` (recursive) | 24 | **60** | 24 |
 | `…/vulcanus/data`, `…/vulcanus/ROOT` | 0 | 30 | 0 |
+| `…/vulcanus/backups/restic` | 0 | 60 | 0 |
 
 The offsite copy keeps **more** dailies than the source. syncoid runs
 `--no-sync-snap`, so a target retaining longer than its source is the only thing that
@@ -289,6 +305,14 @@ receive then fails without `-F`.
 PBS retention is client-side: the vzdump job carries `prune-backups keep-last=31` and
 applies it per guest as it backs that guest up. The PVE storage entry sets
 `prune-backups keep-all=1`, so PVE never prunes the datastore itself.
+
+`rpool/backups/restic` carries its own sanoid policy rather than `rpool/backups`'
+36 hourlies, 30 dailies and 12 monthlies: **30 dailies on vulcanus, 60 on
+mini-nas, and nothing else.** restic keeps its own history, so these snapshots are
+for losing the repository itself, and each one pins the pack files restic's monthly
+prune rewrites — up to 20 GiB a prune — for as long as it is kept. sanoid runs with
+`TZ=UTC`, so the daily lands just after 00:00 UTC and holds the whole UTC day
+before it.
 
 restic retention runs on the repository host, monthly, as one policy for every
 host-and-path group:
@@ -471,7 +495,15 @@ not arrive turns the check red on its own period, which is what the period is fo
 exit zero while carrying only part of its dataset list, and a job that stops running
 emits nothing at all. `zfs-replication-freshness` therefore reads the target — newest
 snapshot age per dataset, plus a comparison against the source dataset list, because a
-dataset that was never replicated has no stale snapshot to look wrong.
+dataset that was never replicated has no stale snapshot to look wrong. It skips a
+`canmount=off` container, which receives nothing and so has no snapshot to age: the
+parent the restic replica needs is one. Everything that receives keeps
+`canmount=on`, so a retired replica still fails as it should.
+
+**The restic replica's syncoid unit has no check of its own.** The free tier's twenty
+are spoken for, so its failures report to `zfs-replication-freshness`, which would
+find the replica stale anyway; that check's next run clears it only if the replica is
+current.
 
 **PBS coverage is asserted against the job's scope, and a frozen group reports rather
 than fails.** `pbs-freshness` reads three things and compares them: the vzdump job's
