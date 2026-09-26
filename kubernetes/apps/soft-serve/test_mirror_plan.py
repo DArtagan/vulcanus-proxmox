@@ -102,21 +102,38 @@ class Fetch(unittest.TestCase):
         self.assertEqual(seen, [1, 2])
         self.assertEqual(len(got), mirror_plan.PER_PAGE + 1)
 
-    def test_lists_the_user_and_every_organisation(self) -> None:
-        paths = []
+    def test_sends_the_token_only_to_the_users_own_listing(self) -> None:
+        # A fine-grained token is refused by every other owner's endpoints,
+        # public ones included: GitHub answered the organisations with 403.
+        calls = []
         with mock.patch.object(
-            mirror_plan, "get", lambda path, _token: paths.append(path) or []
+            mirror_plan, "get", lambda path, token: calls.append((path, token)) or []
         ):
             mirror_plan.fetch("t")
         self.assertEqual(
-            paths,
+            calls,
             [
-                "/user/repos?affiliation=owner",
-                "/orgs/DynamicMarkdown/repos?type=all",
-                "/orgs/birthdays-today/repos?type=all",
-                "/orgs/green-nearby/repos?type=all",
+                ("/user/repos?affiliation=owner", "t"),
+                ("/orgs/DynamicMarkdown/repos?type=all", None),
+                ("/orgs/birthdays-today/repos?type=all", None),
+                ("/orgs/green-nearby/repos?type=all", None),
             ],
         )
+
+    def test_anonymous_requests_carry_no_authorization(self) -> None:
+        sent = []
+
+        def urlopen(req: urllib.request.Request, **_: object) -> mock.MagicMock:
+            sent.append(req.has_header("Authorization"))
+            resp = mock.MagicMock()
+            resp.__enter__.return_value = resp
+            resp.read.return_value = b"[]"
+            return resp
+
+        with mock.patch("urllib.request.urlopen", urlopen):
+            mirror_plan.get("/orgs/x/repos", None)
+            mirror_plan.get("/user/repos", "t")
+        self.assertEqual(sent, [False, True])
 
 
 class Main(unittest.TestCase):
