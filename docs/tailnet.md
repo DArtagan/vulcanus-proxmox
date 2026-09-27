@@ -68,7 +68,7 @@ narrow:
 | `will@` | `192.168.0.202:53` | CoreDNS, or no internal name resolves |
 | `will@` | `192.168.0.203:80,443` | Internal ingress — one door to every HTTP service |
 | `will@` | `192.168.0.205:64738` | Mumble, TCP and UDP. Split DNS answers this address, so a roaming client cannot fall back to the public port forward |
-| `will@` | `192.168.0.207:22` | Soft Serve's SSH, as `git.forge.local` — a Headscale extra record. Its HTTPS rides the internal ingress grant above |
+| `will@` | `192.168.0.207:22` | Soft Serve's SSH, as `git.forge.local` — a Headscale extra record. Its HTTPS rides the internal ingress grant above; see [git.md](git.md) |
 
 Everything else on the LAN is routed but denied. RustDesk and Syncthing sync
 keep using their public port forwards rather than the tailnet.
@@ -122,12 +122,15 @@ When something on the LAN is unreachable and you think it should not be:
    ```
    If it goes via the local gateway, the problem is `--accept-routes` or route
    approval, not the ACL. Confirm approval with `headscale nodes list-routes`.
-3. **Read the filter the client was actually given.** This is the compiled
-   policy as the client sees it, and is authoritative:
+3. **Read the filter the subnet router was given.** Traffic to a LAN address is
+   filtered where it leaves the tailnet, on `vulcanus`, and its netmap holds the
+   compiled policy for every routed destination. A client's own netmap holds only
+   the rules for traffic *to* that client, so no LAN address ever appears in it,
+   granted or not:
    ```bash
-   tailscale debug netmap | jq '.PacketFilter'
+   ssh root@vulcanus.forge.local tailscale debug netmap | jq '.PacketFilter'
    ```
-   If the destination does not appear in any `Dsts`, it is the ACL.
+   If the destination does not appear in any `Dsts` there, it is the ACL.
 4. **Add the narrowest entry that covers it** to `policy-config-map.sops.yaml` — a
    specific IP and port, not a subnet and not `*` — with a comment saying what
    needed it.

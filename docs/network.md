@@ -32,7 +32,8 @@ Memory, cores and disk sizes are declared in `terraform/main.tf`.
 | 192.168.0.204 | RustDesk (hbbs + hbbr) |
 | 192.168.0.205 | Mumble (voice chat) |
 | 192.168.0.206 | Syncthing (sync protocol) |
-| 192.168.0.207–210 | Available |
+| 192.168.0.207 | Soft Serve SSH (`git.forge.local`; see [git.md](git.md)) |
+| 192.168.0.208–210 | Available |
 
 Check the router's DHCP range before widening the pool past .210.
 
@@ -210,6 +211,7 @@ the path.
 | 192.168.0.204 | 21117 | TCP | RustDesk hbbr (relay) |
 | 192.168.0.205 | 64738 | TCP + UDP | Mumble (voice chat) |
 | 192.168.0.206 | 22000 | TCP + UDP | Syncthing (sync protocol) |
+| 192.168.0.207 | 22 | TCP | Soft Serve SSH (`git.forge.local`) |
 
 **Do not route UDP through ingress-nginx.** Its `tcp:`/`udp:` ConfigMap keys are
 not part of the Ingress API — they render an nginx `stream` block bolted onto an
@@ -247,6 +249,7 @@ internal ingress via the wildcard; sync traffic uses `syncthing-sync`.
 |----|-----|
 | 192.168.0.202 | CoreDNS. Exposing it publishes an open resolver, which will be abused for DNS amplification. |
 | 192.168.0.203 | Internal ingress. It serves the same hostnames without the external class's intent, bypassing the internal/external split. |
+| 192.168.0.207 | Soft Serve SSH. The git server is LAN and tailnet only by decision; see [git.md](git.md). |
 
 ### No Ingress
 

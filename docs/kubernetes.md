@@ -168,9 +168,10 @@ through every prune. See *Retention* in [`backups.md`](backups.md) for the comma
   major is a deliberate edit. The consequence is that a chart silently stops
   advancing at the boundary, which is what
   [`todos/version-notification-prompt.md`](../todos/version-notification-prompt.md)
-  exists to make visible. The one exception is `beets-flask`, which tracks
-  release candidates because 2.0.0 has never shipped a stable release; see
-  [`beets.md`](beets.md).
+  exists to make visible. Two exceptions: `beets-flask` tracks release
+  candidates because 2.0.0 has never shipped a stable release, see
+  [`beets.md`](beets.md); and Soft Serve is pinned to its minor, because it is
+  pre-1.0 and a minor may break, see [`git.md`](git.md).
 - **Every HelmRelease sets `install`/`upgrade` `remediation.retries: 3`**, so a
   failed chart rolls itself back instead of stalling half-applied. This was added
   after two upgrades failed in the same window and behaved completely differently
