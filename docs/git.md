@@ -72,11 +72,11 @@ ssh git.forge.local token delete <id>
 
 ## Mirroring
 
-Every GitHub repository that is **not a fork**, and **every archived one**,
-forks included, across `DArtagan` and the three organisations `DynamicMarkdown`,
+Every GitHub repository that is **not a fork**, archived or not, across
+`DArtagan` and the three organisations `DynamicMarkdown`,
 `birthdays-today` and `green-nearby`, is mirrored as `github/<owner>/<repo>`.
-Other forks are excluded because they are mostly upstream history and most of
-the size — the `nixpkgs` fork alone is 3 GB.
+Forks are excluded because they are mostly upstream history and most of the
+size — the `nixpkgs` fork alone is 3 GB.
 
 A mirror carries every branch and tag, new ones included, and syncs every ten
 minutes. It follows GitHub exactly, so a branch deleted or force-pushed upstream
