@@ -59,6 +59,9 @@ while IFS=$'\t' read -r name private pushed url; do
 	if ! upstream=$(refs "$url") || ! mirror=$(refs "ssh://soft-serve/$name"); then
 		echo "FAILED to read the refs of $name"
 		failed=1
+	# Refs, not the newest commit's date against pushed_at: deleting a branch
+	# moves pushed_at without adding a commit, and GitHub deletes merged PR
+	# branches itself, so a date test calls an in-sync mirror stale for good.
 	elif [ "$upstream" != "$mirror" ]; then
 		if [ $((now - pushed)) -gt $margin ]; then
 			echo "STALE $name: its refs differ from GitHub's, last pushed $(date -u -d "@$pushed" +%FT%TZ)"

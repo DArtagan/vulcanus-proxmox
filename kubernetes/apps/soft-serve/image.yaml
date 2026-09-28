@@ -19,9 +19,7 @@ spec:
     extract: '$version'
   policy:
     semver:
-      # Pinned to the minor, not the major: Soft Serve is pre-1.0, where a
-      # minor release may break, so crossing one is a decision.
-      range: '>=0.12.2 <0.13.0'
+      range: '>=0.12.2 <1.0.0'
 
 ---
 apiVersion: image.toolkit.fluxcd.io/v1
@@ -45,6 +43,4 @@ spec:
     extract: '$version'
   policy:
     semver:
-      # The plan script is stdlib only, so a minor Python release is no
-      # boundary for it.
       range: '>=3.14.7 <4.0.0'
