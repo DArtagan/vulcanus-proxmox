@@ -1,8 +1,8 @@
 """Lists the GitHub repositories Soft Serve mirrors, as a plan for mirror_sync.sh.
 
 The scope is the user's decision, recorded in docs/git.md: every repository
-that is not a fork, and every archived one, forks included, across the user
-and the three organisations. Forks are otherwise upstream history, and most of the size.
+that is not a fork, archived or not, across the user and the three
+organisations. Forks are mostly upstream history, and most of the size.
 
 Writes one line per repository, tab-separated and sorted:
 
@@ -28,8 +28,8 @@ PER_PAGE = 100
 
 
 def in_scope(repo: dict) -> bool:
-    """Whether a repository is mirrored: not a fork, or archived."""
-    return not repo["fork"] or repo["archived"]
+    """Whether a repository is mirrored: any that is not a fork."""
+    return not repo["fork"]
 
 
 def plan_line(repo: dict) -> str:

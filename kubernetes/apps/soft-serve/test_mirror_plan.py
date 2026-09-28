@@ -4,8 +4,9 @@ Run with `python3 -m unittest discover kubernetes/apps/soft-serve`.
 
 The expensive mistakes are in scope, not in parsing: a fork let in costs
 gigabytes of upstream history (nixpkgs alone is 3 GB), and a repository left
-out is one GitHub can lose with no copy here. Against GitHub on 2026-09-26 the
-plan held 71 repositories: 68 of DArtagan's, one per organisation.
+out is one GitHub can lose with no copy here. Against GitHub on 2026-09-28 the
+plan held 70 repositories: 67 of DArtagan's, 7 of them archived, and one per
+organisation.
 """
 
 import json
@@ -46,8 +47,8 @@ class Scope(unittest.TestCase):
     def test_fork_is_out(self) -> None:
         self.assertFalse(mirror_plan.in_scope(repo(fork=True)))
 
-    def test_archived_fork_is_in(self) -> None:
-        self.assertTrue(mirror_plan.in_scope(repo(fork=True, archived=True)))
+    def test_archived_fork_is_out(self) -> None:
+        self.assertFalse(mirror_plan.in_scope(repo(fork=True, archived=True)))
 
     def test_archived_repository_is_in(self) -> None:
         self.assertTrue(mirror_plan.in_scope(repo(archived=True)))
