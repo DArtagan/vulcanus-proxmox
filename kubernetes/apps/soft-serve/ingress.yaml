@@ -1,5 +1,3 @@
-# Internal only: from the internet the name reaches ingress-nginx-external,
-# which has no rule for it.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

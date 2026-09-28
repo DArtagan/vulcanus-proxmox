@@ -1,6 +1,5 @@
 # A copy of Soft Serve's database, taken by a pod of our own: Soft Serve's image
-# has no sqlite3. The repositories themselves ride the volume backup. See
-# docs/backups.md, and docs/git.md for restoring.
+# has no sqlite3. The repositories themselves ride the volume backup.
 apiVersion: k8up.io/v1
 kind: PreBackupPod
 metadata:

@@ -211,6 +211,14 @@ Applies to comments and config as much as to prose here.
   could not infer — most often the warning that stops them reintroducing a bug,
   which is the one thing worth repeating because its whole value is being where
   the mistake would be made. "See `docs/network.md`" is a complete comment.
+- **A doc is architecture and use, not implementation.** `docs/` says what a
+  thing is, how it is reached and used, why it is shaped the way it is, and what
+  to do when it breaks. Container ports, environment variable names, annotations
+  and how a script goes about its work belong to the files that hold them, where
+  anyone who needs them is already looking; restated in a doc they drift, and
+  bury what the reader came for. The test is whether someone using or operating
+  the system, rather than editing that one file, would need it. The same holds
+  for a comment that restates what its own line already says.
 
 - **Never expose an option whose other setting is simply wrong.** That is not
   configuration, it is a way to break things plus an untested evaluation path.

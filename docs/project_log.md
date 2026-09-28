@@ -16,7 +16,7 @@ oldest first — closing and reopening a review at a phase boundary is not a new
 project, so it gets no entry of its own. Entries with no review link predate the
 workflow. Sub-bullets carry whatever does not fit the one-line shape.
 
-- soft-serve (2026-09-27): Soft Serve as a private git server on the LAN and tailnet, mirroring every GitHub repository that is not a fork, or is archived, with an hourly job that is also the watch. See [git.md](git.md). [PR #14](https://github.com/DArtagan/vulcanus-proxmox/pull/14)
+- soft-serve (2026-09-27): Soft Serve as a private git server on the LAN and tailnet, mirroring every GitHub repository that is not a fork and every archived one, forks included, with an hourly job that is also the watch. See [git.md](git.md). [PR #14](https://github.com/DArtagan/vulcanus-proxmox/pull/14)
 - filtering-dns (2026-09-14): Ad-blocking, privacy and security DNS for the LAN, the cluster, the tailnet and family devices, through Cloudflare Zero Trust Gateway. See [dns-filtering.md](dns-filtering.md). [PR #6](https://github.com/DArtagan/vulcanus-proxmox/pull/6)
   - The image's sortable tag, non-root support and argument-honouring entrypoint went upstream as [mrrfv/cloudflare-gateway-pihole-scripts#263](https://github.com/mrrfv/cloudflare-gateway-pihole-scripts/pull/263).
 - worktree-direnv-hook (2026-09-14): Gave each worktree its own hooks directory, then taught `deploy` to work from any worktree and `review-close` to remove the worktree and its base branch. See [CLAUDE.md](../CLAUDE.md). [PR #9](https://github.com/DArtagan/vulcanus-proxmox/pull/9)
