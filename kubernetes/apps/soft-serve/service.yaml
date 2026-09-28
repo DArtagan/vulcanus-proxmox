@@ -28,6 +28,8 @@ metadata:
 spec:
   type: LoadBalancer
   loadBalancerIP: "192.168.0.207"
+  # Keeps the client's address, like every L4 service here; see docs/network.md.
+  externalTrafficPolicy: Local
   selector:
     app: soft-serve
   ports:

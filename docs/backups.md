@@ -214,7 +214,7 @@ its own at `/<namespace>-<container><extension>`:
 | pinepods (PostgreSQL 18) | annotation, in its `database` container | `/apps-database.pinepods.sql` |
 | photoprism (MariaDB) | annotation, in its `database` container | `/apps-database.photoprism.sql` |
 | salamander (MariaDB) | annotation, in its `database` container | `/apps-database.salamander.sql` |
-| headscale, linkding, plex (SQLite) | PreBackupPod | `/apps-sqlite.<app>.sqlite` |
+| headscale, linkding, plex, soft-serve (SQLite) | PreBackupPod | `/apps-sqlite.<app>.sqlite` |
 | grafana (SQLite) | PreBackupPod | `/infrastructure-sqlite.grafana.sqlite` |
 
 **Two routes, because the tools live in different places.** The relational
