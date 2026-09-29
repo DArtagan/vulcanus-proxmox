@@ -8,22 +8,15 @@
 # Every alias here pushes, so the user runs them: the SSH key is
 # passphrase-protected and an agent cannot unlock it.
 
+# A new worktree is set up in two steps, a pipeline: the keys of one block run
+# concurrently, and each block waits for the one before it.
+[[post-start]]
+
 # Trust the new worktree's .envrc so its own environment loads on first cd.
 # direnv keys its allow list by absolute path, so a fresh worktree is blocked
 # even though the file is identical to one already allowed, and until it loads,
 # treefmt and the rest resolve from whichever checkout the shell came from --
 # which is how 21,940 lines of generated flux-system YAML nearly got reformatted.
-#
-# Deliberately stops at `allow` rather than entering the environment. Entering it
-# reinstalls .git/hooks/pre-commit, and worktrees share .git: the hook carries an
-# absolute --config path, so installing it here would point every other
-# worktree's commits at this one. That collision needs a root-agnostic hook or a
-# per-worktree core.hooksPath, not a race to be installed last.
-[post-start]
-
-# Trust the new worktree's .envrc so its own environment loads on first cd.
-# direnv keys its allow list by absolute path, so a fresh worktree is blocked
-# even though the file is identical to one already allowed.
 trust-envrc = "direnv allow"
 
 # Give this worktree its own hooks directory.
@@ -54,6 +47,19 @@ git config --worktree core.hooksPath "$(git rev-parse --absolute-git-dir)/hooks"
 # working tree at commit time instead of baking a path.
 command -v prek >/dev/null 2>&1 && prek install || true
 """
+
+# Enter the environment once, so the worktree can commit without anyone having
+# cd'd into it first. Entering generates .pre-commit-config.yaml, which the hook
+# reads from the working tree and which is gitignored, so a fresh worktree has
+# none: until then every commit fails with "No `prek.toml` or
+# `.pre-commit-config.yaml` found".
+#
+# A step of its own, after both of the above. Entering reinstalls the pre-commit
+# shim with this worktree's config baked in; before own-hooks has run, that lands
+# in the shared .git/hooks and points every other worktree's commits here. And an
+# .envrc not yet allowed would not load at all.
+[[post-start]]
+activate = "direnv exec . true"
 
 [aliases]
 
