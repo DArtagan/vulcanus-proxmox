@@ -18,12 +18,16 @@ A thread attached to a whole file rather than a line has both fields null, so th
 fallback must tolerate that rather than assume `originalLine` is always present.
 """
 
+import contextlib
+import io
 import unittest
 from typing import Any
+from unittest import mock
 
 from review_threads import (
     GraphQLError,
     format_threads,
+    main,
     parse_threads,
     raise_for_graphql_errors,
     unresolved,
@@ -146,6 +150,36 @@ class FormatThreads(unittest.TestCase):
 
     def test_empty_reports_nothing_open(self) -> None:
         self.assertIn("no open threads", format_threads([]).lower())
+
+
+class Reply(unittest.TestCase):
+    """A blank reply is refused before it reaches GitHub.
+
+    GitHub answers a blank reply with no error, posts nothing, and opens an empty
+    pending review on the pull request instead. Seen on 2026-09-28, when twelve
+    blank replies each reported "replied".
+    """
+
+    def test_blank_body_is_refused_without_calling_github(self) -> None:
+        for body in ("", "  \n\t"):
+            with (
+                self.subTest(body=body),
+                mock.patch("review_threads.run_graphql") as run_graphql,
+                contextlib.redirect_stderr(io.StringIO()),
+                self.assertRaises(SystemExit) as raised,
+            ):
+                main(["reply", "PRRT_x", body])
+            self.assertEqual(raised.exception.code, 2)
+            run_graphql.assert_not_called()
+
+    def test_a_body_is_sent(self) -> None:
+        with (
+            mock.patch("review_threads.run_graphql") as run_graphql,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(main(["reply", "PRRT_x", "Done."]), 0)
+        run_graphql.assert_called_once()
+        self.assertEqual(run_graphql.call_args.kwargs["body"], "Done.")
 
 
 if __name__ == "__main__":

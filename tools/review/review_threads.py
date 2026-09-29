@@ -214,6 +214,11 @@ def main(argv: list[str] | None = None) -> int:
             threads = unresolved(threads)
         print(format_threads(threads))
     elif arguments.command == "reply":
+        # GitHub takes a blank reply without an error and posts nothing: it opens
+        # an empty pending review on the pull request instead, so "replied"
+        # would print for a reply nobody can see.
+        if not arguments.body.strip():
+            parser.error("reply body is empty")
         run_graphql(REPLY_MUTATION, thread=arguments.thread, body=arguments.body)
         print("replied")
     elif arguments.command == "resolve":
