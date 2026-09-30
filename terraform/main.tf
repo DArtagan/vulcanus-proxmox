@@ -113,6 +113,111 @@ provider "proxmox" {
 }
 
 
+# The restic repository: rest-server for the cluster, and a restic client for the
+# mass-file datasets it bind-mounts. See docs/backups.md for why the repository
+# is a dataset on a container rather than a zvol on a VM.
+#
+# NixOS, deployed with colmena. Terraform creates the container once and never
+# touches its contents again; `nixos/` is the source of truth for everything
+# inside it.
+resource "proxmox_lxc" "restic_repository" {
+  target_node = "vulcanus"
+  hostname = "restic-repository"
+  vmid = 108
+
+  # Built by `nix build ./nixos#restic-repository` and uploaded under a stable
+  # name. The build output carries the nixpkgs revision in its filename, which
+  # would make every flake update look like a new template and recreate the
+  # container -- hence both the rename and the lifecycle block below.
+  ostemplate = "local:vztmpl/nixos-restic-repository.tar.xz"
+
+  # Proxmox pushes no configuration into an `unmanaged` guest, which is what a
+  # NixOS container has to be. Everything it would normally write -- address,
+  # resolver, ssh keys -- is declared in nixos/hosts/restic-repository instead.
+  ostype = "unmanaged"
+
+  unprivileged = true
+
+  # `restic prune` holds the whole repository index in memory. 512 MB is what
+  # ruled the fileserver out of this job.
+  memory = 4096
+  cores = 2
+  swap = 0
+  onboot = true
+  start = true
+
+  features {
+    nesting = true
+  }
+
+  rootfs {
+    storage = "local-zfs"
+    size = "20G"
+  }
+
+  # Every mountpoint in this file is a bind mount, so none of them sets
+  # `storage`. The provider derives that attribute on read by splitting the
+  # volume on ":", which a host path does not contain, so it always reads back
+  # empty and any value set here is a diff that no apply can settle. It is also
+  # ignored when the mountpoint is written, since `volume` is what names the
+  # source, and it makes each apply attempt a storage move that Proxmox rejects.
+  mountpoint {
+    key = "0"
+    slot = 0
+    volume = "/rpool/backups/restic"
+    mp = "/srv/restic"
+    size = "1M"
+  }
+
+  # The mass-file datasets, which this container backs up into the repository
+  # above. They would be read-only if the provider could say so: `pct` has
+  # `ro=1` and `mountpoint` here has no equivalent. What keeps them safe is the
+  # unprivileged uid shift -- they are owned outside the container's mapped
+  # range, so they appear as `nobody` inside and their 755 directories are not
+  # writable. restic only ever reads them.
+  mountpoint {
+    key = "1"
+    slot = 1
+    volume = "/rpool/storage/photos"
+    mp = "/srv/storage/photos"
+    size = "1M"
+  }
+
+  mountpoint {
+    key = "2"
+    slot = 2
+    volume = "/rpool/storage/books"
+    mp = "/srv/storage/books"
+    size = "1M"
+  }
+
+  mountpoint {
+    key = "3"
+    slot = 3
+    volume = "/rpool/storage/filesync"
+    mp = "/srv/storage/filesync"
+    size = "1M"
+  }
+
+  # Proxmox does not apply this to an `unmanaged` guest -- systemd-networkd in
+  # nixos/hosts/restic-repository is what actually sets the address. It is
+  # stated here so `pct config 108` tells the truth, and the two must be changed
+  # together.
+  network {
+    name = "eth0"
+    bridge = "vmbr0"
+    gw = "192.168.0.1"
+    ip = "192.168.0.108/24"
+  }
+
+  lifecycle {
+    # The template is the seed for a container colmena owns from first boot.
+    # Rebuilding it on a newer nixpkgs must not destroy and recreate the
+    # machine holding every application backup.
+    ignore_changes = [ostemplate]
+  }
+}
+
 resource "proxmox_lxc" "fileserver" {
   target_node = "vulcanus"
   hostname = "fileserver"
@@ -135,7 +240,6 @@ resource "proxmox_lxc" "fileserver" {
   mountpoint {
     key = "0"
     slot = 0
-    storage = "/rpool/storage/media"
     volume = "/rpool/storage/media"
     mp = "/mnt/storage/media"
     size = "1M"
@@ -144,7 +248,6 @@ resource "proxmox_lxc" "fileserver" {
   mountpoint {
     key = "1"
     slot = 1
-    storage = "/rpool/storage/filesync"
     volume = "/rpool/storage/filesync"
     mp = "/mnt/storage/filesync"
     size = "1M"
@@ -153,7 +256,6 @@ resource "proxmox_lxc" "fileserver" {
   mountpoint {
     key = "2"
     slot = 2
-    storage = "/rpool/storage/photos"
     volume = "/rpool/storage/photos"
     mp = "/mnt/storage/photos"
     size = "1M"
@@ -162,7 +264,6 @@ resource "proxmox_lxc" "fileserver" {
   mountpoint {
     key = "3"
     slot = 3
-    storage = "/rpool/backups/borg"
     volume = "/rpool/backups/borg"
     mp = "/mnt/backups/borg"
     size = "1M"
@@ -171,7 +272,6 @@ resource "proxmox_lxc" "fileserver" {
   mountpoint {
     key = "4"
     slot = 4
-    storage = "/rpool/storage/books"
     volume = "/rpool/storage/books"
     mp = "/mnt/storage/books"
     size = "1M"

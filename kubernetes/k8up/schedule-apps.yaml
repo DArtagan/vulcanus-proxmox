@@ -1,0 +1,29 @@
+apiVersion: k8up.io/v1
+kind: Schedule
+metadata:
+  name: full
+  namespace: apps
+spec:
+  backup:
+    # UTC, the operator's clock. Staggered against the other namespaces' full
+    # Schedules and the repo host's own jobs -- see docs/backups.md.
+    schedule: "0 1 * * *"
+  # The only K8up Check for the one repository. It is structural, and the
+  # operator holds it until the night's backups have finished. A Check on every
+  # Schedule would run the same check three times. See docs/backups.md.
+  check:
+    schedule: "0 3 * * 0"
+---
+apiVersion: k8up.io/v1
+kind: Schedule
+metadata:
+  name: dumps
+  namespace: apps
+spec:
+  backup:
+    # The six-hourly database RPO without re-reading every volume: the label
+    # narrows this to the dumps. `full` covers the 01:00 slot.
+    schedule: "0 7,13,19 * * *"
+    labelSelectors:
+      - matchLabels:
+          k8up-dump: "true"

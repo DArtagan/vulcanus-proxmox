@@ -2,7 +2,43 @@ keys:
   - &steamdeck_willy ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKYSwODOrerKkBNuitwqjNioFXLDRBKqSJTayFoo1Ude
   - &thenixbeast_will ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIyPkfTI0io9dZsJstcf29tddyrsHr9bnM8UXKtaVJwm
   - &flux age1rkkc3rmwczelakcy57fh3schs5qv6488hujf9c9s7zh3jpng6acsxuradu
+  # The restic repository container, so sops-nix can decrypt at activation.
+  #
+  # In age form, not ssh-ed25519 like the human keys above, and the difference
+  # is load-bearing. sops writes an `ssh-ed25519` age stanza for an ssh
+  # recipient, but sops-install-secrets converts the host key with ssh-to-age
+  # and imports a native age identity, which can only open an `X25519` stanza.
+  # Give it the ssh form and activation fails with "0 successful groups
+  # required, got 0" while every fingerprint in the logs looks correct.
+  #
+  # Derived with: ssh-to-age -i /etc/ssh/ssh_host_ed25519_key.pub
+  - &restic_repository age1e3qt0s2l4mn8nfv94s7yqf6hp5jxvmyxut8jxklrz727yscqjqzq4ypqyn
 creation_rules:
+  # NixOS hosts, first: sops takes the first rule that matches, and the
+  # Kubernetes rule below matches these paths too. It carries an
+  # `encrypted_regex` of `data|stringData`, which a sops-nix file has neither
+  # of -- so every value would be written back in plaintext, in a file still
+  # carrying a `sops:` block and a `mac:`, which is exactly what the
+  # sops-encrypted commit hook inspects. It would pass, and a public
+  # repository would have the secret.
+  #
+  # No `encrypted_regex` here: encrypt every value.
+  #
+  # *flux is here although nothing in the cluster reads this file: it is the
+  # key escrowed in the password manager, and every file carrying it is what
+  # makes that one escrowed key sufficient to open everything in the repo.
+  # It adds no exposure -- the Kubernetes copies of these values already
+  # carry it.
+  - path_regex: "^nixos/hosts/restic-repository/.*\\.sops\\.yaml$"
+    key_groups:
+      - age:
+        - *steamdeck_willy
+        - *thenixbeast_will
+        - *flux
+        - *restic_repository
+
+  # Kubernetes Secrets, which Flux decrypts. Only data/stringData is encrypted
+  # so the rest of the manifest stays readable in git.
   - path_regex: "[^/]+\\.sops\\.yaml$"
     encrypted_regex: ^(data|stringData)$
     key_groups:

@@ -1,0 +1,25 @@
+# The images in coverage/, whose ImagePolicies live in infrastructure. A third
+# automation rather than a wider path on that namespace's own: each is scoped to
+# one directory so that no two rewrite and push the same commit.
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageUpdateAutomation
+metadata:
+  name: k8up-image-update-automation
+  namespace: infrastructure
+spec:
+  interval: 5m0s
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  update:
+    path: ./kubernetes/k8up
+    strategy: Setters
+  git:
+    checkout:
+      ref:
+        branch: main
+    commit:
+      author:
+        email: william+fluxcd@weiskopf.me
+        name: Flux Bot

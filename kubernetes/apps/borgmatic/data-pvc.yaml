@@ -2,6 +2,10 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: borgmatic-data-pvc
+  annotations:
+    # borgmatic's own cache and state, rebuilt from the repositories.
+    # Phase 2b deletes this workload. See docs/backups.md.
+    k8up.io/backup: "false"
 spec:
   accessModes:
     - ReadWriteOnce

@@ -62,6 +62,7 @@ narrow:
 | `will@` | `tag:vulcanus-subnet:22,8006` | SSH and the Proxmox web UI on the hypervisor |
 | `will@` | `192.168.0.105:22` | SSH to the fileserver LXC. Shell only — its NFS and SMB exports stay LAN-side |
 | `will@` | `192.168.0.107:8007` | Proxmox Backup Server |
+| `will@` | `192.168.0.108:22` | SSH to the restic repository LXC, for colmena deploys and restic on the host. rest-server's 8000 stays LAN-side, where the cluster reaches it |
 | `will@` | `192.168.0.200:6443` | Kubernetes API, so `kubectl` and `k9s` work while roaming |
 | `will@` | `192.168.0.190:50000` | Talos API, so `talosctl` works while roaming — the tool needed when the cluster is the thing that is broken |
 | `will@` | `192.168.0.202:53` | CoreDNS, or no internal name resolves |

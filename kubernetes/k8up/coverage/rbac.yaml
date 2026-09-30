@@ -1,0 +1,41 @@
+# Read-only, and cluster-wide on purpose: the check enumerates every claim and
+# every dump producer, including in namespaces no Schedule covers yet. The logs
+# are for restic's per-item error counts, read from K8up's backup Job pods.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backup-coverage
+  namespace: infrastructure
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: backup-coverage
+rules:
+  - apiGroups: ['']
+    resources: ['persistentvolumeclaims', 'pods']
+    verbs: ['list']
+  - apiGroups: ['']
+    resources: ['pods/log']
+    verbs: ['get']
+  - apiGroups: ['batch']
+    resources: ['jobs']
+    verbs: ['list']
+  - apiGroups: ['k8up.io']
+    resources: ['prebackuppods']
+    verbs: ['list']
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backup-coverage
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: backup-coverage
+subjects:
+  - kind: ServiceAccount
+    name: backup-coverage
+    namespace: infrastructure

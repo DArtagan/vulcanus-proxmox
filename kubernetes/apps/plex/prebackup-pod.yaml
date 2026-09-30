@@ -1,0 +1,41 @@
+# A copy of plex's database, taken by a pod of our own: plex's image has no sqlite3.
+# Page copies are also indifferent to Plex's custom ICU collations, which VACUUM
+# INTO can trip on. See
+# docs/backups.md.
+apiVersion: k8up.io/v1
+kind: PreBackupPod
+metadata:
+  name: plex-sqlite
+  labels:
+    # Selected by the dumps-only K8up Schedule as well as the nightly one.
+    k8up-dump: "true"
+spec:
+  # The backup API copies pages, so the copy is consistent under a running
+  # writer; it needs a seekable destination, hence the file before the cat.
+  # Nothing is streamed unless the copy is non-empty, and the file is this
+  # run's own, so overlapping Backups cannot read each other's half-written
+  # copy.
+  backupCommand: >-
+    sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT;
+    sqlite3 "/data/Library/Application Support/Plex Media Server/Plug-in Support/Databases/com.plexapp.plugins.library.db" ".backup $f"; test -s "$f"; cat "$f"'
+  fileExtension: .plex.sqlite
+  pod:
+    spec:
+      # The database's owner, so a -wal or -shm this pod has to create is one
+      # plex can still open afterwards.
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: sqlite
+          image: keinos/sqlite3:3.53.4 # {"$imagepolicy": "apps:sqlite3"}
+          # Held open for K8up to exec into; tini, the image's entrypoint,
+          # passes the stop signal through when K8up removes the pod.
+          args: [tail, -f, /dev/null]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: plex-config-pvc

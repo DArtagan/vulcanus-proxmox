@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# No `namespace:` here either -- see ../kustomization.yaml. Every object below
+# names infrastructure itself: the repository Secret it reads is there.
+resources:
+  - cron-job.yaml
+  - healthchecks.sops.yaml
+  - images.yaml
+  - rbac.yaml
+# From the file itself, so the script deployed is the one the tests beside it
+# run against, and a change to it rolls the CronJob onto a new ConfigMap name.
+configMapGenerator:
+  - name: backup-coverage
+    namespace: infrastructure
+    files:
+      - backup_coverage.py

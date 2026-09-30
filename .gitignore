@@ -1,5 +1,7 @@
 # Ansible
-hosts
+# Anchored: an unanchored `hosts` matches at any depth, which silently swallowed
+# the whole nixos/hosts tree. The inventory in use is ansible/hosts.yaml.
+/ansible/hosts
 
 # Kubernetes
 .kubeconfig*

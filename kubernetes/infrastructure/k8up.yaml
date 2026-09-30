@@ -1,0 +1,81 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: k8up
+spec:
+  interval: 24h
+  url: https://k8up-io.github.io/k8up
+
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: k8up
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: k8up
+      # No OCI chart is published, so this is bumped by hand rather than by the
+      # image automation the OCI-backed charts use. The chart and the operator
+      # are versioned apart: chart 4.10.0 deploys operator image v2.16.0.
+      version: 4.10.0
+      sourceRef:
+        kind: HelmRepository
+        name: k8up
+      interval: 15m
+  install:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+  upgrade:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+  values:
+    k8up:
+      # One replica, and Recreate below, so there is never a second pod to hand
+      # the lock to. Left on, controller-runtime renews its Lease every 2s -- a
+      # synchronous WAL fsync each time on etcd's spinning disks -- and on any
+      # etcd stall the holder loses the lock and exits, which here means
+      # crash-looping through the nightly vzdump, the window backups are
+      # scheduled into. openebs.yaml carries the same fix for the same reason.
+      # Scaling above one replica would reintroduce the race it exists to
+      # prevent.
+      enableLeaderElection: false
+      envVars:
+        # Empty turns off the push of each item's stats to a Pushgateway. The
+        # default, http://127.0.0.1/, reaches nothing and logs an ERROR for every
+        # PVC and dump. Pointing it at a real Pushgateway would not help: K8up
+        # groups its pushes by namespace, so each item's push replaces the last,
+        # and the store keeps these numbers per item anyway. It must be set here:
+        # an empty promURL on a Schedule falls back to this. See docs/backups.md.
+        - name: BACKUP_PROMURL
+          value: ""
+    metrics:
+      # So TargetDown covers the operator. Its job counters are no substitute
+      # for the coverage assertion: they carry no pvc label. See
+      # docs/backups.md.
+      serviceMonitor:
+        enabled: true
+      # Its default rules fire on a failed job, and a rule built that way cannot
+      # resolve itself -- see "alert on the absence of recent success" in
+      # docs/README.md.
+      prometheusRule:
+        enabled: false
+  # The chart has no strategy setting and renders the Deployment without one,
+  # so it defaults to RollingUpdate: every upgrade would briefly run two
+  # operators, both reconciling, with nothing electing between them. Recreate
+  # is what makes turning leader election off safe. `add` rather than `replace`
+  # because the path does not exist in the rendered manifest.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Deployment
+              name: k8up
+            patch: |
+              - op: add
+                path: /spec/strategy
+                value:
+                  type: Recreate

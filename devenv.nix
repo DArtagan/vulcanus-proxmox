@@ -290,9 +290,13 @@
       entry = lib.getExe (
         pkgs.writeShellApplication {
           name = "sops-encrypted";
-          runtimeInputs = with pkgs; [
-            gnugrep
-            python3
+          runtimeInputs = [
+            pkgs.gnugrep
+            # pyyaml rather than a line-based scan: a sops-nix file nests its
+            # values arbitrarily, and a regex that walks indentation to decide
+            # what it is looking at is how the data/stringData-only check came
+            # to miss everything that is not a Kubernetes Secret.
+            (pkgs.python3.withPackages (ps: [ ps.pyyaml ]))
           ];
           text = ''
             status=0
@@ -313,22 +317,40 @@
               # than none. Key names only in the output -- the value is the
               # secret, and hook output lands in terminals and CI logs.
               plaintext=$(python3 - "$file" <<'PY'
-            import re, sys
+            import sys
 
-            inside = False
-            for line in open(sys.argv[1]).read().splitlines():
-                if re.match(r"^(data|stringData):\s*$", line):
-                    inside = True
-                elif inside and re.match(r"^\S", line):
-                    inside = False
-                elif inside:
-                    match = re.match(r"^\s+([\w.-]+):\s*(\S.*)$", line)
-                    if match and not match.group(2).startswith("ENC["):
-                        print(match.group(1))
+            import yaml
+
+            document = yaml.safe_load(open(sys.argv[1])) or {}
+            document.pop("sops", None)
+
+            # Which keys are meant to be encrypted depends on the creation rule
+            # that produced the file, and .sops.yaml carries two. A Kubernetes
+            # Secret encrypts only data/stringData and leaves apiVersion, kind
+            # and metadata readable on purpose. Everything else -- sops-nix
+            # included -- is encrypted whole, so every value in it must be.
+            if "data" in document or "stringData" in document:
+                subtrees = {k: document[k] for k in ("data", "stringData") if k in document}
+            else:
+                subtrees = document
+
+
+            def walk(node, path):
+                if isinstance(node, dict):
+                    for key, value in node.items():
+                        walk(value, path + [str(key)])
+                elif isinstance(node, list):
+                    for index, value in enumerate(node):
+                        walk(value, path + [str(index)])
+                elif not (isinstance(node, str) and node.startswith("ENC[")):
+                    print(".".join(path))
+
+
+            walk(subtrees, [])
             PY
             )
               if [ -n "$plaintext" ]; then
-                echo "$file has unencrypted values under data/stringData:" >&2
+                echo "$file has unencrypted values at:" >&2
                 while IFS= read -r key; do
                   echo "    $key" >&2
                 done <<< "$plaintext"

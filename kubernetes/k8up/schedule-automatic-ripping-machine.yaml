@@ -1,0 +1,10 @@
+apiVersion: k8up.io/v1
+kind: Schedule
+metadata:
+  name: full
+  namespace: automatic-ripping-machine
+spec:
+  backup:
+    # UTC, the operator's clock. Staggered against the other namespaces' full
+    # Schedules and the repo host's own jobs -- see docs/backups.md.
+    schedule: "0 2 * * *"
