@@ -9,8 +9,7 @@ spec:
     mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
     operation: copy
   ref:
-    tag: 0.13.9 # {"$imagepolicy": "infrastructure:victoria-logs:tag"}
-
+    tag: 0.13.10 # {"$imagepolicy": "infrastructure:victoria-logs:tag"}
 ---
 apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImageRepository
@@ -19,7 +18,6 @@ metadata:
 spec:
   image: ghcr.io/victoriametrics/helm-charts/victoria-logs-single
   interval: 1h
-
 ---
 apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImagePolicy
@@ -38,7 +36,6 @@ spec:
       # quiet rather than fail when 0.14.0 appears — the same silent-stall
       # problem todos/version-notification-prompt.md exists to solve.
       range: '>=0.13.9 <0.14.0'
-
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -61,7 +58,6 @@ spec:
       # name is derived from the release and chart names and is easy to break by
       # renaming either.
       fullnameOverride: victoria-logs
-
       # Matches the retention Loki was configured for. The chart fails to render
       # unless one of the three retention settings is present.
       #
@@ -73,7 +69,6 @@ spec:
       # fstype or mountpoint — and pages Pushover at <5% free, which at the
       # measured ~2 GiB/day of logs leaves roughly three weeks to act.
       retentionPeriod: 90d
-
       persistentVolume:
         enabled: true
         annotations:
@@ -90,7 +85,6 @@ spec:
         # on the node's 1 TB disk and never enforces the requested size, which is
         # how Loki sat on a "10Gi" claim for three years.
         size: 50Gi
-
       # Prometheus is already running, so scrape VictoriaLogs' own metrics too.
       serviceMonitor:
         enabled: true
