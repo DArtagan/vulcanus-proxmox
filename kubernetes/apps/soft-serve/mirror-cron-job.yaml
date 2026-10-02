@@ -31,7 +31,7 @@ spec:
             # No image in use has Python, git and ssh together, so the plan is
             # written here and carried out below, in Soft Serve's own image.
             - name: plan
-              image: python:3.14.7-alpine # {"$imagepolicy": "apps:soft-serve-python"}
+              image: python:3.14.8-alpine # {"$imagepolicy": "apps:soft-serve-python"}
               command: [python3, /scripts/mirror_plan.py]
               env:
                 - name: GITHUB_TOKEN_FILE
