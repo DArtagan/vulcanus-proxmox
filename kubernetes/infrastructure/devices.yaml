@@ -96,12 +96,12 @@ spec:
           # state worth acting on.
           #
           # No startupProbe: the plugin serves ~95ms after start, and three
-          # failures 60s apart give it 180s before the first restart.
+          # failures at the default 10s period give it 30s before the first
+          # restart.
           livenessProbe:
             httpGet:
               path: /metrics
               port: http
-            periodSeconds: 60
             timeoutSeconds: 5
             failureThreshold: 3
           ports:
@@ -134,8 +134,7 @@ metadata:
   name: generic-device-plugin
 spec:
   podMetricsEndpoints:
-    - interval: 60s
-      port: http
+    - port: http
       path: /metrics
   selector:
     matchLabels:
