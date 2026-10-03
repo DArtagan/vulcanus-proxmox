@@ -204,6 +204,44 @@ resources:
 
 This is an exclusive resource — only one pod can hold it at a time. This is why the deployment uses `strategy: Recreate` rather than `RollingUpdate`: a rolling update would try to start the new pod before terminating the old one, but the new pod can never schedule because the old pod still holds the device.
 
+### Keeping the plugin healthy
+
+The plugin is the drive's only way into the cluster. While it restarts,
+`devic.es/cdrom` is withdrawn, and an ARM pod admitted in that window is rejected
+with `UnexpectedAdmissionError` and stays `Failed` — a ReplicaSet never deletes
+one. A replacement starts normally once the plugin re-registers, so delete the
+`Failed` pod by hand; it holds nothing. A node reboot can lose the same race,
+since the kubelet re-admits pods before the plugin has registered.
+
+**Its parallelism is pinned to two, and must stay pinned.** With no CPU limit
+the Go runtime sizes itself to the node's core count. On the 4- and 8-core
+workers that left the plugin degrading every few hours: its median
+garbage-collection pause rose from ~55µs to 11–18ms, `/metrics` slowed from ~2ms
+to seconds, and the liveness probe reaped it. The 2-core control plane never
+degraded. Pinned to two, all three nodes run identical ~55µs pauses regardless
+of core count. Why a wider runtime degrades intermittently, and what makes a
+scrape wait on it, are not established; the pause and the scrape latency move
+together, which is enough to use one as the readout for the other.
+
+**It has no CPU limit, and must not get one.** A limit would also cap the
+runtime's width, but under one, CFS throttling freezes the process for most of
+every period and a slow `/metrics` never recovers — the plugin goes from
+degraded to dead.
+
+`DevicePluginDegraded` watches the median pause. To read it by hand, along with
+the parallelism the runtime is actually using:
+
+```bash
+kubectl exec -n infrastructure alertmanager-kube-prometheus-kube-prome-alertmanager-0 \
+  -c alertmanager -- wget -qO- http://<plugin-pod-ip>:8080/metrics \
+  | grep -E '^go_gc_duration_seconds\{quantile="0.5"\}|^go_sched_gomaxprocs_threads'
+```
+
+Read the pause, not the latency of a fetch. A one-off fetch usually lands
+between the slow moments and reads healthy on a degraded plugin, and through
+`kubectl port-forward` it measures the apiserver tunnel — about 240ms — rather
+than the plugin.
+
 ## Automatic Disc Detection
 
 ### How udev events reach the container
