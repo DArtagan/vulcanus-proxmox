@@ -16,6 +16,8 @@ oldest first — closing and reopening a review at a phase boundary is not a new
 project, so it gets no entry of its own. Entries with no review link predate the
 workflow. Sub-bullets carry whatever does not fit the one-line shape.
 
+- generic-device-plugin-hang (2026-10-03): Stopped generic-device-plugin degrading and being reaped every few hours, by pinning its Go runtime's parallelism instead of capping its CPU, and alerting on its GC pause. See [automatic-ripping-machine.md](automatic-ripping-machine.md). [PR #10](https://github.com/DArtagan/vulcanus-proxmox/pull/10)
+  - The upstream report it produced is carried forward as `generic-device-plugin-upstream`.
 - soft-serve (2026-09-27): Soft Serve as a private git server on the LAN and tailnet, mirroring every GitHub repository that is not a fork, archived or not, with an hourly job that is also the watch. See [git.md](git.md). [PR #14](https://github.com/DArtagan/vulcanus-proxmox/pull/14)
 - filtering-dns (2026-09-14): Ad-blocking, privacy and security DNS for the LAN, the cluster, the tailnet and family devices, through Cloudflare Zero Trust Gateway. See [dns-filtering.md](dns-filtering.md). [PR #6](https://github.com/DArtagan/vulcanus-proxmox/pull/6)
   - The image's sortable tag, non-root support and argument-honouring entrypoint went upstream as [mrrfv/cloudflare-gateway-pihole-scripts#263](https://github.com/mrrfv/cloudflare-gateway-pihole-scripts/pull/263).

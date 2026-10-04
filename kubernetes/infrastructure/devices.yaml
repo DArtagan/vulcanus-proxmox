@@ -63,71 +63,45 @@ spec:
                     - path: /dev/sg0
           name: generic-device-plugin
           env:
-            # Makes SIGQUIT dump *all* goroutines rather than only the running one,
-            # so a degraded process can be captured for the upstream report.  Remove
-            # once that is filed — see todos/generic-device-plugin-hang.md.
-            - name: GOTRACEBACK
-              value: all
-            # A `/metrics` gather calls runtime/metrics.Read, which stops the world,
-            # so a gather can never finish faster than one stop-the-world pause.
-            # Pause time scales with the number of Ps the runtime must halt, and
-            # with no CPU limit set the runtime takes GOMAXPROCS from the node's
-            # core count: pauses run ~67us on the 2-core control plane against a
-            # 291ms maximum on the 8-core worker, on an identical heap.
-            #
-            # Pinned rather than restored by re-adding a CPU limit, which would also
-            # set GOMAXPROCS: CFS throttling is what turned a slow gather into a
-            # permanent collapse, and removing it is the one thing that demonstrably
-            # helped.  Two, because that is what the node whose pauses stay in
-            # microseconds runs.
+            # Do not remove.  With no CPU limit the Go runtime sizes itself to the
+            # node's core count, and on the multi-core workers that makes the
+            # plugin degrade until the liveness probe reaps it, every few hours.
+            # Pinned here rather than by restoring a CPU limit — see below, and
+            # docs/automatic-ripping-machine.md.
             - name: GOMAXPROCS
               value: "2"
           resources:
-            # No CPU limit, deliberately.  A wedged pod was throttled for 97% of
-            # every CFS period and so could not drain its gather queue however
-            # little work was left: the limit is what turned one slow gather into
-            # a collapse.  The request still gives the scheduler something to
-            # place and still bounds this pod's share when the node is contended;
-            # what it no longer does is stop a 2ms gather taking 2ms.  The
-            # liveness probe below is what bounds a runaway instead.
+            # No CPU limit, deliberately.  Under one, CFS throttling froze the
+            # process for most of every period, and a slow /metrics never
+            # recovered: a limit is what turns a degraded plugin into a dead one.
             #
-            # Memory is limited and deliberately not raised.  A wedged pod and a
-            # healthy one both sit near 15Mi, so memory is not what fails — but
-            # the cgroup crosses 20Mi on page cache, and that OOM kill is the only
-            # thing that recovers a wedge when nothing else does.  Raising it
-            # would remove the backstop behind the backstop.
+            # Memory sits at ~12Mi against this limit, most of it page cache.  An
+            # OOM kill is a restart, which is what clears a degraded plugin, so
+            # the limit doubles as a backstop behind the liveness probe.
             requests:
               cpu: 50m
               memory: 10Mi
             limits:
               memory: 20Mi
           # docs/kubernetes.md says default to readiness and be wary of liveness.
-          # This is the carve-out.  A restart clears a degraded process outright
-          # where nothing else reliably does; a healthy /metrics answers in 1.6ms,
-          # so there is no long synchronous work in the probe path; and /metrics
-          # has no external
-          # dependency, so this cannot turn one outage into many.  Readiness would
-          # accomplish nothing — the DaemonSet sits behind no Service, so NotReady
-          # would neither restore the device nor silence the alert.
+          # This is the carve-out.  A restart clears a degraded plugin outright;
+          # a healthy /metrics answers in ~2ms, so there is no long synchronous
+          # work in the probe path; and /metrics has no external dependency, so
+          # this cannot turn one outage into many.  Readiness would accomplish
+          # nothing — the DaemonSet sits behind no Service, so NotReady would
+          # neither restore the device nor silence an alert.
           #
-          # /metrics rather than /health.  /health answers 200 on a pod that has
-          # already stopped serving scrapes and only hangs once the wedge is
-          # total, so it never distinguishes the state worth acting on.
-          #
-          # `periodSeconds` matches the PodMonitor's interval below.  A GET on
-          # /metrics is a full registry gather — the same work the scrape does —
-          # and each gather stops the world, so probing faster adds pauses to a
-          # process whose pauses are the thing being measured.  Arrival rate does
-          # not cause the degradation: 117 req/s leaves a healthy process at
-          # 2.93ms.  See todos/generic-device-plugin-hang.md.
+          # /metrics rather than /health.  /health answers 200 on a plugin whose
+          # /metrics has already stopped answering, so it never distinguishes the
+          # state worth acting on.
           #
           # No startupProbe: the plugin serves ~95ms after start, and three
-          # failures at 60s apart give it 180s before the first restart.
+          # failures at the default 10s period give it 30s before the first
+          # restart.
           livenessProbe:
             httpGet:
               path: /metrics
               port: http
-            periodSeconds: 60
             timeoutSeconds: 5
             failureThreshold: 3
           ports:
@@ -160,9 +134,7 @@ metadata:
   name: generic-device-plugin
 spec:
   podMetricsEndpoints:
-    # Matches the liveness probe's period, for the reason given beside it.
-    - interval: 60s
-      port: http
+    - port: http
       path: /metrics
   selector:
     matchLabels:

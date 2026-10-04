@@ -448,8 +448,36 @@ spec:
               — "hardreset failed" means the link dropped, and recovery is
               /usr/local/bin/optical-drive-recovery.sh followed by a full power
               cycle if that fails. If the devices are present, the device plugin
-              is the suspect; see docs/automatic-ripping-machine.md and
-              todos/generic-device-plugin-hang.md.
+              is the suspect; see docs/automatic-ripping-machine.md.
+
+        # Watches the one number that separates a healthy plugin from a
+        # degrading one: its median garbage-collection pause, ~55us healthy and
+        # 11-18ms degraded, with nothing in between. Scrape latency moves with it
+        # but is noisier, and restarts only show the end of a degradation that
+        # can run for hours before the liveness probe reaps it. Backtested
+        # against a month of history: it fires on every day the plugin was
+        # degrading and on none of the days it was healthy.
+        #
+        # The quantile summarises recent pauses rather than an instant, so `for`
+        # only has to rule out a restart's first few GCs.
+        - alert: DevicePluginDegraded
+          expr: |
+            max by (instance) (
+              go_gc_duration_seconds{job="infrastructure/generic-device-plugin", quantile="0.5"}
+            ) > 0.001
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: generic-device-plugin on {{ $labels.instance }} is degrading.
+            description: >-
+              Median GC pause is {{ $value | humanizeDuration }}, against ~55us
+              when healthy. Left alone, the liveness probe will reap it every few
+              hours and devic.es/cdrom drops out while it restarts. First check
+              that go_sched_gomaxprocs_threads off the pod's /metrics reads 2: a
+              higher value means the GOMAXPROCS pin in
+              kubernetes/infrastructure/devices.yaml is gone or overridden. See
+              docs/automatic-ripping-machine.md.
 
 ---
 apiVersion: monitoring.coreos.com/v1
