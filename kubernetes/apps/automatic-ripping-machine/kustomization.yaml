@@ -8,6 +8,7 @@ resources:
   - data-pvc.yaml
   - deployment.yaml
   - image.yaml
+  - image-update-automation.yaml
   - init-scripts.yaml
   - ingress.yaml
   - namespace.yaml
