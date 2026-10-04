@@ -34,7 +34,7 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 | 2b | DVD — TV series | **done** 2026-09-04 — two discs of one season; play-all and multi-disc findings drive the ingest design |
 | 3 | Blu-ray | **done** 2026-09-17 — The Rescuers end to end in 9h42m once worker-1 was resized to 16 GiB |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
-| — | Drive drops off its SATA link | **open, unexplained** — observations under 2026-09-22 and 2026-09-22/30 in the progress log |
+| — | Drive drops off its SATA link | **open, unexplained** — observations under 2026-09-22, 2026-09-22/30 and 2026-10-04 in the progress log |
 
 Phase 0 is a prerequisite for all of the others: until it is done, the drive
 wedges on the first disc and stays wedged.
@@ -2281,3 +2281,99 @@ off cleanly at 2026-09-30 17:24 (`systemd-poweroff`) and booted 17:27, when
 `ata4` linked at 1.5 Gbps and identified the BDR-212U. From that boot to
 2026-10-03 there are no `ata4` exceptions — but also no ARM jobs, so the quiet
 is not evidence either way. Disc 2 of *Around the World* is still unripped.
+
+### 2026-10-04 — job 42, with the host's SCSI commands traced
+
+Observations only, continuing the two entries above. No cause has been
+established, and none is proposed here.
+
+*Around the World in 80 Days* disc 2 again, the fifth attempt on it. This time
+the host traced every SCSI command sent to the drive.
+
+#### How the trace was taken, to repeat it
+
+On vulcanus, in a private trace instance filtered to the drive's SCSI host
+(`host3`, which is `ata4`), streamed to a file, started during the manual wait:
+
+```
+T=/sys/kernel/tracing/instances/arm-sata
+mkdir $T && echo 8192 > $T/buffer_size_kb
+for e in scsi_dispatch_cmd_start scsi_dispatch_cmd_done scsi_dispatch_cmd_error scsi_dispatch_cmd_timeout; do
+  echo "host_no == 3" > $T/events/scsi/$e/filter; echo 1 > $T/events/scsi/$e/enable
+done
+for e in ata_eh_link_autopsy ata_eh_link_autopsy_qc ata_link_hardreset_begin ata_link_hardreset_end; do
+  echo 1 > $T/events/libata/$e/enable
+done
+echo 1 > $T/tracing_on
+nohup sh -c "cat $T/trace_pipe > /var/tmp/arm-sata/trace-<job>.txt" &
+```
+
+Remove it afterwards with `echo 0 > $T/tracing_on`, kill the `cat`, then
+`rmdir $T`. Each event records the raw CDB, and the `done` events also record
+the result and sense key. All guest commands arrive through QEMU, so the trace
+can't tell which guest process sent a given command.
+
+While idle, the only traffic is `GET EVENT STATUS NOTIFICATION` (`0x4A`) every
+2 s, the guest kernel's media polling, and every one completed `DID_OK`.
+
+#### Timeline
+
+`makemkvcon ... info --cache=1 disc:9999` started at 20:16:25 UTC, which is
+host trace time ≈ 334228.8. Times below are host trace seconds.
+
+| trace time | command | raw CDB | result |
+|---|---|---|---|
+| 334229.240 | `MODE SELECT(10)`, 0x4E0 bytes | `55 10 00 00 00 00 00 04 e0 00` | rejected, valid sense |
+| 334229.256 | `WRITE BUFFER`, buffer `0xB0` | `3b 02 b0 00 0e 20 00 00 10 00` | good |
+| 334229.260 | `READ BUFFER`, buffer `0x77` | `3c 02 77 00 00 00 00 00 20 00` | good |
+| 334230.886 | `MODE SELECT(10)`, 0x740 bytes | `55 10 00 00 00 00 00 07 40 00` | rejected, valid sense |
+| **334230.901** | **`READ BUFFER`, buffer `0x77`** | **`3c 02 77 12 10 00 00 00 04 00`** | **good, 9.5 ms** |
+| 334230.99 – 334232.61 | `READ(10)` ×~30, LBAs 0–528, 62089 | | good |
+| 334232.61 – 334233.98 | `INQUIRY`, `GET CONFIGURATION`, `READ DISC STRUCTURE`, `READ TOC`, `READ DISC INFORMATION`, `READ CAPACITY`, `READ BUFFER` `0xF1`/`0xB0`/`0xF4` | | good, or rejected with valid sense |
+| 334234.138 | `SET CD SPEED` | `bb 00 ff ff ff ff 00 00 00 00 83 00` | good |
+| 334234.555 | `MODE SELECT(10)`, 0x740 bytes | `55 10 00 00 00 00 00 07 40 00` | rejected, valid sense |
+| **334234.574** | **`READ BUFFER`, buffer `0x77`** | **`3c 02 77 12 10 00 00 00 04 00`** | **no completion** |
+| 334265.046 | — | | SCSI timeout on that command, 30.5 s after it started |
+| 334265.054 | libata | | `eh_action=RESET`, `err_mask=TIMEOUT` |
+| 334265 – 334320 | `ata_link_hardreset` ×4 | | each `rc=-16` |
+
+The host kernel logged the exception at 20:17:03 UTC with the same signature as
+jobs 38–40 (`Emask 0x0`, `cmd a0/00:00:00:04:00/00:00:00:00:00/a0 ... pio 16388
+in`), then `reset failed, giving up` and `disable device` at 20:18:03.
+`/dev/optical-drive-sg` remained on the host. Job 42 ended `fail` at 20:18:06.
+
+#### Observed
+
+- The command in progress when the drive stopped responding was `READ BUFFER`
+  (`0x3C`, mode `02`) to buffer ID `0x77`. `READ BUFFER` reads the device's own
+  buffers rather than the medium.
+- The identical CDB completed in 9.5 ms 3.7 s earlier in the same run. Both
+  times, the command immediately before it was the same rejected
+  `MODE SELECT(10)` with a 0x740-byte parameter list.
+- The drive stopped responding about 9 s after `makemkvcon` started, at trace
+  time 334234.57. The kernel's exception came 30.5 s after that, when the
+  command timed out. Jobs 38–40 had no trace. Their exceptions came 31–32 s after
+  `makemkvcon` started, which doesn't show when those drives stopped
+  responding.
+- Up to the hang, the only commands read from the disc were the single-block
+  and 16-block `READ(10)`s in the timeline. No title data had been read.
+- The run produced 11 libata autopsies with `err_mask=0` and `SENSE_VALID`
+  (commands the drive rejected with sense data), and one with
+  `err_mask=TIMEOUT`.
+
+#### Running count of `makemkvcon` runs and `ata4` events, jobs 37–42
+
+| disc | runs | `ata4` events |
+|---|---|---|
+| *Around the World* disc 2 | 4 (job 40 ×2, 41, 42) | 3, all disabled |
+| *Around the World* disc 1 | 2 (job 39) | 1, recovered |
+| *Sherlock Holmes in the 22nd Century* | 1 (job 38) | 1, disabled |
+
+Job 37 (Sherlock) ended in its manual wait and never ran `makemkvcon`. Jobs
+37–42 are every ARM job since 2026-09-22. Before that, the host logged 12 `ata4`
+exceptions on 2026-09-16 and none afterwards until job 38.
+
+The trace, the condensed command list and the host kernel log are in
+`captures/arm-sata/` in the `disc-ripping` worktree. The raw trace is also on
+vulcanus at `/var/tmp/arm-sata/trace-job42.txt`. No trace exists of a run that
+completed, so there is nothing yet to compare the command sequence against.
