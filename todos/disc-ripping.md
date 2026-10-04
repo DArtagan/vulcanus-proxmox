@@ -34,6 +34,7 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 | 2b | DVD — TV series | **done** 2026-09-04 — two discs of one season; play-all and multi-disc findings drive the ingest design |
 | 3 | Blu-ray | **done** 2026-09-17 — The Rescuers end to end in 9h42m once worker-1 was resized to 16 GiB |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
+| — | Drive drops off its SATA link | **open, unexplained** — observations under 2026-09-22 and 2026-09-22/30 in the progress log |
 
 Phase 0 is a prerequisite for all of the others: until it is done, the drive
 wedges on the first disc and stays wedged.
@@ -2228,3 +2229,55 @@ direct disc access mode` 5 s after its exception. Job 38 never logged it.
   it never appears in the job log), before `check_for_wait`.
 - During a rip, `makemkvcon` holds `/dev/sr0` open. See the 2026-09-21 entry.
 - What held the drive during job 37's manual wait was not identified.
+
+### 2026-09-22/30 — two more SATA link losses, then eight days without the drive
+
+Observations only, continuing the 2026-09-22 entry. No cause has been
+established, and none is proposed here. Host times are Denver.
+
+**Job 40** — *Around the World in 80 Days* disc 2, after disc 1 (job 39) had
+completed. The info scan reached `Using direct disc access mode` in 7 s and ran
+23 minutes without incident. The rip's `makemkvcon` started 13:55:42 UTC; 32 s
+later the host logged the same `Emask 0x0` exception on the same 16,388-byte
+PIO command as jobs 38 and 39, four failed link resets, and `disable device`.
+ARM's eject at 13:57:16 UTC left no `Start/Stop Unit` in the host log; the job
+still records `ejected: 1`. All 14 commands after the disable returned
+`DID_BAD_TARGET`. Recovered by cold power cycle (no drain).
+
+After that boot, `eject -t /dev/sr0` on the host returned `CD-ROM tray close
+command failed: No such file or directory`.
+
+**Job 41** — the same disc, reinserted from the host after the power cycle. The
+disc gate logged `no disc in /dev/sr0 (status=2), skipping` during the eject and
+`Starting ARM for DVD on sr0` after the close. A different signature this time:
+
+```
+16:54:18  ata4.00: exception Emask 0x10 SAct 0x0 SErr 0x4090000 action 0xe frozen
+16:54:18  ata4.00: irq_stat 0x00400040, connection status changed
+16:54:18  ata4: SError: { PHYRdyChg 10B8B DevExch }
+16:54:18  ata4.00: cmd a0/00:00:00:04:00/00:00:00:00:00/a0 tag 14 pio 16388 in
+16:54:19  ata4: SATA link down (SStatus 0 SControl 300)
+16:54:25  ata4: SATA link down ... limiting SATA link speed to <unknown>
+16:54:30  ata4: SATA link down (SStatus 0 SControl 3F0)
+16:54:30  ata4.00: disable device
+16:54:30  ata4.00: detaching (SCSI 3:0:0:0)
+```
+
+Unlike the earlier disables, the device was detached: `/dev/sr0`,
+`/dev/optical-drive-sg` and `3:0:0:0` disappeared from the host. Inside the
+guest, `/dev/sr0` remained and the device plugin kept advertising
+`devic.es/cdrom: 1`. MakeMKV reported `Scsi error - HARDWARE ERROR:INTERNAL
+TARGET FAILURE`, then `Unknown device - '/dev/sr0'`.
+
+| job | `ata4` exception | into the `makemkvcon` run | outcome |
+|---|---|---|---|
+| 38 | `Emask 0x0`, link up | 31 s (1st run) | disabled |
+| 39 | `Emask 0x0`, link up | 32 s (2nd run) | recovered |
+| 40 | `Emask 0x0`, link up | 32 s (2nd run) | disabled |
+| 41 | `Emask 0x10`, `PHYRdyChg 10B8B DevExch`, link down | ~35 s after the wait | disabled and detached |
+
+**After job 41.** The drive stayed absent for eight days. The host was powered
+off cleanly at 2026-09-30 17:24 (`systemd-poweroff`) and booted 17:27, when
+`ata4` linked at 1.5 Gbps and identified the BDR-212U. From that boot to
+2026-10-03 there are no `ata4` exceptions — but also no ARM jobs, so the quiet
+is not evidence either way. Disc 2 of *Around the World* is still unripped.
