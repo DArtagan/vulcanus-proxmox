@@ -124,8 +124,7 @@ Two of its items are still live and carried forward below: the dead
 `RIPMETHOD_DVD`/`RIPMETHOD_BR` keys (D10) and the documentation drift (D11). Its
 item 2 (a disc already in the drive at pod start is never seen) is carried
 forward as D2b. Its item 3 (a node reboot can leave a `Failed` ARM pod) is
-carried forward as D9 and still couples to
-[generic-device-plugin-hang.md](generic-device-plugin-hang.md).
+carried forward as D9.
 
 One claim it repeated from `docs/` is now **disproven**: see D7.
 
@@ -501,18 +500,7 @@ cannot allocate unhealthy devices devic.es/cdrom, which is unexpected
 The kubelet admitted the pod before generic-device-plugin registered a healthy
 `devic.es/cdrom`. A ReplicaSet does not garbage-collect `Failed` pods, so it
 stays until deleted. Nothing is broken — a replacement was created and works —
-but it recurs on every reboot that loses the race, and it **couples to
-[generic-device-plugin-hang.md](generic-device-plugin-hang.md)**: if a plugin
-wedge overlaps an ARM pod recreation, admission fails exactly this way. Decide
-the two together.
-
-**Failing admission is not the only outcome, and the other one is quieter.** On
-2026-08-25 a deliberate ARM restart sat `Pending` for ~2m30s with no container
-statuses at all, then started normally. worker-1's plugin was serving zero bytes
-of HTTP and throttled at 97.8% at that moment, against 0.3% on both other nodes.
-`Allocate` still answered and `devic.es/cdrom` never left `allocatable: 1` — it
-just answered slowly. Nothing alerts on that, correctly, and it reads like a slow
-image pull or SMB mount. Budget for it when a restart seems to hang.
+but it recurs on every reboot that loses the race.
 
 ### D10 — dead configuration
 
@@ -1172,13 +1160,9 @@ in and watch a music rip end to end.
 The Pushover secret landed and ARM was restarted to pick it up; `PO_USER_KEY`
 and `PO_APP_KEY` are substituted in the running container.
 
-Two things learned in the doing, both recorded above: a Secret consumed through
+One thing learned in the doing, recorded above: a Secret consumed through
 `envFrom` on an init container has nothing watching it, so it needs a manual
-rollout; and the device-plugin wedge can *delay* admission rather than fail it,
-which is a quieter third outcome than D9 described. That wedge was live on
-worker-1 during the restart and was deliberately left running, so it is
-available for another goroutine dump — see
-[generic-device-plugin-hang.md](generic-device-plugin-hang.md).
+rollout.
 
 **Phase 1 is next and needs a person at the machine**: the Mànran CD back in the
 drive, enclosure door open. Four things to watch, in order —
