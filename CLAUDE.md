@@ -27,7 +27,7 @@ kubectl debug -n apps -it --copy-to=<debug-pod-name> --container=<container> <po
 kubectl port-forward -n <ns> <pod> <local>:<remote>  # Port forwarding
 ```
 
-**Distroless containers:** Loki, Prometheus and node-exporter ship distroless
+**Distroless containers:** Prometheus and node-exporter ship distroless
 images and contain no shell, so `kubectl exec … -- sh`, `wget` and `df` all fail
 with `executable file not found in $PATH`. Reach their HTTP APIs from a pod that
 does have a shell (the Alertmanager pod works), read disk usage from Prometheus'
@@ -60,7 +60,7 @@ treefmt            # Format the whole tree
 2. **Talos Linux Kubernetes cluster** — provisioned by `terraform/modules/talos/`. Three nodes:
    - Control plane: `192.168.0.190` (`piraeus-control-plane-0`)
    - Worker 0: `192.168.0.195` (`piraeus-worker-0`) — primary workload node, 24 GiB RAM / 8 cores, 1 TB OpenEBS disk
-   - Worker 1: `192.168.0.196` (`piraeus-worker-1`) — secondary node, 8 GiB / 4 cores, 100 GB OpenEBS disk; hosts the physical optical-drive passthrough for `automatic-ripping-machine` (vmid 911 in Proxmox)
+   - Worker 1: `192.168.0.196` (`piraeus-worker-1`) — secondary node, 16 GiB / 4 cores, 100 GB OpenEBS disk; hosts the physical optical-drive passthrough for `automatic-ripping-machine` (vmid 911 in Proxmox)
 
    New nodes MUST be booted from a factory.talos.dev image that bundles the required extensions (see "Talos extensions required" below) — booting a new node from a stock ISO will leave it on a different Talos minor/patch version than the rest of the cluster, which can break Flannel VXLAN pod-to-pod traffic.
 
@@ -71,14 +71,14 @@ treefmt            # Format the whole tree
    - MetalLB pool `192.168.0.201-210` — load balancer IPs
    - Nginx ingress at `192.168.0.203` — internal ingress for `*.immortalkeep.com`
 
-5. **Storage:** OpenEBS for Kubernetes PVCs, backed by a dedicated disk on the worker VM (`terraform/main.tf`: `openebs_disk_size`). Fileserver at `192.168.0.105` provides NFS/SMB mounts for media.
+5. **Storage:** OpenEBS for Kubernetes PVCs, backed by a dedicated disk on each worker VM (`terraform/main.tf`: each worker module's `openebs_disk`). Fileserver at `192.168.0.105` provides NFS/SMB mounts for media.
 
 ### Kubernetes Directory Layout
 
 ```
 kubernetes/
 ├── cluster/          # Flux Kustomization objects (bootstraps infrastructure & apps)
-├── infrastructure/   # Platform components: metallb, openebs, cert-manager, coredns, prometheus, loki, grafana, etc.
+├── infrastructure/   # Platform components: metallb, openebs, cert-manager, coredns, prometheus, victoria-logs, alloy, grafana, etc.
 ├── apps/             # Application deployments (plex, photoprism, mumble, syncthing, headscale, etc.)
 ├── charts/           # Custom Helm charts
 └── flux-customizations/  # Flux webhooks and image automation
@@ -95,10 +95,9 @@ sops kubernetes/apps/<app>/secrets.sops.yaml
 
 ## Key Operational Notes
 
-- **Increase VM disk:** `qm resize <vm-id> virtio1 +<size>G` on the Proxmox host, then update `openebs_disk_size` in `terraform/main.tf` and run `tofu apply`.
+- **Increase VM disk:** `qm resize <vm-id> virtio1 +<size>G` on the Proxmox host, then update that worker's `openebs_disk.size` in `terraform/main.tf` and run `tofu apply`.
 - **Talos upgrades:** Upgrade one node at a time (controlplane first), incrementing minor versions. Use `talosctl --nodes <ip> upgrade --stage --image <factory-image>`.
 - **Talos extensions required:** `siderolabs/iscsi-tools`, `siderolabs/qemu-guest-agent` — get images from https://factory.talos.dev.
-- **talos-worker won't boot:** Check that a virtual SCSI/cdrom is attached in Proxmox VM config.
 
 ### Practices that exist because they were learned the hard way
 
