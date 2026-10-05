@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: soft-serve
-          image: charmcli/soft-serve:v0.12.2 # {"$imagepolicy": "apps:soft-serve"}
+          image: charmcli/soft-serve:v0.12.3 # {"$imagepolicy": "apps:soft-serve"}
           env:
             - name: SOFT_SERVE_INITIAL_ADMIN_KEYS
               valueFrom:
