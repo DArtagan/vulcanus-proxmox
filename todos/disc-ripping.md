@@ -34,7 +34,7 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 | 2b | DVD — TV series | **done** 2026-09-04 — two discs of one season; play-all and multi-disc findings drive the ingest design |
 | 3 | Blu-ray | **done** 2026-09-17 — The Rescuers end to end in 9h42m once worker-1 was resized to 16 GiB |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
-| — | Drive drops off its SATA link | **open, unexplained** — observations under 2026-09-22, 2026-09-22/30, 2026-10-04 and 2026-10-05 in the progress log; it dates from April, not 09-22 |
+| — | Drive drops off its SATA link | **open, unexplained** — observations under 2026-09-22, 2026-09-22/30, 2026-10-04 and both 2026-10-05 entries in the progress log; it dates from April, not 09-22. Job 43 completed with one recovered hang, traced |
 
 Phase 0 is a prerequisite for all of the others: until it is done, the drive
 wedges on the first disc and stays wedged.
@@ -457,6 +457,17 @@ Before running it, check nothing is ripping: `pgrep -af makemkv` in the pod.
 Concurrent SCSI commands to this drive are what destabilise the ATA link.
 
 ### D8 — the disc stays locked in the drive for the whole transcode
+
+> **Wrong — corrected 2026-10-05, and decided the other way.** The running
+> image ejects at the end of the MakeMKV stage. `makemkv.makemkv()` calls
+> `job.eject()` (`/opt/arm/arm/ripper/makemkv.py:760`) before
+> `rip_visual_media` starts the transcode, and by then `main.py`'s call does
+> nothing. Job 43 ejected at 02:59:10 UTC and HandBrake started after it. Job 39
+> ejected at 06:47 in a job that ran until 11:00. Which image introduced this
+> was not checked. Will has decided the disc stays locked through the
+> transcode and ejects only when processing is complete (see **Decisions already
+> made**). So the current behaviour is the defect, and the options below are
+> superseded.
 
 `arm_ripper.rip_visual_media()` runs MakeMKV, then calls `start_transcode()`
 inline, then moves files. `Job.eject()` is only reached from `main.py`'s
@@ -1062,6 +1073,11 @@ limits (D6) and the alert rules, both of which are facts about this cluster.
   still holds before adding any other eject.
 - **A forked ARM image is acceptable** where a fix cannot be made in config
   (Will, 2026-08-25), with improvements carried back upstream. See **Upstream**.
+- **The disc stays in the drive, locked, until its processing is fully
+  complete** (Will, 2026-10-05): "The design intent is that it should be that
+  the drive remains locked during transcode, and then ejects after processing of
+  the disc is fully complete." This settles D8 against both options it listed.
+  The running image doesn't do this yet; it ejects after the rip (D8).
 
 ## What was not investigated
 
@@ -2372,6 +2388,15 @@ in`), then `reset failed, giving up` and `disable device` at 20:18:03.
   (commands the drive rejected with sense data), and one with
   `err_mask=TIMEOUT`.
 
+> **Wrong — corrected 2026-10-05.** Two `makemkvcon` runs, not one. ARM's log
+> has `info --cache=1 disc:9999` from 20:16:23 to 20:16:30 (`Failed to open
+> disc`), then `info --cache=1 disc:0` from 20:16:31. The hang at 334234.57 is
+> ≈ 20:16:32.5 UTC, about 1.5 s into the `disc:0` run. The rows from 334232.61 on
+> are that run's start-up. Between `SET CD SPEED` and the hung pair, the table
+> also leaves out `READ DISC STRUCTURE` ×2, `INQUIRY` and `READ BUFFER 0xF1`.
+> The last two matter. See
+> [job 43](#2026-10-05--job-43-a-traced-run-that-completed-around-one-recovered-hang).
+
 #### Running count of `makemkvcon` runs and `ata4` events, jobs 37–42
 
 | disc | runs | `ata4` events |
@@ -2490,3 +2515,79 @@ A completed run on a disc that ripped cleanly in September (*Shrek the Third*,
 2026-10-04 entry asked for. It also splits the disc question from the
 configuration question. If such a disc now hangs, the disc isn't what changed.
 Trace it with the method in the 2026-10-04 entry.
+
+### 2026-10-05 — job 43, a traced run that completed around one recovered hang
+
+Observations only, continuing the entries above. No cause has been established,
+and none is proposed here. Times are UTC.
+
+*Meat Loaf*, label `MEAT_LOAF_DISC_1`, a DVD not ripped before, titled
+*Three Bats Live* during the manual wait. It isn't the September-clean
+disc the previous entry asked for. It was loaded while ARM was idle, so no job
+started until the tray was cycled from the host (`eject`, then `eject -t`,
+02:20:20–35, at Will's direction). Job 43 started 02:20:44. The trace used the
+2026-10-04 method, running from before the tray cycle to after the final eject.
+It is in `captures/arm-sata/trace-job43-full.txt` in the `disc-ripping` worktree,
+and on vulcanus at `/var/tmp/arm-sata/trace-job43.txt{,.zst}`. Trace time is
+printk monotonic plus about 0.3 s. The exception at monotonic 4118.79 was
+02:25:06.70.
+
+| run | command | ARM log | outcome |
+|---|---|---|---|
+| 922 | `info disc:9999` | 02:24:27 – 02:24:34 | `Failed to open disc` |
+| 929 | `info disc:0` | 02:24:35 – 02:26:19 | hung ~1.8 s in, for 30.2 s. One hard reset, `rc=0` in 0.31 s, then `configured for UDMA/100` and `EH complete`. Direct disc access at 02:25:10, 2 titles |
+| 947 | `mkv` | 02:26:19 – 02:59:10 | `LibreDrive mode (v02.1)`, `Copy complete. 2 titles saved`: 6.54 GB and 0.28 GB in 32.9 min. Zero `MSG:2003` |
+
+That was the only `ata4` exception. ARM ejected at 02:59:10 (see D8) and HandBrake
+started after.
+
+#### Every `READ BUFFER 0x77 @0x121000` in both traces
+
+Each `makemkvcon` run opens with `READ BUFFER 0xB0 @0x0E20` (16 bytes). Some runs
+then send what is called *init* here: `MODE SELECT(10)` 0x4E0 (rejected), then
+`WRITE BUFFER 0xB0 @0x0E20` (16 bytes), then `READ BUFFER 0x77` (32 bytes).
+Every instance of the 4-byte `READ BUFFER 0x77 @0x121000` comes 12–24 ms
+after a rejected `MODE SELECT(10)` 0x740.
+
+| trace | run | init earlier in the run | sent just before the `MODE SELECT` 0x740 | result |
+|---|---|---|---|---|
+| job 42, 334230.90 | `disc:9999` | yes | `READ DISC STRUCTURE`, then 5 ms | 9.5 ms |
+| job 42, 334234.57 | `disc:0` | no | `INQUIRY` (96), `READ BUFFER 0xF1` (48), then 227 ms | no completion; resets failed |
+| job 43, 4084.84 | 922 `disc:9999` | yes | `READ DISC STRUCTURE`, then 6 ms | 8.9 ms |
+| job 43, 4088.85 | 929 `disc:0` | no | `INQUIRY` (96), `READ BUFFER 0xF1` (48), then 237 ms | 30.2 s; reset succeeded |
+| job 43, 4193.50 | 947 `mkv` | yes | `READ DISC STRUCTURE`, then 6 ms | 9.8 ms |
+| job 43, 4195.67 | 947 `mkv` | yes, 2.8 s before | `READ DISC STRUCTURE`, then 6 ms | 9.8 ms |
+
+- The two hangs are the only two instances with no init in their run, and the
+  only two preceded by `INQUIRY`, `READ BUFFER 0xF1` and a ~230 ms pause. The
+  last 14 commands before each hang are byte-identical between job 42 and job 43.
+  That is 2 hangs among 6 instances, so it is an exact split, not an established
+  condition.
+- Each run without init started about 1 s after a run that had sent it, with
+  no power cycle or reset between. Run 947 came after the link reset and sent
+  init again.
+
+#### Where each event since 09-21 falls in its job's `makemkvcon` runs
+
+Run start times are from ARM's job logs. A timeout's hang began about 30.5 s
+before the exception was logged. Job 41's link-down is not a timeout, so its
+timestamp is the event itself.
+
+| job | runs before the hung one since the last power cycle | hung run | hang, s into the run |
+|---|---|---|---|
+| 38 | none in this job; job 36's runs, ~7 h earlier | `disc:9999` | ~3.5 |
+| 39 | `disc:9999`, `disc:0` (both clean) | `mkv`, 21 min after `disc:0` | ~1.5, recovered |
+| 40 | job 39's, then this job's `disc:0` | `mkv` | ~1.5 |
+| 41 | `disc:9999` | `disc:0` | ~1, link down |
+| 42 | `disc:9999` | `disc:0` | ~1.5, traced |
+| 43 | `disc:9999` | `disc:0` | ~1.8, traced, recovered |
+
+- Every event since 09-21 sits early in a run, where that run's first
+  `MODE SELECT` 0x740 / `READ BUFFER 0x77` pair falls in both traces. Only jobs 42 and 43
+  confirm the command. For the rest it is timing alone.
+- No run that was the first on the drive after a power cycle has hung: the
+  `disc:9999` runs of jobs 39, 41, 42 and 43. The run straight after that one hung
+  in 3 of 4 cases (41, 42, 43). Job 39's `disc:0` was clean, and its `mkv` run hung.
+- Whether a run sends init seems to depend on the drive's state rather than the
+  run type, since 947 sent it and 929 didn't. That is inferred from two
+  traces, not checked against MakeMKV.
