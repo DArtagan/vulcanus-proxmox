@@ -101,6 +101,17 @@ alternative it does offer inverts the safety property so a new guest would be
 silently unbacked-up. Everything else about the approach was proven to work.
 Waiting on a bpg release, and nothing to do until one appears.
 
+## Waiting on a site visit
+
+**[vulcanus-onsite-checks.md](vulcanus-onsite-checks.md) — cables, power and ports, in person**
+The optical drive hangs on one command badly enough to drop off its SATA link,
+and a disc-free reproducer now exists to measure it. Its link-down events show
+8b/10b decode errors, and `sda`, one port over on the same controller, logged
+link-layer failures from June to September. The checks run in order, with the
+reproducer after each, and stop at the first change that helps. It needs a
+reproducer baseline before the visit, and the visit itself is about a month
+from 2026-10-06.
+
 
 ## Applications
 

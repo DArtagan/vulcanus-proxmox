@@ -1083,6 +1083,12 @@ limits (D6) and the alert rules, both of which are facts about this cluster.
   the drive remains locked during transcode, and then ejects after processing of
   the disc is fully complete." This settles D8 against both options it listed.
   The running image doesn't do this yet; it ejects after the rip (D8).
+- **Declined for the drive's SATA link losses** (Will, in a session before
+  2026-10-05; first written down 2026-10-06): turning off MakeMKV's LibreDrive,
+  reducing `makemkvcon` runs per job, making VM 911 boot without the drive, and
+  drive firmware changes. "No, I don't think any of these avenues are ones we'd
+  like to pursue." Ask before proposing any of them again. The physical checks
+  that remain are in [vulcanus-onsite-checks.md](vulcanus-onsite-checks.md).
 
 ## What was not investigated
 
