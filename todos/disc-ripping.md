@@ -2682,3 +2682,33 @@ The host logged no `ata4` lines, and the trace has no timeouts or resets.
 - So neither the host-side command sequence nor the absence of init decides
   whether the drive answers. Whatever differs between this check and the two
   hangs, a host SCSI trace doesn't see it.
+
+### 2026-10-06 — the physical layer: SError, task-file status, and the neighbouring port
+
+Observations only, from the host journal since 2026-04-01 and `smartctl`. Host
+times are Denver.
+
+- **The two PHY-level drops logged 8b/10b decode errors.** Of 33 `ata4`
+  exceptions, 30 are `Emask 0x0`, `SErr 0x0`: a command timeout with a clean
+  link. The other three are `Emask 0x10`. On 04-12 that was `SErr 0x10000`
+  (`PHYRdyChg`). On 04-19 (job 6) it was `SErr 0x4890000` (`PHYRdyChg 10B8B
+  LinkSeq DevExch`), and on 09-22 (job 41) `SErr 0x4090000` (`PHYRdyChg 10B8B
+  DevExch`). `10B8B` means the host received symbols that would not decode,
+  which is corruption on the wire.
+- **On every timeout the drive's status was `{ DRDY }`**: ready, with neither
+  BSY nor DRQ set. When libata gave up, the drive was not reporting itself
+  busy with the command or waiting to transfer data.
+- **`ata1`, the first port on the same sSATA controller (`00:11.4`), logged
+  link-layer failures 06-07 → 09-06**, none since. These were `interface fatal
+  error`, `SError: { UnrecovData Handshk }` on `WRITE FPDMA QUEUED`, then a link
+  reset, on 17 days. `ata1` is `sda`, a 10 TB HGST in `rpool`. `rpool` is
+  healthy, and the 2026-09-13 scrub repaired 0 B. No other port logged errors in
+  that period.
+- **Lifetime `UDMA_CRC_Error_Count` is not specific to this controller:**
+  `sda` 31, `sdd` 49 (`00:1f.2` port 1), `sde` 1, `sdf` 1, all others 0. SMART
+  doesn't date them.
+- The optical drive doesn't support the SATA PHY event counter log (GP log
+  0x11), so its own receive-side error counts can't be read. `sda`'s counters
+  are clean since the 2026-10-05 power-on.
+- Port `00:1f.2` ata-5 has no device, so the drive could move to the other
+  controller without unplugging anything else.
