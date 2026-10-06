@@ -34,7 +34,7 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 | 2b | DVD — TV series | **done** 2026-09-04 — two discs of one season; play-all and multi-disc findings drive the ingest design |
 | 3 | Blu-ray | **done** 2026-09-17 — The Rescuers end to end in 9h42m once worker-1 was resized to 16 GiB |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
-| — | Drive drops off its SATA link | **open, unexplained** — observations under 2026-09-22, 2026-09-22/30, 2026-10-04 and both 2026-10-05 entries in the progress log; it dates from April, not 09-22. Job 43 completed with one recovered hang, traced |
+| — | Drive drops off its SATA link | **open, unexplained** — observations under 2026-09-22, 2026-09-22/30, 2026-10-04 and both 2026-10-05 entries in the progress log; it dates from April, not 09-22. Jobs 43 (one recovered hang) and 44 (clean) traced; the host command sequence does not separate a hang from a success. D14 found on the way |
 
 Phase 0 is a prerequisite for all of the others: until it is done, the drive
 wedges on the first disc and stays wedged.
@@ -2563,6 +2563,9 @@ after a rejected `MODE SELECT(10)` 0x740.
   last 14 commands before each hang are byte-identical between job 42 and job 43.
   That is 2 hangs among 6 instances, so it is an exact split, not an established
   condition.
+
+  > **Broken by job 44, two entries on.** The same 14 commands, with no init,
+  > completed in 9.6 ms.
 - Each run without init started about 1 s after a run that had sent it, with
   no power cycle or reset between. Run 947 came after the link reset and sent
   init again.
@@ -2591,3 +2594,77 @@ timestamp is the event itself.
 - Whether a run sends init seems to depend on the drive's state rather than the
   run type, since 947 sent it and 929 didn't. That is inferred from two
   traces, not checked against MakeMKV.
+
+### D14 — every DVD title is transcoded twice
+
+Found 2026-10-06 while job 43 transcoded, and verified against the job database,
+job logs and `completed/`.
+
+**Mechanism.** On the DVD path, `makemkv_mkv` registers one track per extracted
+title, numbered from 0 (`makemkv.py:1055`, `source = "MakeMKV"`). Then
+`handbrake_all` calls `get_track_info`, which registers the same titles again from
+HandBrake's scan of the raw directory, numbered from 1 (`handbrake.py:307`,
+`source = "HandBrake"`). `handbrake_all` then encodes every track in
+`job.tracks` with `-t <track_number>` to `title_<track_number>.mkv`. The result is
+two passes:
+
+1. With MakeMKV's labels. Track 0 becomes `-t 0`, which is HandBrake's "scan
+   all titles" value: it exits in under a second and writes nothing. Tracks
+   1…N−1 then encode HandBrake titles 1…N−1. MINLENGTH is checked against the
+   MakeMKV track's length, which belongs to a different title.
+2. With HandBrake's labels, titles 1…N are encoded again to the same filenames.
+   This overwrites pass 1's output.
+
+Every DVD job in the database that reached transcode has equal MakeMKV and
+HandBrake track counts (jobs 3, 18, 21, 22, 28, 29, 33–36, 43). Job 39 has 8
+and 7. Logs for jobs 21, 28, 36, 39 and 43 all show the instant `-t 0` exit
+and the second pass.
+
+**Cost.** Each title over MINLENGTH except the last is encoded twice, and the
+drive stays locked throughout (see the decision on D8). Job 43's main title
+(144 min) was encoded 02:59–05:15. A second encode of that title then
+truncated it at 05:15:55 and started over. Job 43 ended `success` at
+07:27:57, with the main feature and the short title in `extras/`.
+
+**Not established.** Whether the final output is ever incomplete. Pass 2 covers
+every title, so it should not be. But job 39's `completed/` holds the main
+feature and one extra (`title_2.mkv`, 42 MB), while seven of its titles were over
+MINLENGTH. That is unexplained. Raw MKVs are kept in every case
+(`DELRAWFILES: false`), so nothing is lost at source.
+
+Blu-ray goes through `makemkv_backup`, which registers no MakeMKV tracks; every
+Blu-ray job in the database has HandBrake tracks only. Single-title DVDs pay
+only the `-t 0` no-op.
+
+### 2026-10-06 — job 44: the hung command sequence, sent again, completes
+
+Observations only. Times are UTC.
+
+*Shrek the Third* (`SHREK_THE_THIRD`), which job 28 ripped without an event in
+September. It was loaded at 03:22 while job 43 was transcoding, and the disc
+wrapper logged `a job already holds /dev/sr0, skipping`. The wrapper's lock
+belongs to the job until it ends, transcode included, so a disc loaded during a
+transcode starts nothing and needs a tray cycle afterwards. Under the D8
+decision, the tray stays shut until the job ends, so this can't arise. The tray
+was cycled from the host at 07:28:59, after job 43 ended at 07:27:57. There was no
+power cycle after job 43's runs. The trace ran from 03:19 to after the eject:
+`captures/arm-sata/trace-job44-full.txt`, and on vulcanus
+`/var/tmp/arm-sata/trace-job44.txt{,.zst}`.
+
+| run | command | ARM log | outcome |
+|---|---|---|---|
+| 2641 | `info disc:0` | 07:39:36 – 07:42:13 | LibreDrive and direct disc access at 07:39:42, 5 titles |
+| 2677 | `mkv` | 07:42:13 – 08:05:36 | `Copy complete. 5 titles saved`, 5.7 GB in 23.4 min, zero `MSG:2003` |
+
+There was no `disc:9999` run, as in job 40: ARM reused the stored disc number.
+The host logged no `ata4` lines, and the trace has no timeouts or resets.
+
+- Neither run sent init. The drive had last received it in job 43's run 947.
+  All four `READ BUFFER 0x77 @0x121000` checks completed in 9.6–10.0 ms.
+- The first check, in `disc:0` at trace time 22991.47, followed the same 14
+  commands, byte for byte, as the two hangs in jobs 42 and 43: `INQUIRY`, then
+  `READ BUFFER 0xF1`, then a 295 ms pause (227 and 237 ms in the hangs), then
+  `MODE SELECT(10)` 0x740.
+- So neither the host-side command sequence nor the absence of init decides
+  whether the drive answers. Whatever differs between this check and the two
+  hangs, a host SCSI trace doesn't see it.
