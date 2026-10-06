@@ -2712,3 +2712,56 @@ times are Denver.
   are clean since the 2026-10-05 power-on.
 - Port `00:1f.2` ata-5 has no device, so the drive could move to the other
   controller without unplugging anything else.
+
+### 2026-10-06 — the hang reproduced with no disc, no MakeMKV and no VM
+
+A single `READ BUFFER 0x77 @0x121000` hung the drive when sent from the host:
+`sg_raw -r 4 -t 30 /dev/optical-drive-sg 3c 02 77 12 10 00 00 00 04 00`. Host
+times are Denver. The trace is `captures/arm-sata/trace-repro-full.txt`, and on
+vulcanus `/var/tmp/arm-sata/trace-repro.txt`. It added libata's per-command
+events (`ata_qc_issue`, `ata_qc_complete_*`, `ata_port_freeze/thaw`,
+`ata_eh_*`).
+
+**Conditions.** ARM was idle, and the tray had been open since job 44's eject at
+02:05, so no disc was loaded. The guest's 2-second media poll was the only other
+traffic. The drive had last run MakeMKV in job 44, about 70 minutes earlier, with
+no power cycle since job 43. About six minutes before the test,
+`smartctl -d sat -l sataphy /dev/sg3` sent ATA PASS-THROUGH commands to the drive.
+It answered normally ("not supported"), but the timing wasn't recorded, and
+it is a confound for this single run.
+
+**What happened.** At trace time 50506.063 libata issued the packet command to
+the drive (`ata_qc_issue`, PIO, byte count 4). Nothing came back: no completion
+and no interrupt. At 50536.465 (09:18:44), 30.4 s later, it timed out with
+status `{ DRDY }`, the signature of every MakeMKV hang. Four hard resets each
+ended `rc=-16` with the link `slow to respond (ready=0)`, and at 09:19:44 the
+drive was disabled. No `MODE SELECT`, `INQUIRY` or other command preceded it in
+the same second.
+
+So the hang needs neither MakeMKV's surrounding commands nor QEMU and the guest.
+A host-originated command alone is enough, at least in the drive's state at the
+time. In job 44 the same command completed four times, each 12–24 ms after
+MakeMKV's rejected `MODE SELECT(10)` 0x740. Whether that preceding command
+matters, and whether the drive needs to have run MakeMKV since power-on, are the
+next things to test. Both need a power cycle per hang.
+
+#### Context gathered on the way
+
+- **7.0.0-3's clean record is weak evidence.** That boot lasted 134 days
+  (2026-05-04 → 09-15), but ARM used the drive in only 4 of them (09-01 → 09-04):
+  10 jobs and 17 `makemkvcon` runs. The next kernel had events in about 1 of 18
+  runs on a similar mix of ordinary DVDs. At that rate, 17 clean runs happen by
+  chance about 38% of the time (0.95¹⁷). The problem discs never ran on 7.0.0-3.
+  So the kernel A/B test in the 2026-10-05 entry has little to start from.
+- **`optical-drive-ata-monitor`** (`ansible/proxmoxer.yaml`) has captured every
+  failure since 09-21 in `/var/log/optical-drive-monitor/` on vulcanus. In each
+  of them the only process holding `/dev/sg3` was QEMU (`kvm`), plus `sg_raw` for
+  this test. No host-side process was probing the drive during the September
+  and October events.
+- **`smartd` has excluded the drive since 2026-05-04** (`48ae4169`, on the
+  theory that host SCSI probes caused the April failures). The quiet 7.0.0-3
+  boot began the same day, and the events came back in September with the
+  exclusion still in place.
+
+The physical checks this points at are collected in
+[vulcanus-onsite-checks.md](vulcanus-onsite-checks.md).
