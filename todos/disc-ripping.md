@@ -469,6 +469,11 @@ Concurrent SCSI commands to this drive are what destabilise the ATA link.
 > made**). So the current behaviour is the defect, and the options below are
 > superseded.
 
+**Fix:** the `eject-after-processing` edit in `arm-source-patches.py`
+(`init-scripts.yaml`) drops that call. To verify it on the first video job after
+deploy, ARM's log should show one `eject` line, after
+`ARM processing complete`, not after `Exiting MakeMKV processing`.
+
 `arm_ripper.rip_visual_media()` runs MakeMKV, then calls `start_transcode()`
 inline, then moves files. `Job.eject()` is only reached from `main.py`'s
 `finally:` block, **after all of that**. So the tray does not open until the
@@ -2635,6 +2640,15 @@ MINLENGTH. That is unexplained. Raw MKVs are kept in every case
 Blu-ray goes through `makemkv_backup`, which registers no MakeMKV tracks; every
 Blu-ray job in the database has HandBrake tracks only. Single-title DVDs pay
 only the `-t 0` no-op.
+
+**Fix:** the `d14-encode` and `d14-move-series` edits in
+`arm-source-patches.py` (`init-scripts.yaml`). `handbrake_all` encodes only the
+tracks HandBrake's scan registered. A series moves only those tracks too, because
+MakeMKV's tracks keep their raw names, and `find_matching_file` would
+fuzzy-match those onto the transcodes. Movies keep their current route
+through `skip_transcode_movie`. To verify on the first multi-title DVD after
+deploy, the log should show no `-t 0` command, each title transcoded once, and
+`completed/` holding every title over MINLENGTH.
 
 ### 2026-10-06 — job 44: the hung command sequence, sent again, completes
 
