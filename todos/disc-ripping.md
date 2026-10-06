@@ -34,7 +34,7 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 | 2b | DVD — TV series | **done** 2026-09-04 — two discs of one season; play-all and multi-disc findings drive the ingest design |
 | 3 | Blu-ray | **done** 2026-09-17 — The Rescuers end to end in 9h42m once worker-1 was resized to 16 GiB |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
-| — | Drive drops off its SATA link | **open, unexplained** — observations under 2026-09-22, 2026-09-22/30 and 2026-10-04 in the progress log |
+| — | Drive drops off its SATA link | **open, unexplained** — observations under 2026-09-22, 2026-09-22/30, 2026-10-04 and 2026-10-05 in the progress log; it dates from April, not 09-22 |
 
 Phase 0 is a prerequisite for all of the others: until it is done, the drive
 wedges on the first disc and stays wedged.
@@ -933,6 +933,11 @@ matched control: **since the host power-cycled on 2026-05-04 there have been zer
 ata4 events in 111 days of uptime**, and the 2026 total is five days with
 exceptions, all in April. Treat the drive as healthy but instrument the next
 Blu-ray rip with `journalctl -f | grep ata4` on the host.
+
+> **Superseded — 2026-10-05.** The quiet spell was one host boot, on kernel
+> 7.0.0-3, and ended with job 27. April also had device disables needing a
+> reboot and a PHY-level link-down, not only recoveries. See
+> [the 2026-10-05 entry](#2026-10-05--the-drives-history-since-april-and-what-each-era-ran).
 
 ## Phase 4 — 4K UHD Blu-ray
 
@@ -1952,6 +1957,12 @@ run again after worker-1 went to 16 GiB, and it completed without incident. The
 resize is therefore confirmed by the workload that exposed the problem rather
 than by a proxy.
 
+> **Wrong — corrected 2026-10-05.** Not without incident. The host logged 12
+> `ata4` command timeouts across both `makemkvcon` runs, 03:02–03:08 UTC. Every
+> one recovered, but libata stepped the drive down to UDMA/33. The info scan
+> ended `Failed to open disc`, and the backup then succeeded. See
+> [the 2026-10-05 entry](#2026-10-05--the-drives-history-since-april-and-what-each-era-ran).
+
 Two DVDs followed without drama — Shrek the Third (job 28, 4h17m) and The Great
 Race (job 29, 5h33m) — so the DVD path is steady across repeat use, which it had
 not been before phase 0.
@@ -2377,3 +2388,105 @@ The trace, the condensed command list and the host kernel log are in
 `captures/arm-sata/` in the `disc-ripping` worktree. The raw trace is also on
 vulcanus at `/var/tmp/arm-sata/trace-job42.txt`. No trace exists of a run that
 completed, so there is nothing yet to compare the command sequence against.
+
+### 2026-10-05 — the drive's history since April, and what each era ran
+
+Observations only, continuing the three entries above. No cause has been
+established, and none is proposed here. Host times are Denver.
+
+The host was cold power-cycled after job 42 and booted 2026-10-05 19:17:
+`ata4` linked at 1.5 Gbps, `/dev/optical-drive-sg -> sg3`, worker-1 Ready, and
+`devic.es/cdrom: 1` allocatable.
+
+#### The libata `cmd` line names the transfer
+
+`cmd a0/FF:00:00:LM:LH/...` is an ATAPI PACKET command. `FF` bit 0 is the DMA
+flag, and `LH:LM` is the byte count the host asked for. The number after
+`pio`/`dma` adds libata's 16 KiB ATAPI drain buffer to it. A length that is not
+a multiple of 16 is forced to PIO.
+
+- `00:00:00:04:00 ... pio 16388` is a **4-byte** data-in. In job 42's whole run,
+  the only command with a 4-byte data-in is `READ BUFFER 3c 02 77 12 10 00 00 00
+  04 00`, the one the drive hung on.
+- `01:00:00:20:00 ... dma 16416` is a **32-byte** data-in. Job 42 sent five such
+  commands: `READ BUFFER 3c 02 77 00 00 00 00 00 20 00`, `GET CONFIGURATION`,
+  and three `READ DISC STRUCTURE`. That signature does not single one out.
+
+This identifies commands only as far as other runs send the same command set as
+job 42, which is unconfirmed until a second run is traced.
+
+#### Reading the trace: rejected commands look like timeouts
+
+In the `arm-sata` trace, a command rejected with sense data (CHECK CONDITION)
+appears as `scsi_dispatch_cmd_timeout` about 8 ms after it starts. This isn't
+a timeout. libata handles every ATAPI CHECK CONDITION by aborting into its error
+handler to fetch the sense data, and that abort passes through the SCSI timeout
+tracepoint. So each rejected `MODE SELECT(10)` in job 42 put the port through
+libata EH just before the `READ BUFFER` that followed it. A real timeout is the
+same event 30 s or more after the start.
+
+#### Every `ata4` exception since the drive was passed through
+
+From `journalctl _TRANSPORT=kernel --since 2026-04-01 | grep ata4` on vulcanus.
+The one earlier `ata4` exception, 2024-12-23, is a disk's `FLUSH CACHE EXT`, from
+before the drive was on that port.
+
+| host time | signature | ARM job | outcome |
+|---|---|---|---|
+| 04-09 14:33 | `dma`, ×1 | none, before job 1 | disabled |
+| 04-12 10:23 – 20:29 | `pio` ×4, `dma` ×1 (`Emask 0x10`, `SErr 0x10000`) | none; host booted 3 times that day | 3 disabled, 2 recovered |
+| 04-17 15:21 | `pio` | 2, *Le Mans*, fail | disabled; job 3, same disc, succeeded |
+| 04-19 22:43 | `pio`, `Emask 0x10`, `SErr 0x4890000`, link down | 6, *The Rescuers*, fail | disabled; same signature as job 41 |
+| 04-21 21:33 – 21:36 | `pio` ×1, `dma` ×6 | 8, *The Rescuers*, fail | all recovered, UDMA/66 |
+| 09-16 21:02 – 21:08 | `dma` ×12, every ~30.5 s | 27, *The Rescuers*, success | all recovered, UDMA/66 then UDMA/33 |
+| 09-21 19:11 | `pio` | 38 | disabled |
+| 09-21 23:12 | `pio` | 39 | recovered |
+| 09-22 07:56 | `pio` | 40 | disabled |
+| 09-22 16:54 | `pio`, `Emask 0x10`, link down | 41 | disabled, detached |
+| 10-04 14:17 | `pio` | 42 | disabled |
+
+That makes 32 exception lines: 12 `pio 16388` and 20 `dma 16416`, and nothing
+else. Job 27's 12 timeouts covered both of its `makemkvcon` runs. The info scan
+ended `Failed to open disc`, and the backup then ripped the disc. Its phase 3
+entry is corrected above.
+
+#### What was different in each era
+
+The host kernel is from `journalctl --list-boots`. QEMU is the binary VM 911 was
+started with, from `/var/log/apt/history.log` and the `qmstart`/`qmreboot`
+tasks in `/var/log/pve/tasks/index`. MakeMKV is from the job logs, which reach
+back only to 2026-08-24. A job is counted if its log shows a `makemkvcon`
+start.
+
+| era | host kernel | VM 911 QEMU | `max_sectors` | MakeMKV | jobs running `makemkvcon` | jobs with events |
+|---|---|---|---|---|---|---|
+| 04-09 → 05-03 | 6.17.4-2, then 6.17.13-2 | 10.1.2 | default | unknown | among 1–9 | 2, 6, 8, plus non-ARM use on 04-09 and 04-12 |
+| 09-01 → 09-04 | 7.0.0-3 | 11.0.0-3 | default | 1.18.3 → 1.18.4 | 15–19, 21–23, 25, 26 (10) | none |
+| 09-16 → 09-21 | 7.0.2-6 | 11.0.0-3 | default | 1.18.4 | 27–31, 33–36 (9) | 27 |
+| 09-21 13:36 → | 7.0.2-6, then 7.0.14-17 from 22:07 | 11.0.3-3 | 256 | 1.18.4 | 38–42 (5) | all 5 |
+
+- The 7.0.0-3 boot ran 05-04 → 09-15, but ARM's only `makemkvcon` use in it
+  was 09-01 → 09-04. The "111 days without an event" in the phase 3 section was
+  mostly idle time.
+- The VM 911 restart at 09-21 13:36 was the `tofu apply` for `max_sectors=256`.
+  It also picked up QEMU 11.0.3-3, installed 09-18. Job 38 is the only job on
+  the new QEMU with the old kernel.
+- The discs are not spread across eras. The five jobs since 09-21 used
+  *Sherlock* and both *Around the World* discs, none of which ran in an earlier
+  era. *The Rescuers* is the only disc seen in three eras. On 6.17.13-2, job 5
+  ripped it without an event and jobs 6 and 8 had events; jobs 7 and 9 had none,
+  but their logs have aged out, so whether they reached `makemkvcon` is unknown.
+  Job 23 on 7.0.0-3 was clean, and job 27 on 7.0.2-6 had 12 events. It is
+  intermittent within one configuration, so job 23 alone doesn't clear 7.0.0-3.
+- `lpm-pol 1` (max_performance) and a 1.5 Gbps link were the same on every boot.
+  Boots on 7.0 also print `Features: DIPM`, and 6.17 boots don't.
+- 7.0.0-3 is still installed (`/boot/vmlinuz-7.0.0-3-pve`), but
+  `proxmox-boot-tool kernel list` no longer auto-selects it.
+
+#### For the control trace
+
+A completed run on a disc that ripped cleanly in September (*Shrek the Third*,
+*The Great Race*, *Robin Hood*, either *Sylvester and Tweety* disc) is what the
+2026-10-04 entry asked for. It also splits the disc question from the
+configuration question. If such a disc now hangs, the disc isn't what changed.
+Trace it with the method in the 2026-10-04 entry.
