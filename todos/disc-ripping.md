@@ -34,7 +34,7 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 | 2b | DVD — TV series | **done** 2026-09-04 — two discs of one season; play-all and multi-disc findings drive the ingest design |
 | 3 | Blu-ray | **done** 2026-09-17 — The Rescuers end to end in 9h42m once worker-1 was resized to 16 GiB |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
-| — | Drive drops off its SATA link | **open, unexplained** — observations under 2026-09-22, 2026-09-22/30, 2026-10-04 and both 2026-10-05 entries in the progress log; it dates from April, not 09-22. Jobs 43 (one recovered hang) and 44 (clean) traced; the host command sequence does not separate a hang from a success. D14 found on the way |
+| — | Drive drops off its SATA link | **open, unexplained** — observations under 2026-09-22, 2026-09-22/30, 2026-10-04 and both 2026-10-05 entries in the progress log; it dates from April, not 09-22. Jobs 43 (one recovered hang) and 44 (clean) traced; the host command sequence does not separate a hang from a success. D14 found on the way. Jobs 45–46: the init-form read hangs too, and the link fails under it. D15: MakeMKV 1.18.4 has expired and blocks all ripping |
 
 Phase 0 is a prerequisite for all of the others: until it is done, the drive
 wedges on the first disc and stays wedged.
@@ -2846,3 +2846,59 @@ from the host.
   confirmed by the trace. A fault in a cable or connector has no reason to pick
   one command. So the link corruption looks driven by what the drive does with
   this read. That doesn't rule out a marginal link that tips over when it does.
+
+### 2026-10-08 — job 46: the init read hangs on every attempt, then MakeMKV refuses to run
+
+Observations only. Host times are Denver, trace times are seconds since the
+19:31:16 boot. Trace: `captures/arm-sata/trace-job46-full.txt`, and on vulcanus
+`/var/tmp/arm-sata/trace-job46.txt`.
+
+*The Sandlot* again, straight after the cold power cycle that job 45 needed.
+Nothing was sent to the drive from the host beyond the drive-status ioctl and
+the tray cycle (01:39:43 UTC). Job 46 started at 01:40:05, and
+`makemkvcon info disc:9999` at 01:50:18, the first `makemkvcon` since power-on.
+
+- **Every LibreDrive init hung, 6 of 6.** Each attempt was the same sequence:
+  `MODE SELECT(10)` 0x4E0 (rejected), `WRITE BUFFER 0xB0` (good, ~5 ms), then
+  `READ BUFFER 0x77 @0`, 32 bytes, with no completion. It timed out after
+  30.0–30.3 s, a single hard reset recovered the link, and MakeMKV repeated the
+  init. libata stepped the drive down to UDMA/66 after the third. There was no
+  link-down this time. The signature matches job 27's twelve `dma 16416`
+  timeouts at ~30.5 s intervals on 2026-09-16.
+- **MakeMKV then refused to run.** At 01:53:27 it reported `MSG:5021 "This
+  application version is too old. Please download the latest version ... or
+  enter a registration key"` and exited 253. ARM failed the job with `Error while
+  running MakeMKV` and ejected. Job 45 logged the same `MSG:5021` at 01:21:43,
+  after its link failure. See D15.
+- **The two may be related, and this can't tell.** Tonight's runs are the only
+  ones on record where every init read hung. They are also the only ones with
+  MakeMKV past its version expiry. Whether an expired MakeMKV sends a different
+  init payload is unknown, because the trace doesn't record data-out. Against
+  that: job 27's identical loop on 2026-09-16 predates the expiry, and the
+  4-byte form hung under a current MakeMKV many times.
+- After the job, the drive was still on the bus with the tray open. No reproducer
+  attempt was made: init never completed in this run, so the drive's LibreDrive
+  state, which the reproducer needs, is unknown.
+
+### D15 — MakeMKV 1.18.4 has expired, so nothing can be ripped
+
+Found 2026-10-08 (jobs 45 and 46). `makemkvcon` 1.18.4 exits 253 with
+`MSG:5021 "This application version is too old"` after its drive scan. ARM
+fails every disc with `Error while running MakeMKV`.
+
+- **It isn't D7.** `/root/.MakeMKV/settings.conf` exists, written by ARM's
+  `prep_mkv` at job start. Its `app_Key` is the purchased `M-` key, byte-identical
+  to `MAKEMKV_PERMA_KEY` in `arm.yaml`. The registered key doesn't stop the
+  refusal.
+- **What changed:** MakeMKV 2.0.0 was released 2026-09-20 (release notes: "Almost
+  no changes, just a version bump"). Jobs 43 and 44 (2026-10-05/06) ran 1.18.4
+  without the message. When exactly 1.18.4 expired is not known.
+- **No published image has 2.0.0.** Upstream `arm-dependencies` moved to 2.0.0
+  on 2026-10-03 (#594), but has published no image since 1.8.0 (2026-07-06). The
+  `2.24.4` ARM image was re-pushed 2026-10-08 (`sha256:90aee72b…`), from the
+  same revision as the running one (`sha256:b1d0d577…`, 2026-10-03), and both
+  install MakeMKV from the same 2026-07-06 layer, i.e. 1.18.4. Pulling it would
+  change nothing.
+- The image automation can't fix this until upstream publishes a newer image.
+  Nothing in the cluster reports that MakeMKV refuses to run, beyond ARM's
+  per-job failure notification.
