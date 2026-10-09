@@ -19,6 +19,15 @@ cycle. It is the same command, and the same signature, as every MakeMKV-context
 hang that has been traced. One run so far, with a confound. See the 2026-10-06
 entries in `todos/disc-ripping.md`.
 
+**The link corruption tracks one command, which points at the drive more than
+the cable** (2026-10-08). Job 45 lost its link with `10B8B` errors 17 ms after
+sending `READ BUFFER 0x77`, the same command that hangs, with nothing else
+outstanding. All four PHY-level drops on record came under that command's
+signature. A cable fault shouldn't care which command is in flight, so the
+cable and port checks below are worth doing because they are cheap, not because
+they are likely to fix it. Go in expecting step 5 to change nothing, and plan
+the conversation about the drive itself (see **Decisions already made**).
+
 **The drive's failures sometimes show corruption on the wire.** Of 33 `ata4`
 exceptions since April, 30 are command timeouts on a clean link (`SErr 0x0`).
 The two where the link itself dropped, 2026-04-19 and 2026-09-22, logged

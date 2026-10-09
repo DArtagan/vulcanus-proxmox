@@ -2801,3 +2801,48 @@ Consequences:
   CDBs, not data-out payloads, so the init's parameter data is unknown.
 - The data-out payloads were not captured, so whether a `MODE SELECT` must
   directly precede the read (as in every MakeMKV instance) is still open.
+
+### 2026-10-08 — job 45: a first run after power-on hangs, then the link fails mid-command
+
+Observations only. Host times are Denver, trace times are seconds since the
+18:49:56 boot. Trace: `captures/arm-sata/trace-job45-full.txt`, and on vulcanus
+`/var/tmp/arm-sata/trace-job45.txt`. It holds both the 2026-10-08 cold test above
+and this job.
+
+*The Sandlot* (`SANDLOT43`), a DVD not ripped before, loaded before the power
+cycle. ARM was running with the eject and D14 edits applied (verified in its log
+at 01:04:43 UTC). The tray was cycled from the host at 01:10:23 UTC, and job 45
+started at 01:10:45. `makemkvcon info disc:9999` started at 01:20:56 UTC, the
+first `makemkvcon` since power-on. The only earlier command of its kind was the
+cold test's refused `READ BUFFER 0x77 @0x121000`, 16 minutes before.
+
+| trace time | command | result |
+|---|---|---|
+| 1863.544 | `MODE SELECT(10)` 0x4E0 | rejected with sense, as in every run |
+| 1863.556 | `WRITE BUFFER 0xB0 @0x0E20`, 16 bytes | good, 3.7 ms |
+| **1863.566** | **`READ BUFFER 0x77 @0`, 32 bytes** (`3c 02 77 00 00 00 00 00 20 00`) | **no completion** |
+| 1893.615 | timeout after 30.0 s, `status { DRDY }`, `cmd ... dma 16416 in` | one hard reset, `rc=0`, link up, `configured for UDMA/100` |
+| 1893.97 – 1894.02 | MakeMKV repeats the init: `READ BUFFER 0xB0`, `MODE SELECT` 0x4E0 (rejected), `WRITE BUFFER 0xB0`, `TEST UNIT READY` | good |
+| **1894.022** | **`READ BUFFER 0x77 @0`, 32 bytes, again** | 17 ms later: port frozen, `Emask 0x50`, `SError { HostInt 10B8B DevExch }`, `err_mask=ATA_BUS SYSTEM` |
+| 1894.06 – 1906 | hard resets | link down (`SStatus 0`) ×3, `disable device`, `detaching (SCSI 3:0:0:0)` |
+
+MakeMKV reported `HARDWARE ERROR:INTERNAL TARGET FAILURE`. Job 45 ended `fail` at
+01:21:43 UTC, and `/dev/sr0`, `/dev/optical-drive-sg` and `3:0:0:0` disappeared
+from the host.
+
+- **The 32-byte form of the command hangs too.** This is the first trace of the
+  `dma 16416` signature, which accounts for 20 of the 33 earlier exception lines
+  (April, and all 12 on 2026-09-16). Job 42 sent five commands with that
+  transfer length, so those events were never pinned to one command. Here it is
+  `READ BUFFER 0x77`, in its init form, straight after `WRITE BUFFER 0xB0`.
+- **A first run after power-on hung.** That ends the 2026-10-05 observation
+  that none had. The cold test 16 minutes earlier is a confound, though it was
+  refused in 0.7 ms with no reset.
+- **The link failed at the physical layer while that command was in flight.**
+  `10B8B` means the host received symbols that would not decode, and it arrived
+  17 ms after the re-sent read, with nothing else outstanding. Every PHY-level
+  drop on record happened under a command with a buffer-`0x77` signature:
+  2026-04-12 (`dma 16416`), 04-19 and 09-22 (`pio 16388`), and now this one,
+  confirmed by the trace. A fault in a cable or connector has no reason to pick
+  one command. So the link corruption looks driven by what the drive does with
+  this read. That doesn't rule out a marginal link that tips over when it does.
