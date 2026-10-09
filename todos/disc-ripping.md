@@ -34,7 +34,7 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 | 2b | DVD — TV series | **done** 2026-09-04 — two discs of one season; play-all and multi-disc findings drive the ingest design |
 | 3 | Blu-ray | **done** 2026-09-17 — The Rescuers end to end in 9h42m once worker-1 was resized to 16 GiB |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
-| — | Drive drops off its SATA link | **open, unexplained** — observations under 2026-09-22, 2026-09-22/30, 2026-10-04 and both 2026-10-05 entries in the progress log; it dates from April, not 09-22. Jobs 43 (one recovered hang) and 44 (clean) traced; the host command sequence does not separate a hang from a success. D14 found on the way. Jobs 45–46: the init-form read hangs too, and the link fails under it. D15: MakeMKV 1.18.4 has expired and blocks all ripping |
+| — | Drive drops off its SATA link | **open, unexplained** — observations under 2026-09-22, 2026-09-22/30, 2026-10-04 and both 2026-10-05 entries in the progress log; it dates from April, not 09-22. Jobs 43 (one recovered hang) and 44 (clean) traced; the host command sequence does not separate a hang from a success. D14 found on the way. Jobs 45–46: the init-form read hangs too, and the link fails under it. D15: jobs run MakeMKV unregistered (udev gives no HOME), which blocks all ripping now 1.18.4 has expired; fixed in the wrapper |
 
 Phase 0 is a prerequisite for all of the others: until it is done, the drive
 wedges on the first disc and stays wedged.
@@ -2902,3 +2902,17 @@ fails every disc with `Error while running MakeMKV`.
 - The image automation can't fix this until upstream publishes a newer image.
   Nothing in the cluster reports that MakeMKV refuses to run, beyond ARM's
   per-job failure notification.
+
+> **Cause found, and it's not the version — 2026-10-08.** The registered key
+> works, but jobs never see it. udev starts `arm-disc-wrapper.sh` with no
+> `HOME` (`systemd-udevd`'s environment is `PATH=/sbin:/bin` alone), and ARM's
+> wrapper adds only `PATH` from `/etc/environment`. makemkvcon finds its key
+> through `$HOME/.MakeMKV`. Measured in the pod with the tray empty:
+> `makemkvcon -r --cache=1 info disc:9999` with `HOME=/root` lists the drive
+> and doesn't refuse; the same command under `env -u HOME` returns `MSG:5021`.
+> Jobs ran unregistered all along, which only mattered once 1.18.4 expired.
+> The same is why D7's manual runs needed the key registered by hand.
+>
+> **Fix:** `export HOME=/root` in `arm-disc-wrapper.sh` before it hands over to
+> ARM. With no disc loaded, makemkvcon sent no LibreDrive init and caused no
+> `ata4` event, so this check is safe to repeat.
