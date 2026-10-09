@@ -3081,5 +3081,33 @@ an "Identification SDF" from either file: with a dummy drive (`-n`), even with
 `-t DFAA920B9011`, it reports "No drive-specific logic found". Whether this
 drive's entry changed between `0xA5` and `0xA6` therefore needs the real drive
 (`sdftool -d /dev/sr0 -f <file> --info`), which runs the SDF's firmware
-identification against it. That hasn't been tried. Copies of both files are in
-`captures/sdf/`.
+identification against it. Copies of both files are in `captures/sdf/`.
+
+**Against the drive, the visible parts are identical** (2026-10-09, traced).
+`sdftool -d /dev/sr0 -v -f <file> --info` ran once with each version. Each sent
+only identification commands: `INQUIRY`, `GET CONFIGURATION`, and `READ BUFFER`
+`0xF1` and `0xB0`, as MakeMKV sends in every run. It sent no `MODE SELECT`, no
+`WRITE BUFFER` and no buffer `0x77`, and caused no `ata4` event. With no disc it
+is safe to repeat. The two outputs differ only in the version line. For this
+drive both select a "Drive Specific SDF" reporting:
+
+- Drive platform `RS8F01`; firmware name **`PIONEER BDR-212T`**; firmware type
+  **Original (unpatched)**; version `1.01/ID83`. Autodetect string
+  `pioneer:SAT :8F01:ID83: :PIONEER :BD-RW BDR-212U1.01: 20/07/21`.
+- Status Enabled; DVD all regions, BD raw data read, BD raw metadata read,
+  unrestricted read speed: all Yes.
+- Status message `Using LibreDrive mode (v02.1 id=DFAA920B9011)`, the same in
+  both.
+
+So the drive reports `BDR-212U` but runs stock BDR-212T firmware `1.01/ID83`.
+That fits a cross-flash, presumably Billycar11's, onto firmware LibreDrive
+supports, rather than a patched firmware. Contrast the stock BDR-212V on
+1.01/`ID06` reported as "Possible, not yet enabled".
+
+`--info` prints only the descriptive strings, not the command program the entry
+runs, so this doesn't prove the logic is unchanged. The identical `id` weakly
+suggests the same drive-specific entry, if `id` identifies that entry, which is
+unconfirmed. `sdftool -d /dev/sr0 -f <file> help`, which would list the entry's
+commands, stalled in the tool for 120 s with no output after identifying the
+drive normally, both times. The SDF lead is therefore weakened but not closed.
+`captures/sdf/sdftool-info-drive-a6.txt` holds the full output.
