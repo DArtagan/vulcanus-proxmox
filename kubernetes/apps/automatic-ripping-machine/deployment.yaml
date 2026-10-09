@@ -135,6 +135,8 @@ spec:
                 path: arm-title-charset.sh
               - key: arm-title-charset.py
                 path: arm-title-charset.py
+              - key: arm-source-patches.py
+                path: arm-source-patches.py
               - key: armui.sh
                 path: armui.sh
         - name: data
