@@ -88,6 +88,9 @@ spec:
             - mountPath: /usr/local/bin/arm-title-charset.py
               name: init-scripts
               subPath: arm-title-charset.py
+            - mountPath: /usr/local/bin/arm-source-patches.py
+              name: init-scripts
+              subPath: arm-source-patches.py
             - mountPath: /etc/service/armui/run
               name: init-scripts
               subPath: armui.sh

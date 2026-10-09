@@ -34,6 +34,7 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 | 2b | DVD — TV series | **done** 2026-09-04 — two discs of one season; play-all and multi-disc findings drive the ingest design |
 | 3 | Blu-ray | **done** 2026-09-17 — The Rescuers end to end in 9h42m once worker-1 was resized to 16 GiB |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
+| — | Drive drops off its SATA link | **open, unexplained** — observations under 2026-09-22, 2026-09-22/30, 2026-10-04 and both 2026-10-05 entries in the progress log; it dates from April, not 09-22. Jobs 43 (one recovered hang) and 44 (clean) traced; the host command sequence does not separate a hang from a success. D14 found on the way |
 
 Phase 0 is a prerequisite for all of the others: until it is done, the drive
 wedges on the first disc and stays wedged.
@@ -124,8 +125,7 @@ Two of its items are still live and carried forward below: the dead
 `RIPMETHOD_DVD`/`RIPMETHOD_BR` keys (D10) and the documentation drift (D11). Its
 item 2 (a disc already in the drive at pod start is never seen) is carried
 forward as D2b. Its item 3 (a node reboot can leave a `Failed` ARM pod) is
-carried forward as D9 and still couples to
-[generic-device-plugin-hang.md](generic-device-plugin-hang.md).
+carried forward as D9.
 
 One claim it repeated from `docs/` is now **disproven**: see D7.
 
@@ -458,6 +458,22 @@ Concurrent SCSI commands to this drive are what destabilise the ATA link.
 
 ### D8 — the disc stays locked in the drive for the whole transcode
 
+> **Wrong — corrected 2026-10-05, and decided the other way.** The running
+> image ejects at the end of the MakeMKV stage. `makemkv.makemkv()` calls
+> `job.eject()` (`/opt/arm/arm/ripper/makemkv.py:760`) before
+> `rip_visual_media` starts the transcode, and by then `main.py`'s call does
+> nothing. Job 43 ejected at 02:59:10 UTC and HandBrake started after it. Job 39
+> ejected at 06:47 in a job that ran until 11:00. Which image introduced this
+> was not checked. Will has decided the disc stays locked through the
+> transcode and ejects only when processing is complete (see **Decisions already
+> made**). So the current behaviour is the defect, and the options below are
+> superseded.
+
+**Fix:** the `eject-after-processing` edit in `arm-source-patches.py`
+(`init-scripts.yaml`) drops that call. To verify it on the first video job after
+deploy, ARM's log should show one `eject` line, after
+`ARM processing complete`, not after `Exiting MakeMKV processing`.
+
 `arm_ripper.rip_visual_media()` runs MakeMKV, then calls `start_transcode()`
 inline, then moves files. `Job.eject()` is only reached from `main.py`'s
 `finally:` block, **after all of that**. So the tray does not open until the
@@ -501,18 +517,7 @@ cannot allocate unhealthy devices devic.es/cdrom, which is unexpected
 The kubelet admitted the pod before generic-device-plugin registered a healthy
 `devic.es/cdrom`. A ReplicaSet does not garbage-collect `Failed` pods, so it
 stays until deleted. Nothing is broken — a replacement was created and works —
-but it recurs on every reboot that loses the race, and it **couples to
-[generic-device-plugin-hang.md](generic-device-plugin-hang.md)**: if a plugin
-wedge overlaps an ARM pod recreation, admission fails exactly this way. Decide
-the two together.
-
-**Failing admission is not the only outcome, and the other one is quieter.** On
-2026-08-25 a deliberate ARM restart sat `Pending` for ~2m30s with no container
-statuses at all, then started normally. worker-1's plugin was serving zero bytes
-of HTTP and throttled at 97.8% at that moment, against 0.3% on both other nodes.
-`Allocate` still answered and `devic.es/cdrom` never left `allocatable: 1` — it
-just answered slowly. Nothing alerts on that, correctly, and it reads like a slow
-image pull or SMB mount. Budget for it when a restart seems to hang.
+but it recurs on every reboot that loses the race.
 
 ### D10 — dead configuration
 
@@ -945,6 +950,11 @@ ata4 events in 111 days of uptime**, and the 2026 total is five days with
 exceptions, all in April. Treat the drive as healthy but instrument the next
 Blu-ray rip with `journalctl -f | grep ata4` on the host.
 
+> **Superseded — 2026-10-05.** The quiet spell was one host boot, on kernel
+> 7.0.0-3, and ended with job 27. April also had device disables needing a
+> reboot and a PHY-level link-down, not only recoveries. See
+> [the 2026-10-05 entry](#2026-10-05--the-drives-history-since-april-and-what-each-era-ran).
+
 ## Phase 4 — 4K UHD Blu-ray
 
 **Feasibility is unproven and this may be the phase that cannot be finished with
@@ -1068,6 +1078,17 @@ limits (D6) and the alert rules, both of which are facts about this cluster.
   still holds before adding any other eject.
 - **A forked ARM image is acceptable** where a fix cannot be made in config
   (Will, 2026-08-25), with improvements carried back upstream. See **Upstream**.
+- **The disc stays in the drive, locked, until its processing is fully
+  complete** (Will, 2026-10-05): "The design intent is that it should be that
+  the drive remains locked during transcode, and then ejects after processing of
+  the disc is fully complete." This settles D8 against both options it listed.
+  The running image doesn't do this yet; it ejects after the rip (D8).
+- **Declined for the drive's SATA link losses** (Will, in a session before
+  2026-10-05; first written down 2026-10-06): turning off MakeMKV's LibreDrive,
+  reducing `makemkvcon` runs per job, making VM 911 boot without the drive, and
+  drive firmware changes. "No, I don't think any of these avenues are ones we'd
+  like to pursue." Ask before proposing any of them again. The physical checks
+  that remain are in [vulcanus-onsite-checks.md](vulcanus-onsite-checks.md).
 
 ## What was not investigated
 
@@ -1172,13 +1193,9 @@ in and watch a music rip end to end.
 The Pushover secret landed and ARM was restarted to pick it up; `PO_USER_KEY`
 and `PO_APP_KEY` are substituted in the running container.
 
-Two things learned in the doing, both recorded above: a Secret consumed through
+One thing learned in the doing, recorded above: a Secret consumed through
 `envFrom` on an init container has nothing watching it, so it needs a manual
-rollout; and the device-plugin wedge can *delay* admission rather than fail it,
-which is a quieter third outcome than D9 described. That wedge was live on
-worker-1 during the restart and was deliberately left running, so it is
-available for another goroutine dump — see
-[generic-device-plugin-hang.md](generic-device-plugin-hang.md).
+rollout.
 
 **Phase 1 is next and needs a person at the machine**: the Mànran CD back in the
 drive, enclosure door open. Four things to watch, in order —
@@ -1967,6 +1984,12 @@ run again after worker-1 went to 16 GiB, and it completed without incident. The
 resize is therefore confirmed by the workload that exposed the problem rather
 than by a proxy.
 
+> **Wrong — corrected 2026-10-05.** Not without incident. The host logged 12
+> `ata4` command timeouts across both `makemkvcon` runs, 03:02–03:08 UTC. Every
+> one recovered, but libata stepped the drive down to UDMA/33. The info scan
+> ended `Failed to open disc`, and the backup then succeeded. See
+> [the 2026-10-05 entry](#2026-10-05--the-drives-history-since-april-and-what-each-era-ran).
+
 Two DVDs followed without drama — Shrek the Third (job 28, 4h17m) and The Great
 Race (job 29, 5h33m) — so the DVD path is steady across repeat use, which it had
 not been before phase 0.
@@ -2244,3 +2267,507 @@ direct disc access mode` 5 s after its exception. Job 38 never logged it.
   it never appears in the job log), before `check_for_wait`.
 - During a rip, `makemkvcon` holds `/dev/sr0` open. See the 2026-09-21 entry.
 - What held the drive during job 37's manual wait was not identified.
+
+### 2026-09-22/30 — two more SATA link losses, then eight days without the drive
+
+Observations only, continuing the 2026-09-22 entry. No cause has been
+established, and none is proposed here. Host times are Denver.
+
+**Job 40** — *Around the World in 80 Days* disc 2, after disc 1 (job 39) had
+completed. The info scan reached `Using direct disc access mode` in 7 s and ran
+23 minutes without incident. The rip's `makemkvcon` started 13:55:42 UTC; 32 s
+later the host logged the same `Emask 0x0` exception on the same 16,388-byte
+PIO command as jobs 38 and 39, four failed link resets, and `disable device`.
+ARM's eject at 13:57:16 UTC left no `Start/Stop Unit` in the host log; the job
+still records `ejected: 1`. All 14 commands after the disable returned
+`DID_BAD_TARGET`. Recovered by cold power cycle (no drain).
+
+After that boot, `eject -t /dev/sr0` on the host returned `CD-ROM tray close
+command failed: No such file or directory`.
+
+**Job 41** — the same disc, reinserted from the host after the power cycle. The
+disc gate logged `no disc in /dev/sr0 (status=2), skipping` during the eject and
+`Starting ARM for DVD on sr0` after the close. A different signature this time:
+
+```
+16:54:18  ata4.00: exception Emask 0x10 SAct 0x0 SErr 0x4090000 action 0xe frozen
+16:54:18  ata4.00: irq_stat 0x00400040, connection status changed
+16:54:18  ata4: SError: { PHYRdyChg 10B8B DevExch }
+16:54:18  ata4.00: cmd a0/00:00:00:04:00/00:00:00:00:00/a0 tag 14 pio 16388 in
+16:54:19  ata4: SATA link down (SStatus 0 SControl 300)
+16:54:25  ata4: SATA link down ... limiting SATA link speed to <unknown>
+16:54:30  ata4: SATA link down (SStatus 0 SControl 3F0)
+16:54:30  ata4.00: disable device
+16:54:30  ata4.00: detaching (SCSI 3:0:0:0)
+```
+
+Unlike the earlier disables, the device was detached: `/dev/sr0`,
+`/dev/optical-drive-sg` and `3:0:0:0` disappeared from the host. Inside the
+guest, `/dev/sr0` remained and the device plugin kept advertising
+`devic.es/cdrom: 1`. MakeMKV reported `Scsi error - HARDWARE ERROR:INTERNAL
+TARGET FAILURE`, then `Unknown device - '/dev/sr0'`.
+
+| job | `ata4` exception | into the `makemkvcon` run | outcome |
+|---|---|---|---|
+| 38 | `Emask 0x0`, link up | 31 s (1st run) | disabled |
+| 39 | `Emask 0x0`, link up | 32 s (2nd run) | recovered |
+| 40 | `Emask 0x0`, link up | 32 s (2nd run) | disabled |
+| 41 | `Emask 0x10`, `PHYRdyChg 10B8B DevExch`, link down | ~35 s after the wait | disabled and detached |
+
+**After job 41.** The drive stayed absent for eight days. The host was powered
+off cleanly at 2026-09-30 17:24 (`systemd-poweroff`) and booted 17:27, when
+`ata4` linked at 1.5 Gbps and identified the BDR-212U. From that boot to
+2026-10-03 there are no `ata4` exceptions — but also no ARM jobs, so the quiet
+is not evidence either way. Disc 2 of *Around the World* is still unripped.
+
+### 2026-10-04 — job 42, with the host's SCSI commands traced
+
+Observations only, continuing the two entries above. No cause has been
+established, and none is proposed here.
+
+*Around the World in 80 Days* disc 2 again, the fifth attempt on it. This time
+the host traced every SCSI command sent to the drive.
+
+#### How the trace was taken, to repeat it
+
+On vulcanus, in a private trace instance filtered to the drive's SCSI host
+(`host3`, which is `ata4`), streamed to a file, started during the manual wait:
+
+```
+T=/sys/kernel/tracing/instances/arm-sata
+mkdir $T && echo 8192 > $T/buffer_size_kb
+for e in scsi_dispatch_cmd_start scsi_dispatch_cmd_done scsi_dispatch_cmd_error scsi_dispatch_cmd_timeout; do
+  echo "host_no == 3" > $T/events/scsi/$e/filter; echo 1 > $T/events/scsi/$e/enable
+done
+for e in ata_eh_link_autopsy ata_eh_link_autopsy_qc ata_link_hardreset_begin ata_link_hardreset_end; do
+  echo 1 > $T/events/libata/$e/enable
+done
+echo 1 > $T/tracing_on
+nohup sh -c "cat $T/trace_pipe > /var/tmp/arm-sata/trace-<job>.txt" &
+```
+
+Remove it afterwards with `echo 0 > $T/tracing_on`, kill the `cat`, then
+`rmdir $T`. Each event records the raw CDB, and the `done` events also record
+the result and sense key. All guest commands arrive through QEMU, so the trace
+can't tell which guest process sent a given command.
+
+While idle, the only traffic is `GET EVENT STATUS NOTIFICATION` (`0x4A`) every
+2 s, the guest kernel's media polling, and every one completed `DID_OK`.
+
+#### Timeline
+
+`makemkvcon ... info --cache=1 disc:9999` started at 20:16:25 UTC, which is
+host trace time ≈ 334228.8. Times below are host trace seconds.
+
+| trace time | command | raw CDB | result |
+|---|---|---|---|
+| 334229.240 | `MODE SELECT(10)`, 0x4E0 bytes | `55 10 00 00 00 00 00 04 e0 00` | rejected, valid sense |
+| 334229.256 | `WRITE BUFFER`, buffer `0xB0` | `3b 02 b0 00 0e 20 00 00 10 00` | good |
+| 334229.260 | `READ BUFFER`, buffer `0x77` | `3c 02 77 00 00 00 00 00 20 00` | good |
+| 334230.886 | `MODE SELECT(10)`, 0x740 bytes | `55 10 00 00 00 00 00 07 40 00` | rejected, valid sense |
+| **334230.901** | **`READ BUFFER`, buffer `0x77`** | **`3c 02 77 12 10 00 00 00 04 00`** | **good, 9.5 ms** |
+| 334230.99 – 334232.61 | `READ(10)` ×~30, LBAs 0–528, 62089 | | good |
+| 334232.61 – 334233.98 | `INQUIRY`, `GET CONFIGURATION`, `READ DISC STRUCTURE`, `READ TOC`, `READ DISC INFORMATION`, `READ CAPACITY`, `READ BUFFER` `0xF1`/`0xB0`/`0xF4` | | good, or rejected with valid sense |
+| 334234.138 | `SET CD SPEED` | `bb 00 ff ff ff ff 00 00 00 00 83 00` | good |
+| 334234.555 | `MODE SELECT(10)`, 0x740 bytes | `55 10 00 00 00 00 00 07 40 00` | rejected, valid sense |
+| **334234.574** | **`READ BUFFER`, buffer `0x77`** | **`3c 02 77 12 10 00 00 00 04 00`** | **no completion** |
+| 334265.046 | — | | SCSI timeout on that command, 30.5 s after it started |
+| 334265.054 | libata | | `eh_action=RESET`, `err_mask=TIMEOUT` |
+| 334265 – 334320 | `ata_link_hardreset` ×4 | | each `rc=-16` |
+
+The host kernel logged the exception at 20:17:03 UTC with the same signature as
+jobs 38–40 (`Emask 0x0`, `cmd a0/00:00:00:04:00/00:00:00:00:00/a0 ... pio 16388
+in`), then `reset failed, giving up` and `disable device` at 20:18:03.
+`/dev/optical-drive-sg` remained on the host. Job 42 ended `fail` at 20:18:06.
+
+#### Observed
+
+- The command in progress when the drive stopped responding was `READ BUFFER`
+  (`0x3C`, mode `02`) to buffer ID `0x77`. `READ BUFFER` reads the device's own
+  buffers rather than the medium.
+- The identical CDB completed in 9.5 ms 3.7 s earlier in the same run. Both
+  times, the command immediately before it was the same rejected
+  `MODE SELECT(10)` with a 0x740-byte parameter list.
+- The drive stopped responding about 9 s after `makemkvcon` started, at trace
+  time 334234.57. The kernel's exception came 30.5 s after that, when the
+  command timed out. Jobs 38–40 had no trace. Their exceptions came 31–32 s after
+  `makemkvcon` started, which doesn't show when those drives stopped
+  responding.
+- Up to the hang, the only commands read from the disc were the single-block
+  and 16-block `READ(10)`s in the timeline. No title data had been read.
+- The run produced 11 libata autopsies with `err_mask=0` and `SENSE_VALID`
+  (commands the drive rejected with sense data), and one with
+  `err_mask=TIMEOUT`.
+
+> **Wrong — corrected 2026-10-05.** Two `makemkvcon` runs, not one. ARM's log
+> has `info --cache=1 disc:9999` from 20:16:23 to 20:16:30 (`Failed to open
+> disc`), then `info --cache=1 disc:0` from 20:16:31. The hang at 334234.57 is
+> ≈ 20:16:32.5 UTC, about 1.5 s into the `disc:0` run. The rows from 334232.61 on
+> are that run's start-up. Between `SET CD SPEED` and the hung pair, the table
+> also leaves out `READ DISC STRUCTURE` ×2, `INQUIRY` and `READ BUFFER 0xF1`.
+> The last two matter. See
+> [job 43](#2026-10-05--job-43-a-traced-run-that-completed-around-one-recovered-hang).
+
+#### Running count of `makemkvcon` runs and `ata4` events, jobs 37–42
+
+| disc | runs | `ata4` events |
+|---|---|---|
+| *Around the World* disc 2 | 4 (job 40 ×2, 41, 42) | 3, all disabled |
+| *Around the World* disc 1 | 2 (job 39) | 1, recovered |
+| *Sherlock Holmes in the 22nd Century* | 1 (job 38) | 1, disabled |
+
+Job 37 (Sherlock) ended in its manual wait and never ran `makemkvcon`. Jobs
+37–42 are every ARM job since 2026-09-22. Before that, the host logged 12 `ata4`
+exceptions on 2026-09-16 and none afterwards until job 38.
+
+The trace, the condensed command list and the host kernel log are in
+`captures/arm-sata/` in the `disc-ripping` worktree. The raw trace is also on
+vulcanus at `/var/tmp/arm-sata/trace-job42.txt`. No trace exists of a run that
+completed, so there is nothing yet to compare the command sequence against.
+
+### 2026-10-05 — the drive's history since April, and what each era ran
+
+Observations only, continuing the three entries above. No cause has been
+established, and none is proposed here. Host times are Denver.
+
+The host was cold power-cycled after job 42 and booted 2026-10-05 19:17:
+`ata4` linked at 1.5 Gbps, `/dev/optical-drive-sg -> sg3`, worker-1 Ready, and
+`devic.es/cdrom: 1` allocatable.
+
+#### The libata `cmd` line names the transfer
+
+`cmd a0/FF:00:00:LM:LH/...` is an ATAPI PACKET command. `FF` bit 0 is the DMA
+flag, and `LH:LM` is the byte count the host asked for. The number after
+`pio`/`dma` adds libata's 16 KiB ATAPI drain buffer to it. A length that is not
+a multiple of 16 is forced to PIO.
+
+- `00:00:00:04:00 ... pio 16388` is a **4-byte** data-in. In job 42's whole run,
+  the only command with a 4-byte data-in is `READ BUFFER 3c 02 77 12 10 00 00 00
+  04 00`, the one the drive hung on.
+- `01:00:00:20:00 ... dma 16416` is a **32-byte** data-in. Job 42 sent five such
+  commands: `READ BUFFER 3c 02 77 00 00 00 00 00 20 00`, `GET CONFIGURATION`,
+  and three `READ DISC STRUCTURE`. That signature does not single one out.
+
+This identifies commands only as far as other runs send the same command set as
+job 42, which is unconfirmed until a second run is traced.
+
+#### Reading the trace: rejected commands look like timeouts
+
+In the `arm-sata` trace, a command rejected with sense data (CHECK CONDITION)
+appears as `scsi_dispatch_cmd_timeout` about 8 ms after it starts. This isn't
+a timeout. libata handles every ATAPI CHECK CONDITION by aborting into its error
+handler to fetch the sense data, and that abort passes through the SCSI timeout
+tracepoint. So each rejected `MODE SELECT(10)` in job 42 put the port through
+libata EH just before the `READ BUFFER` that followed it. A real timeout is the
+same event 30 s or more after the start.
+
+#### Every `ata4` exception since the drive was passed through
+
+From `journalctl _TRANSPORT=kernel --since 2026-04-01 | grep ata4` on vulcanus.
+The one earlier `ata4` exception, 2024-12-23, is a disk's `FLUSH CACHE EXT`, from
+before the drive was on that port.
+
+| host time | signature | ARM job | outcome |
+|---|---|---|---|
+| 04-09 14:33 | `dma`, ×1 | none, before job 1 | disabled |
+| 04-12 10:23 – 20:29 | `pio` ×4, `dma` ×1 (`Emask 0x10`, `SErr 0x10000`) | none; host booted 3 times that day | 3 disabled, 2 recovered |
+| 04-17 15:21 | `pio` | 2, *Le Mans*, fail | disabled; job 3, same disc, succeeded |
+| 04-19 22:43 | `pio`, `Emask 0x10`, `SErr 0x4890000`, link down | 6, *The Rescuers*, fail | disabled; same signature as job 41 |
+| 04-21 21:33 – 21:36 | `pio` ×1, `dma` ×6 | 8, *The Rescuers*, fail | all recovered, UDMA/66 |
+| 09-16 21:02 – 21:08 | `dma` ×12, every ~30.5 s | 27, *The Rescuers*, success | all recovered, UDMA/66 then UDMA/33 |
+| 09-21 19:11 | `pio` | 38 | disabled |
+| 09-21 23:12 | `pio` | 39 | recovered |
+| 09-22 07:56 | `pio` | 40 | disabled |
+| 09-22 16:54 | `pio`, `Emask 0x10`, link down | 41 | disabled, detached |
+| 10-04 14:17 | `pio` | 42 | disabled |
+
+That makes 32 exception lines: 12 `pio 16388` and 20 `dma 16416`, and nothing
+else. Job 27's 12 timeouts covered both of its `makemkvcon` runs. The info scan
+ended `Failed to open disc`, and the backup then ripped the disc. Its phase 3
+entry is corrected above.
+
+#### What was different in each era
+
+The host kernel is from `journalctl --list-boots`. QEMU is the binary VM 911 was
+started with, from `/var/log/apt/history.log` and the `qmstart`/`qmreboot`
+tasks in `/var/log/pve/tasks/index`. MakeMKV is from the job logs, which reach
+back only to 2026-08-24. A job is counted if its log shows a `makemkvcon`
+start.
+
+| era | host kernel | VM 911 QEMU | `max_sectors` | MakeMKV | jobs running `makemkvcon` | jobs with events |
+|---|---|---|---|---|---|---|
+| 04-09 → 05-03 | 6.17.4-2, then 6.17.13-2 | 10.1.2 | default | unknown | among 1–9 | 2, 6, 8, plus non-ARM use on 04-09 and 04-12 |
+| 09-01 → 09-04 | 7.0.0-3 | 11.0.0-3 | default | 1.18.3 → 1.18.4 | 15–19, 21–23, 25, 26 (10) | none |
+| 09-16 → 09-21 | 7.0.2-6 | 11.0.0-3 | default | 1.18.4 | 27–31, 33–36 (9) | 27 |
+| 09-21 13:36 → | 7.0.2-6, then 7.0.14-17 from 22:07 | 11.0.3-3 | 256 | 1.18.4 | 38–42 (5) | all 5 |
+
+- The 7.0.0-3 boot ran 05-04 → 09-15, but ARM's only `makemkvcon` use in it
+  was 09-01 → 09-04. The "111 days without an event" in the phase 3 section was
+  mostly idle time.
+- The VM 911 restart at 09-21 13:36 was the `tofu apply` for `max_sectors=256`.
+  It also picked up QEMU 11.0.3-3, installed 09-18. Job 38 is the only job on
+  the new QEMU with the old kernel.
+- The discs are not spread across eras. The five jobs since 09-21 used
+  *Sherlock* and both *Around the World* discs, none of which ran in an earlier
+  era. *The Rescuers* is the only disc seen in three eras. On 6.17.13-2, job 5
+  ripped it without an event and jobs 6 and 8 had events; jobs 7 and 9 had none,
+  but their logs have aged out, so whether they reached `makemkvcon` is unknown.
+  Job 23 on 7.0.0-3 was clean, and job 27 on 7.0.2-6 had 12 events. It is
+  intermittent within one configuration, so job 23 alone doesn't clear 7.0.0-3.
+- `lpm-pol 1` (max_performance) and a 1.5 Gbps link were the same on every boot.
+  Boots on 7.0 also print `Features: DIPM`, and 6.17 boots don't.
+- 7.0.0-3 is still installed (`/boot/vmlinuz-7.0.0-3-pve`), but
+  `proxmox-boot-tool kernel list` no longer auto-selects it.
+
+#### For the control trace
+
+A completed run on a disc that ripped cleanly in September (*Shrek the Third*,
+*The Great Race*, *Robin Hood*, either *Sylvester and Tweety* disc) is what the
+2026-10-04 entry asked for. It also splits the disc question from the
+configuration question. If such a disc now hangs, the disc isn't what changed.
+Trace it with the method in the 2026-10-04 entry.
+
+### 2026-10-05 — job 43, a traced run that completed around one recovered hang
+
+Observations only, continuing the entries above. No cause has been established,
+and none is proposed here. Times are UTC.
+
+*Meat Loaf*, label `MEAT_LOAF_DISC_1`, a DVD not ripped before, titled
+*Three Bats Live* during the manual wait. It isn't the September-clean
+disc the previous entry asked for. It was loaded while ARM was idle, so no job
+started until the tray was cycled from the host (`eject`, then `eject -t`,
+02:20:20–35, at Will's direction). Job 43 started 02:20:44. The trace used the
+2026-10-04 method, running from before the tray cycle to after the final eject.
+It is in `captures/arm-sata/trace-job43-full.txt` in the `disc-ripping` worktree,
+and on vulcanus at `/var/tmp/arm-sata/trace-job43.txt{,.zst}`. Trace time is
+printk monotonic plus about 0.3 s. The exception at monotonic 4118.79 was
+02:25:06.70.
+
+| run | command | ARM log | outcome |
+|---|---|---|---|
+| 922 | `info disc:9999` | 02:24:27 – 02:24:34 | `Failed to open disc` |
+| 929 | `info disc:0` | 02:24:35 – 02:26:19 | hung ~1.8 s in, for 30.2 s. One hard reset, `rc=0` in 0.31 s, then `configured for UDMA/100` and `EH complete`. Direct disc access at 02:25:10, 2 titles |
+| 947 | `mkv` | 02:26:19 – 02:59:10 | `LibreDrive mode (v02.1)`, `Copy complete. 2 titles saved`: 6.54 GB and 0.28 GB in 32.9 min. Zero `MSG:2003` |
+
+That was the only `ata4` exception. ARM ejected at 02:59:10 (see D8) and HandBrake
+started after.
+
+#### Every `READ BUFFER 0x77 @0x121000` in both traces
+
+Each `makemkvcon` run opens with `READ BUFFER 0xB0 @0x0E20` (16 bytes). Some runs
+then send what is called *init* here: `MODE SELECT(10)` 0x4E0 (rejected), then
+`WRITE BUFFER 0xB0 @0x0E20` (16 bytes), then `READ BUFFER 0x77` (32 bytes).
+Every instance of the 4-byte `READ BUFFER 0x77 @0x121000` comes 12–24 ms
+after a rejected `MODE SELECT(10)` 0x740.
+
+| trace | run | init earlier in the run | sent just before the `MODE SELECT` 0x740 | result |
+|---|---|---|---|---|
+| job 42, 334230.90 | `disc:9999` | yes | `READ DISC STRUCTURE`, then 5 ms | 9.5 ms |
+| job 42, 334234.57 | `disc:0` | no | `INQUIRY` (96), `READ BUFFER 0xF1` (48), then 227 ms | no completion; resets failed |
+| job 43, 4084.84 | 922 `disc:9999` | yes | `READ DISC STRUCTURE`, then 6 ms | 8.9 ms |
+| job 43, 4088.85 | 929 `disc:0` | no | `INQUIRY` (96), `READ BUFFER 0xF1` (48), then 237 ms | 30.2 s; reset succeeded |
+| job 43, 4193.50 | 947 `mkv` | yes | `READ DISC STRUCTURE`, then 6 ms | 9.8 ms |
+| job 43, 4195.67 | 947 `mkv` | yes, 2.8 s before | `READ DISC STRUCTURE`, then 6 ms | 9.8 ms |
+
+- The two hangs are the only two instances with no init in their run, and the
+  only two preceded by `INQUIRY`, `READ BUFFER 0xF1` and a ~230 ms pause. The
+  last 14 commands before each hang are byte-identical between job 42 and job 43.
+  That is 2 hangs among 6 instances, so it is an exact split, not an established
+  condition.
+
+  > **Broken by job 44, two entries on.** The same 14 commands, with no init,
+  > completed in 9.6 ms.
+- Each run without init started about 1 s after a run that had sent it, with
+  no power cycle or reset between. Run 947 came after the link reset and sent
+  init again.
+
+#### Where each event since 09-21 falls in its job's `makemkvcon` runs
+
+Run start times are from ARM's job logs. A timeout's hang began about 30.5 s
+before the exception was logged. Job 41's link-down is not a timeout, so its
+timestamp is the event itself.
+
+| job | runs before the hung one since the last power cycle | hung run | hang, s into the run |
+|---|---|---|---|
+| 38 | none in this job; job 36's runs, ~7 h earlier | `disc:9999` | ~3.5 |
+| 39 | `disc:9999`, `disc:0` (both clean) | `mkv`, 21 min after `disc:0` | ~1.5, recovered |
+| 40 | job 39's, then this job's `disc:0` | `mkv` | ~1.5 |
+| 41 | `disc:9999` | `disc:0` | ~1, link down |
+| 42 | `disc:9999` | `disc:0` | ~1.5, traced |
+| 43 | `disc:9999` | `disc:0` | ~1.8, traced, recovered |
+
+- Every event since 09-21 sits early in a run, where that run's first
+  `MODE SELECT` 0x740 / `READ BUFFER 0x77` pair falls in both traces. Only jobs 42 and 43
+  confirm the command. For the rest it is timing alone.
+- No run that was the first on the drive after a power cycle has hung: the
+  `disc:9999` runs of jobs 39, 41, 42 and 43. The run straight after that one hung
+  in 3 of 4 cases (41, 42, 43). Job 39's `disc:0` was clean, and its `mkv` run hung.
+- Whether a run sends init seems to depend on the drive's state rather than the
+  run type, since 947 sent it and 929 didn't. That is inferred from two
+  traces, not checked against MakeMKV.
+
+### D14 — every DVD title is transcoded twice
+
+Found 2026-10-06 while job 43 transcoded, and verified against the job database,
+job logs and `completed/`.
+
+**Mechanism.** On the DVD path, `makemkv_mkv` registers one track per extracted
+title, numbered from 0 (`makemkv.py:1055`, `source = "MakeMKV"`). Then
+`handbrake_all` calls `get_track_info`, which registers the same titles again from
+HandBrake's scan of the raw directory, numbered from 1 (`handbrake.py:307`,
+`source = "HandBrake"`). `handbrake_all` then encodes every track in
+`job.tracks` with `-t <track_number>` to `title_<track_number>.mkv`. The result is
+two passes:
+
+1. With MakeMKV's labels. Track 0 becomes `-t 0`, which is HandBrake's "scan
+   all titles" value: it exits in under a second and writes nothing. Tracks
+   1…N−1 then encode HandBrake titles 1…N−1. MINLENGTH is checked against the
+   MakeMKV track's length, which belongs to a different title.
+2. With HandBrake's labels, titles 1…N are encoded again to the same filenames.
+   This overwrites pass 1's output.
+
+Every DVD job in the database that reached transcode has equal MakeMKV and
+HandBrake track counts (jobs 3, 18, 21, 22, 28, 29, 33–36, 43). Job 39 has 8
+and 7. Logs for jobs 21, 28, 36, 39 and 43 all show the instant `-t 0` exit
+and the second pass.
+
+**Cost.** Each title over MINLENGTH except the last is encoded twice, and the
+drive stays locked throughout (see the decision on D8). Job 43's main title
+(144 min) was encoded 02:59–05:15. A second encode of that title then
+truncated it at 05:15:55 and started over. Job 43 ended `success` at
+07:27:57, with the main feature and the short title in `extras/`.
+
+**Not established.** Whether the final output is ever incomplete. Pass 2 covers
+every title, so it should not be. But job 39's `completed/` holds the main
+feature and one extra (`title_2.mkv`, 42 MB), while seven of its titles were over
+MINLENGTH. That is unexplained. Raw MKVs are kept in every case
+(`DELRAWFILES: false`), so nothing is lost at source.
+
+Blu-ray goes through `makemkv_backup`, which registers no MakeMKV tracks; every
+Blu-ray job in the database has HandBrake tracks only. Single-title DVDs pay
+only the `-t 0` no-op.
+
+**Fix:** the `d14-encode` and `d14-move-series` edits in
+`arm-source-patches.py` (`init-scripts.yaml`). `handbrake_all` encodes only the
+tracks HandBrake's scan registered. A series moves only those tracks too, because
+MakeMKV's tracks keep their raw names, and `find_matching_file` would
+fuzzy-match those onto the transcodes. Movies keep their current route
+through `skip_transcode_movie`. To verify on the first multi-title DVD after
+deploy, the log should show no `-t 0` command, each title transcoded once, and
+`completed/` holding every title over MINLENGTH.
+
+### 2026-10-06 — job 44: the hung command sequence, sent again, completes
+
+Observations only. Times are UTC.
+
+*Shrek the Third* (`SHREK_THE_THIRD`), which job 28 ripped without an event in
+September. It was loaded at 03:22 while job 43 was transcoding, and the disc
+wrapper logged `a job already holds /dev/sr0, skipping`. The wrapper's lock
+belongs to the job until it ends, transcode included, so a disc loaded during a
+transcode starts nothing and needs a tray cycle afterwards. Under the D8
+decision, the tray stays shut until the job ends, so this can't arise. The tray
+was cycled from the host at 07:28:59, after job 43 ended at 07:27:57. There was no
+power cycle after job 43's runs. The trace ran from 03:19 to after the eject:
+`captures/arm-sata/trace-job44-full.txt`, and on vulcanus
+`/var/tmp/arm-sata/trace-job44.txt{,.zst}`.
+
+| run | command | ARM log | outcome |
+|---|---|---|---|
+| 2641 | `info disc:0` | 07:39:36 – 07:42:13 | LibreDrive and direct disc access at 07:39:42, 5 titles |
+| 2677 | `mkv` | 07:42:13 – 08:05:36 | `Copy complete. 5 titles saved`, 5.7 GB in 23.4 min, zero `MSG:2003` |
+
+There was no `disc:9999` run, as in job 40: ARM reused the stored disc number.
+The host logged no `ata4` lines, and the trace has no timeouts or resets.
+
+- Neither run sent init. The drive had last received it in job 43's run 947.
+  All four `READ BUFFER 0x77 @0x121000` checks completed in 9.6–10.0 ms.
+- The first check, in `disc:0` at trace time 22991.47, followed the same 14
+  commands, byte for byte, as the two hangs in jobs 42 and 43: `INQUIRY`, then
+  `READ BUFFER 0xF1`, then a 295 ms pause (227 and 237 ms in the hangs), then
+  `MODE SELECT(10)` 0x740.
+- So neither the host-side command sequence nor the absence of init decides
+  whether the drive answers. Whatever differs between this check and the two
+  hangs, a host SCSI trace doesn't see it.
+
+### 2026-10-06 — the physical layer: SError, task-file status, and the neighbouring port
+
+Observations only, from the host journal since 2026-04-01 and `smartctl`. Host
+times are Denver.
+
+- **The two PHY-level drops logged 8b/10b decode errors.** Of 33 `ata4`
+  exceptions, 30 are `Emask 0x0`, `SErr 0x0`: a command timeout with a clean
+  link. The other three are `Emask 0x10`. On 04-12 that was `SErr 0x10000`
+  (`PHYRdyChg`). On 04-19 (job 6) it was `SErr 0x4890000` (`PHYRdyChg 10B8B
+  LinkSeq DevExch`), and on 09-22 (job 41) `SErr 0x4090000` (`PHYRdyChg 10B8B
+  DevExch`). `10B8B` means the host received symbols that would not decode,
+  which is corruption on the wire.
+- **On every timeout the drive's status was `{ DRDY }`**: ready, with neither
+  BSY nor DRQ set. When libata gave up, the drive was not reporting itself
+  busy with the command or waiting to transfer data.
+- **`ata1`, the first port on the same sSATA controller (`00:11.4`), logged
+  link-layer failures 06-07 → 09-06**, none since. These were `interface fatal
+  error`, `SError: { UnrecovData Handshk }` on `WRITE FPDMA QUEUED`, then a link
+  reset, on 17 days. `ata1` is `sda`, a 10 TB HGST in `rpool`. `rpool` is
+  healthy, and the 2026-09-13 scrub repaired 0 B. No other port logged errors in
+  that period.
+- **Lifetime `UDMA_CRC_Error_Count` is not specific to this controller:**
+  `sda` 31, `sdd` 49 (`00:1f.2` port 1), `sde` 1, `sdf` 1, all others 0. SMART
+  doesn't date them.
+- The optical drive doesn't support the SATA PHY event counter log (GP log
+  0x11), so its own receive-side error counts can't be read. `sda`'s counters
+  are clean since the 2026-10-05 power-on.
+- Port `00:1f.2` ata-5 has no device, so the drive could move to the other
+  controller without unplugging anything else.
+
+### 2026-10-06 — the hang reproduced with no disc, no MakeMKV and no VM
+
+A single `READ BUFFER 0x77 @0x121000` hung the drive when sent from the host:
+`sg_raw -r 4 -t 30 /dev/optical-drive-sg 3c 02 77 12 10 00 00 00 04 00`. Host
+times are Denver. The trace is `captures/arm-sata/trace-repro-full.txt`, and on
+vulcanus `/var/tmp/arm-sata/trace-repro.txt`. It added libata's per-command
+events (`ata_qc_issue`, `ata_qc_complete_*`, `ata_port_freeze/thaw`,
+`ata_eh_*`).
+
+**Conditions.** ARM was idle, and the tray had been open since job 44's eject at
+02:05, so no disc was loaded. The guest's 2-second media poll was the only other
+traffic. The drive had last run MakeMKV in job 44, about 70 minutes earlier, with
+no power cycle since job 43. About six minutes before the test,
+`smartctl -d sat -l sataphy /dev/sg3` sent ATA PASS-THROUGH commands to the drive.
+It answered normally ("not supported"), but the timing wasn't recorded, and
+it is a confound for this single run.
+
+**What happened.** At trace time 50506.063 libata issued the packet command to
+the drive (`ata_qc_issue`, PIO, byte count 4). Nothing came back: no completion
+and no interrupt. At 50536.465 (09:18:44), 30.4 s later, it timed out with
+status `{ DRDY }`, the signature of every MakeMKV hang. Four hard resets each
+ended `rc=-16` with the link `slow to respond (ready=0)`, and at 09:19:44 the
+drive was disabled. No `MODE SELECT`, `INQUIRY` or other command preceded it in
+the same second.
+
+So the hang needs neither MakeMKV's surrounding commands nor QEMU and the guest.
+A host-originated command alone is enough, at least in the drive's state at the
+time. In job 44 the same command completed four times, each 12–24 ms after
+MakeMKV's rejected `MODE SELECT(10)` 0x740. Whether that preceding command
+matters, and whether the drive needs to have run MakeMKV since power-on, are the
+next things to test. Both need a power cycle per hang.
+
+#### Context gathered on the way
+
+- **7.0.0-3's clean record is weak evidence.** That boot lasted 134 days
+  (2026-05-04 → 09-15), but ARM used the drive in only 4 of them (09-01 → 09-04):
+  10 jobs and 17 `makemkvcon` runs. The next kernel had events in about 1 of 18
+  runs on a similar mix of ordinary DVDs. At that rate, 17 clean runs happen by
+  chance about 38% of the time (0.95¹⁷). The problem discs never ran on 7.0.0-3.
+  So the kernel A/B test in the 2026-10-05 entry has little to start from.
+- **`optical-drive-ata-monitor`** (`ansible/proxmoxer.yaml`) has captured every
+  failure since 09-21 in `/var/log/optical-drive-monitor/` on vulcanus. In each
+  of them the only process holding `/dev/sg3` was QEMU (`kvm`), plus `sg_raw` for
+  this test. No host-side process was probing the drive during the September
+  and October events.
+- **`smartd` has excluded the drive since 2026-05-04** (`48ae4169`, on the
+  theory that host SCSI probes caused the April failures). The quiet 7.0.0-3
+  boot began the same day, and the events came back in September with the
+  exclusion still in place.
+
+The physical checks this points at are collected in
+[vulcanus-onsite-checks.md](vulcanus-onsite-checks.md).

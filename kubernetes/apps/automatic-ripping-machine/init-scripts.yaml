@@ -44,6 +44,12 @@ data:
     /usr/local/bin/arm-title-charset.sh || \
         echo "WARNING: arm-title-charset.sh failed; see /home/arm/logs/arm.log"
 
+    # Edit ARM's source where the fix is a line rather than a wrapper. Not fatal
+    # for the same reason as above: each edit that cannot apply logs and is
+    # skipped, and the rest still go in.
+    python3 /usr/local/bin/arm-source-patches.py || \
+        echo "WARNING: arm-source-patches.py failed; see /home/arm/logs/arm.log"
+
     # abcde.conf is expected in /etc by the abcde installation
     cp --no-clobber /opt/arm/setup/.abcde.conf /etc/arm/config/abcde.conf
     mkdir -p /etc/root/config/
@@ -321,6 +327,89 @@ data:
 
     def fix_job_title(job):
         return _arm_charset_patch(_arm_charset_orig_fix_job_title(job))
+
+  arm-source-patches.py: |
+    """Line-level edits to ARM's source, applied at container start.
+
+    Each edit replaces text that must occur exactly once. ARM auto-updates, so
+    an edit whose text has moved is skipped and logged rather than guessed at;
+    the symptom would otherwise be the old behaviour returning with nothing
+    pointing back here. Edits carry a marker, so a container restart, which keeps
+    the already-patched files, re-applies nothing.
+    """
+    import datetime
+    import sys
+
+    RIPPER = "/opt/arm/arm/ripper"
+    ARMLOG = "/home/arm/logs/arm.log"
+
+    EDITS = [
+        (
+            # The disc stays in the drive until the job is complete, transcode
+            # included; main.py's finally: block ejects it. Without this edit the
+            # tray opens as soon as the rip ends, which reads as "done" while the
+            # transcode still holds the drive. See todos/disc-ripping.md, D8.
+            "eject-after-processing",
+            f"{RIPPER}/makemkv.py",
+            '    job.eject()\n'
+            '    logging.info(f"Exiting MakeMKV processing with return value of: {rawpath}")\n',
+            '    # _arm_source_patch eject-after-processing: main.py ejects when the job ends\n'
+            '    logging.info(f"Exiting MakeMKV processing with return value of: {rawpath}")\n',
+        ),
+        (
+            # On the DVD path every title is registered twice: by MakeMKV numbered
+            # from 0, and by HandBrake's scan numbered from 1. Only HandBrake's
+            # numbers mean anything to `-t`. Encoding both sets runs `-t 0` (scan
+            # all, writes nothing) and then encodes every title twice into the same
+            # files. See todos/disc-ripping.md, D14.
+            "d14-encode",
+            f"{RIPPER}/handbrake.py",
+            '    for track in job.tracks:\n'
+            '        # Don\'t raise error if we past max titles',
+            '    for track in job.tracks.filter_by(source="HandBrake"):  # _arm_source_patch d14-encode\n'
+            '        # Don\'t raise error if we past max titles',
+        ),
+        (
+            # The series branch moves each track by its filename. With d14-encode in
+            # place MakeMKV's tracks keep their raw names, which find_matching_file
+            # fuzzy-matches onto the transcodes (`C3_t01` scores as `title_1`) and
+            # moves under the wrong name. Movies are left alone: their first
+            # MakeMKV track routes them to skip_transcode_movie, which picks the
+            # main feature by file size from the directory listing.
+            "d14-move-series",
+            f"{RIPPER}/arm_ripper.py",
+            '    if job.video_type == "series":\n'
+            '        for track in tracks:\n',
+            '    if job.video_type == "series":\n'
+            '        # _arm_source_patch d14-move-series: only HandBrake\'s tracks name files it wrote\n'
+            '        if tracks.filter_by(source="HandBrake").count():\n'
+            '            tracks = tracks.filter_by(source="HandBrake")\n'
+            '        for track in tracks:\n',
+        ),
+    ]
+
+
+    def log(message):
+        with open(ARMLOG, "a") as f:
+            f.write(f"{datetime.datetime.now(datetime.timezone.utc):%a %b %d %H:%M:%S UTC %Y} [ARM] source-patches: {message}\n")
+
+
+    failed = False
+    for name, path, old, new in EDITS:
+        with open(path) as f:
+            source = f.read()
+        if f"_arm_source_patch {name}" in source:
+            continue
+        count = source.count(old)
+        if count != 1:
+            log(f"cannot apply {name}: expected text found {count} times in {path}; skipped")
+            failed = True
+            continue
+        with open(path, "w") as f:
+            f.write(source.replace(old, new))
+        log(f"applied {name} to {path}")
+
+    sys.exit(1 if failed else 0)
 
   armui.sh: |
     #!/bin/bash
