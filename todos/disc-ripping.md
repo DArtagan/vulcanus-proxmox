@@ -2978,3 +2978,33 @@ The `kubectl rollout restart` used to deploy D15's wrapper change was undone
 seconds later. The deployment went back to its previous ReplicaSet, most likely
 Flux reconciling away the `restartedAt` annotation, but that left a fresh pod
 anyway, which mounted the new scripts.
+
+### 2026-10-09 — job 48: *Around the World* disc 2 rips for the first time
+
+Observations only. Host times are Denver. Trace: `/var/tmp/arm-sata/trace-job48.txt`
+on vulcanus, running until the job ends.
+
+*Around the World in 80 Days* disc 2, its fourth job. Jobs 40, 41 and 42 each
+hung once and none got past the start of a rip. MakeMKV's output names confirm
+the disc: `AROUND THE WORLD IN 80 DAYS DISC 2-*`. The host was cold
+power-cycled after job 47's reproducer and booted at 22:25:16. Nothing was sent
+to the drive from the host before the tray was closed at 04:41:40 UTC. Job 48
+started 04:41:58 UTC.
+
+| run | ARM log (UTC) | outcome |
+|---|---|---|
+| `info disc:9999` | 04:52:09 – 04:52:17 | `Failed to open disc`, as usual |
+| `info disc:0` | 04:52:18 – 05:15:44 | LibreDrive and direct disc access at 04:52:43, 5 titles |
+| `mkv` | 05:15:45 – 07:18:13 | `Copy complete. 5 titles saved`, 9.49 GB in 2 h 02 min, zero `MSG:2003` |
+
+- No `ata4` exceptions for the whole rip. All six buffer-`0x77` reads (one init
+  form, five 4-byte) completed in under 10 ms.
+- The `disc:0` run, where jobs 41 and 42 hung, and the start of the `mkv` run,
+  where job 40 hung, both passed without incident.
+- The tray stayed shut into the transcode (status 4, `ejected: 0`), and
+  `handbrake_all` began with `title_1`, HandBrake's numbering.
+
+On this disc that makes 9 `makemkvcon` runs and 3 hangs: two runs each in jobs
+40, 41 and 42, each job ending in a hang, then three clean in job 48. Of the 11
+jobs since the 2026-09-21 restart, 44, 47 and 48 had no `ata4` event; 39 and 43
+had one that recovered; 38, 40, 41, 42, 45 and 46 lost the drive.
