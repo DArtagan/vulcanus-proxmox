@@ -2962,9 +2962,17 @@ What this does and doesn't show:
   12–24 ms. The host's lone read has no such predecessor. Its 2-of-2 hang rate
   makes it a usable measure for the on-site cable and port checks. But it can't
   test the registration question, and it may not model what MakeMKV hits.
-- Next: registered runs on the discs that hung most, *Around the World in 80
-  Days* disc 2 and *Sherlock Holmes in the 22nd Century*, traced. If those run
-  clean, registration is the strongest candidate there is.
+- **Registration is probably not the cause** (Will, 2026-10-09): "As far as I
+  know, there is no functional difference between running it with a 'real'
+  license vs a free 'beta' license. Also, there's the fact that the hang was
+  triggered by a host-issued command." The host's lone read hangs the drive with
+  MakeMKV not involved at all. Job 47's clean run is most likely one of the
+  clean runs this drive has always had, like jobs 43 and 44. Don't build on
+  registration without a reason that answers both points.
+- The reproducer at 21:59:03 was sent deliberately, as the planned post-job
+  attempt. The tray was open with no disc. ARM ejected at 21:58:40, the drive
+  read status `2` (tray open) at 21:58:50, and the guest's `TEST UNIT READY`
+  failed with sense from the eject on until then.
 
 The `kubectl rollout restart` used to deploy D15's wrapper change was undone
 seconds later. The deployment went back to its previous ReplicaSet, most likely
