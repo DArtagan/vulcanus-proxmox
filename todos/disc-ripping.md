@@ -3008,3 +3008,9 @@ On this disc that makes 9 `makemkvcon` runs and 3 hangs: two runs each in jobs
 40, 41 and 42, each job ending in a hang, then three clean in job 48. Of the 11
 jobs since the 2026-09-21 restart, 44, 47 and 48 had no `ata4` event; 39 and 43
 had one that recovered; 38, 40, 41, 42, 45 and 46 lost the drive.
+
+Job 48 ended `success` at 10:57:45 UTC, and verifies D14 on a multi-title DVD.
+`handbrake_all` encoded titles 1–5 once each (07:18 → 10:57), with no `-t 0`
+pass and no second pass. `completed/` holds the main feature (`title_1`, 69 min)
+and titles 2–5 in `extras/`. The one eject came after `ARM processing complete`.
+There were no `ata4` exceptions through the end of the job.
