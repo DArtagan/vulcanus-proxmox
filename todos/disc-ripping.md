@@ -3014,3 +3014,59 @@ Job 48 ended `success` at 10:57:45 UTC, and verifies D14 on a multi-title DVD.
 pass and no second pass. `completed/` holds the main feature (`title_1`, 69 min)
 and titles 2–5 in `extras/`. The one eject came after `ARM processing complete`.
 There were no `ata4` exceptions through the end of the job.
+
+### 2026-10-09 — research: what buffer `0x77` is, and an SDF difference between jobs
+
+Will, 2026-10-09: "Sounds like it's most statistically likely that it's related
+to the firmware / LibreDrive — let's start digging in to that." He also warned
+that firmware updates often remove LibreDrive compatibility, and that this
+drive was bought from Billycar11 on the MakeMKV forums because LibreDrive-capable
+internal drives are now hard to get. Firmware changes stay declined.
+
+**What LibreDrive does to the drive.** MakeMKV's library uploads "a small
+software (a firmware extension) into drive volatile memory". It exposes an
+alternative read interface, and the flashed firmware itself isn't changed. A
+power-off removes it. The SCSI commands used to install and drive it aren't in
+MakeMKV's code. They come from a per-firmware data blob, `SDF.bin`, which the
+library interprets (mike admin,
+https://forum.makemkv.com/forum/viewtopic.php?f=19&t=18856). That fits the hang
+needing a power cycle: the code that stops answering lives in RAM.
+
+**What the hung command is.** freemkv-unlock, an open-source reimplementation,
+classifies `READ BUFFER` mode 2 buffer `0x77` (and mode 1 buffer `0x44`) as the
+LibreDrive "unlock handshake" read. A genuine reply carries the marker `MMkv` at
+bytes 12–16
+(https://github.com/freemkv/freemkv-unlock/blob/cfe2efa667f7f7cc86580713cf86b219767e6d55/src/ld/cdb.rs).
+So every traced hang is the drive's RAM extension failing to answer its own
+handshake. Its changelog describes Pioneer support as "runtime H8S hooks" and
+says it verifies "resident hooks before reuse". That describes its own
+implementation, not a known MakeMKV bug, but it is the situation our hangs
+cluster in: runs after the first since power-on.
+
+**The drive's firmware.** A stock BDR-212 on 1.01 reports LibreDrive as
+"Possible, not yet enabled"; Billycar11 sells a flash kit to enable it
+(https://forum.makemkv.com/forum/viewtopic.php?t=32926). This drive reports
+`1.01` and runs `LibreDrive mode (v02.1 id=DFAA920B9011)`, so it is very
+likely flashed. That hasn't been checked against MakeMKV's drive-info
+"Firmware type" line. Pioneer firmware can't be downgraded (same thread),
+which is another reason to leave it alone.
+
+**No matching reports found.** Nothing read describes this symptom, the
+LibreDrive handshake hanging until the SATA link is lost. The search was narrow:
+the main Pioneer LibreDrive thread
+(https://forum.makemkv.com/forum/viewtopic.php?t=27378) has ~136 pages and only
+two were read. "Makemkv hangs OS" (t=21841) is unrelated: the whole host froze,
+and later with HandBrake too.
+
+**An SDF difference between jobs, found on the way.** MakeMKV logged
+`MSG:3338 "Downloading latest SDF to /root/.MakeMKV ..."` in jobs 47 and 48 only.
+None of jobs 15–46 ever downloaded it. Those had no `HOME` (D15), so MakeMKV had
+nowhere to keep it and presumably fell back to the definitions built into the
+binary. Jobs 47 and 48 are also the only two clean jobs on a drive that had just
+been failing. Both kinds of run report the same `LibreDrive mode (v02.1
+id=DFAA920B9011)`, and the downloaded archive (`_private_data.tar`) doesn't
+expose an SDF version, so whether the definitions for this drive actually
+differ is not established. Against it: jobs 18–36 also ran without a download
+and were mostly clean, and the host's lone read hung after job 47.
+`/root/.MakeMKV` is container-local, so the SDF is fetched again by the first
+job after each pod restart, which needs internet access.
