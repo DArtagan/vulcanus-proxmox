@@ -3070,3 +3070,16 @@ differ is not established. Against it: jobs 18–36 also ran without a download
 and were mostly clean, and the host's lone read hung after job 47.
 `/root/.MakeMKV` is container-local, so the SDF is fetched again by the first
 job after each pod restart, which needs internet access.
+
+**The SDF versions differ** (checked 2026-10-09). MakeMKV 1.18.4 ships
+`sdf_000000a5.bin` (2,101,200 bytes) in `/usr/local/share/MakeMKV/appdata.tar`.
+Jobs 47 and 48 downloaded `sdf_000000a6.bin` (2,119,472 bytes) into
+`/root/.MakeMKV/_private_data.tar`. So jobs 15–46 ran SDF `0xA5` and jobs 47–48
+ran `0xA6`. Both files are encrypted (entropy 7.999 bits/byte), so no strings
+are readable. `sdftool` (a symlink to `makemkvcon`) prints only the version and
+an "Identification SDF" from either file: with a dummy drive (`-n`), even with
+`-t DFAA920B9011`, it reports "No drive-specific logic found". Whether this
+drive's entry changed between `0xA5` and `0xA6` therefore needs the real drive
+(`sdftool -d /dev/sr0 -f <file> --info`), which runs the SDF's firmware
+identification against it. That hasn't been tried. Copies of both files are in
+`captures/sdf/`.
