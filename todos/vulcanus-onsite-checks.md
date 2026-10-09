@@ -100,6 +100,13 @@ What the baseline needs, and should be measured **before** the visit, in session
 from `todos/disc-ripping.md`: the hang rate over several attempts, all run the
 same way.
 
+Baseline so far: 2 of 2 post-MakeMKV attempts hung (2026-10-06, after an
+unregistered run; 2026-10-09, after a registered one), and the one cold attempt
+was refused, as expected. The lone host read lacks the `MODE SELECT(10)` that
+precedes it in every MakeMKV run, so it may be a harsher trigger than ripping
+is. A cable fix that stops it would be convincing, but one that doesn't stop it
+doesn't rule out that ripping got better. Confirm with real rips either way.
+
 If the baseline can't be established remotely, take it on site first, before
 changing anything. That costs a few extra power cycles.
 

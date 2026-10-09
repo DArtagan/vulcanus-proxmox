@@ -2916,3 +2916,57 @@ fails every disc with `Error while running MakeMKV`.
 > **Fix:** `export HOME=/root` in `arm-disc-wrapper.sh` before it hands over to
 > ARM. With no disc loaded, makemkvcon sent no LibreDrive init and caused no
 > `ata4` event, so this check is safe to repeat.
+
+### 2026-10-09 — job 47: the first registered run, clean; the host reproducer still hangs after it
+
+Observations only. Host times are Denver. Trace:
+`captures/arm-sata/trace-job47-full.txt`, and on vulcanus
+`/var/tmp/arm-sata/trace-job47.txt`.
+
+**Job 47**, *The Sandlot*, with the D15 `HOME` fix deployed. There was no power
+cycle after job 46: the drive had failed six LibreDrive inits and was still
+limited to UDMA/66. The tray was closed from the host at 02:12:42 UTC.
+
+- MakeMKV ran registered: no `MSG:5021`, and `Using LibreDrive mode (v02.1)` in
+  both the `disc:0` and `mkv` runs. Since nothing before the D15 fix set `HOME`,
+  **this is the first ARM job on record to run MakeMKV registered.**
+- **Every buffer-`0x77` read completed:** the init-form `READ BUFFER 0x77 @0`
+  once, in 8.9 ms (it had hung in 8 of 8 attempts in jobs 45 and 46, same disc,
+  same drive state), and the 4-byte `@0x121000` five times, in 9.1–9.9 ms. There
+  were no `ata4` exceptions for the whole job.
+- It ripped 1 title, 4.03 GB in 19 min, with no read errors. Job 47 ended
+  `success` at 03:58:41 UTC.
+- **The D8 and D14 fixes verified end to end:** no eject after the rip (drive
+  status 4 and `ejected: 0` through the transcode); one HandBrake encode,
+  `title_1`, with no `-t 0` pass; and one eject, straight after `ARM processing
+  complete`. `completed/` holds `The-Sandlot (1993).mkv`, 1.2 GB.
+
+**Host reproducer after it.** At 21:59:03 Denver, with ARM idle and the tray
+open after the eject, the lone
+`sg_raw -r 4 -t 30 /dev/optical-drive-sg 3c 02 77 12 10 00 00 00 04 00` hung:
+the exception came at 21:59:34, the resets failed, and the drive was disabled
+at about 22:00. So the reproducer hangs after a registered run as it did after
+an unregistered one (2026-10-06). Two of two post-MakeMKV attempts hung, and the
+one cold attempt was refused.
+
+What this does and doesn't show:
+
+- **Every MakeMKV-originated hang on record ran unregistered**, the April and
+  2026-09-16 events included, because jobs never had a `HOME`. Unregistered
+  runs also completed many times (jobs 28–36, 43, 44), so registration can't be
+  the whole story. One registered run is too few to call, but it is the first
+  run since 2026-09-21 with no event at all on a drive that had just been
+  failing.
+- **The host reproducer may be a different trigger.** In every MakeMKV
+  instance, the 4-byte read follows a rejected `MODE SELECT(10)` 0x740 by
+  12–24 ms. The host's lone read has no such predecessor. Its 2-of-2 hang rate
+  makes it a usable measure for the on-site cable and port checks. But it can't
+  test the registration question, and it may not model what MakeMKV hits.
+- Next: registered runs on the discs that hung most, *Around the World in 80
+  Days* disc 2 and *Sherlock Holmes in the 22nd Century*, traced. If those run
+  clean, registration is the strongest candidate there is.
+
+The `kubectl rollout restart` used to deploy D15's wrapper change was undone
+seconds later. The deployment went back to its previous ReplicaSet, most likely
+Flux reconciling away the `restartedAt` annotation, but that left a fresh pod
+anyway, which mounted the new scripts.
