@@ -47,7 +47,7 @@ This is matched by drive model name (`BD-RW   BDR-212U`) rather than device numb
 The VM is defined with `host_cdrom_passthrough = true` in `terraform/main.tf`, which adds raw QEMU args in `terraform/modules/proxmox_talos_vm/main.tf`:
 
 ```
--device virtio-scsi-pci,id=scsihw0
+-device virtio-scsi-pci,id=scsihw0,max_sectors=256
 -drive file=/dev/optical-drive-sg,if=none,id=drive-cdrom0,format=raw
 -device scsi-generic,bus=scsihw0.0,channel=0,scsi-id=0,lun=0,drive=drive-cdrom0,id=cdrom0
 ```
@@ -67,6 +67,40 @@ Without these, MakeMKV reports `dtype=0` (unknown disc type) and fails to open D
 Proxmox does not support `scsi-generic` passthrough through its API, so it must be done via raw QEMU args. The virtio-scsi-pci controller must also be created manually here because Proxmox only creates it automatically when a SCSI disk is assigned via the API.
 
 Inside the guest, the Talos kernel recognises the device as SCSI type 5 (optical), loads `sr_mod`, and creates `/dev/sr0` and `/dev/sg0`.
+
+### Transfer size: `max_sectors=256`
+
+The host accepts at most **128 KiB per command** for the drive
+(`/sys/block/sr0/queue/max_hw_sectors_kb` on vulcanus). libata sets that for an
+ATAPI device, so it is a property of the drive's attachment and not a tunable.
+
+`scsi-generic` does not tell the guest about it. The guest instead takes the
+virtual controller's limit, which defaults to `0xFFFF` sectors — 32 MiB. MakeMKV
+reads `/dev/sr0` with `O_DIRECT` in 384 KiB requests, the host's `sg` driver
+refuses each with `EINVAL`, and QEMU hands that back as a SCSI failure:
+
+```
+sr 2:0:0:0: [sr0] tag#190 Sense Key : Illegal Request [current]
+sr 2:0:0:0: [sr0] tag#190 Add. Sense: Invalid field in cdb
+sr 2:0:0:0: [sr0] tag#190 CDB: Read(10) 28 00 00 08 46 9a 00 00 c0 00
+critical target error, dev sr0, sector 2169448 op 0x0:(READ) ...
+```
+
+MakeMKV recovers and the rip still completes, but the log gets ~1.5 of these a second for the length of every rip. That fills
+`dmesg` in a few minutes and pushes out any real medium error before anyone
+looks.
+
+**These are not copy protection.** A drive refusing an unauthenticated read of
+a CSS or AACS sector reports ASC `0x6F`, *Read of scrambled sector without
+authentication*. The tell for this fault is the transfer length in the CDB
+(`c0` = 192 blocks = 384 KiB): every failure has the same length and it is over
+the host limit.
+
+`max_sectors=256` on `virtio-scsi-pci` gives the guest the host's real limit.
+It caps the controller rather than one device, so it covers `SG_IO` as well as
+block reads. It does not depend on a udev rule firing at the right moment. With
+it in effect, the guest's `max_hw_sectors_kb` for `sr0` reads `128`; without it,
+`32766`.
 
 ## Kubernetes: Device Plugin and Security Policy
 

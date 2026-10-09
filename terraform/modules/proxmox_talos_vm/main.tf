@@ -137,7 +137,11 @@ locals {
   # Proxmox only instantiates the virtio-scsi-pci controller when at least one SCSI disk is
   # assigned through the Proxmox API. Since no such disk exists here, we must create the
   # controller ourselves so that scsi-generic has a bus to attach to.
-  cdrom_args = var.host_cdrom_passthrough ? "-device virtio-scsi-pci,id=scsihw0 -drive file=/dev/optical-drive-sg,if=none,id=drive-cdrom0,format=raw -device scsi-generic,bus=scsihw0.0,channel=0,scsi-id=0,lun=0,drive=drive-cdrom0,id=cdrom0" : ""
+  # max_sectors=256 (128 KiB) is the host's max_hw_sectors_kb for the drive, which libata
+  # fixes for an ATAPI device. scsi-generic does not pass that limit through, so without it
+  # the guest issues reads up to 32 MiB, the host rejects each one with EINVAL, and QEMU
+  # returns it as "Invalid field in cdb" — see docs/automatic-ripping-machine.md.
+  cdrom_args = var.host_cdrom_passthrough ? "-device virtio-scsi-pci,id=scsihw0,max_sectors=256 -drive file=/dev/optical-drive-sg,if=none,id=drive-cdrom0,format=raw -device scsi-generic,bus=scsihw0.0,channel=0,scsi-id=0,lun=0,drive=drive-cdrom0,id=cdrom0" : ""
   hostname = var.hostname != null ? var.hostname : var.name
 }
 

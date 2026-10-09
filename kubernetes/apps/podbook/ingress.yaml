@@ -48,4 +48,3 @@ spec:
             name: podbook-rebound
             port:
               number: 8000
-

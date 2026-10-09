@@ -29,10 +29,12 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 | Phase | What | State |
 |---|---|---|
 | 0 | Unwedge the drive, close the cross-cutting defects | **done** — reconciled and verified in the container, 2026-08-25 |
-| 1 | Audio CD | rip **proven end to end** 2026-08-26; handoff to beets still racy |
-| 2 | DVD | not started |
-| 3 | Blu-ray | not started |
+| 1 | Audio CD | **done** 2026-08-31 — one loose end, see below |
+| 2 | DVD — movie | **done** 2026-09-01 — first video file ARM has ever produced |
+| 2b | DVD — TV series | **done** 2026-09-04 — two discs of one season; play-all and multi-disc findings drive the ingest design |
+| 3 | Blu-ray | **done** 2026-09-17 — The Rescuers end to end in 9h42m once worker-1 was resized to 16 GiB |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
+| — | Drive drops off its SATA link | **open, unexplained** — observations under 2026-09-22, 2026-09-22/30, 2026-10-04 and both 2026-10-05 entries in the progress log; it dates from April, not 09-22. Jobs 43 (one recovered hang) and 44 (clean) traced; the host command sequence does not separate a hang from a success. D14 found on the way. Jobs 45–46: the init-form read hangs too, and the link fails under it. D15: jobs run MakeMKV unregistered (udev gives no HOME), which blocks all ripping now 1.18.4 has expired; fixed in the wrapper |
 
 Phase 0 is a prerequisite for all of the others: until it is done, the drive
 wedges on the first disc and stays wedged.
@@ -43,11 +45,15 @@ wedges on the first disc and stays wedged.
 
 Check these three before starting, because two of them will mislead you:
 
-- **Check the container, not the ConfigMap.** Phase 0 reconciled on 2026-08-25
-  and the running pod has it, but the general point stands and cost two
-  surprises that day: ARM rewrites its own config file (D10) and the init
-  container leaves an unresolved `${...}` verbatim, so the ConfigMap in git and
-  the config in the process are different artefacts. Confirm with
+- **Check the container, not the ConfigMap** — this has now caught something on
+  every single deploy. ARM rewrites its own config file (D10); the init container
+  leaves an unresolved `${...}` verbatim; and **`init-scripts` is mounted with
+  `subPath`, which Kubernetes never updates in place**, so the scripts in
+  `/usr/local/bin/` are frozen at pod start no matter what Flux applies. That
+  last one is worse than the stale-ConfigMap case in
+  [config-change-rollouts.md](config-change-rollouts.md), because there is no
+  interval after which it corrects itself: **every change to
+  `init-scripts.yaml` requires `kubectl rollout restart`.** Confirm with
   `kubectl exec -n automatic-ripping-machine deploy/automatic-ripping-machine -- grep MANUAL_WAIT_TIME /etc/arm/config/arm.yaml`
   and do not trust `flux get kustomizations`, which reports healthy either way —
   see [config-change-rollouts.md](config-change-rollouts.md).
@@ -119,8 +125,7 @@ Two of its items are still live and carried forward below: the dead
 `RIPMETHOD_DVD`/`RIPMETHOD_BR` keys (D10) and the documentation drift (D11). Its
 item 2 (a disc already in the drive at pod start is never seen) is carried
 forward as D2b. Its item 3 (a node reboot can leave a `Failed` ARM pod) is
-carried forward as D9 and still couples to
-[generic-device-plugin-hang.md](generic-device-plugin-hang.md).
+carried forward as D9.
 
 One claim it repeated from `docs/` is now **disproven**: see D7.
 
@@ -413,6 +418,17 @@ a 4-core node likewise never throttles.
 Bring both under the node's real capacity. This is a targeted fix for the
 mechanism in D3, not general hardening.
 
+**The first correction was also wrong, and the error is worth keeping.** Dropping
+the limit to 4Gi looked like it satisfied this, because 4Gi is comfortably under
+the VM's 8 GiB. It is not under *allocatable*, which was 5.26 GiB — and with the
+rest of the node's workload resident, ARM could never reach 4Gi before the node
+died. The lesson is that "the node's real capacity" means
+`kubectl get node -o jsonpath='{.status.allocatable.memory}'` minus what else is
+already resident on it, never the VM's RAM. Sized against the VM, a limit reads
+as generous while being unreachable, and the symptom is indistinguishable from
+having set no limit at all. See the 2026-09-04 entry in the progress log for the
+measurement that exposed it.
+
 ### D7 — `makemkvcon` **is** usable as a diagnostic. `docs/` says otherwise, and is wrong.
 
 `docs/automatic-ripping-machine.md:160` states that `makemkvcon` reports "This
@@ -441,6 +457,22 @@ Before running it, check nothing is ripping: `pgrep -af makemkv` in the pod.
 Concurrent SCSI commands to this drive are what destabilise the ATA link.
 
 ### D8 — the disc stays locked in the drive for the whole transcode
+
+> **Wrong — corrected 2026-10-05, and decided the other way.** The running
+> image ejects at the end of the MakeMKV stage. `makemkv.makemkv()` calls
+> `job.eject()` (`/opt/arm/arm/ripper/makemkv.py:760`) before
+> `rip_visual_media` starts the transcode, and by then `main.py`'s call does
+> nothing. Job 43 ejected at 02:59:10 UTC and HandBrake started after it. Job 39
+> ejected at 06:47 in a job that ran until 11:00. Which image introduced this
+> was not checked. Will has decided the disc stays locked through the
+> transcode and ejects only when processing is complete (see **Decisions already
+> made**). So the current behaviour is the defect, and the options below are
+> superseded.
+
+**Fix:** the `eject-after-processing` edit in `arm-source-patches.py`
+(`init-scripts.yaml`) drops that call. To verify it on the first video job after
+deploy, ARM's log should show one `eject` line, after
+`ARM processing complete`, not after `Exiting MakeMKV processing`.
 
 `arm_ripper.rip_visual_media()` runs MakeMKV, then calls `start_transcode()`
 inline, then moves files. `Job.eject()` is only reached from `main.py`'s
@@ -485,18 +517,7 @@ cannot allocate unhealthy devices devic.es/cdrom, which is unexpected
 The kubelet admitted the pod before generic-device-plugin registered a healthy
 `devic.es/cdrom`. A ReplicaSet does not garbage-collect `Failed` pods, so it
 stays until deleted. Nothing is broken — a replacement was created and works —
-but it recurs on every reboot that loses the race, and it **couples to
-[generic-device-plugin-hang.md](generic-device-plugin-hang.md)**: if a plugin
-wedge overlaps an ARM pod recreation, admission fails exactly this way. Decide
-the two together.
-
-**Failing admission is not the only outcome, and the other one is quieter.** On
-2026-08-25 a deliberate ARM restart sat `Pending` for ~2m30s with no container
-statuses at all, then started normally. worker-1's plugin was serving zero bytes
-of HTTP and throttled at 97.8% at that moment, against 0.3% on both other nodes.
-`Allocate` still answered and `devic.es/cdrom` never left `allocatable: 1` — it
-just answered slowly. Nothing alerts on that, correctly, and it reads like a slow
-image pull or SMB mount. Budget for it when a restart seems to hang.
+but it recurs on every reboot that loses the race.
 
 ### D10 — dead configuration
 
@@ -640,10 +661,30 @@ Open questions for this phase:
   and `-X` aborts outright — pick one once real discs have reported something,
   rather than guessing a retry count now.
 
-  **Nothing reads this yet.** D4 still stands: `rip_music()` checks abcde's exit
-  code alone, so a disc full of `;-(` still reports success. The log is now
-  worth reading; making the job fail on it is the next step, and it needs a
-  sample of what ordinary discs produce before a threshold means anything.
+  **`-e` is the machine-readable callback stream, not the smiley progress bar** —
+  that is `-E`. Each line is `##: <code> [<action>] @ <sector>`, which is the
+  better of the two here because it can be counted rather than eyeballed. The
+  config comment said smilies until 2026-08-29; it was written from
+  `cdparanoia --help`'s legend without checking which format the flag selects.
+
+  **Baseline for a clean disc**, from job 14, an 11-track CD:
+
+  | callback | count |
+  |---|---|
+  | `-2 [wrote]` | 188899 |
+  | `0 [read]` | 14512 |
+  | `1 [verify]` | 1068 |
+  | `9 [overlap]` | 225 |
+  | `-1 [finished]` | 11 |
+
+  `overlap` is paranoia adjusting its read overlap, not an error. Anything else
+  — scratch, skip, readerr, fixup dropped/duped, repair, backoff — means the
+  audio may be wrong. That is the threshold: **any callback outside those five
+  is worth failing on.** It costs 5.4 MB of job log per disc.
+
+  **Nothing reads it yet.** D4 still stands: `rip_music()` checks abcde's exit
+  code alone. Making the job fail on a bad read is now a well-defined change
+  rather than a guess, and it needs the `BASH_SCRIPT` hook or a fork.
 
   Only then is the `whipper` question worth answering. AccurateRip verifies the
   read against other people's rips of the same pressing, which is a stronger
@@ -765,10 +806,38 @@ completion message `Music CD: <title> processing complete.` Because the drive is
 exclusive, only one album can be in staging, so the script moves whatever it
 finds rather than parsing the title out.
 
-**Untested against a real disc.** The unit tests cover the decision and the
-naming; what they cannot cover is whether beets-flask actually stays quiet
-through a live copy. Phase 1 is not finished until a second CD goes in and lands
-in the library without a manual rename.
+**Colliding album names are disambiguated, not refused.** Every disc MusicBrainz
+cannot identify is called `Unknown Artist Unknown Album`, so two unidentified
+discs in a row collide — which is not a corner case once a stack is being fed in.
+
+The first version refused the handoff and kept the album in staging. That looks
+safe and is not, for two reasons found on 2026-08-29 by reproducing it:
+
+- Staging is container-local, so a retained album dies at the next pod restart.
+- abcde rips the *next* disc into that same directory. An 8-track disc landing on
+  a retained 11-track one leaves tracks 1–8 from the new disc and 9–11 from the
+  old — an album that looks complete and is two discs. Silent corruption, worse
+  than either losing it or failing loudly.
+
+So the destination gets a ` (2)`, ` (3)` suffix and the album always lands, and
+staging is cleared on every success. The one path that still keeps a rip is a
+failed copy, and it moves the directory aside to `<album>.failed-<epoch>` for the
+same reason — that was the last route by which the next disc could merge into an
+existing album.
+
+> **Loose end, deliberately left 2026-08-31.** The disambiguation is covered by
+> sixteen unit tests and has **never run against a real rip** — the fixture needs
+> a second disc MusicBrainz cannot identify, and one was not to hand. Re-ripping
+> the *same* unidentified disc exercises the identical path if a second is hard
+> to find. Until then, the expected behaviour on a colliding rip is
+> `Unknown Artist Unknown Album (2)` beside the existing folder, and a
+> `handed off … to …(2)` line in `arm.log`. If instead the log says `refusing to
+> overwrite`, the container is running a stale script — see below.
+
+**Proven on a real disc, 2026-08-29.** Job 14: eleven tracks handed off in one
+step, and beets-flask created its session **70 seconds after** the handoff,
+reaching `PREVIEW_COMPLETED` rather than the `NOT_STARTED` dead-end job 13 hit.
+It saw a complete album. No `.part` files left behind.
 
 **(b) belongs to `~/repositories/beets-flask/todos/`**, not here.
 
@@ -814,10 +883,55 @@ job it first looks like. That is well within a pod's uptime — which is why D3
 (silent death) matters more than encoder speed. It is also why D8 matters: the
 disc is locked in the drive for all of it.
 
+**The code path, read from the source and cross-checked against the DVD runs.**
+Worth writing down because it is not what the config file suggests. `RIPMETHOD`
+reads `backup_dvd`, and `rip_with_mkv` (`arm_ripper.py:235`) turns that into
+"always use MakeMKV" for *every* disc type — the DVD comment about `mkv` mode
+never applies. What differs is the MakeMKV *mode*, chosen at `makemkv.py:753`:
+
+- **Blu-ray** → `makemkv_backup`, a full BDMV backup (~43 GB). HandBrake then
+  title-scans that structure natively.
+- **DVD** → `makemkv_mkv`, extracting each title to its own MKV. HandBrake then
+  scans the *directory*, treating each file as a title.
+
+Both then land in `handbrake_all`, because the `handbrake_mkv` branch requires
+`RIPMETHOD == "mkv"` exactly and `backup_dvd` does not match. So the Blu-ray is
+not entering untested code — it reaches the same transcode function the two TV
+discs and the phase 2 movie already proved, by a different route.
+
+**April got much further than "MakeMKV failed" suggests.** The leftover transcode
+directories show titles 43, 44, 46 and 70 encoded on 2026-04-22 before the job
+died, and 43 and 44 on 2026-04-21. That matches this section's predicted
+selection of five titles from 71 almost exactly, and means the failure was late
+in transcode rather than at the rip. It also left a partial `title_44.mkv`
+(150 MB on the 21st, 539 MB when redone on the 22nd) — an instance of D4, a
+half-written file with nothing marking it incomplete.
+
+Three stale `The Rescuers` raw backups (129 GB) and four stale transcode
+directories are still on the share from those attempts. The share has 11 TB free
+so they are not urgent, but they are why this job's folders carry a stage suffix,
+and any cleanup should happen after this phase closes, not during it.
+
 Two things to settle here:
 
-- **The duplicate main feature.** Two near-identical 77-minute titles is
-  ambiguous for anything downstream. Decide whether ARM should pick one.
+- **The duplicate main feature — answered by running it, and the answer is not
+  the obvious one.** ARM keeps *both* 77-minute titles: one becomes the feature,
+  the other is filed under `extras/`. What it picks is the surprise:
+
+  | | duration | size |
+  |---|---|---|
+  | `The Rescuers (1977).mkv` | 77.2m | 1435 MB |
+  | `extras/title_71.mkv` | 77.1m | **1719 MB** |
+
+  The copy promoted to feature is the **smaller** one. `skip_transcode_movie`
+  does select the largest file, but it only runs when `track.source ==
+  "MakeMKV"`, and a Blu-ray reaches `handbrake_all` with tracks registered by
+  HandBrake's own scan — so `move_files_post` takes the other branch and trusts
+  HandBrake's `main_feature` flag instead. At a fixed CRF a 20% larger file means
+  more retained detail, so the better encode is the one sitting in `extras/`.
+  Downstream cannot tell them apart by name, and 3.1 GB is being spent on one
+  film. This is the ingest's problem to resolve, not the ripper's, and it is
+  recorded in [video-library-ingest.md](video-library-ingest.md).
 - **Audio.** `docs/` claims TrueHD/DTS-HD MA passthrough. The preset does not do
   it: `AudioCopyMask` lists `copy:truehd` and `copy:dtshd`, but **both
   `AudioList` entries specify `AudioEncoder: opus`**, and HandBrake only passes
@@ -835,6 +949,11 @@ matched control: **since the host power-cycled on 2026-05-04 there have been zer
 ata4 events in 111 days of uptime**, and the 2026 total is five days with
 exceptions, all in April. Treat the drive as healthy but instrument the next
 Blu-ray rip with `journalctl -f | grep ata4` on the host.
+
+> **Superseded — 2026-10-05.** The quiet spell was one host boot, on kernel
+> 7.0.0-3, and ended with job 27. April also had device disables needing a
+> reboot and a PHY-level link-down, not only recoveries. See
+> [the 2026-10-05 entry](#2026-10-05--the-drives-history-since-april-and-what-each-era-ran).
 
 ## Phase 4 — 4K UHD Blu-ray
 
@@ -959,6 +1078,17 @@ limits (D6) and the alert rules, both of which are facts about this cluster.
   still holds before adding any other eject.
 - **A forked ARM image is acceptable** where a fix cannot be made in config
   (Will, 2026-08-25), with improvements carried back upstream. See **Upstream**.
+- **The disc stays in the drive, locked, until its processing is fully
+  complete** (Will, 2026-10-05): "The design intent is that it should be that
+  the drive remains locked during transcode, and then ejects after processing of
+  the disc is fully complete." This settles D8 against both options it listed.
+  The running image doesn't do this yet; it ejects after the rip (D8).
+- **Declined for the drive's SATA link losses** (Will, in a session before
+  2026-10-05; first written down 2026-10-06): turning off MakeMKV's LibreDrive,
+  reducing `makemkvcon` runs per job, making VM 911 boot without the drive, and
+  drive firmware changes. "No, I don't think any of these avenues are ones we'd
+  like to pursue." Ask before proposing any of them again. The physical checks
+  that remain are in [vulcanus-onsite-checks.md](vulcanus-onsite-checks.md).
 
 ## What was not investigated
 
@@ -1063,13 +1193,9 @@ in and watch a music rip end to end.
 The Pushover secret landed and ARM was restarted to pick it up; `PO_USER_KEY`
 and `PO_APP_KEY` are substituted in the running container.
 
-Two things learned in the doing, both recorded above: a Secret consumed through
+One thing learned in the doing, recorded above: a Secret consumed through
 `envFrom` on an init container has nothing watching it, so it needs a manual
-rollout; and the device-plugin wedge can *delay* admission rather than fail it,
-which is a quieter third outcome than D9 described. That wedge was live on
-worker-1 during the restart and was deliberately left running, so it is
-available for another goroutine dump — see
-[generic-device-plugin-hang.md](generic-device-plugin-hang.md).
+rollout.
 
 **Phase 1 is next and needs a person at the machine**: the Mànran CD back in the
 drive, enclosure door open. Four things to watch, in order —
@@ -1108,3 +1234,1685 @@ Three findings worth carrying into phases 2–4:
   whipper: adopting it means writing a wrapper to invoke it anyway, and a
   wrapper is a superset of a hook. The hook question only matters when bolting
   it into someone else's pipeline.
+
+### 2026-08-29 — phase 1 closes
+
+Job 14, an unrelated CD, ran unattended while the site was unreachable and did
+every part of it right.
+
+- **One job**, straight to `CD` — the media gate again.
+- **`-e` produced real read data**, and the disc read clean: only `read`,
+  `verify`, `wrote`, `overlap` and `finished`. That is the baseline recorded
+  above, and it is what a threshold can now be set against.
+- **The handoff worked.** Eleven tracks moved in one step, and beets-flask's
+  session was created 70s later at `PREVIEW_COMPLETED` — it saw a complete
+  album, where job 13's saw one track and died.
+- **The tray opened** on its own.
+
+It stopped at preview rather than importing, which is **correct**: MusicBrainz
+returned HTTP 404 for disc ID `me52FDJAZbLLImDQaZV1kydxfSI-`, so the album is
+`Unknown Artist / Track 1…11` and beets is waiting for a person. An
+unidentifiable disc should wait, not guess. Nothing to fix — but note the rip
+still succeeds and still lands, so the failure mode is "needs a human", not
+"lost".
+
+`getalbumart` fetched nothing, for the same reason: no identification, nothing
+to look art up by.
+
+**Phase 2 is next: DVD.** There is a known-good raw rip on the share already —
+job 3's Le Mans — so the transcode can be exercised without re-reading a disc.
+Watch for D4: a DVD that reports success having produced nothing is exactly what
+happened before, and `find /root/video/completed -type f` is the check.
+
+### 2026-08-31 — phase 1 closed, with one thing unproven
+
+Deployed and verified in the running container: the collision fix, the abort
+path moving staging aside, `CDPARANOIAOPTS="-e"`, `ACTIONS` without
+`embedalbumart`, `OUTPUTDIR` on container-local staging, and `BASH_SCRIPT`.
+
+**The restart was not optional and the check is what caught it.** After Flux
+reconciled, the cluster ConfigMap held the new script while the running container
+still had the old one, because `init-scripts` is mounted with `subPath`. Recorded
+in "Where things stand" — it is a harder version of
+[config-change-rollouts.md](config-change-rollouts.md), since a subPath mount
+never corrects itself.
+
+**The loose end** is the collision fix never having run against a real rip. Noted
+above with what to look for. Everything else in phase 1 is proven on real discs.
+
+Carried into phase 2, from what phase 1 cost:
+
+- **"Success" means nothing without checking the output.** For audio that was
+  `flac -t`; for video it is `find /root/video/completed -type f`. Jobs 3 and 5
+  reported success having produced no file at all, and that went unnoticed for
+  four months.
+- **Watch the notification ordering.** `utils.notify` runs `bash_notify` before
+  sending to Pushover, so "processing complete" goes out whether or not the
+  post-processing worked. Fine for the video path, which has no handoff — but it
+  means the message is a statement about ARM's pipeline, not about files landing.
+- **A DVD holds the drive for the whole transcode**, not just the rip (D8), so
+  the throughput question phase 1 never had to face arrives here.
+
+### 2026-09-01 — phase 2 begins
+
+A DVD is in the drive. The tray was open — `eject -t /dev/sr0` on the Proxmox
+host closes it, which is the same manual step D2b leaves in place deliberately,
+since automatic tray movement is ruled out by the enclosure door.
+
+Job 15 identified cleanly, which is a better start than the CDs had:
+
+| | |
+|---|---|
+| title | `The-Hallelujah-Trail` |
+| year | 1965 |
+| IMDb | `tt0059250` |
+| video_type | movie |
+| CRC64 | `c664091933fa7782` |
+| label | `HALLELUJAH_TRAIL` |
+
+One job, disc type `dvd`, `hasnicetitle`, OMDb hit on the first try. The
+1337server CRC64 lookup ran first and OMDb supplied the metadata.
+
+What to check when it finishes, in order of what has actually gone wrong before:
+
+1. **`find /root/video/completed -type f`.** Non-empty is the only proof. Jobs 3
+   and 5 reported success with nothing there.
+2. **How many files, and are two of them the same film.** `MINLENGTH: 420` and
+   `MAINFEATURE: false` mean every title over seven minutes is transcoded; on the
+   Blu-ray that produced two near-identical main features (D8's phase 3 note).
+3. **Whether the raw backup survived** — `DELRAWFILES: false`, so
+   `/root/video/raw/HALLELUJAH_TRAIL*` should hold the full `VIDEO_TS`. That is
+   the archival copy and the thing that makes a bad transcode recoverable.
+4. **How long the drive was held.** The disc is locked in for rip *and*
+   transcode (D8), so the tray will not open until the whole job ends.
+
+### 2026-09-01 — the video path has been broken by a stalled image bump
+
+Jobs 15 and 16, the same DVD twice, both `Error while running MakeMKV`, exit code
+253. MakeMKV's own message:
+
+```
+MSG:5021  This application version is too old.  Please download the latest
+          version at http://www.makemkv.com/ or enter a registration key to
+          continue using the current version.
+```
+
+**Root cause: ARM has not been updated since 2026-04-16, and nothing said so.**
+
+`32a1918` moved ARM into its own namespace that day and changed the marker to
+`{"$imagepolicy": "automatic-ripping-machine:automatic-ripping-machine"}`. Flux's
+`Setters` strategy only resolves ImagePolicies in **the same namespace as the
+ImageUpdateAutomation**, and the only two automations live in `apps` and
+`infrastructure`. So the `apps` automation scans this file, cannot resolve the
+marker, and reports `repository up-to-date`. Nothing errors, and the ImagePolicy
+reports the newest tag correctly the entire time:
+
+| | |
+|---|---|
+| ImagePolicy `latestRef.tag` | 2.24.3 |
+| deployment pins | 2.23.2 |
+| last automated bump | `0bf421b`, 2026-04-02 |
+| ARM releases missed | 2.24.0, 2.24.1, 2.24.2, 2.24.3 |
+
+ARM is the **only** app in `kubernetes/apps/` whose marker is not `apps:`, which
+is why it is the only one affected. This is a concrete instance of
+[version-notification-prompt.md](version-notification-prompt.md) — and the cost
+of that class of bug, which that spec argues about in the abstract, is five
+months of every DVD and Blu-ray failing.
+
+Fixed by giving ARM its own `ImageUpdateAutomation`, scoped to this app's
+directory so it cannot race the `apps` one, plus a manual bump to 2.24.3 so it is
+testable now rather than at the next reconcile.
+
+**Confirmed.** Job 18 on 2.24.3 (MakeMKV 1.18.4) ripped and transcoded The
+Hallelujah Trail end to end — the first video file ARM has ever produced. A
+single patch release of MakeMKV was the whole difference; 1.18.3 refused every
+disc, 1.18.4 refuses none.
+
+### What was ruled out first, so it is not re-tested
+
+Each of these was checked and is **not** the cause:
+
+- **The key is not installed too late.** `prep_mkv` runs `update_key.sh` before
+  the first `makemkvcon` call, in that order, confirmed in the job log.
+- **`update_key.sh`'s bash bug is harmless.** Line 52 does throw
+  `((: > 0 : syntax error` on a missing settings file, but it sits inside an
+  `if` condition where `set -e` does not apply, so the script continues and
+  writes the key. Verified by running it.
+- **The key is accepted for drive listing.** With it installed,
+  `makemkvcon -r --cache=1 info disc:9999` identifies the drive with no
+  complaint. The version check only fires when a disc is actually opened, which
+  is why an empty tray cannot reproduce this.
+- **It is not the first MakeMKV run in a fresh container.** Deleting
+  `settings.conf`, and separately deleting all of `settings.conf`,
+  `update.conf` and the 3 MB `_private_data.tar`, then replaying ARM's exact
+  sequence: both succeed. This theory fitted the April pattern well and was
+  wrong.
+- **Warm MakeMKV state changes nothing.** Job 16 ran with all of it present and
+  failed identically.
+
+One live thread: **`MAKEMKV_PERMA_KEY` being populated disables ARM's beta-key
+updater**, by ARM's own documentation of the setting. The updater works — it
+fetches the current month's `T-` key from the forum, verified 2026-09-01. Will
+holds a real licence, so the intended fix is the newer version rather than
+falling back to beta keys; but if a current MakeMKV still rejects the stored
+key, the stored *value* is the next thing to check, since a purchased key is
+perpetual and should not be refused.
+
+### 2026-09-01 — phase 2 done: the first video file ARM has ever produced
+
+Job 18, The Hallelujah Trail (1965), on ARM 2.24.3 / MakeMKV 1.18.4.
+
+| stage | | |
+|---|---|---|
+| identified | 05:57 | OMDb, `tt0059250`, `hasnicetitle` |
+| manual wait | 05:57 → 06:07 | 600s, released on its own |
+| MakeMKV `backup_dvd` | 06:07 → 07:54 | 1h47m, 7.1 GB of `VIDEO_TS` |
+| HandBrake | 07:54 → 09:13 | 1h19m |
+| success | 09:14 | tray ejected on its own |
+
+**Three hours seventeen minutes from insert to done, and the drive was held for
+all of it** (D8). Verified rather than assumed, because status alone has lied
+before:
+
+```
+/root/video/completed/movies/The-Hallelujah-Trail (1965)_178824223068/The-Hallelujah-Trail (1965).mkv
+  1,293,281,925 bytes — av1 video, 2× opus stereo, dvd_subtitle, 9332s
+```
+
+`ffprobe` confirms it decodes. The 7.1 GB raw backup survives, so a bad
+transcode is recoverable without re-reading the disc.
+
+**The multi-title worry did not materialise.** Two tracks passed `MINLENGTH`,
+13 seconds apart — the same near-duplicate shape the Blu-ray showed. ARM's
+`skip_transcode_movie` picked the largest and moved only that, renaming it to
+`<Title> (<Year>).mkv`; the other was discarded with the transcode directory.
+For a movie that is the behaviour you want, and it is better than the Blu-ray
+note in D8 predicted. Whether it still holds for a TV disc, where every title
+matters, is untested.
+
+**Housekeeping left behind.** Eight empty directories under
+`completed/movies` and `transcode/movies`, from the failed jobs 15–17 and the
+April Rescuers/Le Mans runs. They also cause the `_<stage>` suffix on the
+output path, because `check_for_dupe_folder` finds the name taken. Harmless,
+untidy, and it means the tidy path `The-Hallelujah-Trail (1965)` is occupied by
+an empty directory while the real film sits in the suffixed one.
+
+**Phase 3 is Blu-ray**, and the case for it is now much stronger than it was:
+the April Blu-ray failures were on 2.23.2, and every one of them may have been
+this same MakeMKV expiry. The Rescuers' 43 GB raw backup is still on the share,
+so the transcode half can be exercised without re-reading the disc — but the
+rip half needs the disc, and is now worth retrying.
+
+## Phase 2b — a TV disc
+
+**Why it is 2b and not phase 5.** The numbered phases are physical formats —
+CD, DVD, Blu-ray, UHD. Movie versus series is a *content* axis that crosses DVD,
+Blu-ray and UHD alike, so it does not want its own place in that sequence.
+Running it on DVD, the format just proven, means any failure isolates to the
+multi-title path rather than to the format.
+
+**What ARM does differently**, read from the source rather than assumed:
+
+- `convert_job_type("series")` returns `"tv"`, so the output lands in
+  `completed/tv/<Title>/` — **not** `completed/movies/`.
+- `move_files_post` (`arm_ripper.py:198`) takes the series branch and calls
+  `move_files(..., is_main_feature=False)` for **every** track. There is no
+  largest-file selection, which is the behaviour a TV disc needs.
+- `move_files` (`utils.py:210`) sets `extras_path = movie_path` for a series —
+  "for series there are no extras" — so every episode lands flat in one
+  directory.
+- Because nothing is the main feature, nothing gets renamed to
+  `<Title> (<Year>).mkv`. **Every episode keeps its `title_N.mkv` name.**
+
+That last point is the one worth running the disc to confirm, because it decides
+[video-library-ingest.md](video-library-ingest.md): ARM knows the *show* but
+cannot know which title is which episode. A mover built on ARM's own metadata,
+which is enough for a film, cannot file TV. Only content matching — FileBot, or
+a person — can.
+
+**What to check:**
+
+1. Does `VIDEOTYPE: "auto"` actually resolve `series`? If it comes back `movie`,
+   everything above is moot and the disc files as one film plus extras.
+2. Do all episodes transcode? `MINLENGTH: 420` passes a 22-minute episode
+   comfortably; the risk is at the short end, not the long.
+3. Does `title_N` ordering match episode order? If it reliably does, a mover
+   could map positionally — worth knowing even though it is fragile.
+4. `completed/tv/` versus the library's `/video/shows/`. The names differ, which
+   is another thing any ingest has to reconcile.
+5. Time. The movie ran ~2× realtime on transcode; a 4-episode disc is roughly
+   90 minutes of video, so budget a couple of hours all-in and remember the
+   drive is held throughout (D8).
+
+### 2026-09-02 — two more discs, two unrelated failures
+
+Neither is a regression, and neither is the MakeMKV expiry fixed on 2026-09-01.
+
+**Job 20, The Sylvester and Tweety Mysteries — phase 2b, blocked by the
+fileserver.** ARM identified it correctly as `video_type: series`, which is the
+first confirmation that `VIDEOTYPE: "auto"` resolves a TV disc. It then failed
+creating its output directory:
+
+```
+OSError: [Errno 5] Input/output error:
+  '/root/video/transcode/tv/The-Sylvester-and-Tweety-Mysteries (1995–2002)'
+```
+
+Not ARM's fault. Samba runs `unix charset = ISO-8859-1`, so any character above
+U+00FF fails to write on every share — OMDb returns a series' year range with an
+**en dash**. Measured boundary and migration plan in
+[smb-charset-utf8.md](smb-charset-utf8.md). It also explains why `Mànran` worked
+earlier: `à` is inside Latin-1, by luck.
+
+The `tv/` destination predicted from the source is confirmed, so the rest of the
+phase 2b plan still stands — it just cannot run until the name can be written.
+**Worked around**, so phase 2b can proceed while the charset migration waits:
+`arm-title-charset.sh` in `init-scripts.yaml`, tested in
+`tools/arm-title-charset/`.
+
+`clean_for_filename` is not the tool for it, despite being the obvious candidate.
+It is applied to *titles* only (`identify.py:141`, `:274`) while the en dash
+arrives through `job.year`, which `fix_job_title` interpolates raw — and it
+*strips* rather than replaces, turning `1995–2002` into `19952002`, a different
+year.
+
+So the patch wraps `fix_job_title` itself, the one funnel every output path goes
+through, mapping the punctuation metadata providers actually emit and dropping
+what has no Latin-1 form. `1995–2002` becomes `1995-2002`; `Ocean's Eleven`
+keeps its apostrophe as ASCII; `Mànran` is untouched, because the share accepts
+Latin-1 and that name already exists in the library.
+
+It is appended rather than edited into the function body, since every call site
+resolves the name at call time, so rebinding the module global reaches all of
+them without depending on internals. **It refuses loudly and exits non-zero if
+`def fix_job_title` is not found** — ARM auto-updates now, and a patch that
+silently stops applying would present as a TV rip dying on EIO again with
+nothing pointing back to it.
+
+**Job 19, An American Tail: Fievel Goes West — a bad disc, probably.**
+
+```
+MakeMKV v1.18.4 started        ← no version complaint; the 2.24.3 fix holds
+Failed to open disc
+Call to MakeMKV failed with code: 11
+```
+
+Different from every earlier failure. Identification succeeded, which means the
+disc mounted and `pydvdid` read `VIDEO_TS` — so it is readable as a filesystem
+and MakeMKV specifically could not open it for decryption. No `ata4` events on
+the host during the job, so the drive is not at fault.
+
+That leaves the disc: physical damage, or a protection scheme MakeMKV 1.18.4
+does not handle. Universal DVDs of that era used ARccOS deliberate-bad-sector
+protection. **Not yet diagnosed** — retry it, clean it, and if it fails again
+compare against another disc from the same studio before concluding anything.
+
+### 2026-09-03 — phase 2b: a TV disc rips, and shows what TV costs
+
+Job 21, The Sylvester & Tweety Mysteries Season 1 Disc 1. The charset patch did
+its job — the folder is `tv/The-Sylvester-and-Tweety-Mysteries (1995-2002)` with
+an ASCII hyphen, where job 20 died on the en dash.
+
+**10 hours 47 minutes**, 15:44 → 02:31, with the drive locked throughout (D8).
+14.6 GB ripped in 3h48m, then 7 hours of transcoding.
+
+Nine files landed in `completed/tv/`, and eight of them are right:
+
+| file | duration | size |
+|---|---|---|
+| `title_0.mkv` | 21m | 239 MB |
+| **`title_1.mkv`** | **168m** | **1.88 GB** |
+| `title_2.mkv` … `title_8.mkv` | 20–21m | 215–252 MB |
+
+**`title_1.mkv` is the disc's "play all" title** — every episode concatenated,
+2h48m, transcoded in full at a cost of about three and a half hours and 1.88 GB
+that duplicates the other eight files exactly.
+
+`MINLENGTH: 420` passes it, `MAINFEATURE: false` transcodes it, and nothing in
+ARM distinguishes a compilation from an episode: both are simply titles over the
+threshold. The series branch of `move_files_post` has no equivalent of
+`skip_transcode_movie`'s largest-file selection, and it should not — for a TV
+disc every title genuinely might matter.
+
+**Two consequences.**
+
+**Phase 3 is affected.** A Blu-ray TV set will have the same shape with larger
+files, and 3.5 hours of wasted encoding per disc is worse there. Worth deciding
+whether to filter play-all titles before running many discs — a compilation is
+recognisable as *a title whose length is close to the sum of the others*, which
+ARM's track table has the data for even if ARM does not use it.
+
+**It settles [video-library-ingest.md](video-library-ingest.md).** Positional
+mapping is not merely fragile, it is wrong: `title_1` is the play-all, so the
+numbering is `episode 1, compilation, episode 2, episode 3…`. Any mover assuming
+`title_N` → episode N files seven of eight episodes under the wrong number and
+files a 2h48m compilation as an episode. Only content matching can sort this
+out.
+
+**Left as it is, deliberately.** The play-all is not deleted: it is a legitimate
+artefact of the disc, `DELRAWFILES: false` keeps the raw copy regardless, and
+deciding what to discard belongs with the ingest work rather than here.
+
+Also confirmed: the destination is `completed/tv/` while the Plex library is
+`/video/shows/`, so the ingest has a folder-name reconciliation to do as well.
+
+### 2026-09-04 — disc 2 of the same season, and the play-all heuristic measured
+
+Job 22, `SYLVESTER_TWEETY_MYSTERY_D2`, 04:29 → 11:36 UTC (**7h07m**), six titles,
+success with no errors. The format itself raised nothing new — the value of this
+disc is that it is the *second* of a set, which tests two things one disc cannot.
+
+**The play-all heuristic is now measured, not proposed.** Phase 2b suggested a
+compilation is recognisable as a title whose length is close to the sum of the
+others. Across both discs it holds to within a tenth of a minute:
+
+| disc | play-all | sum of the other titles | delta | episodes |
+|---|---|---|---|---|
+| 1 | 168.8 min | 168.9 min | 0.1 min | 8 |
+| 2 | 105.7 min | 105.8 min | 0.1 min | 5 |
+
+Two discs is a small sample and the rule needs a guard — a disc holding exactly
+one episode makes "the sum of the others" meaningless, and a genuine feature-length
+title on a mixed disc could sit near the sum by coincidence. But the separation is
+wide enough to act on: the play-all is ~8× the length of any single episode, and
+the agreement with the sum is three orders of magnitude tighter than the gap to
+the next-longest title. Filtering it would have saved **3h30m on disc 1 and
+roughly 2h10m on disc 2** — around 40% of each job's transcode time, for output
+that duplicates the rest of the disc exactly.
+
+**Multi-disc sets do not merge, and the numbering restarts.** This is the finding
+that matters for ingest. Disc 2 did not join disc 1's folder; `have_dupes` was
+true, so `check_for_dupe_folder` appended the job's stage to make a second
+directory:
+
+```
+completed/tv/The-Sylvester-and-Tweety-Mysteries (1995-2002)                 <- disc 1, title_0..title_8
+completed/tv/The-Sylvester-and-Tweety-Mysteries (1995-2002)_178840975618    <- disc 2, title_0..title_5
+```
+
+Both discs number from `title_0`, so the season now has two `title_0.mkv`, two
+`title_1.mkv` and so on, in sibling directories distinguished only by an opaque
+stage number. Nothing in the tree records that these are discs 1 and 2 of one
+season, or which came first — the stage integer happens to sort correctly, but it
+is a timestamp of when the job ran, not a disc ordinal, and re-ripping disc 1
+tomorrow would sort it last.
+
+The disc *label* is the only place the ordinal survives: `SYLVESTER_TWEETY_MYSTERY_D1`
+and `..._D2`, held on the job row, not in the filesystem. Any ingest that wants to
+reassemble a season has to read it from the database, and even then `D1`/`D2` is a
+convention of this particular publisher rather than something that can be relied on
+generally.
+
+This compounds the positional-mapping conclusion rather than changing it. It was
+already true that `title_N` does not map to episode N within a disc, because the
+play-all sits at `title_1`. It is now also true that the same filename means
+different episodes in different folders of the same season. **Content matching is
+not one option among several for TV ingest; it is the only thing that can work.**
+Recorded in [video-library-ingest.md](video-library-ingest.md).
+
+**Still unproven: multi-disc *movies*.** A Lord of the Rings Extended Edition
+spans two discs holding halves of *one* film, which is a different problem again —
+there the two parts must be concatenated or presented as one item, and the
+largest-file selection in `skip_transcode_movie` would pick a main feature per
+disc rather than recognising the pair. Worth ripping one when a phase has room;
+it is a movie-path question, so it does not block phase 3.
+
+### 2026-09-04 — phase 3: the Blu-ray rips, then the node kills the transcode
+
+Job 23, The Rescuers. MakeMKV backed the disc up cleanly — **43 GB of BDMV in
+57 minutes**, identified as `bluray`/`movie`, 71 titles found. Then the transcode
+died at 02:31:12, and the cause is one no earlier guess had reached.
+
+**Talos' node-level OOM controller killed three pod cgroups in 1.5 seconds** —
+ARM first (13 processes), then `victoria-logs`, then `metallb-speaker`. ARM
+restarted 18 seconds later with the transcode gone.
+
+**ARM never reached its own 4Gi limit.** It was at 2.9Gi. The *node* ran out:
+
+| time | node MemAvailable | ARM RSS | ARM page cache |
+|---|---|---|---|
+| 01:22–02:14 (MakeMKV backup) | ~3.1 GB steady | ~400 MiB | 1.6 GiB |
+| 02:16 (transcode starts) | 2.7 GB | 805 MiB | 1.2 GiB |
+| 02:26 | 994 MB | 2551 MiB | 130 MiB |
+| 02:30 | 699 MB | 2836 MiB | 89 MiB |
+| 02:31:11 | **SIGKILL to three cgroups** | | |
+
+It is genuine anonymous memory, not a page-cache accounting artefact — the third
+column is the proof. The kernel evicted ARM's page cache from 1.6 GiB to 89 MiB
+trying to feed the encoder, and still could not keep up.
+
+**The sizing error, which is D6 one level down.** `piraeus-worker-1` is an 8 GiB
+VM, but Talos reserves enough that only **5.26 GiB is allocatable**. The 4Gi
+container limit set when D6 was closed was chosen against the VM size, not
+against allocatable, and with ~3.4 GiB used by everything else on that node ARM
+could never reach 4Gi. An unreachable limit is not a limit: the node dies first,
+and the container OOM is never recorded — which is why the job sat marked
+`transcoding` with `errors: None` and nothing running. D3, produced by D6.
+
+**Why phases 1–2b passed.** The matched control, from the same metric over the
+two TV discs:
+
+| workload | resolution | peak container RSS |
+|---|---|---|
+| jobs 21+22, DVD | 720×480 | **1242 MiB** across two full jobs |
+| job 23, Blu-ray | 1920×1080 | **3008 MiB and still climbing** when killed |
+
+Six times the pixels, and `VideoOptionExtra` is empty so SVT-AV1 preset 4 10-bit
+runs with unbounded parallelism. DVD resolution kept every earlier phase under
+the ceiling; Blu-ray is the first workload that goes over it.
+
+**This is probably what killed the April Blu-rays, but that is not proven.** The
+signature matches closely: April's job 8 left `title_43.mkv` complete and
+`title_44.mkv` partial, and job 23 died at *exactly the same point* — same title
+complete, next one truncated, no error recorded, late in transcode. Same node,
+same 8 GiB, same encoder. April's ARM logs and Prometheus data are both long
+gone, so the match is a signature and not a cause. Recorded so it is not
+re-derived, and not stronger than the evidence.
+
+**The instrumentation worked.** `RipperRestarted` went pending 02:36 and fired
+02:41–03:26, which is how the restart was noticed at all. Phase 0 earning its
+keep, and the reason this was diagnosed the same morning rather than in April.
+
+#### The fix
+
+`piraeus-worker-1` goes from **8192 to 16384 MiB** (`terraform/main.tf`), taking
+allocatable from 5.26 GiB to **13.1 GiB**. The Proxmox host has room: 62 GiB
+total, 38 GiB committed to running VMs, and 19.2 GiB of ZFS ARC that gives way
+under pressure. The provider restarted the VM in place — `0 added, 1 changed,
+0 destroyed` — so the guest saw the new memory immediately.
+
+ARM's limits move with it: **request 1.5Gi → 4Gi, limit 4Gi → 8Gi**. Both halves
+matter. The limit is now a number the node can honour, so an over-running encode
+dies as a recorded container OOM instead of taking `victoria-logs` and
+`metallb-speaker` down with it. The request is sized to the encode rather than to
+the idle daemon, because the OOM controller picks victims by usage-over-request
+and ARM at 2.9 GiB against a 1.5 GiB request was the obvious candidate.
+
+#### What survives, and what phase 3 still owes
+
+The **43 GB raw BDMV backup is complete and intact**, so the disc does not need
+re-ripping — only the transcode. `title_43.mkv` finished at 149.5 MB (within
+0.2% of April's 149.3 MB, which is a pleasing sign the encode is deterministic);
+`title_44.mkv` is a 25 MB partial, another instance of D4.
+
+The track table confirms this section's original prediction exactly: **5 titles
+selected from 71**, being `title_70` (77.2m) and `title_71` (77.1m) — the same
+feature via two playlists — plus extras at 30.7m, 10.6m and 8.8m. So the
+duplicate-main-feature question is still open and still needs deciding, and
+neither feature title has been encoded yet.
+
+#### On 4K, asked while sizing the VM
+
+**16 GiB is right for Blu-ray and marginal for UHD.** SVT-AV1's own documentation
+says memory scales with `--lp` (cores targeted), resolution, bit depth, lookahead
+distance and hierarchical levels. The published figures for 4K 10-bit are 14 GB
+at 8 vCPU, 24 GB at 40 vCPU and 48 GB at 112 cores — the scaling with core count
+matters here, because worker-1 has only 4. Measured 1080p peak is >3 GiB, and 4K
+is 4× the pixels with linear scaling in the frame buffers, which extrapolates to
+roughly 12–16 GiB against 13.1 GiB allocatable.
+
+Two levers exist that cost no RAM, and phase 4 should choose deliberately rather
+than inherit the 1080p preset:
+
+- **Cap `--lp`** through `VideoOptionExtra`. The largest single memory lever, paid
+  for in encode speed.
+- **Do not transcode UHD at all.** Independent of memory, CRF 30 AV1 discards
+  most of what makes a UHD disc worth having, and HDR10+/Dolby Vision metadata
+  often does not survive HandBrake. A remux keeps the stream intact.
+
+The VM is not being sized for this today: phase 4 is still blocked on whether the
+BDR-212U can obtain volume keys at all, and the honest number comes from
+measuring a completed 1080p encode and scaling it.
+
+### D12 — a disc with no volume label is confidently misidentified, and only the person holding it can tell
+
+A Blu-ray whose UDF label was never set reports the literal placeholder string
+`LOGICAL_VOLUME_ID`. ARM passes that to its identification step, which fuzzy-matches
+it against OMDb and returns a real film — in the observed case *The Adventures of
+Mary-Kate and Ashley: The Case of the Logical i Ranch* (1994, `tt0282341`),
+presumably off the word "Logical". The job is then created with
+`hasnicetitle: 1`, meaning ARM considers the identification good and will rip,
+transcode, name and file the disc under that title without hesitating.
+
+**Why this is worse than an ordinary failure.** The Pushover notification reads
+`Found disc: The-Adventures-of-Mary-Kate-and-Ashley--The-Case-of-the-Logical-i-Ranch.
+Disc type is bluray.` — well-formed, plausible, and indistinguishable from a
+correct identification. Nothing about it signals a problem. **Only the person who
+physically put the disc in the tray can tell it is wrong**, and only if they read
+the notification and recognise the title as not theirs. That makes it the sharpest
+failure mode yet for the self-service goal, because the whole point of the
+notification is that Will's brother can load discs without anyone watching the
+cluster.
+
+The ten-minute `MANUAL_WAIT` is the existing remedy, and it does work — the job
+sits in `waiting` and the title can be corrected in the web UI at
+`/jobdetail?job_id=<id>` before the rip starts. But it only helps someone who
+already suspects the identification is wrong.
+
+**The exact mechanism**, read from `arm/ripper/identify.py`, because it is more
+actionable than the symptom.
+
+`identify_bluray` (line 96) reads the disc's own metadata from
+`BDMV/META/DL/bdmt_eng.xml`. **This disc has an empty `META/DL/` directory**, so
+the open raises `OSError` and control reaches the fallback at line 106 — which
+upstream itself marks with `# Maybe call OMdb with label when we can't find any
+ident on disc ?`. That fallback takes `job.label`, replaces underscores with
+spaces and title-cases it, giving `Logical Volume Id`, then **returns `True`**.
+Returning true is the defect: the caller cannot distinguish *identified from disc
+metadata* from *guessed from a label*, so `hasnicetitle` is set either way and the
+OMDb search that follows matches on the word "Logical".
+
+**Blu-rays have no content-based fallback at all, and DVDs do.** `identify_dvd`
+(line 149) computes `pydvdid.compute()` over the mounted disc and queries
+`1337server.pythonanywhere.com` with the CRC64, which maps a disc *hash* to a
+title and is immune to labels entirely. Nothing equivalent runs for Blu-ray.
+So the disc type least likely to carry a useful label is the one with no fallback
+when the label is useless — which is why this surfaced on a Blu-ray and never on
+a DVD.
+
+Worth noting a second oddity found while reading this: on the successful path,
+`bluray_year` is taken from the **file mtime of `bdmt_eng.xml`** (line 130), not
+from any metadata field. That is the disc's authoring date standing in for the
+film's release year, and it will be wrong for every catalogue re-issue.
+
+**The signal ARM has and does not use.** A label that is exactly a known
+placeholder is not weak evidence, it is *no* evidence, and the two are being
+treated identically. `LOGICAL_VOLUME_ID`, `DVD_VIDEO`, `LOGICAL_VOLUME_ID`-style
+authoring defaults and bare `44069507_VOLUME_ID` numeric IDs should suppress
+`hasnicetitle` and force the unidentified path rather than seeding a title search.
+That is a small, well-bounded change: a deny-list check before identification runs,
+setting the job to unidentified instead of accepting whatever OMDb returns.
+
+Worth noting the two UDF fields disagree, which is its own small trap for anyone
+diagnosing this: `blkid` reads the *Logical Volume Identifier* and reported
+`LOGICAL_VOLUME_ID`, while the kernel's UDF driver reads the *Volume Identifier*
+and logged `Mounting volume '44069507_VOLUME_ID'`. Both are placeholders, but a
+check written against one field will not see the other.
+
+**Related but distinct: the disc was not the one expected.** The volume timestamp
+reads 2007/09/04, and The Rescuers 35th Anniversary is a 2012 release, so the
+disc in the tray is independently confirmed as a different one. That is a physical
+swap during the hours the tray sat open, not a misread — worth separating from
+D12 itself, which is about what ARM does with an unlabelled disc however it got
+there.
+
+Direct reads of the BDMV return `Illegal Request / Invalid field in cdb` and
+`critical target error`. That is ordinary AACS protection refusing plain reads,
+not disc damage; MakeMKV decrypts and is unaffected. Recorded because the kernel
+log looks alarming and will otherwise be re-investigated.
+
+> **Wrong — corrected 2026-09-21.** A protection refusal is ASC `0x6F`, not
+> `Invalid field in cdb`. These are oversized reads that the host rejects; see
+> [the 2026-09-21 entry](#2026-09-21--the-invalid-field-in-cdb-flood-is-a-transfer-size-limit-not-protection).
+> The CDB lengths from this disc weren't recorded, so it isn't proven that this
+> instance had the same cause. It carries the same signature, though.
+
+#### How it resolved, and the cheap check that falls out
+
+The disc was **The Polar Express** (2004) — a Warner Blu-ray released
+2007-10-30, authored 2007-09-04, eight weeks before release. Every measured
+property agrees: 1:39:56 against a stated 1h40m runtime, 1080p **VC-1** exactly as
+Warner encoded it, 2.40:1 scope, and standard-definition extras as early Warner
+discs carried. It had been sitting in the wrong case, which is why it arrived
+labelled as a Rescuers disc.
+
+**The authoring timestamp is not the release date, and searching it as one finds
+nothing.** Eight weeks separated the two here. The timestamp is still useful — it
+bounds the release from below and pins the era — but only as a range.
+
+**A human misidentified this disc too, and the same check caught both.** The
+title offered from the physical case was *The Rescuers Down Under*, which runs
+77 minutes against this disc's 99:56, and no 77-minute title existed anywhere on
+it. That is the same evidence that exposed OMDb's guess, applied to a human's.
+Worth stating plainly because it generalises:
+
+> **Compare the main title's runtime against the runtime of the film it is
+> claimed to be.** A disc holding a 100-minute feature is not a 77-minute film,
+> whoever says otherwise. The check costs one lookup, needs no disc metadata, and
+> is independent of whatever produced the title — OMDb, a label, or a person
+> reading a sleeve.
+
+This belongs with the placeholder deny-list rather than replacing it: the
+deny-list stops a bad title being *generated*, and the runtime check catches a
+bad title from any source, including the manual-override path the deny-list would
+push unlabelled discs onto. Neither subsumes the other.
+
+### D13 — an unreadable disc region wedges the drive indefinitely, and the failure restarts itself
+
+Three separate faults, all triggered by one marginal disc. They compound, and
+only the first is about the disc at all.
+
+**A blocked read has no timeout.** On job 30 the log runs from 17:27 to 00:10
+with *nothing in between* and the output file stops growing at 18:28. MakeMKV was
+not retrying and reporting — it sat blocked on a single read for **5 hours 42
+minutes**, holding the drive, and came loose only when somebody opened the tray.
+Job 31 stalled 95 minutes before MakeMKV gave up on its own. Nothing crashes and
+nothing restarts, so `RipperRestarted` cannot fire: this is invisible to every
+alert that exists. It is the `MANUAL_WAIT` wedge of D1 again, arrived at from a
+different direction, and the same consequence — the drive is held and nobody
+knows.
+
+**Failure re-triggers itself, without bound.** When the drive faults it drops the
+medium, which fires a udev event, which starts a fresh job on the same disc:
+
+```
+job 30 fails 00:10:32  ->  job 31 starts 00:11:08
+job 31 fails 03:37:51  ->  job 32 starts 03:38:44
+```
+
+Roughly 3.5 hours per cycle, forever, until a person intervenes. The media-property
+gate and flock from D2 correctly admit each of these: a disc really is present and
+no other job holds the drive. Nothing in the chain asks whether *this disc has
+just failed*.
+
+> **Wrong — corrected 2026-09-22.** Job 32 was not Field of Dreams. It was
+> *The Sylvester and Tweety Mysteries* disc 2 (label `SYLVESTER_TWEETY_MYSTERY_D2`),
+> loaded by hand. It was abandoned in error while in `waiting`, on the assumption
+> it was a retry, without its title being checked — which is the `Received
+> SIGTERM` on its record. It was re-run as job 33, which succeeded. Job 31 is the
+> same disc as job 30 and started 36 seconds after job 30's `TRAY OPEN` error, but
+> nothing recorded whether a person reinserted it. No instance of a failure
+> starting a new job on its own has been observed.
+
+**A failed secondary title discards a good primary one.** The worst of the three,
+because it destroys work that succeeded. ARM selected two titles over
+`MINLENGTH`; title 0 (105.1m, the film) ripped perfectly on both attempts, and
+title 1 (88.4m) was unreadable. ARM fails the whole job, so the feature is never
+transcoded and never leaves `raw/`. On marginal media that is exactly the wrong
+trade — one bad extra throws away the film.
+
+#### What the disc and drive actually did
+
+The drive's own report, which is the part worth keeping:
+
+```
+Sense Key : Not Ready       Add. Sense: Medium not present - tray open
+Sense Key : Hardware Error  Add. Sense: Internal target failure
+```
+
+`Internal target failure` is the drive reporting an unrecoverable fault of its
+own, after which it drops the disc entirely. **The drive is healthy** — the
+control is unambiguous:
+
+| disc | MakeMKV read errors |
+|---|---|
+| Shrek the Third (DVD) | 0 |
+| The Great Race (DVD) | 0 |
+| The Rescuers (Blu-ray) | 0 |
+| Field of Dreams, attempt 1 | 11 |
+| Field of Dreams, attempt 2 | 11 |
+
+Throughput agrees: title 0 read at 1.07 MB/s against 1.10–1.35 MB/s on the discs
+either side of it, so the drive performed normally right up to the moment it
+stopped.
+
+**It is not a scratch.** The two attempts failed at *different* offsets — 141 MB
+and 44 MB into `VTS_02_1.VOB` — where a fixed defect fails at a fixed sector. The
+disc was later cleaned and inspected and looks undamaged, which points at disc
+rot or a manufacturing defect in the reflective layer rather than anything on the
+surface.
+
+#### Two diagnostic gaps this exposed
+
+**Kernel logs are not persisted anywhere.** Alloy collects pod logs only, so
+`victoria-logs` has nothing from the kernel; the evidence for job 30's failure
+window is gone for good. Everything above had to be reconstructed from ARM's own
+log and from throughput controls.
+
+**CSS refusals flood the ring buffer.** Reading a protected DVD generates a
+constant stream of `Illegal Request / Invalid field in cdb` — 588 in one seven
+minute window — which is *normal* and means nothing, but rolls `dmesg` so fast
+that its useful history is minutes deep. Any real medium error is pushed out
+before anyone can look. Capture the kernel log while a failure is still fresh, or
+it will not be there.
+
+> **The diagnosis above is wrong; the consequence stands — corrected
+> 2026-09-21.** The flood is neither CSS nor normal: every entry is a 384 KiB
+> read over the host's 128 KiB limit, and it has a fix; see
+> [the 2026-09-21 entry](#2026-09-21--the-invalid-field-in-cdb-flood-is-a-transfer-size-limit-not-protection).
+> "588" is also not a rate. It is how many of these 13-line entries fit in the
+> ring buffer, and a second capture on 2026-09-21 held exactly 588 as well.
+
+---
+
+### 2026-09-17 — phase 3 closes: a Blu-ray end to end
+
+Job 27, The Rescuers, **02:51 → 12:34 (9h42m)**, 71 titles scanned, 5 selected,
+success. This is the same disc whose transcode the node OOM killed on 2026-09-04,
+run again after worker-1 went to 16 GiB, and it completed without incident. The
+resize is therefore confirmed by the workload that exposed the problem rather
+than by a proxy.
+
+> **Wrong — corrected 2026-10-05.** Not without incident. The host logged 12
+> `ata4` command timeouts across both `makemkvcon` runs, 03:02–03:08 UTC. Every
+> one recovered, but libata stepped the drive down to UDMA/33. The info scan
+> ended `Failed to open disc`, and the backup then succeeded. See
+> [the 2026-10-05 entry](#2026-10-05--the-drives-history-since-april-and-what-each-era-ran).
+
+Two DVDs followed without drama — Shrek the Third (job 28, 4h17m) and The Great
+Race (job 29, 5h33m) — so the DVD path is steady across repeat use, which it had
+not been before phase 0.
+
+### 2026-09-19/20 — Field of Dreams, and three faults behind one error
+
+A DVD failed twice and took most of two nights doing it. The disc is at fault,
+but almost nothing about the *outcome* was, and the three defects it exposed are
+recorded as [D13](#d13--an-unreadable-disc-region-wedges-the-drive-indefinitely-and-the-failure-restarts-itself).
+
+**What was lost is small and now bounded.** ARM selected two titles: the feature
+at 105.1m and a second at 88.4m. Only the second is unreadable, and nothing was
+queued behind it — the remaining thirteen titles are 24–35 second menu stingers
+plus one 2:27 clip, all under `MINLENGTH`. So the loss is exactly one 88-minute
+title.
+
+What that title *is* stayed unresolved, because identifying it requires reading
+the disc, which is the thing that fails. It is 4:3, 29.97 fps, 31 chapters, in
+its own title set, using 41 cells against the feature's 48 — an 85% ratio
+tracking its 84% duration ratio, at essentially the same chapter density. That
+reads as an alternate cut or second feature rather than a bonus documentary, but
+it is inference and should not be written down as more.
+
+**It is not the commentary, and that is worth stating because it was the obvious
+guess.** The commentary is an alternate *audio track* on the feature itself, not
+a separate title: HandBrake's scan shows source track 3 as plain `AC3, 2.0 ch`
+where tracks 1 and 2 are `Dolby Surround` — the signature of a flat stereo
+commentary recording. It was captured with the film and survives into the
+transcode as output audio track 4. A commentary would also run the film's length,
+not 88 minutes.
+
+#### Recovering the film without the disc
+
+The feature had ripped correctly *twice*, and ARM had thrown both away by failing
+the job. Running HandBrake by hand over the surviving raw MKV, with ARM's own
+preset and command shape, produced the file ARM would have:
+
+```
+completed/movies/Field-of-Dreams (1989)/Field-of-Dreams (1989).mkv
+980 MB · 105.6 min · AV1 · 4 audio (incl. commentary) · 2 subtitle tracks
+```
+
+Write to a `.part` name and rename only on a zero exit, so a partial cannot be
+mistaken for a finished file — D4 is still live and this path has no ARM job
+tracking it.
+
+**Two independent rips are a stronger integrity check than any single one.**
+Jobs 30 and 31 each produced the feature, and their video streams hash
+identically:
+
+```
+MD5=263d67e648a8fa091b47e5bd322aef4e   (job 30)
+MD5=263d67e648a8fa091b47e5bd322aef4e   (job 31)
+```
+
+The files differ by one byte of container metadata and not at all in content. Use
+this whenever a disc has been ripped more than once; it costs one demux per copy
+and proves far more than a decode pass, which only shows the file is internally
+consistent. Both source and output also decode clean — every message ffmpeg emits
+is the same benign muxer `dts` warning from writing DVD subtitles to a null
+muxer, and zero are decode errors.
+
+**Aspect handling is correct, and looks wrong at a glance.** The output is
+718x358, which is not an error: the source is a 4:3 letterboxed transfer and
+HandBrake auto-cropped the bars (60 top, 62 bottom, asymmetric because the
+transfer is). With `SAR 8:9` it displays 1.783:1 against a nominal 1.85:1, so it
+**under**-cropped by about 4% — a few black lines kept rather than picture cut,
+which is the safe direction. HandBrake also detected the true film rate of 23.976
+where ARM's database records the DVD's nominal 29.97, and produced 151,917 frames
+= exactly 105.6 minutes.
+
+### 2026-09-21 — the `Invalid field in cdb` flood is a transfer-size limit, not protection
+
+Raised as "worker-1's logs are constantly spammed trying to mount sr0". Nothing
+mounts sr0, and nothing outside ARM touches the drive:
+
+- **Only MakeMKV holds the drive.** During job 36, `makemkvcon` was the only
+  process with it open: `/dev/sr0` with flags `0140000` (`O_DIRECT`, read-only)
+  and `/dev/sg0` read-write. `/proc/mounts` had no sr0.
+- **There is no background reader.** `node_disk_reads_completed_total{device="sr0"}`
+  on worker-1 was exactly zero between jobs over 2026-09-18 → 21, and non-zero
+  only inside the windows of jobs 29–36. That is unlike the NDM scanner in
+  `docs/automatic-ripping-machine.md`, which read the drive continuously. Talos's
+  `DiscoveredVolume sr0` was at version 23, meaning one probe per media change.
+
+The failures themselves:
+
+- All 588 in the ring buffer were `Read(10)` with transfer length `0xc0`
+  (384 KiB), marching in a fixed 384-block stride.
+- All 588 had the same sense: `Illegal Request / Invalid field in cdb`.
+- The rate was ~1.5/s, about equal to sr0's whole block-read rate at the time.
+  So nearly every block-layer read MakeMKV made failed.
+- The host's limit (`/sys/block/sr0/queue/max_hw_sectors_kb` on vulcanus) is 128.
+  The guest's is 32766, which is virtio-scsi's default `max_sectors=0xFFFF` in
+  2048-byte blocks. `scsi-generic` never passes the host limit through.
+- A request over the host limit gets `EINVAL` from the host's `sg` driver, which
+  QEMU returns to the guest as `Invalid field in cdb` with `DID_OK`.
+
+A protection refusal would have been ASC `0x6F`, and would have depended on
+which sector was read rather than how many. The two D12/D13 notes calling this
+normal are marked wrong where they stand.
+
+**Fix:** `max_sectors=256` on the `virtio-scsi-pci` device in
+`terraform/modules/proxmox_talos_vm/main.tf`. The mechanism is in
+`docs/automatic-ripping-machine.md`. It needs a QEMU restart of worker-1, so it
+takes effect on the next `tofu apply` made between rips.
+
+**Still to confirm, once applied:**
+
+1. ~~Guest `max_hw_sectors_kb` for sr0 reads `128`, not `32766`.~~ Confirmed
+   2026-09-21 after `tofu apply` restarted VM 911. `max_sectors_kb` is also
+   `128`, `events_poll_msecs` is still `2000`, and ARM's fresh allocation
+   reports the Pioneer on both `sr0` and `sg0`.
+2. ~~A full rip leaves `dmesg` free of `Invalid field in cdb`.~~ Confirmed
+   2026-09-22 on job 39 (Around the World in 80 Days, DVD). The first 47 minutes
+   of bulk reads had zero `Invalid field in cdb` in a ring buffer holding
+   everything since boot. sr0 did 12.8 block reads/s averaging exactly
+   **128.0 KiB**. MakeMKV still opens `/dev/sr0` `O_DIRECT` and asks for
+   384 KiB; the guest kernel now splits each into three requests the host
+   accepts. The only sr0 errors are six single `Read of scrambled sector
+   without authentication` (ASC `0x6F`), at insertion and at the rip's start.
+   That is a real protection refusal, and useful as a control for what one
+   looks like.
+3. Throughput: job 39 read 1.68 MB/s through sr0 and wrote title 0's 4.8 GB at
+   a matching rate. That's against ~1.1 MB/s on job 36 and 1.07–1.35 MB/s on
+   the discs before it. This is one disc against another, so it's suggestive,
+   not proven. It is still about 1.2x DVD, far under the drive's rating, so
+   whatever limits rip speed is somewhere else. Compare against job 36. Job 36 wrote its first two titles,
+   3.96 GB, between 13:36:15 and 14:34:47, about 1.1 MB/s, while every block
+   read failed. Whether the fix changes rip speed is open. Don't claim either
+   way until a rip has been measured.
+
+### 2026-09-22 — the drive stops answering its SATA link
+
+Observations only, kept for future troubleshooting. No cause has been
+established, and none is proposed here.
+
+Times are UTC unless marked Denver (UTC−6), which is what the host's journal
+uses. `max_sectors=256` from the 2026-09-21 entry was in effect throughout.
+
+#### Sherlock Holmes in the 22nd Century — jobs 37 and 38
+
+- Both inserts logged `Starting ARM for Data Disk on sr0 with File System udf`.
+  They're the only two `Data Disk` lines in the wrapper log. Every other insert
+  since 2026-09-01 logged `Starting ARM for DVD on sr0`, including the ones
+  after it. The job record still reads `disctype: dvd`.
+- **Job 37.** Manual wait began 00:57:12. The wrapper logged six `a job already
+  holds /dev/sr0, skipping` between 01:00:00 and 01:00:04. The job received
+  `SIGTERM` at 01:01:37 while still in `check_for_wait`.
+- **Job 38.** `makemkvcon ... info --cache=1 disc:9999` started 01:11:00. The host
+  logged the sequence below from 01:11:31. At 01:12:32 MakeMKV reported
+  `Internal error - Operation result is incorrect (132)` while reading
+  `BD-RE PIONEER BD-RW BDR-212U 1.01 ALDL017235WL` — the drive, not a file — at
+  offsets 32768, 524288 and 1048576, then `Failed to open disc`, then
+  `Unknown device - '/dev/sr0'`. Exit code 11. This job never logged `Using
+  direct disc access mode`.
+
+Host kernel, Denver time:
+
+```
+19:11:31  ata4.00: exception Emask 0x0 SAct 0x0 SErr 0x0 action 0x6 frozen
+19:11:31  ata4.00: cmd a0/00:00:00:04:00/00:00:00:00:00/a0 tag 9 pio 16388 in
+19:11:31  ata4.00: status: { DRDY }
+19:11:31  ata4: hard resetting link
+19:11:37  ata4: link is slow to respond, please be patient (ready=0)
+          ... hard resetting link / slow to respond, x4 over 55 s ...
+19:12:31  ata4: hardreset failed
+19:12:31  ata4: reset failed, giving up
+19:12:31  ata4.00: disable device
+19:12:32  sr 3:0:0:0: [sr0] ... FAILED Result: hostbyte=DID_BAD_TARGET
+```
+
+#### The drive after the disable
+
+- Every SCSI command to `sr0` returned `DID_BAD_TARGET`. That included
+  `Prevent/Allow Medium Removal` and `Start/Stop Unit 1b 00 00 00 02 00` — an
+  eject — at 19:12:35 and 19:17:39 Denver.
+- `CDROM_DRIVE_STATUS` read `2` (tray open) on both the host and the guest, with
+  the disc physically in a closed tray. There were no `ID_CDROM_MEDIA_*` udev
+  properties.
+- Nothing in the ARM container held `/dev/sr0`, and nothing had it mounted.
+- Reported from the house: the disc wouldn't eject with the drive's own button,
+  the ARM UI's eject button, or `eject /dev/sr0` on the VM.
+
+#### Recovery attempts, in order
+
+1. **Delete and rescan, VM stopped.** With worker-1 drained, VM 911 stopped and
+   nothing holding `/dev/sg3`:
+   `echo 1 > /sys/class/scsi_device/3:0:0:0/device/delete`, then
+   `echo "- - -" > /sys/class/scsi_host/host3/scan`. It failed the same way:
+   `link is slow to respond (ready=0)` x3, `limiting SATA link speed to
+   <unknown>`, `hardreset failed`, `reset failed, giving up`. Neither `/dev/sr0`
+   nor `/dev/optical-drive-sg` came back.
+2. **VM 911 in that state.** `qm showcmd 911` opens
+   `-drive file=/dev/optical-drive-sg`, which did not exist. Starting it wasn't
+   attempted.
+3. **Cold power cycle.** Worked. `poweroff` on the host, at least 30 s fully off,
+   then power on through JetKVM. On boot: `ata4: SATA link up 1.5 Gbps`,
+   `ATAPI: PIONEER BD-RW BDR-212U, 1.01`, `configured for UDMA/100`, and
+   `/dev/optical-drive-sg -> sg3` came back. VM 911 started through `onboot`,
+   and all nodes came up Ready. Worker-1 was still cordoned from the drain
+   until someone uncordoned it.
+
+Checked before the power cycle, for anyone repeating it: every VM and CT had
+`onboot=1`, no vzdump or `zfs send` was running, and `zpool status -x` was
+healthy.
+
+After the power cycle, before anything had opened the drive, the drive's own
+button ejected the Sherlock disc.
+
+#### Around the World in 80 Days — job 39, after the power cycle
+
+- Logged `Starting ARM for DVD on sr0`.
+- The first `makemkvcon` (the info scan, ~04:50) ran with no `ata4` event.
+- The second, the rip, started at 05:11:46. At 05:12:18 the host logged:
+
+  ```
+  ata4.00: exception Emask 0x0 SAct 0x0 SErr 0x0 action 0x6 frozen
+  ata4.00: cmd a0/00:00:00:04:00/00:00:00:00:00/a0 tag 15 pio 16388 in
+  ata4.00: status: { DRDY }
+  ata4: hard resetting link
+  ata4: EH complete
+  ```
+
+  MakeMKV logged `Using direct disc access mode` at 05:12:23. It then ripped
+  7311 MB with no `MSG:2003` read errors.
+- ARM's auto-eject at 06:47:07 (`eject --verbose --cdrom --scsi /dev/sr0`)
+  succeeded. The record shows `ejected: 1`, the drive read `2` afterwards, and the
+  host logged no `sr0` or `ata4` lines around it.
+
+#### The two `ata4` events side by side
+
+| | `makemkvcon` start | `ata4` exception | offset | reset |
+|---|---|---|---|---|
+| job 38, Sherlock | 01:11:00 | 01:11:31 | 31 s | failed, device disabled |
+| job 39, Around the World | 05:11:46 | 05:12:18 | 32 s | `EH complete` within the second |
+
+Both had the same exception line, the same `cmd a0/...` ATAPI packet command
+with a 16,388-byte PIO transfer, and `status: { DRDY }`. Job 39 logged `Using
+direct disc access mode` 5 s after its exception. Job 38 never logged it.
+
+#### Reference data
+
+- **Negotiated link speed** was 1.5 Gbps on every boot checked: 2026-05-04,
+  09-15, 09-16 and 09-21.
+- **Count of `ata4` lines** matching `ata4.*(exception|reset|disable)`: 34 on the
+  boot holding the Sherlock event, and 0 on the boot after the power cycle up to
+  job 39's event.
+- **The 09-16 boot** logged 12 `ata4.00: exception` lines that day. The host
+  booted at 2026-09-15 23:35 and again at 09-16 00:20 Denver. ARM pod `8b4g8`
+  failed `UnexpectedAdmissionError ... no healthy devices` at 09-15 23:39 Denver.
+  Nothing was recorded about why the host booted twice.
+- **Job 19** (An American Tail, exit code 11, 2026-09-01 19:45–19:56 Denver)
+  has no `ata4` or `sr0` kernel lines in its window. The same query returns
+  other kernel lines for that window and finds the 09-21 events, so the empty
+  result is real.
+
+#### Where the evidence lives
+
+- The host's kernel journal persists across boots:
+  `journalctl _TRANSPORT=kernel --since ... --until ...` on vulcanus. Note that
+  `journalctl -k` implies the current boot only.
+- Alloy doesn't ship the guest's kernel log, so `talosctl -n 192.168.0.196
+  dmesg` holds only worker-1's current ring buffer.
+- `qm showcmd 911 --pretty` shows the QEMU arguments actually in use, rather than
+  what Terraform declares.
+- `sr0` on the host is `3:0:0:0`, on `host3`, which is `ata4`.
+  `/dev/optical-drive-sg` is a udev symlink matched on the model string, so it
+  follows the drive to whatever `sg` node it gets.
+
+#### The drive's own button during a job
+
+- `dev.cdrom.lock` is `1` on worker-1.
+- ARM unmounts at the end of `identify()` (`identify.py:93`, via `os.system`, so
+  it never appears in the job log), before `check_for_wait`.
+- During a rip, `makemkvcon` holds `/dev/sr0` open. See the 2026-09-21 entry.
+- What held the drive during job 37's manual wait was not identified.
+
+### 2026-09-22/30 — two more SATA link losses, then eight days without the drive
+
+Observations only, continuing the 2026-09-22 entry. No cause has been
+established, and none is proposed here. Host times are Denver.
+
+**Job 40** — *Around the World in 80 Days* disc 2, after disc 1 (job 39) had
+completed. The info scan reached `Using direct disc access mode` in 7 s and ran
+23 minutes without incident. The rip's `makemkvcon` started 13:55:42 UTC; 32 s
+later the host logged the same `Emask 0x0` exception on the same 16,388-byte
+PIO command as jobs 38 and 39, four failed link resets, and `disable device`.
+ARM's eject at 13:57:16 UTC left no `Start/Stop Unit` in the host log; the job
+still records `ejected: 1`. All 14 commands after the disable returned
+`DID_BAD_TARGET`. Recovered by cold power cycle (no drain).
+
+After that boot, `eject -t /dev/sr0` on the host returned `CD-ROM tray close
+command failed: No such file or directory`.
+
+**Job 41** — the same disc, reinserted from the host after the power cycle. The
+disc gate logged `no disc in /dev/sr0 (status=2), skipping` during the eject and
+`Starting ARM for DVD on sr0` after the close. A different signature this time:
+
+```
+16:54:18  ata4.00: exception Emask 0x10 SAct 0x0 SErr 0x4090000 action 0xe frozen
+16:54:18  ata4.00: irq_stat 0x00400040, connection status changed
+16:54:18  ata4: SError: { PHYRdyChg 10B8B DevExch }
+16:54:18  ata4.00: cmd a0/00:00:00:04:00/00:00:00:00:00/a0 tag 14 pio 16388 in
+16:54:19  ata4: SATA link down (SStatus 0 SControl 300)
+16:54:25  ata4: SATA link down ... limiting SATA link speed to <unknown>
+16:54:30  ata4: SATA link down (SStatus 0 SControl 3F0)
+16:54:30  ata4.00: disable device
+16:54:30  ata4.00: detaching (SCSI 3:0:0:0)
+```
+
+Unlike the earlier disables, the device was detached: `/dev/sr0`,
+`/dev/optical-drive-sg` and `3:0:0:0` disappeared from the host. Inside the
+guest, `/dev/sr0` remained and the device plugin kept advertising
+`devic.es/cdrom: 1`. MakeMKV reported `Scsi error - HARDWARE ERROR:INTERNAL
+TARGET FAILURE`, then `Unknown device - '/dev/sr0'`.
+
+| job | `ata4` exception | into the `makemkvcon` run | outcome |
+|---|---|---|---|
+| 38 | `Emask 0x0`, link up | 31 s (1st run) | disabled |
+| 39 | `Emask 0x0`, link up | 32 s (2nd run) | recovered |
+| 40 | `Emask 0x0`, link up | 32 s (2nd run) | disabled |
+| 41 | `Emask 0x10`, `PHYRdyChg 10B8B DevExch`, link down | ~35 s after the wait | disabled and detached |
+
+**After job 41.** The drive stayed absent for eight days. The host was powered
+off cleanly at 2026-09-30 17:24 (`systemd-poweroff`) and booted 17:27, when
+`ata4` linked at 1.5 Gbps and identified the BDR-212U. From that boot to
+2026-10-03 there are no `ata4` exceptions — but also no ARM jobs, so the quiet
+is not evidence either way. Disc 2 of *Around the World* is still unripped.
+
+### 2026-10-04 — job 42, with the host's SCSI commands traced
+
+Observations only, continuing the two entries above. No cause has been
+established, and none is proposed here.
+
+*Around the World in 80 Days* disc 2 again, the fifth attempt on it. This time
+the host traced every SCSI command sent to the drive.
+
+#### How the trace was taken, to repeat it
+
+On vulcanus, in a private trace instance filtered to the drive's SCSI host
+(`host3`, which is `ata4`), streamed to a file, started during the manual wait:
+
+```
+T=/sys/kernel/tracing/instances/arm-sata
+mkdir $T && echo 8192 > $T/buffer_size_kb
+for e in scsi_dispatch_cmd_start scsi_dispatch_cmd_done scsi_dispatch_cmd_error scsi_dispatch_cmd_timeout; do
+  echo "host_no == 3" > $T/events/scsi/$e/filter; echo 1 > $T/events/scsi/$e/enable
+done
+for e in ata_eh_link_autopsy ata_eh_link_autopsy_qc ata_link_hardreset_begin ata_link_hardreset_end; do
+  echo 1 > $T/events/libata/$e/enable
+done
+echo 1 > $T/tracing_on
+nohup sh -c "cat $T/trace_pipe > /var/tmp/arm-sata/trace-<job>.txt" &
+```
+
+Remove it afterwards with `echo 0 > $T/tracing_on`, kill the `cat`, then
+`rmdir $T`. Each event records the raw CDB, and the `done` events also record
+the result and sense key. All guest commands arrive through QEMU, so the trace
+can't tell which guest process sent a given command.
+
+While idle, the only traffic is `GET EVENT STATUS NOTIFICATION` (`0x4A`) every
+2 s, the guest kernel's media polling, and every one completed `DID_OK`.
+
+#### Timeline
+
+`makemkvcon ... info --cache=1 disc:9999` started at 20:16:25 UTC, which is
+host trace time ≈ 334228.8. Times below are host trace seconds.
+
+| trace time | command | raw CDB | result |
+|---|---|---|---|
+| 334229.240 | `MODE SELECT(10)`, 0x4E0 bytes | `55 10 00 00 00 00 00 04 e0 00` | rejected, valid sense |
+| 334229.256 | `WRITE BUFFER`, buffer `0xB0` | `3b 02 b0 00 0e 20 00 00 10 00` | good |
+| 334229.260 | `READ BUFFER`, buffer `0x77` | `3c 02 77 00 00 00 00 00 20 00` | good |
+| 334230.886 | `MODE SELECT(10)`, 0x740 bytes | `55 10 00 00 00 00 00 07 40 00` | rejected, valid sense |
+| **334230.901** | **`READ BUFFER`, buffer `0x77`** | **`3c 02 77 12 10 00 00 00 04 00`** | **good, 9.5 ms** |
+| 334230.99 – 334232.61 | `READ(10)` ×~30, LBAs 0–528, 62089 | | good |
+| 334232.61 – 334233.98 | `INQUIRY`, `GET CONFIGURATION`, `READ DISC STRUCTURE`, `READ TOC`, `READ DISC INFORMATION`, `READ CAPACITY`, `READ BUFFER` `0xF1`/`0xB0`/`0xF4` | | good, or rejected with valid sense |
+| 334234.138 | `SET CD SPEED` | `bb 00 ff ff ff ff 00 00 00 00 83 00` | good |
+| 334234.555 | `MODE SELECT(10)`, 0x740 bytes | `55 10 00 00 00 00 00 07 40 00` | rejected, valid sense |
+| **334234.574** | **`READ BUFFER`, buffer `0x77`** | **`3c 02 77 12 10 00 00 00 04 00`** | **no completion** |
+| 334265.046 | — | | SCSI timeout on that command, 30.5 s after it started |
+| 334265.054 | libata | | `eh_action=RESET`, `err_mask=TIMEOUT` |
+| 334265 – 334320 | `ata_link_hardreset` ×4 | | each `rc=-16` |
+
+The host kernel logged the exception at 20:17:03 UTC with the same signature as
+jobs 38–40 (`Emask 0x0`, `cmd a0/00:00:00:04:00/00:00:00:00:00/a0 ... pio 16388
+in`), then `reset failed, giving up` and `disable device` at 20:18:03.
+`/dev/optical-drive-sg` remained on the host. Job 42 ended `fail` at 20:18:06.
+
+#### Observed
+
+- The command in progress when the drive stopped responding was `READ BUFFER`
+  (`0x3C`, mode `02`) to buffer ID `0x77`. `READ BUFFER` reads the device's own
+  buffers rather than the medium.
+- The identical CDB completed in 9.5 ms 3.7 s earlier in the same run. Both
+  times, the command immediately before it was the same rejected
+  `MODE SELECT(10)` with a 0x740-byte parameter list.
+- The drive stopped responding about 9 s after `makemkvcon` started, at trace
+  time 334234.57. The kernel's exception came 30.5 s after that, when the
+  command timed out. Jobs 38–40 had no trace. Their exceptions came 31–32 s after
+  `makemkvcon` started, which doesn't show when those drives stopped
+  responding.
+- Up to the hang, the only commands read from the disc were the single-block
+  and 16-block `READ(10)`s in the timeline. No title data had been read.
+- The run produced 11 libata autopsies with `err_mask=0` and `SENSE_VALID`
+  (commands the drive rejected with sense data), and one with
+  `err_mask=TIMEOUT`.
+
+> **Wrong — corrected 2026-10-05.** Two `makemkvcon` runs, not one. ARM's log
+> has `info --cache=1 disc:9999` from 20:16:23 to 20:16:30 (`Failed to open
+> disc`), then `info --cache=1 disc:0` from 20:16:31. The hang at 334234.57 is
+> ≈ 20:16:32.5 UTC, about 1.5 s into the `disc:0` run. The rows from 334232.61 on
+> are that run's start-up. Between `SET CD SPEED` and the hung pair, the table
+> also leaves out `READ DISC STRUCTURE` ×2, `INQUIRY` and `READ BUFFER 0xF1`.
+> The last two matter. See
+> [job 43](#2026-10-05--job-43-a-traced-run-that-completed-around-one-recovered-hang).
+
+#### Running count of `makemkvcon` runs and `ata4` events, jobs 37–42
+
+| disc | runs | `ata4` events |
+|---|---|---|
+| *Around the World* disc 2 | 4 (job 40 ×2, 41, 42) | 3, all disabled |
+| *Around the World* disc 1 | 2 (job 39) | 1, recovered |
+| *Sherlock Holmes in the 22nd Century* | 1 (job 38) | 1, disabled |
+
+Job 37 (Sherlock) ended in its manual wait and never ran `makemkvcon`. Jobs
+37–42 are every ARM job since 2026-09-22. Before that, the host logged 12 `ata4`
+exceptions on 2026-09-16 and none afterwards until job 38.
+
+The trace, the condensed command list and the host kernel log are in
+`captures/arm-sata/` in the `disc-ripping` worktree. The raw trace is also on
+vulcanus at `/var/tmp/arm-sata/trace-job42.txt`. No trace exists of a run that
+completed, so there is nothing yet to compare the command sequence against.
+
+### 2026-10-05 — the drive's history since April, and what each era ran
+
+Observations only, continuing the three entries above. No cause has been
+established, and none is proposed here. Host times are Denver.
+
+The host was cold power-cycled after job 42 and booted 2026-10-05 19:17:
+`ata4` linked at 1.5 Gbps, `/dev/optical-drive-sg -> sg3`, worker-1 Ready, and
+`devic.es/cdrom: 1` allocatable.
+
+#### The libata `cmd` line names the transfer
+
+`cmd a0/FF:00:00:LM:LH/...` is an ATAPI PACKET command. `FF` bit 0 is the DMA
+flag, and `LH:LM` is the byte count the host asked for. The number after
+`pio`/`dma` adds libata's 16 KiB ATAPI drain buffer to it. A length that is not
+a multiple of 16 is forced to PIO.
+
+- `00:00:00:04:00 ... pio 16388` is a **4-byte** data-in. In job 42's whole run,
+  the only command with a 4-byte data-in is `READ BUFFER 3c 02 77 12 10 00 00 00
+  04 00`, the one the drive hung on.
+- `01:00:00:20:00 ... dma 16416` is a **32-byte** data-in. Job 42 sent five such
+  commands: `READ BUFFER 3c 02 77 00 00 00 00 00 20 00`, `GET CONFIGURATION`,
+  and three `READ DISC STRUCTURE`. That signature does not single one out.
+
+This identifies commands only as far as other runs send the same command set as
+job 42, which is unconfirmed until a second run is traced.
+
+#### Reading the trace: rejected commands look like timeouts
+
+In the `arm-sata` trace, a command rejected with sense data (CHECK CONDITION)
+appears as `scsi_dispatch_cmd_timeout` about 8 ms after it starts. This isn't
+a timeout. libata handles every ATAPI CHECK CONDITION by aborting into its error
+handler to fetch the sense data, and that abort passes through the SCSI timeout
+tracepoint. So each rejected `MODE SELECT(10)` in job 42 put the port through
+libata EH just before the `READ BUFFER` that followed it. A real timeout is the
+same event 30 s or more after the start.
+
+#### Every `ata4` exception since the drive was passed through
+
+From `journalctl _TRANSPORT=kernel --since 2026-04-01 | grep ata4` on vulcanus.
+The one earlier `ata4` exception, 2024-12-23, is a disk's `FLUSH CACHE EXT`, from
+before the drive was on that port.
+
+| host time | signature | ARM job | outcome |
+|---|---|---|---|
+| 04-09 14:33 | `dma`, ×1 | none, before job 1 | disabled |
+| 04-12 10:23 – 20:29 | `pio` ×4, `dma` ×1 (`Emask 0x10`, `SErr 0x10000`) | none; host booted 3 times that day | 3 disabled, 2 recovered |
+| 04-17 15:21 | `pio` | 2, *Le Mans*, fail | disabled; job 3, same disc, succeeded |
+| 04-19 22:43 | `pio`, `Emask 0x10`, `SErr 0x4890000`, link down | 6, *The Rescuers*, fail | disabled; same signature as job 41 |
+| 04-21 21:33 – 21:36 | `pio` ×1, `dma` ×6 | 8, *The Rescuers*, fail | all recovered, UDMA/66 |
+| 09-16 21:02 – 21:08 | `dma` ×12, every ~30.5 s | 27, *The Rescuers*, success | all recovered, UDMA/66 then UDMA/33 |
+| 09-21 19:11 | `pio` | 38 | disabled |
+| 09-21 23:12 | `pio` | 39 | recovered |
+| 09-22 07:56 | `pio` | 40 | disabled |
+| 09-22 16:54 | `pio`, `Emask 0x10`, link down | 41 | disabled, detached |
+| 10-04 14:17 | `pio` | 42 | disabled |
+
+That makes 32 exception lines: 12 `pio 16388` and 20 `dma 16416`, and nothing
+else. Job 27's 12 timeouts covered both of its `makemkvcon` runs. The info scan
+ended `Failed to open disc`, and the backup then ripped the disc. Its phase 3
+entry is corrected above.
+
+#### What was different in each era
+
+The host kernel is from `journalctl --list-boots`. QEMU is the binary VM 911 was
+started with, from `/var/log/apt/history.log` and the `qmstart`/`qmreboot`
+tasks in `/var/log/pve/tasks/index`. MakeMKV is from the job logs, which reach
+back only to 2026-08-24. A job is counted if its log shows a `makemkvcon`
+start.
+
+| era | host kernel | VM 911 QEMU | `max_sectors` | MakeMKV | jobs running `makemkvcon` | jobs with events |
+|---|---|---|---|---|---|---|
+| 04-09 → 05-03 | 6.17.4-2, then 6.17.13-2 | 10.1.2 | default | unknown | among 1–9 | 2, 6, 8, plus non-ARM use on 04-09 and 04-12 |
+| 09-01 → 09-04 | 7.0.0-3 | 11.0.0-3 | default | 1.18.3 → 1.18.4 | 15–19, 21–23, 25, 26 (10) | none |
+| 09-16 → 09-21 | 7.0.2-6 | 11.0.0-3 | default | 1.18.4 | 27–31, 33–36 (9) | 27 |
+| 09-21 13:36 → | 7.0.2-6, then 7.0.14-17 from 22:07 | 11.0.3-3 | 256 | 1.18.4 | 38–42 (5) | all 5 |
+
+- The 7.0.0-3 boot ran 05-04 → 09-15, but ARM's only `makemkvcon` use in it
+  was 09-01 → 09-04. The "111 days without an event" in the phase 3 section was
+  mostly idle time.
+- The VM 911 restart at 09-21 13:36 was the `tofu apply` for `max_sectors=256`.
+  It also picked up QEMU 11.0.3-3, installed 09-18. Job 38 is the only job on
+  the new QEMU with the old kernel.
+- The discs are not spread across eras. The five jobs since 09-21 used
+  *Sherlock* and both *Around the World* discs, none of which ran in an earlier
+  era. *The Rescuers* is the only disc seen in three eras. On 6.17.13-2, job 5
+  ripped it without an event and jobs 6 and 8 had events; jobs 7 and 9 had none,
+  but their logs have aged out, so whether they reached `makemkvcon` is unknown.
+  Job 23 on 7.0.0-3 was clean, and job 27 on 7.0.2-6 had 12 events. It is
+  intermittent within one configuration, so job 23 alone doesn't clear 7.0.0-3.
+- `lpm-pol 1` (max_performance) and a 1.5 Gbps link were the same on every boot.
+  Boots on 7.0 also print `Features: DIPM`, and 6.17 boots don't.
+- 7.0.0-3 is still installed (`/boot/vmlinuz-7.0.0-3-pve`), but
+  `proxmox-boot-tool kernel list` no longer auto-selects it.
+
+#### For the control trace
+
+A completed run on a disc that ripped cleanly in September (*Shrek the Third*,
+*The Great Race*, *Robin Hood*, either *Sylvester and Tweety* disc) is what the
+2026-10-04 entry asked for. It also splits the disc question from the
+configuration question. If such a disc now hangs, the disc isn't what changed.
+Trace it with the method in the 2026-10-04 entry.
+
+### 2026-10-05 — job 43, a traced run that completed around one recovered hang
+
+Observations only, continuing the entries above. No cause has been established,
+and none is proposed here. Times are UTC.
+
+*Meat Loaf*, label `MEAT_LOAF_DISC_1`, a DVD not ripped before, titled
+*Three Bats Live* during the manual wait. It isn't the September-clean
+disc the previous entry asked for. It was loaded while ARM was idle, so no job
+started until the tray was cycled from the host (`eject`, then `eject -t`,
+02:20:20–35, at Will's direction). Job 43 started 02:20:44. The trace used the
+2026-10-04 method, running from before the tray cycle to after the final eject.
+It is in `captures/arm-sata/trace-job43-full.txt` in the `disc-ripping` worktree,
+and on vulcanus at `/var/tmp/arm-sata/trace-job43.txt{,.zst}`. Trace time is
+printk monotonic plus about 0.3 s. The exception at monotonic 4118.79 was
+02:25:06.70.
+
+| run | command | ARM log | outcome |
+|---|---|---|---|
+| 922 | `info disc:9999` | 02:24:27 – 02:24:34 | `Failed to open disc` |
+| 929 | `info disc:0` | 02:24:35 – 02:26:19 | hung ~1.8 s in, for 30.2 s. One hard reset, `rc=0` in 0.31 s, then `configured for UDMA/100` and `EH complete`. Direct disc access at 02:25:10, 2 titles |
+| 947 | `mkv` | 02:26:19 – 02:59:10 | `LibreDrive mode (v02.1)`, `Copy complete. 2 titles saved`: 6.54 GB and 0.28 GB in 32.9 min. Zero `MSG:2003` |
+
+That was the only `ata4` exception. ARM ejected at 02:59:10 (see D8) and HandBrake
+started after.
+
+#### Every `READ BUFFER 0x77 @0x121000` in both traces
+
+Each `makemkvcon` run opens with `READ BUFFER 0xB0 @0x0E20` (16 bytes). Some runs
+then send what is called *init* here: `MODE SELECT(10)` 0x4E0 (rejected), then
+`WRITE BUFFER 0xB0 @0x0E20` (16 bytes), then `READ BUFFER 0x77` (32 bytes).
+Every instance of the 4-byte `READ BUFFER 0x77 @0x121000` comes 12–24 ms
+after a rejected `MODE SELECT(10)` 0x740.
+
+| trace | run | init earlier in the run | sent just before the `MODE SELECT` 0x740 | result |
+|---|---|---|---|---|
+| job 42, 334230.90 | `disc:9999` | yes | `READ DISC STRUCTURE`, then 5 ms | 9.5 ms |
+| job 42, 334234.57 | `disc:0` | no | `INQUIRY` (96), `READ BUFFER 0xF1` (48), then 227 ms | no completion; resets failed |
+| job 43, 4084.84 | 922 `disc:9999` | yes | `READ DISC STRUCTURE`, then 6 ms | 8.9 ms |
+| job 43, 4088.85 | 929 `disc:0` | no | `INQUIRY` (96), `READ BUFFER 0xF1` (48), then 237 ms | 30.2 s; reset succeeded |
+| job 43, 4193.50 | 947 `mkv` | yes | `READ DISC STRUCTURE`, then 6 ms | 9.8 ms |
+| job 43, 4195.67 | 947 `mkv` | yes, 2.8 s before | `READ DISC STRUCTURE`, then 6 ms | 9.8 ms |
+
+- The two hangs are the only two instances with no init in their run, and the
+  only two preceded by `INQUIRY`, `READ BUFFER 0xF1` and a ~230 ms pause. The
+  last 14 commands before each hang are byte-identical between job 42 and job 43.
+  That is 2 hangs among 6 instances, so it is an exact split, not an established
+  condition.
+
+  > **Broken by job 44, two entries on.** The same 14 commands, with no init,
+  > completed in 9.6 ms.
+- Each run without init started about 1 s after a run that had sent it, with
+  no power cycle or reset between. Run 947 came after the link reset and sent
+  init again.
+
+#### Where each event since 09-21 falls in its job's `makemkvcon` runs
+
+Run start times are from ARM's job logs. A timeout's hang began about 30.5 s
+before the exception was logged. Job 41's link-down is not a timeout, so its
+timestamp is the event itself.
+
+| job | runs before the hung one since the last power cycle | hung run | hang, s into the run |
+|---|---|---|---|
+| 38 | none in this job; job 36's runs, ~7 h earlier | `disc:9999` | ~3.5 |
+| 39 | `disc:9999`, `disc:0` (both clean) | `mkv`, 21 min after `disc:0` | ~1.5, recovered |
+| 40 | job 39's, then this job's `disc:0` | `mkv` | ~1.5 |
+| 41 | `disc:9999` | `disc:0` | ~1, link down |
+| 42 | `disc:9999` | `disc:0` | ~1.5, traced |
+| 43 | `disc:9999` | `disc:0` | ~1.8, traced, recovered |
+
+- Every event since 09-21 sits early in a run, where that run's first
+  `MODE SELECT` 0x740 / `READ BUFFER 0x77` pair falls in both traces. Only jobs 42 and 43
+  confirm the command. For the rest it is timing alone.
+- No run that was the first on the drive after a power cycle has hung: the
+  `disc:9999` runs of jobs 39, 41, 42 and 43. The run straight after that one hung
+  in 3 of 4 cases (41, 42, 43). Job 39's `disc:0` was clean, and its `mkv` run hung.
+- Whether a run sends init seems to depend on the drive's state rather than the
+  run type, since 947 sent it and 929 didn't. That is inferred from two
+  traces, not checked against MakeMKV.
+
+### D14 — every DVD title is transcoded twice
+
+Found 2026-10-06 while job 43 transcoded, and verified against the job database,
+job logs and `completed/`.
+
+**Mechanism.** On the DVD path, `makemkv_mkv` registers one track per extracted
+title, numbered from 0 (`makemkv.py:1055`, `source = "MakeMKV"`). Then
+`handbrake_all` calls `get_track_info`, which registers the same titles again from
+HandBrake's scan of the raw directory, numbered from 1 (`handbrake.py:307`,
+`source = "HandBrake"`). `handbrake_all` then encodes every track in
+`job.tracks` with `-t <track_number>` to `title_<track_number>.mkv`. The result is
+two passes:
+
+1. With MakeMKV's labels. Track 0 becomes `-t 0`, which is HandBrake's "scan
+   all titles" value: it exits in under a second and writes nothing. Tracks
+   1…N−1 then encode HandBrake titles 1…N−1. MINLENGTH is checked against the
+   MakeMKV track's length, which belongs to a different title.
+2. With HandBrake's labels, titles 1…N are encoded again to the same filenames.
+   This overwrites pass 1's output.
+
+Every DVD job in the database that reached transcode has equal MakeMKV and
+HandBrake track counts (jobs 3, 18, 21, 22, 28, 29, 33–36, 43). Job 39 has 8
+and 7. Logs for jobs 21, 28, 36, 39 and 43 all show the instant `-t 0` exit
+and the second pass.
+
+**Cost.** Each title over MINLENGTH except the last is encoded twice, and the
+drive stays locked throughout (see the decision on D8). Job 43's main title
+(144 min) was encoded 02:59–05:15. A second encode of that title then
+truncated it at 05:15:55 and started over. Job 43 ended `success` at
+07:27:57, with the main feature and the short title in `extras/`.
+
+**Not established.** Whether the final output is ever incomplete. Pass 2 covers
+every title, so it should not be. But job 39's `completed/` holds the main
+feature and one extra (`title_2.mkv`, 42 MB), while seven of its titles were over
+MINLENGTH. That is unexplained. Raw MKVs are kept in every case
+(`DELRAWFILES: false`), so nothing is lost at source.
+
+Blu-ray goes through `makemkv_backup`, which registers no MakeMKV tracks; every
+Blu-ray job in the database has HandBrake tracks only. Single-title DVDs pay
+only the `-t 0` no-op.
+
+**Fix:** the `d14-encode` and `d14-move-series` edits in
+`arm-source-patches.py` (`init-scripts.yaml`). `handbrake_all` encodes only the
+tracks HandBrake's scan registered. A series moves only those tracks too, because
+MakeMKV's tracks keep their raw names, and `find_matching_file` would
+fuzzy-match those onto the transcodes. Movies keep their current route
+through `skip_transcode_movie`. To verify on the first multi-title DVD after
+deploy, the log should show no `-t 0` command, each title transcoded once, and
+`completed/` holding every title over MINLENGTH.
+
+### 2026-10-06 — job 44: the hung command sequence, sent again, completes
+
+Observations only. Times are UTC.
+
+*Shrek the Third* (`SHREK_THE_THIRD`), which job 28 ripped without an event in
+September. It was loaded at 03:22 while job 43 was transcoding, and the disc
+wrapper logged `a job already holds /dev/sr0, skipping`. The wrapper's lock
+belongs to the job until it ends, transcode included, so a disc loaded during a
+transcode starts nothing and needs a tray cycle afterwards. Under the D8
+decision, the tray stays shut until the job ends, so this can't arise. The tray
+was cycled from the host at 07:28:59, after job 43 ended at 07:27:57. There was no
+power cycle after job 43's runs. The trace ran from 03:19 to after the eject:
+`captures/arm-sata/trace-job44-full.txt`, and on vulcanus
+`/var/tmp/arm-sata/trace-job44.txt{,.zst}`.
+
+| run | command | ARM log | outcome |
+|---|---|---|---|
+| 2641 | `info disc:0` | 07:39:36 – 07:42:13 | LibreDrive and direct disc access at 07:39:42, 5 titles |
+| 2677 | `mkv` | 07:42:13 – 08:05:36 | `Copy complete. 5 titles saved`, 5.7 GB in 23.4 min, zero `MSG:2003` |
+
+There was no `disc:9999` run, as in job 40: ARM reused the stored disc number.
+The host logged no `ata4` lines, and the trace has no timeouts or resets.
+
+- Neither run sent init. The drive had last received it in job 43's run 947.
+  All four `READ BUFFER 0x77 @0x121000` checks completed in 9.6–10.0 ms.
+- The first check, in `disc:0` at trace time 22991.47, followed the same 14
+  commands, byte for byte, as the two hangs in jobs 42 and 43: `INQUIRY`, then
+  `READ BUFFER 0xF1`, then a 295 ms pause (227 and 237 ms in the hangs), then
+  `MODE SELECT(10)` 0x740.
+- So neither the host-side command sequence nor the absence of init decides
+  whether the drive answers. Whatever differs between this check and the two
+  hangs, a host SCSI trace doesn't see it.
+
+### 2026-10-06 — the physical layer: SError, task-file status, and the neighbouring port
+
+Observations only, from the host journal since 2026-04-01 and `smartctl`. Host
+times are Denver.
+
+- **The two PHY-level drops logged 8b/10b decode errors.** Of 33 `ata4`
+  exceptions, 30 are `Emask 0x0`, `SErr 0x0`: a command timeout with a clean
+  link. The other three are `Emask 0x10`. On 04-12 that was `SErr 0x10000`
+  (`PHYRdyChg`). On 04-19 (job 6) it was `SErr 0x4890000` (`PHYRdyChg 10B8B
+  LinkSeq DevExch`), and on 09-22 (job 41) `SErr 0x4090000` (`PHYRdyChg 10B8B
+  DevExch`). `10B8B` means the host received symbols that would not decode,
+  which is corruption on the wire.
+- **On every timeout the drive's status was `{ DRDY }`**: ready, with neither
+  BSY nor DRQ set. When libata gave up, the drive was not reporting itself
+  busy with the command or waiting to transfer data.
+- **`ata1`, the first port on the same sSATA controller (`00:11.4`), logged
+  link-layer failures 06-07 → 09-06**, none since. These were `interface fatal
+  error`, `SError: { UnrecovData Handshk }` on `WRITE FPDMA QUEUED`, then a link
+  reset, on 17 days. `ata1` is `sda`, a 10 TB HGST in `rpool`. `rpool` is
+  healthy, and the 2026-09-13 scrub repaired 0 B. No other port logged errors in
+  that period.
+- **Lifetime `UDMA_CRC_Error_Count` is not specific to this controller:**
+  `sda` 31, `sdd` 49 (`00:1f.2` port 1), `sde` 1, `sdf` 1, all others 0. SMART
+  doesn't date them.
+- The optical drive doesn't support the SATA PHY event counter log (GP log
+  0x11), so its own receive-side error counts can't be read. `sda`'s counters
+  are clean since the 2026-10-05 power-on.
+- Port `00:1f.2` ata-5 has no device, so the drive could move to the other
+  controller without unplugging anything else.
+
+### 2026-10-06 — the hang reproduced with no disc, no MakeMKV and no VM
+
+A single `READ BUFFER 0x77 @0x121000` hung the drive when sent from the host:
+`sg_raw -r 4 -t 30 /dev/optical-drive-sg 3c 02 77 12 10 00 00 00 04 00`. Host
+times are Denver. The trace is `captures/arm-sata/trace-repro-full.txt`, and on
+vulcanus `/var/tmp/arm-sata/trace-repro.txt`. It added libata's per-command
+events (`ata_qc_issue`, `ata_qc_complete_*`, `ata_port_freeze/thaw`,
+`ata_eh_*`).
+
+**Conditions.** ARM was idle, and the tray had been open since job 44's eject at
+02:05, so no disc was loaded. The guest's 2-second media poll was the only other
+traffic. The drive had last run MakeMKV in job 44, about 70 minutes earlier, with
+no power cycle since job 43. About six minutes before the test,
+`smartctl -d sat -l sataphy /dev/sg3` sent ATA PASS-THROUGH commands to the drive.
+It answered normally ("not supported"), but the timing wasn't recorded, and
+it is a confound for this single run.
+
+**What happened.** At trace time 50506.063 libata issued the packet command to
+the drive (`ata_qc_issue`, PIO, byte count 4). Nothing came back: no completion
+and no interrupt. At 50536.465 (09:18:44), 30.4 s later, it timed out with
+status `{ DRDY }`, the signature of every MakeMKV hang. Four hard resets each
+ended `rc=-16` with the link `slow to respond (ready=0)`, and at 09:19:44 the
+drive was disabled. No `MODE SELECT`, `INQUIRY` or other command preceded it in
+the same second.
+
+So the hang needs neither MakeMKV's surrounding commands nor QEMU and the guest.
+A host-originated command alone is enough, at least in the drive's state at the
+time. In job 44 the same command completed four times, each 12–24 ms after
+MakeMKV's rejected `MODE SELECT(10)` 0x740. Whether that preceding command
+matters, and whether the drive needs to have run MakeMKV since power-on, are the
+next things to test. Both need a power cycle per hang.
+
+#### Context gathered on the way
+
+- **7.0.0-3's clean record is weak evidence.** That boot lasted 134 days
+  (2026-05-04 → 09-15), but ARM used the drive in only 4 of them (09-01 → 09-04):
+  10 jobs and 17 `makemkvcon` runs. The next kernel had events in about 1 of 18
+  runs on a similar mix of ordinary DVDs. At that rate, 17 clean runs happen by
+  chance about 38% of the time (0.95¹⁷). The problem discs never ran on 7.0.0-3.
+  So the kernel A/B test in the 2026-10-05 entry has little to start from.
+- **`optical-drive-ata-monitor`** (`ansible/proxmoxer.yaml`) has captured every
+  failure since 09-21 in `/var/log/optical-drive-monitor/` on vulcanus. In each
+  of them the only process holding `/dev/sg3` was QEMU (`kvm`), plus `sg_raw` for
+  this test. No host-side process was probing the drive during the September
+  and October events.
+- **`smartd` has excluded the drive since 2026-05-04** (`48ae4169`, on the
+  theory that host SCSI probes caused the April failures). The quiet 7.0.0-3
+  boot began the same day, and the events came back in September with the
+  exclusion still in place.
+
+The physical checks this points at are collected in
+[vulcanus-onsite-checks.md](vulcanus-onsite-checks.md).
+
+### 2026-10-08 — on a cold drive the hung command is refused, not hung
+
+Observations only. Host times are Denver. Trace:
+`/var/tmp/arm-sata/trace-baseline-cold.txt` on vulcanus.
+
+The host was cold power-cycled after the 2026-10-06 reproduction and booted
+18:49:56. At 19:04:58, 901 s after boot, the same lone
+`sg_raw -r 4 -t 30 /dev/optical-drive-sg 3c 02 77 12 10 00 00 00 04 00` was sent.
+Nothing MakeMKV-like had reached the drive since power-on. A disc (`SANDLOT43`)
+was loaded, and the only other traffic was the guest's media polling and a
+`blkid` of the disc.
+
+The drive answered in 0.7 ms with `status { DRDY DSC ERR }`, `ILLEGAL REQUEST /
+Invalid field in cdb` (ASC 0x24). There was no timeout, reset or `ata4`
+kernel line.
+
+So buffer `0x77` at `0x121000` isn't addressable on a freshly powered drive.
+It becomes addressable after something in MakeMKV's start-up, most plausibly
+the LibreDrive init (`MODE SELECT(10)` 0x4E0, `WRITE BUFFER 0xB0`), which
+is when MakeMKV starts sending it. Every hang so far has been in that state.
+The 2026-10-06 reproduction followed MakeMKV runs with no power cycle between.
+
+Consequences:
+
+- The disc-free reproducer needs the drive to have been through a MakeMKV run
+  since power-on. It can't be primed from the host alone: the trace records
+  CDBs, not data-out payloads, so the init's parameter data is unknown.
+- The data-out payloads were not captured, so whether a `MODE SELECT` must
+  directly precede the read (as in every MakeMKV instance) is still open.
+
+### 2026-10-08 — job 45: a first run after power-on hangs, then the link fails mid-command
+
+Observations only. Host times are Denver, trace times are seconds since the
+18:49:56 boot. Trace: `captures/arm-sata/trace-job45-full.txt`, and on vulcanus
+`/var/tmp/arm-sata/trace-job45.txt`. It holds both the 2026-10-08 cold test above
+and this job.
+
+*The Sandlot* (`SANDLOT43`), a DVD not ripped before, loaded before the power
+cycle. ARM was running with the eject and D14 edits applied (verified in its log
+at 01:04:43 UTC). The tray was cycled from the host at 01:10:23 UTC, and job 45
+started at 01:10:45. `makemkvcon info disc:9999` started at 01:20:56 UTC, the
+first `makemkvcon` since power-on. The only earlier command of its kind was the
+cold test's refused `READ BUFFER 0x77 @0x121000`, 16 minutes before.
+
+| trace time | command | result |
+|---|---|---|
+| 1863.544 | `MODE SELECT(10)` 0x4E0 | rejected with sense, as in every run |
+| 1863.556 | `WRITE BUFFER 0xB0 @0x0E20`, 16 bytes | good, 3.7 ms |
+| **1863.566** | **`READ BUFFER 0x77 @0`, 32 bytes** (`3c 02 77 00 00 00 00 00 20 00`) | **no completion** |
+| 1893.615 | timeout after 30.0 s, `status { DRDY }`, `cmd ... dma 16416 in` | one hard reset, `rc=0`, link up, `configured for UDMA/100` |
+| 1893.97 – 1894.02 | MakeMKV repeats the init: `READ BUFFER 0xB0`, `MODE SELECT` 0x4E0 (rejected), `WRITE BUFFER 0xB0`, `TEST UNIT READY` | good |
+| **1894.022** | **`READ BUFFER 0x77 @0`, 32 bytes, again** | 17 ms later: port frozen, `Emask 0x50`, `SError { HostInt 10B8B DevExch }`, `err_mask=ATA_BUS SYSTEM` |
+| 1894.06 – 1906 | hard resets | link down (`SStatus 0`) ×3, `disable device`, `detaching (SCSI 3:0:0:0)` |
+
+MakeMKV reported `HARDWARE ERROR:INTERNAL TARGET FAILURE`. Job 45 ended `fail` at
+01:21:43 UTC, and `/dev/sr0`, `/dev/optical-drive-sg` and `3:0:0:0` disappeared
+from the host.
+
+- **The 32-byte form of the command hangs too.** This is the first trace of the
+  `dma 16416` signature, which accounts for 20 of the 33 earlier exception lines
+  (April, and all 12 on 2026-09-16). Job 42 sent five commands with that
+  transfer length, so those events were never pinned to one command. Here it is
+  `READ BUFFER 0x77`, in its init form, straight after `WRITE BUFFER 0xB0`.
+- **A first run after power-on hung.** That ends the 2026-10-05 observation
+  that none had. The cold test 16 minutes earlier is a confound, though it was
+  refused in 0.7 ms with no reset.
+- **The link failed at the physical layer while that command was in flight.**
+  `10B8B` means the host received symbols that would not decode, and it arrived
+  17 ms after the re-sent read, with nothing else outstanding. Every PHY-level
+  drop on record happened under a command with a buffer-`0x77` signature:
+  2026-04-12 (`dma 16416`), 04-19 and 09-22 (`pio 16388`), and now this one,
+  confirmed by the trace. A fault in a cable or connector has no reason to pick
+  one command. So the link corruption looks driven by what the drive does with
+  this read. That doesn't rule out a marginal link that tips over when it does.
+
+### 2026-10-08 — job 46: the init read hangs on every attempt, then MakeMKV refuses to run
+
+Observations only. Host times are Denver, trace times are seconds since the
+19:31:16 boot. Trace: `captures/arm-sata/trace-job46-full.txt`, and on vulcanus
+`/var/tmp/arm-sata/trace-job46.txt`.
+
+*The Sandlot* again, straight after the cold power cycle that job 45 needed.
+Nothing was sent to the drive from the host beyond the drive-status ioctl and
+the tray cycle (01:39:43 UTC). Job 46 started at 01:40:05, and
+`makemkvcon info disc:9999` at 01:50:18, the first `makemkvcon` since power-on.
+
+- **Every LibreDrive init hung, 6 of 6.** Each attempt was the same sequence:
+  `MODE SELECT(10)` 0x4E0 (rejected), `WRITE BUFFER 0xB0` (good, ~5 ms), then
+  `READ BUFFER 0x77 @0`, 32 bytes, with no completion. It timed out after
+  30.0–30.3 s, a single hard reset recovered the link, and MakeMKV repeated the
+  init. libata stepped the drive down to UDMA/66 after the third. There was no
+  link-down this time. The signature matches job 27's twelve `dma 16416`
+  timeouts at ~30.5 s intervals on 2026-09-16.
+- **MakeMKV then refused to run.** At 01:53:27 it reported `MSG:5021 "This
+  application version is too old. Please download the latest version ... or
+  enter a registration key"` and exited 253. ARM failed the job with `Error while
+  running MakeMKV` and ejected. Job 45 logged the same `MSG:5021` at 01:21:43,
+  after its link failure. See D15.
+- **The two may be related, and this can't tell.** Tonight's runs are the only
+  ones on record where every init read hung. They are also the only ones with
+  MakeMKV past its version expiry. Whether an expired MakeMKV sends a different
+  init payload is unknown, because the trace doesn't record data-out. Against
+  that: job 27's identical loop on 2026-09-16 predates the expiry, and the
+  4-byte form hung under a current MakeMKV many times.
+- After the job, the drive was still on the bus with the tray open. No reproducer
+  attempt was made: init never completed in this run, so the drive's LibreDrive
+  state, which the reproducer needs, is unknown.
+
+### D15 — MakeMKV 1.18.4 has expired, so nothing can be ripped
+
+Found 2026-10-08 (jobs 45 and 46). `makemkvcon` 1.18.4 exits 253 with
+`MSG:5021 "This application version is too old"` after its drive scan. ARM
+fails every disc with `Error while running MakeMKV`.
+
+- **It isn't D7.** `/root/.MakeMKV/settings.conf` exists, written by ARM's
+  `prep_mkv` at job start. Its `app_Key` is the purchased `M-` key, byte-identical
+  to `MAKEMKV_PERMA_KEY` in `arm.yaml`. The registered key doesn't stop the
+  refusal.
+- **What changed:** MakeMKV 2.0.0 was released 2026-09-20 (release notes: "Almost
+  no changes, just a version bump"). Jobs 43 and 44 (2026-10-05/06) ran 1.18.4
+  without the message. When exactly 1.18.4 expired is not known.
+- **No published image has 2.0.0.** Upstream `arm-dependencies` moved to 2.0.0
+  on 2026-10-03 (#594), but has published no image since 1.8.0 (2026-07-06). The
+  `2.24.4` ARM image was re-pushed 2026-10-08 (`sha256:90aee72b…`), from the
+  same revision as the running one (`sha256:b1d0d577…`, 2026-10-03), and both
+  install MakeMKV from the same 2026-07-06 layer, i.e. 1.18.4. Pulling it would
+  change nothing.
+- The image automation can't fix this until upstream publishes a newer image.
+  Nothing in the cluster reports that MakeMKV refuses to run, beyond ARM's
+  per-job failure notification.
+
+> **Cause found, and it's not the version — 2026-10-08.** The registered key
+> works, but jobs never see it. udev starts `arm-disc-wrapper.sh` with no
+> `HOME` (`systemd-udevd`'s environment is `PATH=/sbin:/bin` alone), and ARM's
+> wrapper adds only `PATH` from `/etc/environment`. makemkvcon finds its key
+> through `$HOME/.MakeMKV`. Measured in the pod with the tray empty:
+> `makemkvcon -r --cache=1 info disc:9999` with `HOME=/root` lists the drive
+> and doesn't refuse; the same command under `env -u HOME` returns `MSG:5021`.
+> Jobs ran unregistered all along, which only mattered once 1.18.4 expired.
+> The same is why D7's manual runs needed the key registered by hand.
+>
+> **Fix:** `export HOME=/root` in `arm-disc-wrapper.sh` before it hands over to
+> ARM. With no disc loaded, makemkvcon sent no LibreDrive init and caused no
+> `ata4` event, so this check is safe to repeat.
