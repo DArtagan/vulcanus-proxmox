@@ -11,7 +11,8 @@ and since it is one cable over, it is in scope too.
 
 ## What is known, verified 2026-10-06
 
-**The drive hang reproduces without a disc, MakeMKV or the VM.** One 4-byte
+**The drive hang reproduces without MakeMKV or the VM in the loop, once MakeMKV
+has run since power-on.** One 4-byte
 `READ BUFFER 0x77 @0x121000`, sent from the host with `sg_raw`, got no response,
 timed out at 30 s and left the drive deaf to link resets until a cold power
 cycle. It is the same command, and the same signature, as every MakeMKV-context
@@ -78,13 +79,17 @@ sg_raw -r 4 -t 30 /dev/optical-drive-sg 3c 02 77 12 10 00 00 00 04 00
 - **Answer:** returns at once, either with 4 bytes or with sense data. An
   `ILLEGAL REQUEST` is also a non-hang.
 
-What the baseline needs, and should be measured **before** the visit, in sessions
-from `todos/disc-ripping.md`:
+**Each attempt must follow a MakeMKV run since the drive's last power-on.** On a
+freshly powered drive the command is refused at once with `ILLEGAL REQUEST`
+(2026-10-08), because buffer `0x77` at that offset only exists once MakeMKV has
+put the drive in LibreDrive mode. So the protocol per attempt is: power on,
+let ARM run MakeMKV on any disc (at least the info scan), wait until ARM is
+idle, then send the command once. A refusal on a drive that hasn't run MakeMKV
+since power-on is not a result.
 
-- Whether the command hangs straight after a cold power cycle, before MakeMKV has
-  touched the drive. If it doesn't, each attempt must follow a MakeMKV run, and
-  the protocol below changes.
-- The rate over several attempts, run the same way each time.
+What the baseline needs, and should be measured **before** the visit, in sessions
+from `todos/disc-ripping.md`: the hang rate over several attempts, all run the
+same way.
 
 If the baseline can't be established remotely, take it on site first, before
 changing anything. That costs a few extra power cycles.

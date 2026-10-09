@@ -2771,3 +2771,33 @@ next things to test. Both need a power cycle per hang.
 
 The physical checks this points at are collected in
 [vulcanus-onsite-checks.md](vulcanus-onsite-checks.md).
+
+### 2026-10-08 — on a cold drive the hung command is refused, not hung
+
+Observations only. Host times are Denver. Trace:
+`/var/tmp/arm-sata/trace-baseline-cold.txt` on vulcanus.
+
+The host was cold power-cycled after the 2026-10-06 reproduction and booted
+18:49:56. At 19:04:58, 901 s after boot, the same lone
+`sg_raw -r 4 -t 30 /dev/optical-drive-sg 3c 02 77 12 10 00 00 00 04 00` was sent.
+Nothing MakeMKV-like had reached the drive since power-on. A disc (`SANDLOT43`)
+was loaded, and the only other traffic was the guest's media polling and a
+`blkid` of the disc.
+
+The drive answered in 0.7 ms with `status { DRDY DSC ERR }`, `ILLEGAL REQUEST /
+Invalid field in cdb` (ASC 0x24). There was no timeout, reset or `ata4`
+kernel line.
+
+So buffer `0x77` at `0x121000` isn't addressable on a freshly powered drive.
+It becomes addressable after something in MakeMKV's start-up, most plausibly
+the LibreDrive init (`MODE SELECT(10)` 0x4E0, `WRITE BUFFER 0xB0`), which
+is when MakeMKV starts sending it. Every hang so far has been in that state.
+The 2026-10-06 reproduction followed MakeMKV runs with no power cycle between.
+
+Consequences:
+
+- The disc-free reproducer needs the drive to have been through a MakeMKV run
+  since power-on. It can't be primed from the host alone: the trace records
+  CDBs, not data-out payloads, so the init's parameter data is unknown.
+- The data-out payloads were not captured, so whether a `MODE SELECT` must
+  directly precede the read (as in every MakeMKV instance) is still open.
