@@ -128,6 +128,11 @@ data:
         waited=$(( waited + MEDIA_INTERVAL ))
     done
 
+    # udev starts this with no HOME, and makemkvcon finds its registration key
+    # through $HOME/.MakeMKV. Without it MakeMKV runs unregistered and, once its
+    # version has expired, refuses every disc with "This application version is
+    # too old". ARM runs the job as root and writes the key to /root/.MakeMKV.
+    export HOME=/root
     exec /opt/arm/scripts/docker/docker_arm_wrapper.sh "${DEVNAME}"
 
   arm-audio-handoff.sh: |

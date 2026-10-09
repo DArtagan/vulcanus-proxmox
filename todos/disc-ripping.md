@@ -34,7 +34,7 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 | 2b | DVD — TV series | **done** 2026-09-04 — two discs of one season; play-all and multi-disc findings drive the ingest design |
 | 3 | Blu-ray | **done** 2026-09-17 — The Rescuers end to end in 9h42m once worker-1 was resized to 16 GiB |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
-| — | Drive drops off its SATA link | **open, unexplained** — observations under 2026-09-22, 2026-09-22/30, 2026-10-04 and both 2026-10-05 entries in the progress log; it dates from April, not 09-22. Jobs 43 (one recovered hang) and 44 (clean) traced; the host command sequence does not separate a hang from a success. D14 found on the way |
+| — | Drive drops off its SATA link | **open, unexplained** — observations under 2026-09-22, 2026-09-22/30, 2026-10-04 and both 2026-10-05 entries in the progress log; it dates from April, not 09-22. Jobs 43 (one recovered hang) and 44 (clean) traced; the host command sequence does not separate a hang from a success. D14 found on the way. Jobs 45–46: the init-form read hangs too, and the link fails under it. D15: jobs run MakeMKV unregistered (udev gives no HOME), which blocks all ripping now 1.18.4 has expired; fixed in the wrapper |
 
 Phase 0 is a prerequisite for all of the others: until it is done, the drive
 wedges on the first disc and stays wedged.
@@ -2771,3 +2771,148 @@ next things to test. Both need a power cycle per hang.
 
 The physical checks this points at are collected in
 [vulcanus-onsite-checks.md](vulcanus-onsite-checks.md).
+
+### 2026-10-08 — on a cold drive the hung command is refused, not hung
+
+Observations only. Host times are Denver. Trace:
+`/var/tmp/arm-sata/trace-baseline-cold.txt` on vulcanus.
+
+The host was cold power-cycled after the 2026-10-06 reproduction and booted
+18:49:56. At 19:04:58, 901 s after boot, the same lone
+`sg_raw -r 4 -t 30 /dev/optical-drive-sg 3c 02 77 12 10 00 00 00 04 00` was sent.
+Nothing MakeMKV-like had reached the drive since power-on. A disc (`SANDLOT43`)
+was loaded, and the only other traffic was the guest's media polling and a
+`blkid` of the disc.
+
+The drive answered in 0.7 ms with `status { DRDY DSC ERR }`, `ILLEGAL REQUEST /
+Invalid field in cdb` (ASC 0x24). There was no timeout, reset or `ata4`
+kernel line.
+
+So buffer `0x77` at `0x121000` isn't addressable on a freshly powered drive.
+It becomes addressable after something in MakeMKV's start-up, most plausibly
+the LibreDrive init (`MODE SELECT(10)` 0x4E0, `WRITE BUFFER 0xB0`), which
+is when MakeMKV starts sending it. Every hang so far has been in that state.
+The 2026-10-06 reproduction followed MakeMKV runs with no power cycle between.
+
+Consequences:
+
+- The disc-free reproducer needs the drive to have been through a MakeMKV run
+  since power-on. It can't be primed from the host alone: the trace records
+  CDBs, not data-out payloads, so the init's parameter data is unknown.
+- The data-out payloads were not captured, so whether a `MODE SELECT` must
+  directly precede the read (as in every MakeMKV instance) is still open.
+
+### 2026-10-08 — job 45: a first run after power-on hangs, then the link fails mid-command
+
+Observations only. Host times are Denver, trace times are seconds since the
+18:49:56 boot. Trace: `captures/arm-sata/trace-job45-full.txt`, and on vulcanus
+`/var/tmp/arm-sata/trace-job45.txt`. It holds both the 2026-10-08 cold test above
+and this job.
+
+*The Sandlot* (`SANDLOT43`), a DVD not ripped before, loaded before the power
+cycle. ARM was running with the eject and D14 edits applied (verified in its log
+at 01:04:43 UTC). The tray was cycled from the host at 01:10:23 UTC, and job 45
+started at 01:10:45. `makemkvcon info disc:9999` started at 01:20:56 UTC, the
+first `makemkvcon` since power-on. The only earlier command of its kind was the
+cold test's refused `READ BUFFER 0x77 @0x121000`, 16 minutes before.
+
+| trace time | command | result |
+|---|---|---|
+| 1863.544 | `MODE SELECT(10)` 0x4E0 | rejected with sense, as in every run |
+| 1863.556 | `WRITE BUFFER 0xB0 @0x0E20`, 16 bytes | good, 3.7 ms |
+| **1863.566** | **`READ BUFFER 0x77 @0`, 32 bytes** (`3c 02 77 00 00 00 00 00 20 00`) | **no completion** |
+| 1893.615 | timeout after 30.0 s, `status { DRDY }`, `cmd ... dma 16416 in` | one hard reset, `rc=0`, link up, `configured for UDMA/100` |
+| 1893.97 – 1894.02 | MakeMKV repeats the init: `READ BUFFER 0xB0`, `MODE SELECT` 0x4E0 (rejected), `WRITE BUFFER 0xB0`, `TEST UNIT READY` | good |
+| **1894.022** | **`READ BUFFER 0x77 @0`, 32 bytes, again** | 17 ms later: port frozen, `Emask 0x50`, `SError { HostInt 10B8B DevExch }`, `err_mask=ATA_BUS SYSTEM` |
+| 1894.06 – 1906 | hard resets | link down (`SStatus 0`) ×3, `disable device`, `detaching (SCSI 3:0:0:0)` |
+
+MakeMKV reported `HARDWARE ERROR:INTERNAL TARGET FAILURE`. Job 45 ended `fail` at
+01:21:43 UTC, and `/dev/sr0`, `/dev/optical-drive-sg` and `3:0:0:0` disappeared
+from the host.
+
+- **The 32-byte form of the command hangs too.** This is the first trace of the
+  `dma 16416` signature, which accounts for 20 of the 33 earlier exception lines
+  (April, and all 12 on 2026-09-16). Job 42 sent five commands with that
+  transfer length, so those events were never pinned to one command. Here it is
+  `READ BUFFER 0x77`, in its init form, straight after `WRITE BUFFER 0xB0`.
+- **A first run after power-on hung.** That ends the 2026-10-05 observation
+  that none had. The cold test 16 minutes earlier is a confound, though it was
+  refused in 0.7 ms with no reset.
+- **The link failed at the physical layer while that command was in flight.**
+  `10B8B` means the host received symbols that would not decode, and it arrived
+  17 ms after the re-sent read, with nothing else outstanding. Every PHY-level
+  drop on record happened under a command with a buffer-`0x77` signature:
+  2026-04-12 (`dma 16416`), 04-19 and 09-22 (`pio 16388`), and now this one,
+  confirmed by the trace. A fault in a cable or connector has no reason to pick
+  one command. So the link corruption looks driven by what the drive does with
+  this read. That doesn't rule out a marginal link that tips over when it does.
+
+### 2026-10-08 — job 46: the init read hangs on every attempt, then MakeMKV refuses to run
+
+Observations only. Host times are Denver, trace times are seconds since the
+19:31:16 boot. Trace: `captures/arm-sata/trace-job46-full.txt`, and on vulcanus
+`/var/tmp/arm-sata/trace-job46.txt`.
+
+*The Sandlot* again, straight after the cold power cycle that job 45 needed.
+Nothing was sent to the drive from the host beyond the drive-status ioctl and
+the tray cycle (01:39:43 UTC). Job 46 started at 01:40:05, and
+`makemkvcon info disc:9999` at 01:50:18, the first `makemkvcon` since power-on.
+
+- **Every LibreDrive init hung, 6 of 6.** Each attempt was the same sequence:
+  `MODE SELECT(10)` 0x4E0 (rejected), `WRITE BUFFER 0xB0` (good, ~5 ms), then
+  `READ BUFFER 0x77 @0`, 32 bytes, with no completion. It timed out after
+  30.0–30.3 s, a single hard reset recovered the link, and MakeMKV repeated the
+  init. libata stepped the drive down to UDMA/66 after the third. There was no
+  link-down this time. The signature matches job 27's twelve `dma 16416`
+  timeouts at ~30.5 s intervals on 2026-09-16.
+- **MakeMKV then refused to run.** At 01:53:27 it reported `MSG:5021 "This
+  application version is too old. Please download the latest version ... or
+  enter a registration key"` and exited 253. ARM failed the job with `Error while
+  running MakeMKV` and ejected. Job 45 logged the same `MSG:5021` at 01:21:43,
+  after its link failure. See D15.
+- **The two may be related, and this can't tell.** Tonight's runs are the only
+  ones on record where every init read hung. They are also the only ones with
+  MakeMKV past its version expiry. Whether an expired MakeMKV sends a different
+  init payload is unknown, because the trace doesn't record data-out. Against
+  that: job 27's identical loop on 2026-09-16 predates the expiry, and the
+  4-byte form hung under a current MakeMKV many times.
+- After the job, the drive was still on the bus with the tray open. No reproducer
+  attempt was made: init never completed in this run, so the drive's LibreDrive
+  state, which the reproducer needs, is unknown.
+
+### D15 — MakeMKV 1.18.4 has expired, so nothing can be ripped
+
+Found 2026-10-08 (jobs 45 and 46). `makemkvcon` 1.18.4 exits 253 with
+`MSG:5021 "This application version is too old"` after its drive scan. ARM
+fails every disc with `Error while running MakeMKV`.
+
+- **It isn't D7.** `/root/.MakeMKV/settings.conf` exists, written by ARM's
+  `prep_mkv` at job start. Its `app_Key` is the purchased `M-` key, byte-identical
+  to `MAKEMKV_PERMA_KEY` in `arm.yaml`. The registered key doesn't stop the
+  refusal.
+- **What changed:** MakeMKV 2.0.0 was released 2026-09-20 (release notes: "Almost
+  no changes, just a version bump"). Jobs 43 and 44 (2026-10-05/06) ran 1.18.4
+  without the message. When exactly 1.18.4 expired is not known.
+- **No published image has 2.0.0.** Upstream `arm-dependencies` moved to 2.0.0
+  on 2026-10-03 (#594), but has published no image since 1.8.0 (2026-07-06). The
+  `2.24.4` ARM image was re-pushed 2026-10-08 (`sha256:90aee72b…`), from the
+  same revision as the running one (`sha256:b1d0d577…`, 2026-10-03), and both
+  install MakeMKV from the same 2026-07-06 layer, i.e. 1.18.4. Pulling it would
+  change nothing.
+- The image automation can't fix this until upstream publishes a newer image.
+  Nothing in the cluster reports that MakeMKV refuses to run, beyond ARM's
+  per-job failure notification.
+
+> **Cause found, and it's not the version — 2026-10-08.** The registered key
+> works, but jobs never see it. udev starts `arm-disc-wrapper.sh` with no
+> `HOME` (`systemd-udevd`'s environment is `PATH=/sbin:/bin` alone), and ARM's
+> wrapper adds only `PATH` from `/etc/environment`. makemkvcon finds its key
+> through `$HOME/.MakeMKV`. Measured in the pod with the tray empty:
+> `makemkvcon -r --cache=1 info disc:9999` with `HOME=/root` lists the drive
+> and doesn't refuse; the same command under `env -u HOME` returns `MSG:5021`.
+> Jobs ran unregistered all along, which only mattered once 1.18.4 expired.
+> The same is why D7's manual runs needed the key registered by hand.
+>
+> **Fix:** `export HOME=/root` in `arm-disc-wrapper.sh` before it hands over to
+> ARM. With no disc loaded, makemkvcon sent no LibreDrive init and caused no
+> `ata4` event, so this check is safe to repeat.
