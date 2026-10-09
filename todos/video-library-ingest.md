@@ -7,7 +7,8 @@
 > decisions already made (our own tool, `reelbarrow`, in a new repository, as
 > a separate service with a small web UI), the nine cases an ingest has to tell apart and
 > the evidence for each, the identity and matching techniques that were measured
-> to work, and the phased plan. Start with **Status** and **Decisions already made**.
+> to work, how success is tested, and the phased plan. Start with **Status** and
+> **Decisions already made**.
 > The fixtures table in **What is waiting** is the acceptance test for phases 0–3.
 
 Design verified **2026-10-03 to 10-05** against ARM `2.24.4`, Plex `1.43.4`, and the
@@ -613,10 +614,134 @@ Measured on 2026-10-05 with Claude Haiku 4.5 over the 13 Tweety transcripts
 Two things follow. Reference text decides the outcome far more than the model
 does, so gathering synopses is a first-class step. And a model's own confidence
 is not calibrated — a wrong answer at 0.75 is exactly why the gate requires an
-independent second signal rather than a confidence threshold.
+independent second signal rather than a confidence threshold. Repeating the
+titles-only prompt (E28) sharpened both points; see *Testing*.
 
 A misfiled automatic decision is, per Will, a bug: the fix is a new row in the
 table above plus a regression fixture, not a confirmation step.
+
+The thresholds in this table — ±3% runtime, 90% fingerprint coverage, what
+counts as "high confidence" from the matcher — are starting points. They are set
+from the evaluation results in *Testing*, not chosen in advance and defended.
+
+---
+
+## Testing
+
+Will raised this on 2026-10-08: *"how should we set up a testing framework for
+assessing the success of the system? Especially since it will depend on a model,
+and model behaviour can be non-deterministic? Maybe we can use something like
+https://inspect.aisi.org.uk/ ?"*
+
+### What success is measured as
+
+Following Will's rule that an automatic misfile is a bug and a review is only a
+cost, the system is judged on two numbers, in this order:
+
+1. **Misfile rate** — of the decisions the gate let through automatically, the
+   share that were wrong. Target: zero.
+2. **Automation rate** — the share of decisions filed without a person. Higher
+   is better, never at the expense of the first.
+
+The unit under test is the **whole decision**: the model's answer, the
+independent second signal, and the gate. A model wrong 30% of the time is
+acceptable if the gate always catches it; one wrong 1% of the time is not if the
+gate lets that 1% through. So no layer below scores the model's raw accuracy as
+the headline.
+
+### Run-to-run variance, measured
+
+The titles-only matching prompt (no synopses), run four times on the same 13
+Tweety transcripts with Haiku 4.5 (E27, E28):
+
+| run | correct |
+|---|---|
+| 1 | 8 of 13 |
+| 2 | 9 of 13 |
+| 3 | 6 of 13 |
+| 4 | 9 of 13 |
+
+- **One run proves little.** Every model-dependent sample is repeated.
+- **Consistent is not correct.** `d1_title_2` (*The Cat Who Knew Too Much*, the
+  "Cajun Canary" episode) went to *The Maltese Canary* in all four runs, at
+  0.75–0.85. Majority voting or self-consistency would have approved it. Only an
+  independent signal or better reference text catches it, which is the case for
+  the two-signal gate made with data rather than argument.
+- **Output format drifts despite a JSON schema.** Run 4 answered with episode
+  names instead of `E05`; a naive scorer read 0 of 13 where the content was
+  9 of 13. The schema must restrict episode answers to an `enum` of the valid
+  IDs, and scoring must count malformed output separately from wrong answers.
+
+### The layers
+
+**1. Deterministic tests — pytest, every commit.** Everything that is not the
+model: disc identity, play-all detection, duplicate checks, fingerprint
+alignment, planning, and the gate's rules. They run on **frozen fixtures derived
+from the media**, not the media: ffprobe JSON, Chromaprint fingerprints, Whisper
+transcripts, Blu-ray nav hashes, ARM manifests. These are small enough to commit,
+so CI never needs the share. Model replies are recorded and replayed, so the
+gate's behaviour for a given set of answers is exactly reproducible.
+
+**2. Model evaluations — Inspect, on demand and on any prompt or model change.**
+[Inspect](https://inspect.aisi.org.uk/) (UK AISI; Python, `pip install
+inspect-ai`) maps onto this directly:
+
+| Inspect piece | here |
+|---|---|
+| dataset | one sample per decision: a disc's episode mapping, a case photo, a "which film is this" for a misidentified disc or a second film on a disc. Targets are known answers |
+| solver | reelbarrow's own prompt and call, not a reimplementation. So reelbarrow's model interface is pluggable, and the eval drives it through Inspect's model layer, gaining its logging, caching and provider switching |
+| scorer | custom, scoring the **gate's outcome**: filed correctly, **filed wrongly**, sent to review, or invalid output |
+| epochs and reducer | each sample repeated N times (10 to start). A custom reducer fails the sample if **any** epoch filed it wrongly; a mean would hide a 1-in-10 misfile |
+| several models | Haiku against Sonnet, as cost against automation rate |
+| log viewer | the transcript, reference text and evidence behind every wrong answer |
+
+Inspect's datasets, custom solvers and scorers, epochs and multi-provider support
+are documented; the reducer behaviour described here has not yet been exercised.
+At this volume a full run costs pennies.
+
+Whisper transcripts are frozen fixtures for this layer, so it isolates the model.
+A separate, slower end-to-end eval runs the whole pipeline from media, so a
+Whisper change is measured too.
+
+**3. Dry run against the real share.** Phase 0: plan everything, execute
+nothing, compare row by row with the fixtures table.
+
+**4. Production feeds the eval set.** Every reviewer correction in the web UI is
+a gate catch, logged with its evidence and turned into an eval sample. Every
+misfile found later becomes an eval sample **and** a layer-1 regression fixture,
+per Will's rule that a misfile is a bug.
+
+### The eval set has to be bigger than Tweety
+
+With zero misfiles across N independent decisions, the 95% upper bound on the
+misfile rate is about 3/N (the rule of three). Thirteen episodes × 10 epochs is
+130 decisions, bounding it only to ~2.3%, and epochs of one sample are not
+independent, so the real bound is weaker. "Excellent" needs hundreds of distinct
+decisions.
+
+The library already holds labelled TV: Witch Hunter Robin (26 episodes), Miss
+Fisher's Murder Mysteries, Leverage, and 122 NOVA episodes. Strip their names,
+shuffle them into synthetic "discs" (inserting a concatenated play-all where
+useful), and ground truth is free. Two cautions:
+
+- Some NOVA filings were wrong until renumbered by hand in 2024, so spot-check
+  that ground truth before trusting it.
+- Hold out a test split that prompts are never tuned against, so the prompt does
+  not overfit Tweety or whatever set it was developed on.
+
+Movies: the misidentified Polar Express, the two Rescuers films, Robin Hood's
+cuts and its bonus disc, and the backlog's labelled-by-hand films. Case photos:
+Will's brother photographs a dozen cases of films already filed, whose answers
+are known.
+
+### How this sets the gate
+
+Thresholds in *Confidence* are tuned on the development split until the
+any-epoch-misfile count is zero there with margin, then confirmed on the held-out
+split. The automation rate measured on the held-out split is the honest estimate
+of how much will need review. Auto-filing of a decision type (episodes, case
+photos, second films) is not switched on until its eval passes on the held-out
+split.
 
 ---
 
@@ -733,7 +858,8 @@ from the service's own report.
 script; export manifests for jobs 1–41. The service runs analyse → plan over all
 of `completed/` and **executes nothing**; its plans are compared row by row with
 the fixtures table. Done when every row matches, or the table is corrected with
-the evidence for why.
+the evidence for why. The layer-1 fixtures and the Inspect harness (*Testing*)
+start here, so every later phase lands with its tests.
 
 **1. Unambiguous movies.** Hallelujah Trail, Jaunty Jalopies, The Great Race,
 Polar Express (including its raw pairing). Leftovers deleted. Done when each is
@@ -830,6 +956,8 @@ All read-only against the cluster and the share. Artefacts in
 | E25 | 10-05 | streaming 7.2 GB through `kubectl exec` | 6 min 49 s, 17.6 MB/s — the service must read the share directly |
 | E26 | 10-05 | Claude Code legal and authentication docs | OAuth is for ordinary use; services should use API keys; `claude setup-token` exists |
 | E27 | 10-05 | Haiku 4.5 episode matching, titles only vs synopses | 8/13 (confidently wrong) vs 13/13 |
+| E28 | 10-08 | the titles-only prompt three more times | 9, 6, 9 of 13; one file wrong in all four runs; one run broke the answer format |
+| E29 | 10-08 | Inspect documentation | datasets, solvers, scorers, epochs, caching, multi-provider; reducers not exercised |
 
 ---
 
