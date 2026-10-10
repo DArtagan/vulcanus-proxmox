@@ -3111,3 +3111,37 @@ unconfirmed. `sdftool -d /dev/sr0 -f <file> help`, which would list the entry's
 commands, stalled in the tool for 120 s with no output after identifying the
 drive normally, both times. The SDF lead is therefore weakened but not closed.
 `captures/sdf/sdftool-info-drive-a6.txt` holds the full output.
+
+### 2026-10-10 — job 49: *Sherlock* rips for the first time
+
+Observations only. Trace: `/var/tmp/arm-sata/trace-job49.txt` on vulcanus,
+running until the job ends.
+
+*Sherlock Holmes in the 22nd Century* (label `Sherlock`), whose one earlier run
+(job 38) lost the drive about 30 s in. There was no power cycle since the
+2026-10-08 22:25 boot. Since then the drive had run job 48 (clean) and the two
+`sdftool --info` identifications. The tray was closed from the host at
+12:16:42 UTC. As in jobs 37 and 38, the wrapper logged `Starting ARM for Data
+Disk ... udf`, and the job records `dvd`.
+
+| run | ARM log (UTC) | outcome |
+|---|---|---|
+| `info disc:0` | 12:27:05 – 12:27:39 | LibreDrive and direct disc access at 12:27:12, 6 titles |
+| `mkv` | 12:27:39 – 12:46:12 | `Copy complete. 6 titles saved`, 4.13 GB in 18.5 min, zero `MSG:2003` |
+
+There was no `disc:9999` run, and no `ata4` exception.
+
+- **Neither run sent the LibreDrive init** (`MODE SELECT` 0x4E0, `WRITE
+  BUFFER 0xB0`, 32-byte `READ BUFFER 0x77 @0`). The extension was presumably
+  still resident from job 48. The four 4-byte checks all completed in
+  9.3–10.3 ms, each 12–25 ms after a rejected `MODE SELECT(10)` 0x740.
+- **The 4-byte check read a different address:** `3c 02 77 12 20 00 00 00 04
+  00`, offset `0x122000`. Every earlier traced run read `0x121000`, including
+  jobs 47 and 48 on SDF `0xA6`, each of which ran the init once. Why the address
+  moved isn't known. Candidates are where the extension sits after a reuse
+  rather than a fresh install, or something the `sdftool` runs changed. Not
+  investigated.
+- **ARM identified the disc as the BBC series:** the transcode path is
+  `tv/Sherlock (2010-2017)/`. That is D12's failure: the label `Sherlock` is
+  ambiguous and nobody corrected it in the manual wait. It also makes this the
+  first job through the `d14-move-series` edit.
