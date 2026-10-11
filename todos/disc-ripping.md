@@ -3145,3 +3145,20 @@ There was no `disc:9999` run, and no `ata4` exception.
   `tv/Sherlock (2010-2017)/`. That is D12's failure: the label `Sherlock` is
   ambiguous and nobody corrected it in the manual wait. It also makes this the
   first job through the `d14-move-series` edit.
+
+Job 49 ended `success` at 14:40:29 UTC, and verifies `d14-move-series`.
+`handbrake_all` encoded titles 1–6 once each (12:46 → 14:40). `move_files` was
+called for HandBrake's `title_1.mkv` … `title_6.mkv` only, and none of MakeMKV's
+`A1_t0x.mkv` names were matched onto them. All six are in
+`completed/tv/Sherlock (2010-2017)/`, a folder named for the wrong series
+(above). The one eject came after `ARM processing complete`. There were still no
+`ata4` exceptions on the 2026-10-08 22:25 boot, across jobs 48 and 49 and the
+`sdftool` tests.
+
+Since the `HOME` fix, and so SDF `0xA6`, jobs 47, 48 and 49 have all run with no
+`ata4` event, on the two discs with the worst record. From the 2026-09-21
+restart up to the fix, 1 of 9 jobs did (44). That favours the SDF change, or
+something else the `HOME` fix changed, but it doesn't establish it. `0xA5` ran
+mostly clean in jobs 18–36. The `--info` entries for this drive are identical
+in both versions. Job 49 never ran the init where jobs 45 and 46 hung. And the
+host's lone read hung after job 47.
