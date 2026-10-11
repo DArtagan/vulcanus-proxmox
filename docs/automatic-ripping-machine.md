@@ -191,8 +191,13 @@ that control the drive, so a mismatch matters more than anything else here.
 `udevadm info` on either device also shows a shared `DEVPATH` parent
 (`.../target2:0:0/2:0:0:0/...`), which confirms the same thing independently.
 
-Note `makemkvcon` is **not** usable as a check — as of 2026-08-12 it reports
-"This application version is too old" (v1.18.3). ARM's own drive listing shows
+`makemkvcon` works as a check from `kubectl exec`, which sets `HOME=/root`, once
+the registration key is in `/root/.MakeMKV/settings.conf`. ARM writes it at the
+start of every job. In a pod where no job has run yet, register it first with
+`/opt/arm/scripts/update_key.sh <key>`. Without a key, an expired MakeMKV
+refuses with "This application version is too old". With no disc loaded,
+`makemkvcon -r --cache=1 info disc:9999` sends the drive no LibreDrive
+commands. ARM's own drive listing shows
 an empty maker/model for the same underlying reason it always has: udev's
 `ata_id`/`cdrom_id` helpers run in the host's udevd, not in the container, so
 `ID_MODEL`/`ID_VENDOR` are never populated there. Read identity from sysfs
@@ -330,11 +335,27 @@ CDS_DISC_OK  = 4  (invoke ARM)
 
 Only `CDS_DISC_OK` proceeds to call `/opt/arm/scripts/docker/docker_arm_wrapper.sh`, which calls `python3 /opt/arm/arm/ripper/main.py -d sr0` directly inside the container. All other states are logged to `arm.log` and exit cleanly.
 
+Before handing over, the wrapper exports `HOME=/root`. udev starts it with no
+`HOME`, and MakeMKV keeps everything it needs under `$HOME/.MakeMKV`: the
+registration key, the LibreDrive drive definitions (`SDF.bin`) and the UHD
+keys. The last two it downloads from its own server. Without `HOME`, every job
+runs MakeMKV unregistered on its built-in definitions, and an expired MakeMKV
+refuses every disc. `/root/.MakeMKV` is container-local, so the first job after
+each pod restart downloads them again, and needs internet access to do it.
+
 This prevents the eject event (which the container does receive) from triggering a spurious rip attempt.
 
 ## Rip and Transcode Pipeline
 
 Once ARM detects a disc and identifies it (via the manual identification gate or automatic metadata lookup), it runs through a two-stage pipeline: rip, then transcode.
+
+The disc stays in the drive, locked, until the whole job is complete, transcode
+included, and is ejected once at the end. An open tray is therefore the signal
+that a disc is finished. That, and HandBrake encoding each title once, come from
+line edits to ARM's own source. `arm-source-patches.py`
+(`init-scripts.yaml`) applies them at container start. Each edit is skipped, and
+logged as `source-patches: cannot apply` in `arm.log`, if an ARM update moves the
+text it replaces. After an image bump, check that log for three `applied` lines.
 
 ### Data flow
 
@@ -378,19 +399,27 @@ Key encoding settings (defined in the `vulcanus-handbrake-preset` custom preset)
 
 ## ATA Link Stability
 
-The Pioneer drive has a known failure mode: if multiple processes issue conflicting SCSI commands to the drive simultaneously, the ATA link can destabilise and the drive drops off the bus entirely. Symptoms:
+The drive intermittently stops answering a command and drops off its SATA link,
+usually in the first seconds of a `makemkvcon` run. The command is LibreDrive's
+handshake read (`READ BUFFER` buffer `0x77`). It is served by the extension
+MakeMKV uploads into the drive's RAM, and once hung the drive ignores link
+resets until its power is removed. The cause is not established, and the
+investigation is in `todos/disc-ripping.md`. Symptoms:
 
-- `dmesg` shows `ata4: link is slow to respond` followed by `ata4: hardreset failed`
-- `/dev/sr0` and `/dev/sg3` disappear
-- The drive is visible in the BIOS (SATA Port 10) but the OS cannot communicate with it
+- The host logs `ata4.00: exception Emask 0x0 ... frozen` about 30 s after the
+  hang, then either `EH complete` (recovered) or `hardreset failed` /
+  `reset failed, giving up` / `disable device`
+- A disabled drive can keep `/dev/sr0` and `/dev/optical-drive-sg` on the host,
+  and its `/dev/sr0` and `devic.es/cdrom: 1` in the guest. Only the host's
+  `ata4` lines show whether it is alive
+- After a link-level failure (`SError ... 10B8B DevExch`, `SATA link down`),
+  the device is detached and `/dev/sr0`, `/dev/sg3` and the symlink disappear
 
 ### Prevention
 
-The primary source of conflicting SCSI commands is `smartd`. Proxmox installs and enables `smartd` with `DEVICESCAN`, which periodically probes all SCSI/ATA devices including `/dev/sr0`. While QEMU holds `/dev/sg3` open for the guest VM, these probes create the command conflict that destabilises the ATA link. `ansible/proxmoxer.yaml` deploys a `/etc/smartd.conf` that excludes `/dev/sr0` via the `!` prefix:
-
-```
-DEVICESCAN -d removable -n standby -m root -M exec /usr/share/smartmontools/smartd-runner !/dev/sr0
-```
+Nothing on the host probes the drive while QEMU holds it. `ansible/proxmoxer.yaml`
+deploys a `/etc/smartd.conf` that names each data disk explicitly rather than
+using `DEVICESCAN`, so `smartd` never touches `/dev/sr0`.
 
 Additional precautions:
 - Only one VM or process should ever have the drive open at a time
@@ -426,15 +455,18 @@ be stopped before the drive can be cleared.
 
 ### Recovery
 
-If the drive disconnects, first try the software recovery script deployed to the host by `ansible/proxmoxer.yaml`:
+A drive the host has disabled comes back only with a **full power cycle** of the
+host. A reboot doesn't remove the drive's power. `ansible/proxmoxer.yaml` also
+deploys `/usr/local/bin/optical-drive-recovery.sh` (stop VM 911, rescan the
+SCSI bus), but a delete-and-rescan has never brought a hung drive back.
 
-```bash
-/usr/local/bin/optical-drive-recovery.sh
-```
-
-This stops VM 911, attempts a SCSI bus rescan, then restarts the VM if the drive reappears. Note that the AHCI controller is shared with all ZFS disks (sda-sdh), so a controller reset is not attempted.
-
-If software recovery fails, a **full power cycle** is required — not just a reboot. A reboot does not power-cycle SATA devices on this system. Shut down with `systemctl poweroff`, wait 15–30 seconds, then power on.
+Before powering off, check every guest has `onboot=1`, no vzdump or `zfs send` is
+running (the offsite replication runs hourly), and `zpool status -x` is clean. No
+Kubernetes drain is needed. Then `systemctl poweroff`, leave it fully off for at
+least 30 seconds, and power on through JetKVM. Afterwards check `ata4: SATA link
+up`, `/dev/optical-drive-sg`, and that worker-1 advertises `devic.es/cdrom: 1`.
+An ARM pod left in `Error` by the reboot is harmless once its replacement is
+`Running`.
 
 ### Monitoring
 
@@ -522,4 +554,4 @@ dmesg | grep ata4
 systemctl poweroff
 ```
 
-Wait 15–30 seconds after the machine goes dark, then power it back on. The drive will re-enumerate at boot and `/dev/sr0`, `/dev/sg3`, and `/dev/optical-drive-sg` will reappear.
+Wait at least 30 seconds after the machine goes dark, then power it back on, after the checks in **Recovery** above. The drive will re-enumerate at boot and `/dev/sr0`, `/dev/sg3`, and `/dev/optical-drive-sg` will reappear.

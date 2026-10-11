@@ -34,10 +34,90 @@ Everything below was verified on **2026-08-24/25** against ARM `2.23.2`, pod
 | 2b | DVD — TV series | **done** 2026-09-04 — two discs of one season; play-all and multi-disc findings drive the ingest design |
 | 3 | Blu-ray | **done** 2026-09-17 — The Rescuers end to end in 9h42m once worker-1 was resized to 16 GiB |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
-| — | Drive drops off its SATA link | **open, unexplained** — observations under 2026-09-22, 2026-09-22/30, 2026-10-04 and both 2026-10-05 entries in the progress log; it dates from April, not 09-22. Jobs 43 (one recovered hang) and 44 (clean) traced; the host command sequence does not separate a hang from a success. D14 found on the way. Jobs 45–46: the init-form read hangs too, and the link fails under it. D15: jobs run MakeMKV unregistered (udev gives no HOME), which blocks all ripping now 1.18.4 has expired; fixed in the wrapper |
+| — | Drive drops off its SATA link | **open, watching** — no event in jobs 47–49 since the D15 fix; start at **The drive's SATA link losses: start here** below |
 
 Phase 0 is a prerequisite for all of the others: until it is done, the drive
 wedges on the first disc and stays wedged.
+
+## The drive's SATA link losses: start here
+
+Summary as of 2026-10-11. The evidence is in the progress log, 2026-09-22
+through 2026-10-10, and each point below names its entry.
+
+**What the failure is.** The drive stops answering one command, LibreDrive's
+handshake read, `READ BUFFER` mode 2 buffer `0x77`. There are two forms: the
+32-byte init read `@0`, which shows in the kernel as `dma 16416`, and a 4-byte
+check read, `pio 16388`. It times out after 30 s with `status { DRDY }`. libata
+resets the link, which sometimes recovers it. Otherwise the drive is disabled
+or detached, and needs a cold power cycle of the host (procedure in
+`docs/automatic-ripping-machine.md`, Recovery). Buffer `0x77` belongs to the
+extension MakeMKV uploads into the drive's RAM. On a freshly powered drive it
+doesn't exist, and the read is refused at once (2026-10-08 cold test). Every
+`ata4` event since April has one of the two signatures (2026-10-05, 2026-10-08
+job 45).
+
+**Why it's thought to be the drive and LibreDrive, not the cable.** Hundreds of
+GB of bulk reads have crossed the link with no CRC or handshake error. All four
+PHY-level link-downs happened while that one command was in flight. A hung drive
+ignores link resets until power is removed. And it hung with no disc and no
+MakeMKV, on a lone host-sent read (2026-10-06 reproduction, 2026-10-09 job 47).
+The cable isn't excluded. See `vulcanus-onsite-checks.md`.
+
+**The drive.** It reports `BDR-212U 1.01`, and LibreDrive identifies stock
+**BDR-212T firmware `1.01/ID83`**, "Original (unpatched)": a cross-flash,
+bought from Billycar11 (2026-10-09 research). Firmware changes stay declined.
+Updates can remove LibreDrive support, and Pioneer firmware can't be
+downgraded.
+
+**The current lead.** The D15 `HOME` fix also let MakeMKV download and keep
+the latest LibreDrive definitions: SDF `0xA6`, against the built-in `0xA5`
+that every earlier job ran. Jobs 47, 48 and 49 have run on `0xA6` with no
+`ata4` event. Two of them were the discs with the worst record (*Around the
+World* disc 2, *Sherlock*). From the 2026-09-21 restart until the fix, 1 of 9
+jobs was clean. Against it: `0xA5` ran mostly clean in jobs 18–36; the drive's
+`sdftool --info` entry is identical in both versions; and the host's lone read
+hung after job 47 (2026-10-09 entries). Not established.
+
+**Decided 2026-10-11** (Will): "Let's keep ripping normally, and when a new
+problem presents then that will also be new data. I'll start a new session at
+that time." No A/B test on `0xA5` for now, and no further drive testing until
+something happens.
+
+**When the next `ata4` event happens**, gather before anything resets the state:
+
+1. The host kernel lines: `journalctl _TRANSPORT=kernel --since ... | grep ata4`
+   on vulcanus, plus the snapshot in `/var/log/optical-drive-monitor/`.
+2. The ARM job log (`/root/logs/<label>*.log` in the pod): which `makemkvcon`
+   run hung and how far in, whether it logged `MSG:3338 Downloading latest
+   SDF`, and the `Using LibreDrive mode (v… id=…)` line.
+3. The SDF version that run used: `tar -tf /root/.MakeMKV/_private_data.tar |
+   grep sdf_` in the pod (`sdf_000000a6.bin` today). If there's no archive, the
+   built-in `0xA5` applies. **Above all: did it hang on `0xA6` or later?** If
+   so, the SDF lead is dead.
+4. Whether the host has been power-cycled since the previous `makemkvcon` run,
+   and the boot time (`uptime -s`).
+5. No SCSI trace runs between sessions, so the exact command won't be known
+   unless one was started beforehand. The method is in the 2026-10-04 and
+   2026-10-06 entries.
+
+**Tests held in reserve**, each likely to cost power cycles:
+
+- A/B: rip a problem disc on `0xA5`, with the download blocked, and on `0xA6`.
+- The host reproducer (`sg_raw ... 3c 02 77 12 10 00 00 00 04 00`) works only
+  after a MakeMKV run since power-on. It has hung 2 of 2 times then. It lacks
+  the `MODE SELECT(10)` 0x740 MakeMKV always sends 12–25 ms before, so it may be
+  a harsher trigger than ripping.
+- freemkv-unlock, an open-source implementation of the same kind of unlock, as
+  a diagnostic only. Its Pioneer support is self-described beta (2026-10-09
+  research). Not a replacement ripper: MakeMKV derives AACS 1 keys itself and
+  downloads UHD keys (`hkd_*.bin`) from its own server, while freemkv ships no
+  AACS keys and needs a user-supplied `keydb.cfg`, and ARM is built around
+  MakeMKV.
+- The drive in another computer, the decisive drive-or-host test, at the next
+  visit (`vulcanus-onsite-checks.md`).
+
+**Unexplained, recorded only:** job 49's 4-byte checks read `0x122000` where
+every earlier run read `0x121000`.
 
 ---
 
@@ -2916,3 +2996,249 @@ fails every disc with `Error while running MakeMKV`.
 > **Fix:** `export HOME=/root` in `arm-disc-wrapper.sh` before it hands over to
 > ARM. With no disc loaded, makemkvcon sent no LibreDrive init and caused no
 > `ata4` event, so this check is safe to repeat.
+
+### 2026-10-09 — job 47: the first registered run, clean; the host reproducer still hangs after it
+
+Observations only. Host times are Denver. Trace:
+`captures/arm-sata/trace-job47-full.txt`, and on vulcanus
+`/var/tmp/arm-sata/trace-job47.txt`.
+
+**Job 47**, *The Sandlot*, with the D15 `HOME` fix deployed. There was no power
+cycle after job 46: the drive had failed six LibreDrive inits and was still
+limited to UDMA/66. The tray was closed from the host at 02:12:42 UTC.
+
+- MakeMKV ran registered: no `MSG:5021`, and `Using LibreDrive mode (v02.1)` in
+  both the `disc:0` and `mkv` runs. Since nothing before the D15 fix set `HOME`,
+  **this is the first ARM job on record to run MakeMKV registered.**
+- **Every buffer-`0x77` read completed:** the init-form `READ BUFFER 0x77 @0`
+  once, in 8.9 ms (it had hung in 8 of 8 attempts in jobs 45 and 46, same disc,
+  same drive state), and the 4-byte `@0x121000` five times, in 9.1–9.9 ms. There
+  were no `ata4` exceptions for the whole job.
+- It ripped 1 title, 4.03 GB in 19 min, with no read errors. Job 47 ended
+  `success` at 03:58:41 UTC.
+- **The D8 and D14 fixes verified end to end:** no eject after the rip (drive
+  status 4 and `ejected: 0` through the transcode); one HandBrake encode,
+  `title_1`, with no `-t 0` pass; and one eject, straight after `ARM processing
+  complete`. `completed/` holds `The-Sandlot (1993).mkv`, 1.2 GB.
+
+**Host reproducer after it.** At 21:59:03 Denver, with ARM idle and the tray
+open after the eject, the lone
+`sg_raw -r 4 -t 30 /dev/optical-drive-sg 3c 02 77 12 10 00 00 00 04 00` hung:
+the exception came at 21:59:34, the resets failed, and the drive was disabled
+at about 22:00. So the reproducer hangs after a registered run as it did after
+an unregistered one (2026-10-06). Two of two post-MakeMKV attempts hung, and the
+one cold attempt was refused.
+
+What this does and doesn't show:
+
+- **Every MakeMKV-originated hang on record ran unregistered**, the April and
+  2026-09-16 events included, because jobs never had a `HOME`. Unregistered
+  runs also completed many times (jobs 28–36, 43, 44), so registration can't be
+  the whole story. One registered run is too few to call, but it is the first
+  run since 2026-09-21 with no event at all on a drive that had just been
+  failing.
+- **The host reproducer may be a different trigger.** In every MakeMKV
+  instance, the 4-byte read follows a rejected `MODE SELECT(10)` 0x740 by
+  12–24 ms. The host's lone read has no such predecessor. Its 2-of-2 hang rate
+  makes it a usable measure for the on-site cable and port checks. But it can't
+  test the registration question, and it may not model what MakeMKV hits.
+- **Registration is probably not the cause** (Will, 2026-10-09): "As far as I
+  know, there is no functional difference between running it with a 'real'
+  license vs a free 'beta' license. Also, there's the fact that the hang was
+  triggered by a host-issued command." The host's lone read hangs the drive with
+  MakeMKV not involved at all. Job 47's clean run is most likely one of the
+  clean runs this drive has always had, like jobs 43 and 44. Don't build on
+  registration without a reason that answers both points.
+- The reproducer at 21:59:03 was sent deliberately, as the planned post-job
+  attempt. The tray was open with no disc. ARM ejected at 21:58:40, the drive
+  read status `2` (tray open) at 21:58:50, and the guest's `TEST UNIT READY`
+  failed with sense from the eject on until then.
+
+The `kubectl rollout restart` used to deploy D15's wrapper change was undone
+seconds later. The deployment went back to its previous ReplicaSet, most likely
+Flux reconciling away the `restartedAt` annotation, but that left a fresh pod
+anyway, which mounted the new scripts.
+
+### 2026-10-09 — job 48: *Around the World* disc 2 rips for the first time
+
+Observations only. Host times are Denver. Trace: `/var/tmp/arm-sata/trace-job48.txt`
+on vulcanus, running until the job ends.
+
+*Around the World in 80 Days* disc 2, its fourth job. Jobs 40, 41 and 42 each
+hung once and none got past the start of a rip. MakeMKV's output names confirm
+the disc: `AROUND THE WORLD IN 80 DAYS DISC 2-*`. The host was cold
+power-cycled after job 47's reproducer and booted at 22:25:16. Nothing was sent
+to the drive from the host before the tray was closed at 04:41:40 UTC. Job 48
+started 04:41:58 UTC.
+
+| run | ARM log (UTC) | outcome |
+|---|---|---|
+| `info disc:9999` | 04:52:09 – 04:52:17 | `Failed to open disc`, as usual |
+| `info disc:0` | 04:52:18 – 05:15:44 | LibreDrive and direct disc access at 04:52:43, 5 titles |
+| `mkv` | 05:15:45 – 07:18:13 | `Copy complete. 5 titles saved`, 9.49 GB in 2 h 02 min, zero `MSG:2003` |
+
+- No `ata4` exceptions for the whole rip. All six buffer-`0x77` reads (one init
+  form, five 4-byte) completed in under 10 ms.
+- The `disc:0` run, where jobs 41 and 42 hung, and the start of the `mkv` run,
+  where job 40 hung, both passed without incident.
+- The tray stayed shut into the transcode (status 4, `ejected: 0`), and
+  `handbrake_all` began with `title_1`, HandBrake's numbering.
+
+On this disc that makes 9 `makemkvcon` runs and 3 hangs: two runs each in jobs
+40, 41 and 42, each job ending in a hang, then three clean in job 48. Of the 11
+jobs since the 2026-09-21 restart, 44, 47 and 48 had no `ata4` event; 39 and 43
+had one that recovered; 38, 40, 41, 42, 45 and 46 lost the drive.
+
+Job 48 ended `success` at 10:57:45 UTC, and verifies D14 on a multi-title DVD.
+`handbrake_all` encoded titles 1–5 once each (07:18 → 10:57), with no `-t 0`
+pass and no second pass. `completed/` holds the main feature (`title_1`, 69 min)
+and titles 2–5 in `extras/`. The one eject came after `ARM processing complete`.
+There were no `ata4` exceptions through the end of the job.
+
+### 2026-10-09 — research: what buffer `0x77` is, and an SDF difference between jobs
+
+Will, 2026-10-09: "Sounds like it's most statistically likely that it's related
+to the firmware / LibreDrive — let's start digging in to that." He also warned
+that firmware updates often remove LibreDrive compatibility, and that this
+drive was bought from Billycar11 on the MakeMKV forums because LibreDrive-capable
+internal drives are now hard to get. Firmware changes stay declined.
+
+**What LibreDrive does to the drive.** MakeMKV's library uploads "a small
+software (a firmware extension) into drive volatile memory". It exposes an
+alternative read interface, and the flashed firmware itself isn't changed. A
+power-off removes it. The SCSI commands used to install and drive it aren't in
+MakeMKV's code. They come from a per-firmware data blob, `SDF.bin`, which the
+library interprets (mike admin,
+https://forum.makemkv.com/forum/viewtopic.php?f=19&t=18856). That fits the hang
+needing a power cycle: the code that stops answering lives in RAM.
+
+**What the hung command is.** freemkv-unlock, an open-source reimplementation,
+classifies `READ BUFFER` mode 2 buffer `0x77` (and mode 1 buffer `0x44`) as the
+LibreDrive "unlock handshake" read. A genuine reply carries the marker `MMkv` at
+bytes 12–16
+(https://github.com/freemkv/freemkv-unlock/blob/cfe2efa667f7f7cc86580713cf86b219767e6d55/src/ld/cdb.rs).
+So every traced hang is the drive's RAM extension failing to answer its own
+handshake. Its changelog describes Pioneer support as "runtime H8S hooks" and
+says it verifies "resident hooks before reuse". That describes its own
+implementation, not a known MakeMKV bug, but it is the situation our hangs
+cluster in: runs after the first since power-on.
+
+**The drive's firmware.** A stock BDR-212 on 1.01 reports LibreDrive as
+"Possible, not yet enabled"; Billycar11 sells a flash kit to enable it
+(https://forum.makemkv.com/forum/viewtopic.php?t=32926). This drive reports
+`1.01` and runs `LibreDrive mode (v02.1 id=DFAA920B9011)`, so it is very
+likely flashed. That hasn't been checked against MakeMKV's drive-info
+"Firmware type" line. Pioneer firmware can't be downgraded (same thread),
+which is another reason to leave it alone.
+
+**No matching reports found.** Nothing read describes this symptom, the
+LibreDrive handshake hanging until the SATA link is lost. The search was narrow:
+the main Pioneer LibreDrive thread
+(https://forum.makemkv.com/forum/viewtopic.php?t=27378) has ~136 pages and only
+two were read. "Makemkv hangs OS" (t=21841) is unrelated: the whole host froze,
+and later with HandBrake too.
+
+**An SDF difference between jobs, found on the way.** MakeMKV logged
+`MSG:3338 "Downloading latest SDF to /root/.MakeMKV ..."` in jobs 47 and 48 only.
+None of jobs 15–46 ever downloaded it. Those had no `HOME` (D15), so MakeMKV had
+nowhere to keep it and presumably fell back to the definitions built into the
+binary. Jobs 47 and 48 are also the only two clean jobs on a drive that had just
+been failing. Both kinds of run report the same `LibreDrive mode (v02.1
+id=DFAA920B9011)`, and the downloaded archive (`_private_data.tar`) doesn't
+expose an SDF version, so whether the definitions for this drive actually
+differ is not established. Against it: jobs 18–36 also ran without a download
+and were mostly clean, and the host's lone read hung after job 47.
+`/root/.MakeMKV` is container-local, so the SDF is fetched again by the first
+job after each pod restart, which needs internet access.
+
+**The SDF versions differ** (checked 2026-10-09). MakeMKV 1.18.4 ships
+`sdf_000000a5.bin` (2,101,200 bytes) in `/usr/local/share/MakeMKV/appdata.tar`.
+Jobs 47 and 48 downloaded `sdf_000000a6.bin` (2,119,472 bytes) into
+`/root/.MakeMKV/_private_data.tar`. So jobs 15–46 ran SDF `0xA5` and jobs 47–48
+ran `0xA6`. Both files are encrypted (entropy 7.999 bits/byte), so no strings
+are readable. `sdftool` (a symlink to `makemkvcon`) prints only the version and
+an "Identification SDF" from either file: with a dummy drive (`-n`), even with
+`-t DFAA920B9011`, it reports "No drive-specific logic found". Whether this
+drive's entry changed between `0xA5` and `0xA6` therefore needs the real drive
+(`sdftool -d /dev/sr0 -f <file> --info`), which runs the SDF's firmware
+identification against it. Copies of both files are in `captures/sdf/`.
+
+**Against the drive, the visible parts are identical** (2026-10-09, traced).
+`sdftool -d /dev/sr0 -v -f <file> --info` ran once with each version. Each sent
+only identification commands: `INQUIRY`, `GET CONFIGURATION`, and `READ BUFFER`
+`0xF1` and `0xB0`, as MakeMKV sends in every run. It sent no `MODE SELECT`, no
+`WRITE BUFFER` and no buffer `0x77`, and caused no `ata4` event. With no disc it
+is safe to repeat. The two outputs differ only in the version line. For this
+drive both select a "Drive Specific SDF" reporting:
+
+- Drive platform `RS8F01`; firmware name **`PIONEER BDR-212T`**; firmware type
+  **Original (unpatched)**; version `1.01/ID83`. Autodetect string
+  `pioneer:SAT :8F01:ID83: :PIONEER :BD-RW BDR-212U1.01: 20/07/21`.
+- Status Enabled; DVD all regions, BD raw data read, BD raw metadata read,
+  unrestricted read speed: all Yes.
+- Status message `Using LibreDrive mode (v02.1 id=DFAA920B9011)`, the same in
+  both.
+
+So the drive reports `BDR-212U` but runs stock BDR-212T firmware `1.01/ID83`.
+That fits a cross-flash, presumably Billycar11's, onto firmware LibreDrive
+supports, rather than a patched firmware. Contrast the stock BDR-212V on
+1.01/`ID06` reported as "Possible, not yet enabled".
+
+`--info` prints only the descriptive strings, not the command program the entry
+runs, so this doesn't prove the logic is unchanged. The identical `id` weakly
+suggests the same drive-specific entry, if `id` identifies that entry, which is
+unconfirmed. `sdftool -d /dev/sr0 -f <file> help`, which would list the entry's
+commands, stalled in the tool for 120 s with no output after identifying the
+drive normally, both times. The SDF lead is therefore weakened but not closed.
+`captures/sdf/sdftool-info-drive-a6.txt` holds the full output.
+
+### 2026-10-10 — job 49: *Sherlock* rips for the first time
+
+Observations only. Trace: `/var/tmp/arm-sata/trace-job49.txt` on vulcanus,
+running until the job ends.
+
+*Sherlock Holmes in the 22nd Century* (label `Sherlock`), whose one earlier run
+(job 38) lost the drive about 30 s in. There was no power cycle since the
+2026-10-08 22:25 boot. Since then the drive had run job 48 (clean) and the two
+`sdftool --info` identifications. The tray was closed from the host at
+12:16:42 UTC. As in jobs 37 and 38, the wrapper logged `Starting ARM for Data
+Disk ... udf`, and the job records `dvd`.
+
+| run | ARM log (UTC) | outcome |
+|---|---|---|
+| `info disc:0` | 12:27:05 – 12:27:39 | LibreDrive and direct disc access at 12:27:12, 6 titles |
+| `mkv` | 12:27:39 – 12:46:12 | `Copy complete. 6 titles saved`, 4.13 GB in 18.5 min, zero `MSG:2003` |
+
+There was no `disc:9999` run, and no `ata4` exception.
+
+- **Neither run sent the LibreDrive init** (`MODE SELECT` 0x4E0, `WRITE
+  BUFFER 0xB0`, 32-byte `READ BUFFER 0x77 @0`). The extension was presumably
+  still resident from job 48. The four 4-byte checks all completed in
+  9.3–10.3 ms, each 12–25 ms after a rejected `MODE SELECT(10)` 0x740.
+- **The 4-byte check read a different address:** `3c 02 77 12 20 00 00 00 04
+  00`, offset `0x122000`. Every earlier traced run read `0x121000`, including
+  jobs 47 and 48 on SDF `0xA6`, each of which ran the init once. Why the address
+  moved isn't known. Candidates are where the extension sits after a reuse
+  rather than a fresh install, or something the `sdftool` runs changed. Not
+  investigated.
+- **ARM identified the disc as the BBC series:** the transcode path is
+  `tv/Sherlock (2010-2017)/`. That is D12's failure: the label `Sherlock` is
+  ambiguous and nobody corrected it in the manual wait. It also makes this the
+  first job through the `d14-move-series` edit.
+
+Job 49 ended `success` at 14:40:29 UTC, and verifies `d14-move-series`.
+`handbrake_all` encoded titles 1–6 once each (12:46 → 14:40). `move_files` was
+called for HandBrake's `title_1.mkv` … `title_6.mkv` only, and none of MakeMKV's
+`A1_t0x.mkv` names were matched onto them. All six are in
+`completed/tv/Sherlock (2010-2017)/`, a folder named for the wrong series
+(above). The one eject came after `ARM processing complete`. There were still no
+`ata4` exceptions on the 2026-10-08 22:25 boot, across jobs 48 and 49 and the
+`sdftool` tests.
+
+Since the `HOME` fix, and so SDF `0xA6`, jobs 47, 48 and 49 have all run with no
+`ata4` event, on the two discs with the worst record. From the 2026-09-21
+restart up to the fix, 1 of 9 jobs did (44). That favours the SDF change, or
+something else the `HOME` fix changed, but it doesn't establish it. `0xA5` ran
+mostly clean in jobs 18–36. The `--info` entries for this drive are identical
+in both versions. Job 49 never ran the init where jobs 45 and 46 hung. And the
+host's lone read hung after job 47.
