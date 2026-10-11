@@ -9,6 +9,19 @@ The main target is the optical drive, which keeps losing its SATA link
 same controller logged link-layer errors of its own between June and September,
 and since it is one cable over, it is in scope too.
 
+## Read first: status as of 2026-10-11
+
+This visit may not be needed. Jobs 47–49 ran clean after the D15 fix, which also
+changed the LibreDrive definitions MakeMKV uploads. The evidence also points at
+the drive and LibreDrive rather than the cable. See **The drive's SATA link
+losses: start here** in `todos/disc-ripping.md` before planning the visit. If
+hangs have returned by then, the first test worth doing is **the drive in
+another computer**: a USB-SATA adapter with its own power, MakeMKV on a disc,
+then the reproducer. It changes cable, port, controller, power, QEMU and host
+kernel at once, so a hang there settles it as the drive. That was proposed
+2026-10-09, not decided. The ordered checks below predate it. `sda`'s cable
+(step 6) is worth doing either way.
+
 ## What is known, verified 2026-10-06
 
 **The drive hang reproduces without MakeMKV or the VM in the loop, once MakeMKV

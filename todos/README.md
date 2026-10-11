@@ -108,9 +108,11 @@ The optical drive hangs on one command badly enough to drop off its SATA link,
 and a disc-free reproducer now exists to measure it. Its link-down events show
 8b/10b decode errors, and `sda`, one port over on the same controller, logged
 link-layer failures from June to September. The checks run in order, with the
-reproducer after each, and stop at the first change that helps. It needs a
-reproducer baseline before the visit, and the visit itself is about a month
-from 2026-10-06.
+reproducer after each, and stop at the first change that helps. Since
+2026-10-09 the evidence points at the drive's LibreDrive handling rather than
+the cable, and rips have been clean since a fix that changed the LibreDrive
+definitions in use. So the visit may not be needed. Check the spec's status
+note first.
 
 
 ## Applications
