@@ -1,15 +1,12 @@
 # A copy of headscale's database, taken by a pod of our own: headscale's image
 # has no shell to exec into.
-# See docs/backups.md.
 apiVersion: k8up.io/v1
 kind: PreBackupPod
 metadata:
   name: headscale-sqlite
   labels:
-    # Also picked up by the dumps-only Schedule.
     k8up-dump: "true"
 spec:
-  # .backup needs a seekable destination, hence the file before the cat.
   backupCommand: >-
     sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT;
     sqlite3 "/data/db.sqlite" ".backup $f"; test -s "$f"; cat "$f"'

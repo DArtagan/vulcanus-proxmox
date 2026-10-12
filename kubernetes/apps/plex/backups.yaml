@@ -1,16 +1,13 @@
 # A copy of Plex's database, taken by a pod of our own: Plex's image has no
 # sqlite3. A page copy, not VACUUM INTO, which can trip on Plex's custom ICU
 # collations.
-# See docs/backups.md.
 apiVersion: k8up.io/v1
 kind: PreBackupPod
 metadata:
   name: plex-sqlite
   labels:
-    # Also picked up by the dumps-only Schedule.
     k8up-dump: "true"
 spec:
-  # .backup needs a seekable destination, hence the file before the cat.
   backupCommand: >-
     sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT;
     sqlite3 "/data/Library/Application Support/Plex Media Server/Plug-in Support/Databases/com.plexapp.plugins.library.db" ".backup $f"; test -s "$f"; cat "$f"'

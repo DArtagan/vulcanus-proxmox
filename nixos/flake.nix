@@ -4,8 +4,6 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-    # Upstream main, not nixpkgs' v0.4.0, the last tag (May 2023). flake.lock
-    # pins the revision. See docs/nixos.md.
     colmena = {
       url = "github:nix-community/colmena";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -26,59 +24,46 @@
     }:
     let
       system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system};
+      inherit (nixpkgs) lib;
 
-      # One definition per host, feeding every output below; see
-      # docs/nixos.md. `deployment` is here, not in the module, because it is a
-      # colmena option, which a plain nixosSystem rejects.
       hosts = {
         restic-repository = {
           module = ./hosts/restic-repository;
-          deployment = {
-            targetHost = "192.168.0.108";
-            targetUser = "root";
-          };
+          address = "192.168.0.108";
         };
+      };
+
+      # What every host module receives besides the usual module arguments.
+      hostArgs = host: {
+        inherit (self) inputs;
+        inherit (host) address;
       };
     in
     {
-      # The hive, which the pinned colmena reads through `colmenaHive` below.
-      colmena = {
-        meta = {
-          nixpkgs = pkgs;
-          specialArgs.inputs = self.inputs;
-        };
-      }
-      // builtins.mapAttrs (_: host: {
-        imports = [ host.module ];
-        inherit (host) deployment;
-      }) hosts;
-
-      # What the pinned colmena evaluates; it errors without it.
-      colmenaHive = colmena.lib.makeHive self.outputs.colmena;
-
-      # The same systems, for `nixos-rebuild --flake` and the like.
-      nixosConfigurations = builtins.mapAttrs (
-        _: host:
-        nixpkgs.lib.nixosSystem {
-          inherit system;
-          specialArgs.inputs = self.inputs;
-          modules = [ host.module ];
+      colmenaHive = colmena.lib.makeHive (
+        {
+          meta = {
+            nixpkgs = nixpkgs.legacyPackages.${system};
+            nodeSpecialArgs = lib.mapAttrs (_: hostArgs) hosts;
+          };
         }
-      ) hosts;
+        // lib.mapAttrs (_: host: {
+          imports = [ host.module ];
+          deployment = {
+            targetHost = host.address;
+            targetUser = "root";
+          };
+        }) hosts
+      );
 
-      # LXC templates, for creating a container. colmena owns it after that.
-      packages.${system} = builtins.mapAttrs (
+      # LXC templates, for creating a container; colmena owns it after that.
+      packages.${system} = lib.mapAttrs (
         _: host:
-        (nixpkgs.lib.nixosSystem {
+        (lib.nixosSystem {
           inherit system;
-          specialArgs.inputs = self.inputs;
+          specialArgs = hostArgs host;
           modules = [ host.module ];
         }).config.system.build.tarball
       ) hosts;
-
-      devShells.${system}.default = pkgs.mkShell {
-        packages = [ colmena.packages.${system}.colmena ];
-      };
     };
 }

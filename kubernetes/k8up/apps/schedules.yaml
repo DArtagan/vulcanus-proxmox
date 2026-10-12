@@ -2,13 +2,14 @@ apiVersion: k8up.io/v1
 kind: Schedule
 metadata:
   name: full
-  namespace: apps
 spec:
   backup:
-    # UTC. Staggered against the other Schedules and the repository host's
-    # jobs; see docs/backups.md.
+    # UTC. Staggered: K8up serialises jobs only within a namespace, so full
+    # runs at once would be three restic writers on the same spindles. Clear
+    # of the repository host's jobs too; see docs/backups.md.
     schedule: "0 1 * * *"
-  # The repository's only K8up Check. See docs/backups.md.
+  # The repository's only K8up Check: there is one repository, so a Check per
+  # Schedule would run the same check three times.
   check:
     schedule: "0 3 * * 0"
 ---
@@ -16,7 +17,6 @@ apiVersion: k8up.io/v1
 kind: Schedule
 metadata:
   name: dumps
-  namespace: apps
 spec:
   backup:
     # The label narrows this to the dumps. `full` takes them at 01:00.

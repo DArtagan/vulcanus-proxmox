@@ -1183,6 +1183,19 @@ figures, the wrong turns, and what is still open.
 - **A dump the store cannot serve fails the coverage check**, and ages are compared
   exactly (review of PR #13): rounded down to the hour, a missed 07:00 dumps run had
   passed, making the six-hour RPO twelve in practice.
+- **The NixOS secrets are not encrypted to Flux's key** (review of PR #13). Verbatim:
+  *"This can't be our reason, that's using one security context to do something
+  else."* Nothing else needs escrowing for them: the restic passphrase and REST
+  password already are, the htpasswd derives from the latter, and the healthchecks
+  URLs come from healthchecks.io.
+- **One repository Secret, under a directory per namespace** (review of PR #13).
+- **The repository host mounts under `/mnt`, not `/srv`** (review of PR #13), as
+  the fileserver does. Verbatim: *"Yes, let's move to `/mnt` - I accept the
+  change-over costs."* Its first mass-file run on the new paths re-reads everything.
+- **No REST password kept in the clear on the host** (review of PR #13): it served
+  only to test the append-only boundary by hand.
+- **The repository container has 1 GiB**, not 4 (review of PR #13): its recorded
+  peak was 290 MiB.
 - **Each app's backup configuration in its `backups.yaml`**, with one shared sqlite3
   image under `kubernetes/k8up/` (review of PR #13). Only for the PreBackupPod
   applications: the annotation route's config stays on its Deployment.

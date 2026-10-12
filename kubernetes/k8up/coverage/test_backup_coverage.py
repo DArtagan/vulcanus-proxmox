@@ -135,9 +135,9 @@ class SnapshotParsing(unittest.TestCase):
             {
                 "time": "2026-09-21T11:45:02.123456789-06:00",
                 "paths": [
-                    "/srv/storage/books",
-                    "/srv/storage/filesync",
-                    "/srv/storage/photos",
+                    "/mnt/storage/books",
+                    "/mnt/storage/filesync",
+                    "/mnt/storage/photos",
                 ],
                 "hostname": "restic-repository",
                 "tags": ["decommissioned"],
@@ -164,17 +164,17 @@ class SnapshotParsing(unittest.TestCase):
         self.assertEqual(arm.newest, 1_790_042_405)
 
     def test_an_offset_is_honoured(self) -> None:
-        repo = self.held["restic-repository", "/srv/storage/books"]
+        repo = self.held["restic-repository", "/mnt/storage/books"]
         self.assertEqual(repo.newest, 1_790_012_702)
 
     def test_a_snapshot_with_no_summary_reads_as_unknown_size(self) -> None:
-        repo = self.held["restic-repository", "/srv/storage/books"]
+        repo = self.held["restic-repository", "/mnt/storage/books"]
         self.assertIsNone(repo.files)
         self.assertIsNone(repo.size)
         self.assertIsNone(repo.previous_files)
 
     def test_tags_are_carried(self) -> None:
-        repo = self.held["restic-repository", "/srv/storage/books"]
+        repo = self.held["restic-repository", "/mnt/storage/books"]
         self.assertIn("decommissioned", repo.tags)
 
 
@@ -499,7 +499,7 @@ class VerdictTable(unittest.TestCase):
     def test_the_repository_hosts_own_snapshots_are_not_this_checks_business(
         self,
     ) -> None:
-        held = series("/srv/storage/books", host="restic-repository", newest=OLD)
+        held = series("/mnt/storage/books", host="restic-repository", newest=OLD)
         self.assertEqual(verdicts([], [], [held]), ([], []))
 
     def test_unreadable_files_report_without_failing(self) -> None:
@@ -604,7 +604,7 @@ class TheEstateAsMeasured(unittest.TestCase):
                     previous_size=0,
                 ),
                 series(
-                    "/srv/storage/books",
+                    "/mnt/storage/books",
                     host="restic-repository",
                     files=None,
                     size=None,

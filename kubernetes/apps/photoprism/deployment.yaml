@@ -12,11 +12,8 @@ spec:
     metadata:
       labels:
         app: photoprism
-        # Also picked up by the dumps-only Schedule.
         k8up-dump: "true"
       annotations:
-        # Into a file of this run's own, streamed only once checked. See
-        # docs/backups.md.
         k8up.io/backupcommand: >-
           sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT; MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb-dump -u root --single-transaction --databases "$MARIADB_DATABASE" > "$f"; test -s "$f"; cat "$f"'
         k8up.io/backupcommand-container: database

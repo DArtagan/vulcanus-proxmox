@@ -11,15 +11,11 @@ creation_rules:
   # Kubernetes rule below matches these paths too: its encrypted_regex would
   # leave every value of a sops-nix file, which has no data/stringData, in
   # plaintext. No encrypted_regex here, so every value is encrypted.
-  #
-  # *flux although nothing in the cluster reads these files: it is the
-  # escrowed key, and must open every file in the repository.
   - path_regex: "^nixos/hosts/restic-repository/.*\\.sops\\.yaml$"
     key_groups:
       - age:
         - *steamdeck_willy
         - *thenixbeast_will
-        - *flux
         - *restic_repository
 
   # Kubernetes Secrets, which Flux decrypts. Only data/stringData is encrypted,

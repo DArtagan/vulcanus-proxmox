@@ -33,19 +33,27 @@ spec:
       retries: 3
   values:
     k8up:
-      # Safe only with one replica and the Recreate below, so never scale this
-      # up. openebs.yaml does the same, for the same reason. See
-      # docs/backups.md.
+      # With it on, controller-runtime renews a Lease every 2s against etcd's
+      # spinning disks, and an etcd stall makes the holder exit: crash-looping
+      # through the backup window. Safe only with one replica and the Recreate
+      # below, so never scale this up. openebs.yaml does the same.
       enableLeaderElection: false
       envVars:
         # Empty turns off the Pushgateway push, whose default address reaches
-        # nothing and logs an ERROR per item. Only here: an empty promURL on a
-        # Schedule falls back to this. See docs/backups.md.
+        # nothing and logs an ERROR per item. A Pushgateway would not help: K8up
+        # groups pushes by namespace, so each item's push replaces the last, and
+        # the snapshot summaries hold the same numbers per item. Only here: an
+        # empty promURL on a Schedule falls back to this.
+        #
+        # Never add INSECURE_ALLOW_PODEXEC_SPDY_FALLBACK: SPDY exec streaming
+        # silently dropped the ends of dumps (k8up#1109).
         - name: BACKUP_PROMURL
           value: ""
     metrics:
-      # So TargetDown covers the operator. Coverage comes from the store, not
-      # these metrics; see docs/backups.md.
+      # So TargetDown covers the operator. Not for backup success: no metric
+      # carries a claim, and k8up_schedule_last_job_succeeded is set only by
+      # Check, Prune, Restore and Archive, never a backup. A Backup's namespace
+      # is in exported_namespace. The coverage check reads the store instead.
       serviceMonitor:
         enabled: true
       # Its rules fire on a failed job, which cannot resolve itself. See

@@ -115,6 +115,12 @@ provider "proxmox" {
 
 # The restic repository. See docs/backups.md. NixOS: Terraform creates the
 # container, and nixos/ owns everything inside it. See docs/nixos.md.
+#
+# A container with a bind-mounted dataset, not a VM: mini-nas can then mount
+# the replica and verify it with no help from vulcanus. A VM would need a zvol,
+# which needs something booted to verify it, or a network mount, which brings
+# back the CIFS locking a restic repository must not sit on. Not the fileserver
+# LXC: it is privileged, and too small for `restic prune`.
 resource "proxmox_lxc" "restic_repository" {
   target_node = "vulcanus"
   hostname = "restic-repository"
@@ -129,13 +135,15 @@ resource "proxmox_lxc" "restic_repository" {
 
   unprivileged = true
 
-  # `restic prune` holds the whole index in memory.
-  memory = 4096
+  # restic holds the repository's index in memory, peaking near 250 MiB.
+  memory = 1024
   cores = 2
   swap = 0
   onboot = true
   start = true
 
+  # Not nested virtualization: systemd needs it to isolate services, which NixOS
+  # units do throughout. Off by default through the API, unlike the GUI.
   features {
     nesting = true
   }
@@ -145,25 +153,21 @@ resource "proxmox_lxc" "restic_repository" {
     size = "20G"
   }
 
-  # Never set `storage` on a bind mount, here or below. The provider reads it
-  # back empty from a host path, so any value is a diff no apply settles, and
-  # each apply attempts a storage move that Proxmox rejects.
   mountpoint {
     key = "0"
     slot = 0
     volume = "/rpool/backups/restic"
-    mp = "/srv/restic"
+    mp = "/mnt/backups/restic"
     size = "1M"
   }
 
-  # The mass-file datasets it backs up. Read-only if the provider could say so;
-  # it has no `ro=1`. The uid shift keeps them safe: owned outside the
-  # container's range, they appear as `nobody` and are not writable inside.
+  # Read-only in effect, though the provider has no `ro=1`: owned outside the
+  # container's uid range, they appear as `nobody` inside.
   mountpoint {
     key = "1"
     slot = 1
     volume = "/rpool/storage/photos"
-    mp = "/srv/storage/photos"
+    mp = "/mnt/storage/photos"
     size = "1M"
   }
 
@@ -171,7 +175,7 @@ resource "proxmox_lxc" "restic_repository" {
     key = "2"
     slot = 2
     volume = "/rpool/storage/books"
-    mp = "/srv/storage/books"
+    mp = "/mnt/storage/books"
     size = "1M"
   }
 
@@ -179,12 +183,11 @@ resource "proxmox_lxc" "restic_repository" {
     key = "3"
     slot = 3
     volume = "/rpool/storage/filesync"
-    mp = "/srv/storage/filesync"
+    mp = "/mnt/storage/filesync"
     size = "1M"
   }
 
-  # Not applied to an `unmanaged` guest; nixos/hosts/restic-repository sets the
-  # address. Here so `pct config 108` tells the truth: change both together.
+  # Keep network IP in sync with `vmid` above.
   network {
     name = "eth0"
     bridge = "vmbr0"
@@ -193,7 +196,8 @@ resource "proxmox_lxc" "restic_repository" {
   }
 
   lifecycle {
-    # A rebuilt template must not recreate the machine holding the backups.
+    # ostemplate matters only at creation, and changing it would destroy and
+    # recreate the container holding the backups.
     ignore_changes = [ostemplate]
   }
 }

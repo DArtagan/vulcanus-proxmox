@@ -33,6 +33,13 @@
     enable = true;
   };
 
+  # The colmena nixos/flake.lock pins, so the binary matches the flake's
+  # makeHive. Runs from anywhere in the repository.
+  scripts.colmena.exec = ''
+    exec nix run --inputs-from "$DEVENV_ROOT/nixos" colmena -- \
+      --config "$DEVENV_ROOT/nixos/flake.nix" "$@"
+  '';
+
   scripts.beets-shell.exec = ''
     # An interactive beets CLI session against the real library, for the things
     # the beets-flask web UI does not cover (bulk `beet modify`, `beet mbsync`,

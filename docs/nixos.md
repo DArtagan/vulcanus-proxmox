@@ -11,23 +11,18 @@ Proxmox container. The other containers are managed by Ansible.
 
 Everything is in `nixos/`:
 
-- **`flake.nix`** holds one `hosts` attrset. Each entry feeds three outputs from
-  the same module: the colmena node, `nixosConfigurations`, and the LXC template
-  under `packages`. A template built from other modules than the deployment's is how
-  a host becomes unmanageable the first time anyone changes it.
+- **`flake.nix`** lists each host once, with its module and address. colmena deploys
+  from it, and builds each host's LXC template from the same module.
 - **`hosts/<name>/default.nix`** is the host.
 - **`hosts/<name>/secrets.sops.yaml`** holds its secrets, for sops-nix.
-
-colmena comes from its upstream flake, since nixpkgs ships 0.4.0 from May 2023;
-`flake.lock` pins it, so it moves only on `nix flake update`. That colmena evaluates
-the flake's **`colmenaHive`** output and errors if only `colmena` is present, so the
-flake has both.
 
 ## Deploying a change
 
 ```bash
-cd nixos && nix develop --command colmena apply --on <host>
+colmena apply --on <host>
 ```
+
+From the devenv shell, anywhere in the repository.
 
 Then check the change took effect *inside* the host: a unit's state, a file, a
 listening port. A successful apply is not that check. From off the LAN, SSH needs the
@@ -35,7 +30,8 @@ host's grant in the tailnet policy; see [`tailnet.md`](tailnet.md).
 
 ## Creating a host
 
-1. Write `hosts/<name>/default.nix` and add it to `hosts` in `flake.nix`.
+1. Write `hosts/<name>/default.nix` and add it, with its address, to `hosts` in
+   `flake.nix`.
 2. Build its template with `nix build ./nixos#<name>`. Upload it to vulcanus as
    `local:vztmpl/nixos-<name>.tar.xz`, a stable name: the build's own filename
    carries the nixpkgs revision, and Terraform would read every flake update as a
@@ -58,9 +54,8 @@ the derived identity cannot open, and activation fails with "0 successful groups
 
 The NixOS rule comes first in `.sops.yaml`, since sops takes the first rule that
 matches and the Kubernetes rule would encrypt only `data`/`stringData`, which a
-sops-nix file does not have. Every file is also encrypted to the humans' keys and to
-Flux's, so the escrowed Flux key alone opens every file. Adding a host must keep it
-that way.
+sops-nix file does not have. Every file is also encrypted to the humans' keys, so a
+rebuilt host, with a new host key, can have its file re-encrypted to it.
 
 ## NixOS in a Proxmox container
 
