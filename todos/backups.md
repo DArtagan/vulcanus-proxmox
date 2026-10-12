@@ -1385,13 +1385,56 @@ positive controls. The residue is freed blocks on `rpool/home`, which is unencry
   StatefulSet with `--cascade=orphan`; Helm recreated it, upgraded to 0.13.10, and
   logs kept flowing with their history intact.
 
+#### Each application's own backup guidance — read 2026-10-12
+
+Read once per stateful application, to see what its designers know that this
+design might not. Where we already agree, nothing is noted.
+
+- **PhotoPrism** ([backups](https://docs.photoprism.app/user-guide/backups/),
+  [restore](https://docs.photoprism.app/user-guide/backups/restore/)): back up the
+  originals, the index, and the storage folder. Restore the folders, then the index
+  with `photoprism restore -i -f`, which takes the newest of its own dumps in
+  `storage/backup/mysql`; those ride the data volume. Without an index, a rescan
+  plus the YAML sidecars and album files recovers metadata and albums. A restored
+  index brings back accounts and passwords as of the dump. It advises testing a dump
+  on a separate instance before replacing a live index — done on 2026-10-12.
+  Originals are on the photos share, covered by ZFS and the mass-file backup.
+- **Plex** ([backing up](https://support.plex.tv/articles/201539237-backing-up-plex-media-server-data/),
+  [repair](https://support.plex.tv/articles/repair-a-corrupted-database),
+  [restoring a scheduled backup](https://support.plex.tv/articles/202485658-restore-a-database-backed-up-via-scheduled-tasks/)):
+  the whole data directory, `Cache` excludable; on Linux `Preferences.xml` is inside
+  it. **A restore replaces `library.db` and `library.blobs.db` as a pair**, owned by
+  plex. Our dump takes only `library.db`; `library.blobs.db` (140 MB, WAL, 14,738
+  blobs) exists only as a live file copy in the volume snapshot, and as Plex's own
+  dated pairs, the newest up to three days old. Only Plex's SQLite can repair or
+  fully check either file, which we already use.
+- **linkding** ([backups](https://linkding.link/backups)): recommends its
+  `full_backup` zip, and warns that copying `db.sqlite3` is not transaction-safe.
+  Our `.backup` copy is transaction-safe, matching its deprecated `backup` command.
+  **The database references HTML snapshots in `assets/`**, so a restore should pair
+  a dump with the volume snapshot from the same full run. Favicons regenerate.
+- **headscale** ([upgrade](https://headscale.net/stable/setup/upgrade/)): config,
+  data directory and database; migrations run on upgrade and are one-way, so back up
+  before upgrading. **Upgrades must step through every minor version.** So a dump
+  restores with the headscale version that wrote it, from git history, then steps
+  forward. Image automation moves one minor per release, and dumps are at most six
+  hours old at any upgrade.
+- **Grafana** ([back up](https://grafana.com/docs/grafana/latest/administration/back-up-grafana/)):
+  configuration, plugin data and the database. It advises stopping Grafana before
+  copying the SQLite file; `.backup` makes that unnecessary. Configuration is in git,
+  plugins on the volume.
+- **PinePods** ([server backup and restore](https://pinepods.online/docs/tutorial-basics/Backup-Restore),
+  [Postgres major upgrade](https://pinepods.online/docs/Troubleshooting/PostgresMajorUpgrade)):
+  a manual SQL download from Settings; its restore accepts only its own files, so ours
+  restores through `psql`, as proven. A Postgres data directory is bound to its major
+  version; the image policy is already minor-only for that reason. A plain `pg_dump`
+  loads into any newer major, so the dump is also the route across one.
+
 #### Still open
 
 - **No restore runbook until Phase 6.** On a rebuilt cluster Flux reconciles
   applications onto fresh empty claims, and databases initialise before any restore
   lands, so the Kustomizations must be suspended first.
-- **`pinepods-backups-pvc` is empty and can be retired**, the annotation dump having
-  replaced what it was for.
 - **A stale grant on mini-nas:** `zfs allow` on `rpool/foreign-backups/vulcanus` names
   uid 994, where the syncoid user is 993. Cruft, not a dependency: the syncoid module
   grants what it needs around every run.

@@ -134,6 +134,56 @@ answers "why" more convincingly than a backtrace would, because it demonstrates
 the fix rather than the fault — that is how webtop's Thunar spin was pinned on
 its preloaded udev shim.
 
+## Adding a stateful workload
+
+**Decide how its data is backed up as part of adding it.** Every PVC is either
+backed up or explicitly excluded, and the coverage check holds the cluster to that:
+a new claim reports as awaiting its first backup for a night, then fails until a
+snapshot of it lands or it is excluded. [`backups.md`](backups.md) describes the
+machinery; this is how to choose.
+
+**Read the application's own backup and restore documentation first.** Its designers
+know which files belong together, what a restore needs, and what a version change
+does to the data. Plex's restores two databases as a pair; headscale's cannot skip a
+minor version.
+
+Then work down the list and take the first that fits:
+
+1. **Nothing to back up.** State that git reproduces — manifests, ConfigMaps,
+   SOPS Secrets — needs nothing. If the application has no PVC, it is done.
+2. **Exclude the claim** with `k8up.io/backup: "false"` when its contents are
+   regenerable: caches, metrics, logs, sync state that a resync rebuilds. Also for
+   every SMB share, which ZFS snapshots and replication cover instead. An exclusion
+   is a statement, not an omission; the coverage check lists them.
+3. **Back up the volume and dump the database** when a database writes to the
+   claim continuously: PostgreSQL, MariaDB, or SQLite in WAL mode or with steady
+   writes. A file copy of a live database is crash-consistent at best, so the
+   volume backup is a fallback and the dump is what a restore uses.
+   - A relational database: a `k8up.io/backupcommand` annotation on its pod,
+     running the dump inside the database's own container.
+   - SQLite: a PreBackupPod in the application's `backups.yaml`, using the shared
+     `keinos/sqlite3` image.
+
+   Either way, follow *Writing a backup command* in [`backups.md`](backups.md),
+   name the application in the file extension, and label the producer
+   `k8up-dump: "true"` so the six-hourly dumps take it.
+4. **Back up the volume and nothing more** otherwise: configuration directories,
+   key files, plain files, and SQLite in journal mode with negligible writes. This
+   is K8up's default, so there is nothing to add.
+
+**A new namespace needs a Schedule**, or none of its claims is backed up. Give it a
+directory under `kubernetes/k8up/`, copying an existing one: a kustomization
+setting its `namespace:` and pulling in `../repository`, and a `schedules.yaml`
+whose time is staggered against the others in the schedule table in
+[`backups.md`](backups.md). If another Flux Kustomization creates the namespace,
+add it to `dependsOn` in `kubernetes/cluster/k8up.yaml`.
+
+**Check it after the first night.** In the coverage check's latest ping in
+healthchecks, the summary's claim and dump counts should include the new ones, and
+nothing should still call them new or awaiting a backup. A restore is what proves a
+dump: load it once into a scratch database, as *Restoring from restic* in
+[`backups.md`](backups.md) describes.
+
 ## Removing a stateful workload
 
 **Inventory what dies with it.** For each PVC it owns, check three things: the

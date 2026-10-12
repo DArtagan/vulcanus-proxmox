@@ -1,6 +1,6 @@
-# A copy of Plex's database, taken by a pod of our own: Plex's image has no
-# sqlite3. A page copy, not VACUUM INTO, which can trip on Plex's custom ICU
-# collations.
+# Copies of Plex's two databases, which Plex restores as a pair, each taken by a
+# pod of our own: Plex's image has no sqlite3. Page copies, not VACUUM INTO,
+# which can trip on Plex's custom ICU collations.
 apiVersion: k8up.io/v1
 kind: PreBackupPod
 metadata:
@@ -16,6 +16,36 @@ spec:
     spec:
       # The database's owner, so any -wal or -shm this pod creates stays
       # usable by plex.
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: sqlite
+          image: keinos/sqlite3:3.53.4 # {"$imagepolicy": "apps:k8up-sqlite3"}
+          # Held open for K8up to exec into; tini passes on the stop signal.
+          args: [tail, -f, /dev/null]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: plex-config-pvc
+
+---
+apiVersion: k8up.io/v1
+kind: PreBackupPod
+metadata:
+  name: plex-blobs-sqlite
+  labels:
+    k8up-dump: "true"
+spec:
+  backupCommand: >-
+    sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT;
+    sqlite3 "/data/Library/Application Support/Plex Media Server/Plug-in Support/Databases/com.plexapp.plugins.library.blobs.db" ".backup $f"; test -s "$f"; cat "$f"'
+  fileExtension: .plex-blobs.sqlite
+  pod:
+    spec:
       securityContext:
         runAsUser: 1000
         runAsGroup: 1000

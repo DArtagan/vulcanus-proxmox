@@ -81,14 +81,6 @@ spec:
             - mountPath: /opt/pinepods/local-media
               name: audio
               subPath: podcasts-legacy/
-            # pg_dump output. Intended for the borg share so rclone-b2 would carry
-            # it offsite, but that share is not writable by the SMB credentials and
-            # borgmatic's own repositories are currently missing, so its backups are
-            # failing. Parked on a local volume until that is sorted out: this
-            # survives pod restarts and guards against a bad migration, but it is
-            # node-local and not offsite.
-            - mountPath: /opt/pinepods/backups
-              name: backups
         - name: database
           image: postgres:18.6 # {"$imagepolicy": "apps:pinepods-postgres"}
           env:
@@ -132,6 +124,3 @@ spec:
         - name: audio
           persistentVolumeClaim:
             claimName: audio-rw-pvc
-        - name: backups
-          persistentVolumeClaim:
-            claimName: pinepods-backups-pvc
