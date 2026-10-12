@@ -20,9 +20,8 @@ image backup, and the only one that restores a whole guest with a single command
 restic is the granular layer: one volume, file or database, as of any night retention
 still holds.
 
-**mini-nas pulls the repository too**, giving Kubernetes state a second failure
-domain. It pulls `rpool/backups/restic` alone: its parent `rpool/backups` also holds
-the 2.14 TiB borg tree, which would take mini-nas from 74% to about 90%.
+**mini-nas pulls the restic repository too**, giving Kubernetes state a second
+failure domain: `rpool/backups/restic` alone, not the borg tree beside it.
 
 **Replication is a pull, not a push.** mini-nas holds the SSH key and runs syncoid;
 vulcanus grants it `hold,send` on `rpool` and nothing more. A host that is compromised
@@ -62,26 +61,16 @@ adopts it.
 ### The restic repository
 
 LXC 108, `restic-repository`: unprivileged NixOS, deployed with colmena (see
-[`nixos.md`](nixos.md)). It serves `rest-server --append-only` on port 8000 to the
-cluster, and runs its own restic jobs against the same repository on the local
-filesystem: the `rpool/backups/restic` dataset, bind-mounted at `/srv/restic`.
+[`nixos.md`](nixos.md)). The repository is the `rpool/backups/restic` dataset,
+bind-mounted at `/srv/restic`. The host serves it to the cluster as
+`rest-server --append-only` on port 8000, and runs its own restic jobs against the
+local path.
 
-**A dataset on a container, not a zvol on a VM**, so that mini-nas can mount the
-replica read-only and verify it with no help from vulcanus. A VM cannot bind-mount a
-host dataset: it would need a zvol, which needs something booted to verify it, or a
-network mount, which brings back the CIFS locking a restic repository must not sit
-on. Outside the cluster, the repository survives losing it. Not the fileserver LXC:
-105 is privileged with 512 MB, and `restic prune` holds the whole index in memory.
+**Nothing in the cluster can delete history.** rest-server refuses every delete but a
+lock's, so `forget` through the served URL returns `403 Forbidden`. Retention and
+anything else that deletes run on the host, against `/srv/restic`.
 
-**The dataset is owned by uid 100291 on the host** (`ansible/zfs.yaml`): the
-container shifts uids by 100000, and NixOS gives `restic` uid 291.
-
-**The cluster is treated as a hostile writer.** K8up's credentials would let a
-compromised workload erase its own history, so rest-server refuses every delete
-except of lock files: `forget` through the served URL returns `403 Forbidden`, and
-succeeds against the local path. That is why retention runs on the host.
-
-**Verifying the offsite copy**, on mini-nas alone:
+**The offsite copy can be verified on mini-nas alone:**
 
 ```bash
 mount -t zfs -o ro rpool/foreign-backups/vulcanus/backups/restic@<snapshot> /mnt/verify
@@ -89,7 +78,7 @@ restic -r /mnt/verify --no-lock check
 ```
 
 A snapshot, because the live dataset can be mid-receive; `--no-lock`, because the
-mount is read-only. Like every replica, it is otherwise unmounted (`mountpoint=none`,
+mount is read-only. Like every replica it is otherwise unmounted (`mountpoint=none`,
 `readonly=on`).
 
 **The repository passphrase is the one credential whose loss makes every snapshot
@@ -101,61 +90,37 @@ are SOPS-encrypted: `kubernetes/k8up/secret-*.sops.yaml` for the cluster,
 ## Kubernetes volumes and databases
 
 [K8up](https://k8up.io) runs restic in the cluster, against the repository above.
-The Schedules and the coverage check are in `kubernetes/k8up/`; the operator is
-`kubernetes/infrastructure/k8up.yaml`.
+The operator is `kubernetes/infrastructure/k8up.yaml`; the Schedules, one file per
+namespace, and the coverage check are in `kubernetes/k8up/`.
 
 ### What is in scope
 
-**K8up's default is opt-out.** A Schedule backs up every PVC in its namespace,
-`ReadWriteMany` included, unless the claim carries `k8up.io/backup: "false"`. Two
-kinds carry it:
+**Every PVC in a namespace with a Schedule is backed up**, `ReadWriteMany` included,
+unless the claim carries `k8up.io/backup: "false"`. Two kinds carry it:
 
-- **Every SMB share.** ZFS replication covers them, and the repository host backs up
-  photos, books and filesync from `rpool/storage` directly; through K8up, restic
-  would read them over CIFS onto the same spindles. This is policy for every SMB
-  claim, so their manifests carry the annotation without comment. Above all
-  `borg-backups-pvc`, the 2.14 TiB borg tree.
+- **Every SMB share**, covered by ZFS replication and the repository host's own
+  backup. Their manifests carry the annotation without comment: this is the policy.
 - **Regenerable state:** pinepods' Valkey cache, rclone's bisync state, borgmatic's
   cache, and the Prometheus, Alertmanager and VictoriaLogs volumes.
 
-**A new share joins the backup set silently**, by the same default, so the coverage
-check fails any in-scope `ReadWriteMany` claim: every one here is a share.
+**A new share is backed up unless it is annotated**, so the coverage check fails any
+in-scope `ReadWriteMany` claim: every one here is a share.
 
-The last three are StatefulSet claims. An annotation on a `volumeClaimTemplate`
-reaches only claims created after it, so the three claims that predate theirs were
-annotated by hand. Kubernetes refuses any change to a live StatefulSet's
-`volumeClaimTemplates`: prometheus-operator recreates the StatefulSet to apply one,
-but **a Helm chart's upgrade fails** until the StatefulSet is deleted with
-`--cascade=orphan` and Helm recreates it. VictoriaLogs is such a chart.
+The last three are StatefulSet claims, annotated through their
+`volumeClaimTemplates`. Kubernetes refuses any change to a live StatefulSet's
+templates. prometheus-operator recreates the StatefulSet itself, but **VictoriaLogs'
+chart upgrade fails** until the StatefulSet is deleted with `--cascade=orphan`, after
+which Helm recreates it; its claim and pod carry on.
 
 ### Schedules
 
-One file per namespace in `kubernetes/k8up/`, whose kustomization has no
-`namespace:`. A Schedule backs up the namespace it lives in, and kustomize's
-`namespace:` overrides rather than defaults: it would move every Schedule into one
-namespace, leaving the others unprotected while Flux reports Ready.
-
-**`schedule-defaults.yaml` is patched onto every Schedule**, so two things are
-written once:
-
-- **The backend.** The operator finds other namespaces' jobs by hashing the
-  repository string, and a Check or Prune waits only for jobs it can see, so the
-  string must be byte-identical everywhere.
-- **`runAsUser: 0`.** As the image's uid 65532, the Job cannot read something on
-  more than half the volumes in scope: syncthing's whole volume, headscale's
-  `noise_private.key`, PhotoPrism's signing keys, `grafana.db`, every database data
-  directory. K8up counts restic's resulting exit 3 as success, so the backup reports
-  Succeeded without them ([k8up#1032](https://github.com/k8up-io/k8up/issues/1032)).
-  **Never `fsGroup`**, that issue's other workaround: kubelet re-owns a `local`
-  volume's whole tree when the backup is the only pod mounting it, and PostgreSQL
-  then refuses its group-writable data directory.
-
-**The schedule, in UTC**, the operator's clock. The repository host keeps
-`America/Denver`, so its jobs move an hour later in winter:
+Every backup Job runs as root, since K8up's default uid cannot read much of what is
+backed up. Times are UTC, the operator's clock; the repository host keeps
+`America/Denver`, so its jobs move an hour later in winter.
 
 | UTC | What | Where |
 |---|---|---|
-| 01:00 | `apps` full: every volume, and all six of its dumps | K8up |
+| 01:00 | `apps` full: every volume, and all of its dumps | K8up |
 | 01:30 | `infrastructure` full: grafana's volume and dump | K8up |
 | 02:00 | `automatic-ripping-machine` full | K8up |
 | 02:45, 08:45, 14:45, 20:45 | the coverage check | CronJob |
@@ -166,16 +131,12 @@ written once:
 | 09:00 on the 1st (10:00) | `forget --prune` | repository host, 03:00 local |
 | 10:00 (11:00) | vzdump | vulcanus, 04:00 local |
 
-The full Schedules are staggered because K8up serialises jobs only within a
-namespace: three at once would be three restic writers on eight spindles. **The
-dumps-only Schedules meet a six-hour database RPO without re-reading the volumes.**
-A Backup's `labelSelectors` narrow claims, annotated pods and PreBackupPods alike,
-and `k8up-dump: "true"` is on the dump producers, never on a claim.
+**The dumps-only Schedules give the databases a six-hour RPO** without re-reading the
+volumes. They select the label `k8up-dump: "true"`, which every dump producer carries
+and no claim does.
 
-**One K8up Check, on `apps`' `full`**, since there is one repository. It is
-structural only: `CheckSpec` has no options, so it never reads pack data. The
-operator holds it until no backup on the same repository string is running, but
-cannot see the repository host's jobs; the schedule keeps it clear of those.
+**The K8up Check is structural**: it verifies the index and every snapshot's trees,
+never the data in the packs.
 
 **One pod per node per namespace.** K8up mounts all of a namespace's claims on one
 node into a single Job pod, so one failed mount stops that namespace's whole night,
@@ -187,26 +148,23 @@ A file copy of a live database is crash-consistent at best, so each database wor
 having is also dumped, into a restic snapshot of its own at
 `/<namespace>-<container><extension>`:
 
-| Database | Route | Snapshot path |
+| Database | Taken by | Snapshot path |
 |---|---|---|
-| pinepods (PostgreSQL 18) | annotation, in its `database` container | `/apps-database.pinepods.sql` |
-| photoprism (MariaDB) | annotation, in its `database` container | `/apps-database.photoprism.sql` |
-| salamander (MariaDB) | annotation, in its `database` container | `/apps-database.salamander.sql` |
-| headscale, linkding, plex (SQLite) | PreBackupPod | `/apps-sqlite.<app>.sqlite` |
-| grafana (SQLite) | PreBackupPod | `/infrastructure-sqlite.grafana.sqlite` |
+| pinepods (PostgreSQL 18) | an annotation on its pod | `/apps-database.pinepods.sql` |
+| photoprism (MariaDB) | an annotation on its pod | `/apps-database.photoprism.sql` |
+| salamander (MariaDB) | an annotation on its pod | `/apps-database.salamander.sql` |
+| headscale, linkding, plex, soft-serve (SQLite) | a PreBackupPod | `/apps-sqlite.<app>.sqlite` |
+| grafana (SQLite) | a PreBackupPod | `/infrastructure-sqlite.grafana.sqlite` |
 
-**Two routes, because the tools live in different places.** Each relational
-database is dumped inside its own server's container, over the local socket, by a
-`k8up.io/backupcommand` annotation on the pod. The SQLite applications lack a shell
-or `sqlite3`, so a PreBackupPod of our own brings `keinos/sqlite3`, mounts the claim
-and takes a `.backup` copy, which is consistent under a running writer. Each
-application's PreBackupPod is in its `backups.yaml`; the image automation they share
-is `kubernetes/k8up/sqlite3-image.yaml`. The extension carries the application's
-name because every database container here is called `database`, and three dumps
-would otherwise share one restic path
-([k8up#1068](https://github.com/k8up-io/k8up/issues/1068)).
+**A relational database is dumped inside its own container**, by a
+`k8up.io/backupcommand` annotation on the pod. **A SQLite database is copied by a
+PreBackupPod**: a pod of our own running `keinos/sqlite3`, which mounts the claim and
+takes a `.backup` copy. Each application's PreBackupPod is in its `backups.yaml`, and
+their shared image automation in `kubernetes/k8up/sqlite3-image.yaml`. Either way the
+extension carries the application's name, keeping every dump's path its own.
 
-**Every command dumps to a file of its own, and streams it only once checked:**
+**A new dump follows the same shape**, writing to a file of its own and streaming it
+only once checked:
 
 ```sh
 set -e; f=$(mktemp); trap "rm -f $f" EXIT; <dump> > "$f"; test -s "$f"; cat "$f"
@@ -220,35 +178,18 @@ set -e; f=$(mktemp); trap "rm -f $f" EXIT; <dump> > "$f"; test -s "$f"; cat "$f"
 - `mktemp`, because K8up does not serialise Backups: with a shared path, an
   overlapping dump truncates the file the first is still streaming.
 
-**pinepods is dumped as plain SQL**, which ends in a completion marker the coverage
-check reads; custom format has none. `pg_dump` 18 brackets it in
-`\restrict`/`\unrestrict`, so restore it with `psql` 17.6 or later.
+Label the producer `k8up-dump: "true"`, and give the dump a format whose end the
+coverage check can see: a SQLite copy, or plain SQL.
 
-**The routes fail differently.** A PreBackupPod that cannot become ready stops the
+**The two kinds fail differently.** A PreBackupPod that cannot become ready stops the
 namespace's whole backup, volumes included. Dumps run in their own `prebackup` Job
 and stop at the first failure; it retries up to six times, rerunning every dump
 before the failing one.
 
-**Leave `INSECURE_ALLOW_PODEXEC_SPDY_FALLBACK` unset.** SPDY exec streaming silently
-dropped the ends of dumps ([k8up#1109](https://github.com/k8up-io/k8up/issues/1109)).
-
-**Seven SQLite databases get a file copy and no dump:** stump, mumble,
+**Seven SQLite databases have only their volume's file copy:** stump, mumble,
 speedtest-tracker, youtube-dl, headplane, beets and ARM's `arm.db`. All are
-journal-mode with negligible write rates, so a file copy is very likely consistent,
-though beets could be torn mid-import. A known limit.
-
-### The operator
-
-- **Leader election is off, and the Deployment is `Recreate`.** With it on,
-  controller-runtime renews a Lease every two seconds against etcd's spinning disks,
-  and an etcd stall makes the holder exit: crash-looping through the backup window.
-  `Recreate` means there is never a second operator to need electing against.
-- **The Pushgateway push is off** (`BACKUP_PROMURL: ""`). K8up groups pushes by
-  namespace, so each item's push replaces the last. The snapshot `summary` holds the
-  same numbers per item, and the coverage check reads them there.
-- **Its metrics carry the Backup's namespace as `exported_namespace`.**
-  `k8up_schedule_last_job_succeeded` never covers a backup: only the Check, Prune,
-  Restore and Archive controllers set it.
+journal-mode with negligible write rates, so the copy is very likely consistent,
+though beets could be torn mid-import.
 
 ## Retention
 
@@ -282,13 +223,10 @@ PBS retention is client-side: the vzdump job carries `prune-backups keep-last=31
 applies it per guest as it backs that guest up. The PVE storage entry sets
 `prune-backups keep-all=1`, so PVE never prunes the datastore itself.
 
-`rpool/backups/restic` keeps **30 dailies on vulcanus, 60 on mini-nas, and nothing
-else.** restic keeps its own history, so these snapshots are for losing the
-repository itself, and each pins what restic's monthly prune rewrites for as long as
-it is kept. sanoid runs with `TZ=UTC`, so the daily lands just after 00:00 UTC.
-
-restic retention runs on the repository host on the 1st of the month, as one policy
-per host-and-path group, so every volume and every dump keeps its own history:
+restic keeps its own history inside the repository, so `rpool/backups/restic`'s
+snapshots guard only against losing the repository itself. restic's retention runs
+on the repository host on the 1st of the month, as one policy per host-and-path
+group, so every volume and every dump keeps its own history:
 
 ```
 restic forget --prune --keep-last 10 --keep-hourly 24 --keep-daily 30 \
@@ -414,7 +352,8 @@ volume. Otherwise it names the newest snapshot in the whole repository.
   `restic restore latest --host <ns> --path /data/<pvc> --target <dir>`.
 - **A relational dump:** `restic dump --host apps --path <path> latest <path>`, piped
   into `mariadb`, or into `psql -v ON_ERROR_STOP=1`. The MariaDB dumps create their
-  own database; pinepods' needs `pinepods_database` created first.
+  own database; pinepods' needs `pinepods_database` created first, and `psql` 17.6
+  or later for the `\restrict` lines `pg_dump` 18 writes.
 - **A SQLite dump:** the same `restic dump`, into a file. With the application scaled
   to zero, put the file in place and remove its `-wal` and `-shm`. Check it with
   `PRAGMA integrity_check` first; Plex's copy needs the `Plex SQLite` binary from its
@@ -466,12 +405,9 @@ exit zero while carrying only part of its dataset list, and a job that stops run
 emits nothing at all. `zfs-replication-freshness` therefore reads the target — newest
 snapshot age per dataset, plus a comparison against the source dataset list, because a
 dataset that was never replicated has no stale snapshot to look wrong. It skips
-`canmount=off` containers, which receive nothing; the restic replica's parent is
-one. Every dataset that receives is `canmount=on`, so a retired replica still fails.
-
-**The restic replica's syncoid unit reports to `zfs-replication-freshness`**, having
-no check of its own: the free tier's twenty are spoken for. That check finds a stale
-replica anyway, and its next run clears only if the replica is current.
+`canmount=off` containers, such as the restic replica's parent, which receive
+nothing. The restic replica's syncoid unit has no check of its own and reports its
+failures to `zfs-replication-freshness`.
 
 **PBS coverage is asserted against the job's scope, and a frozen group reports rather
 than fails.** `pbs-freshness` reads three things and compares them: the vzdump job's
@@ -499,18 +435,14 @@ summed vdev error counts, capacity, and scrub age — and does not accept a resi
 a scrub.
 
 **Kubernetes coverage is asserted from the repository, per claim and per dump.**
-K8up cannot say it: its job counters carry no claim label, a Backup reports
-Succeeded when restic read nothing, and no metric records a backup's last success.
-So `kubernetes/k8up/coverage/backup_coverage.py` lists the repository's snapshots
-and compares them with every PVC, `k8up.io/backupcommand` pod and PreBackupPod the
-cluster API returns. Cluster-wide, so a claim with no literal declaration in git, or
-in a namespace with no Schedule, still counts. It is shaped and tested like
-`pbs-freshness`.
+`kubernetes/k8up/coverage/backup_coverage.py` lists the repository's snapshots and
+compares them with every PVC, `k8up.io/backupcommand` pod and PreBackupPod in the
+cluster, including in namespaces with no Schedule. Neither K8up's metrics nor a
+Backup's status shows whether a claim was backed up.
 
 It **fails**:
 - a claim or dump never backed up, once past its first night;
-- a volume whose newest snapshot is over 26 h old, or a dump over 7 h, so the check
-  after a missed dumps run fails;
+- a volume whose newest snapshot is over 26 h old, or a dump over 7 h;
 - an in-scope `ReadWriteMany` claim;
 - a volume that went empty, or any empty dump;
 - an item under half its previous size, from 1 MiB up;
@@ -523,14 +455,12 @@ It **reports**:
 - a group whose claim or producer is gone;
 - restic's per-item count of unreadable files.
 
-A dump is judged whole from the store: a SQLite copy's header states page size and
-page count, whose product must equal the snapshot's size, and a SQL dump must end in
-its completion marker, within its last kilobyte. A size comparison cannot see a dump
-truncated by a percent, as k8up#1109 did.
+A dump is whole when a SQLite copy's size matches what its header states, or a SQL
+dump ends in its completion marker.
 
 The unreadable-file counts live only in backup Job logs, which go when K8up prunes
-the Jobs or their node restarts, so the summary line says how many items' counts
-were read.
+the Jobs or their node restarts. The summary line says how many items' counts were
+read, so "none read" never looks like "all clean".
 
 ### Scrubs
 
@@ -548,10 +478,9 @@ together on the way back up.
 
 ## Capacity, and how large a disk to buy
 
-The restic repository holds about 304 GiB, 248 GiB of it the mass files: restic's
-compression barely touches JPEG. The Kubernetes volumes' first full run added 59 GB.
-An ordinary night adds tens of megabytes, and each dumps run about what changed
-since the last, since uncompressed dumps deduplicate.
+The restic repository holds about 304 GiB: 248 GiB of mass files, mostly JPEG that
+restic barely compresses, and about 59 GB of Kubernetes volumes. It grows by tens of megabytes
+a night, the dumps deduplicating to what changed since the last run.
 
 Disks cascade: vulcanus takes new larger ones, its retired vdev moves to mini-nas.
 That coupling has a closed-form limit, and it decides what to buy.
@@ -616,13 +545,14 @@ Retention truncates history, so a filesystem years old can present only recent
 snapshots — or, once replication stops, only ancient ones.
 
 **Keep restic's exclusive operations out of K8up's windows.** `prune`, `check`,
-`forget` and `tag` take an exclusive lock, and K8up never passes `--retry-lock`: a
-backup that meets one fails at once, and a K8up Check exits 11. Check the schedule
-above before running one by hand.
+`forget` and `tag` take an exclusive lock, and K8up never retries one: a backup that
+meets it fails at once, and a K8up Check exits 11. The K8up operator holds its own
+Check until no backup is running, but cannot see the repository host's jobs. Check
+the schedule above before running one by hand.
 
-**`/proc/<pid>/io` does not measure a restic backup's progress.** restic reads back
-each pack it writes, so `rchar` reached 617 GiB against 296 GiB of source on the
-first mass-file run. Compare the repository's growth with the source's size.
+**Measure a restic backup's progress by the repository's growth**, against the
+source's size. restic reads back each pack it writes, so `/proc/<pid>/io` counts
+about twice the source.
 
 
 ### Repairing a diverged replica

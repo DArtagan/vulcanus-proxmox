@@ -115,6 +115,12 @@ provider "proxmox" {
 
 # The restic repository. See docs/backups.md. NixOS: Terraform creates the
 # container, and nixos/ owns everything inside it. See docs/nixos.md.
+#
+# A container with a bind-mounted dataset, not a VM: mini-nas can then mount
+# the replica and verify it with no help from vulcanus. A VM would need a zvol,
+# which needs something booted to verify it, or a network mount, which brings
+# back the CIFS locking a restic repository must not sit on. Not the fileserver
+# LXC: it is privileged, and too small for `restic prune`.
 resource "proxmox_lxc" "restic_repository" {
   target_node = "vulcanus"
   hostname = "restic-repository"

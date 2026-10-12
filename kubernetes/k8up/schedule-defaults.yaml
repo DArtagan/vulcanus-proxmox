@@ -1,5 +1,16 @@
-# Patched onto every Schedule, so the repository string is byte-identical in
-# all of them and every Job runs as root. See docs/backups.md.
+# Patched onto every Schedule, so two things are written once.
+#
+# The repository string, byte-identical everywhere: the operator finds other
+# namespaces' jobs by hashing it, and a Check or Prune waits only for the jobs
+# it can see.
+#
+# runAsUser: 0. As the image's uid 65532 a Job cannot read something on most
+# volumes -- syncthing's whole volume, headscale's noise_private.key, every
+# database data directory -- and K8up counts restic's exit 3 as success, so the
+# backup reports Succeeded without them (k8up#1032). Never fsGroup, that
+# issue's other workaround: kubelet re-owns a local volume's whole tree when the
+# backup is the only pod mounting it, and PostgreSQL then refuses its
+# group-writable data directory.
 apiVersion: k8up.io/v1
 kind: Schedule
 metadata:
