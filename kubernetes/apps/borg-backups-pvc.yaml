@@ -3,9 +3,7 @@ kind: PersistentVolumeClaim
 metadata:
   name: borg-backups-pvc
   annotations:
-    # The 2.14 TiB borg tree, which Phase 2b deletes. K8up's default is
-    # opt-out, so without this restic reads every borg repository over
-    # CIFS onto the spindles already holding them. See docs/backups.md.
+    # Never back this up: it is the 2.14 TiB borg tree.
     k8up.io/backup: "false"
 spec:
   accessModes:
