@@ -29,7 +29,7 @@ Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
 | A | Record the spec, open the review | **done** 2026-09-01 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3) |
 | 0 | Stop the bleeding — replication, retention, scrub | **done 2026-09-03.** Key escrow, retention, scrub, monitoring on both hosts, prune and diverged-dataset repair (30,404 → 1,083 snapshots, 89% → **76%**, **2.32 TiB reclaimed**), with the five datasets re-seeded — `syncoid-vulcanus-data` completed with zero errors for the first time since 2026-01-14 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3), merged 2026-09-18 |
 | 1 | Reclaim — dead guests, orphans | **done 2026-09-18.** Five orphaned datasets, guests 100/101/106, `rpool/rancheros`, three replicas, four PVCs, seven hostpath dirs and three PBS groups destroyed; vulcanus 28.3→**27.7 T**, mini-nas 77→**73%**, worker-0 **25.1 GiB** back. `zfs-replication-freshness` **green for the first time since inception**; `pbs-freshness` built and deployed here rather than in Phase 6, reports 5→2, zero failures — [PR #11](https://github.com/DArtagan/vulcanus-proxmox/pull/11) |
-| 2 | Application backups — K8up + restic | **done 2026-10-12**, [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13), in review. Repo LXC 108 on NixOS serving append-only; mass files (296.6 GiB) and every in-scope volume and eight dumps backed up, on five Schedules; coverage CronJob live, 0 failing; ARM and syncthing volumes restored exact; every dump restored — the SQL into scratch servers matching live row for row, the SQLite copies through `integrity_check` — each against a corrupted control; replicated to mini-nas and `restic check`ed there. Next: phase 2b |
+| 2 | Application backups — K8up + restic | **done 2026-10-12** — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13), closed at this phase boundary. Repo LXC 108 on NixOS serving append-only, replicated to mini-nas and `restic check`ed there; mass files (297.6 GiB) and every in-scope volume backed up nightly, ten database dumps every six hours, on five Schedules; the coverage CronJob reads every dump back, runs `integrity_check` on each SQLite copy (Plex's with Plex SQLite), and reports 0 failing. Every dump restored once into scratch, each against a corrupted control; ARM and syncthing volumes restored exact. Next: phase 2b |
 | 2b | Delete the borg tree, after a restore is proven | not started |
 | 3 | Performance — drop the OpenEBS disks from vzdump | not started |
 | 4 | Platform images offsite — PBS #2 + sync | not started; **gated on the mini-nas disks** |
@@ -244,8 +244,8 @@ Seven layers, unified not by one tool but by one **contract**:
 | Layer | What | State |
 |---|---|---|
 | 0 | ZFS snapshots on vulcanus (sanoid, VSS-exposed) | exists, keep |
-| 1 | ZFS replication to mini-nas (syncoid pull) | exists, **broken** |
-| 2 | Application backups — K8up + restic, dedicated repo LXC | new |
+| 1 | ZFS replication to mini-nas (syncoid pull) | exists, repaired in Phase 0 |
+| 2 | Application backups — K8up + restic, dedicated repo LXC | exists, built in Phase 2 |
 | 3 | Platform images — vzdump to PBS, scope reduced | exists, reduce |
 | 4 | Platform images offsite — PBS #2 VM on mini-nas + sync | new |
 | 5 | Offline copy — external disk on vulcanus, restic | new |
@@ -1196,6 +1196,12 @@ figures, the wrong turns, and what is still open.
   only to test the append-only boundary by hand.
 - **The repository container has 1 GiB**, not 4 (review of PR #13): its recorded
   peak was 290 MiB.
+- **A claim holding only a database's data directory is excluded**, its dump standing
+  in (review of PR #13): pinepods', photoprism's and salamander's. A volume copy of a
+  running database is not a consistent backup, and they added two thirds of the
+  nightly growth.
+- **Every WAL-mode SQLite database is dumped**, Stump's included, and every SQLite copy
+  is integrity-checked from the store, Plex's two with Plex SQLite (review of PR #13).
 - **Each app's backup configuration in its `backups.yaml`**, with one shared sqlite3
   image under `kubernetes/k8up/` (review of PR #13). Only for the PreBackupPod
   applications: the annotation route's config stays on its Deployment.
