@@ -154,6 +154,7 @@ having is also dumped, into a restic snapshot of its own at
 | photoprism (MariaDB) | an annotation on its pod | `/apps-database.photoprism.sql` |
 | salamander (MariaDB) | an annotation on its pod | `/apps-database.salamander.sql` |
 | headscale, linkding, plex, soft-serve (SQLite) | a PreBackupPod | `/apps-sqlite.<app>.sqlite` |
+| plex's blobs database (SQLite) | a PreBackupPod | `/apps-sqlite.plex-blobs.sqlite` |
 | grafana (SQLite) | a PreBackupPod | `/infrastructure-sqlite.grafana.sqlite` |
 
 **A relational database is dumped inside its own container**, by a
@@ -209,6 +210,9 @@ Beyond the shape:
   PreBackupPod's `fileExtension`), since every database container here is called
   `database` and K8up names the dump after the container.
 - **Label the producer `k8up-dump: "true"`**, so the dumps-only Schedules take it.
+- **Dump everything the application restores together**, one producer each. Its own
+  backup and restore documentation says which files those are: Plex restores its
+  library and blobs databases as a pair, so each has a PreBackupPod.
 
 The cost is the dump sitting in the container's writable layer while it streams:
 about 200 MB at most.
@@ -391,6 +395,51 @@ from `restic snapshots --json`.
 restores the root's contents, not the root itself. `restic ls -l <snapshot>
 /data/<pvc>` shows the original on its first line (syncthing's is `0700`, uid 1000);
 apply that mode and owner afterwards.
+
+**Restore a dump with the application version that wrote it.** Its migrations then
+run forward on the next upgrade, as they would have. An older version generally
+cannot read a newer schema, and headscale must step through every minor version.
+Image automation records each version in git, so the tag deployed at a snapshot's
+time is in the file carrying the application's image, on `main` (salamander's is
+`kubernetes/apps/salamander.yaml`):
+
+```bash
+git log origin/main -1 --format=%h --before="<snapshot time>" -- <file>
+git show <hash>:<file> | grep 'image'
+```
+
+PostgreSQL is the exception in one direction: a plain `pg_dump` loads into any newer
+major version, so a dump is also the way across one.
+
+**Pair a dump with the volume from the same 01:00 run** when the database refers to
+files on the volume. Each full Schedule takes both within minutes, so list the dump's
+snapshots, pick the one beside the volume's, and restore it by ID rather than
+`latest`:
+
+```bash
+restic snapshots --host apps --path <path>
+restic dump <snapshot-id> <path>
+```
+
+### Each application
+
+- **PhotoPrism and salamander:** restore the data volume, then load the dump. The
+  index holds accounts and passwords, which return as of the dump. PhotoPrism's own
+  `photoprism restore -i -f` works too, from its nightly dumps on the data volume.
+  Without a usable dump, a complete rescan rebuilds metadata and albums from the
+  photos, the YAML sidecars and the album files. The photos themselves are on the
+  photos share, in the ZFS layer and the mass-file backup.
+- **Plex:** restore `com.plexapp.plugins.library.db` and
+  `com.plexapp.plugins.library.blobs.db` together, from the same run, owned by uid
+  1000, and remove each one's `-wal` and `-shm`. Check both with `Plex SQLite`.
+  Plex's own dated pairs, every three days, sit beside them on the volume.
+- **linkding:** its database refers to page snapshots in `assets/`, so pair the dump
+  with the volume from the same run. Favicons download again from Settings.
+- **headscale:** its version, as above. The noise key and configuration come from the
+  volume and git.
+- **PinePods:** its Settings restore accepts only its own downloads, so load the dump
+  with `psql`, as above.
+- **Grafana:** its configuration is in git, and its plugins on the volume.
 
 ## Reporting
 

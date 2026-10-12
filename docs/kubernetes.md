@@ -142,7 +142,12 @@ a new claim reports as awaiting its first backup for a night, then fails until a
 snapshot of it lands or it is excluded. [`backups.md`](backups.md) describes the
 machinery; this is how to choose.
 
-Work down the list and take the first that fits:
+**Read the application's own backup and restore documentation first.** Its designers
+know which files belong together, what a restore needs, and what a version change
+does to the data. Plex's restores two databases as a pair; headscale's cannot skip a
+minor version.
+
+Then work down the list and take the first that fits:
 
 1. **Nothing to back up.** State that git reproduces — manifests, ConfigMaps,
    SOPS Secrets — needs nothing. If the application has no PVC, it is done.
