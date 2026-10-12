@@ -142,8 +142,8 @@ resource "proxmox_lxc" "restic_repository" {
   onboot = true
   start = true
 
-  # Not nested virtualization: lets systemd's per-service sandboxing create the
-  # namespaces it needs, which NixOS units use throughout.
+  # Not nested virtualization: systemd needs it to isolate services, which NixOS
+  # units do throughout. Off by default through the API, unlike the GUI.
   features {
     nesting = true
   }
@@ -157,7 +157,7 @@ resource "proxmox_lxc" "restic_repository" {
     key = "0"
     slot = 0
     volume = "/rpool/backups/restic"
-    mp = "/srv/restic"
+    mp = "/mnt/backups/restic"
     size = "1M"
   }
 
@@ -167,7 +167,7 @@ resource "proxmox_lxc" "restic_repository" {
     key = "1"
     slot = 1
     volume = "/rpool/storage/photos"
-    mp = "/srv/storage/photos"
+    mp = "/mnt/storage/photos"
     size = "1M"
   }
 
@@ -175,7 +175,7 @@ resource "proxmox_lxc" "restic_repository" {
     key = "2"
     slot = 2
     volume = "/rpool/storage/books"
-    mp = "/srv/storage/books"
+    mp = "/mnt/storage/books"
     size = "1M"
   }
 
@@ -183,7 +183,7 @@ resource "proxmox_lxc" "restic_repository" {
     key = "3"
     slot = 3
     volume = "/rpool/storage/filesync"
-    mp = "/srv/storage/filesync"
+    mp = "/mnt/storage/filesync"
     size = "1M"
   }
 

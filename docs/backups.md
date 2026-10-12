@@ -62,13 +62,13 @@ adopts it.
 
 LXC 108, `restic-repository`: unprivileged NixOS, deployed with colmena (see
 [`nixos.md`](nixos.md)). The repository is the `rpool/backups/restic` dataset,
-bind-mounted at `/srv/restic`. The host serves it to the cluster as
+bind-mounted at `/mnt/backups/restic`. The host serves it to the cluster as
 `rest-server --append-only` on port 8000, and runs its own restic jobs against the
 local path.
 
 **Nothing in the cluster can delete history.** rest-server refuses every delete but a
 lock's, so `forget` through the served URL returns `403 Forbidden`. Retention and
-anything else that deletes run on the host, against `/srv/restic`.
+anything else that deletes run on the host, against `/mnt/backups/restic`.
 
 **The offsite copy can be verified on mini-nas alone:**
 

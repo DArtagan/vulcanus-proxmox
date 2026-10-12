@@ -8,7 +8,7 @@
 }:
 let
   # The local path, never rest-server: append-only refuses a prune's deletes.
-  repository = "/srv/restic";
+  repository = "/mnt/backups/restic";
   passwordFile = config.sops.secrets."restic/password".path;
 
   hcReport = pkgs.writeShellScript "hc-report" ''
@@ -89,9 +89,6 @@ in
     secrets = {
       "restic/password".owner = "restic";
       "rest-server/htpasswd".owner = "restic";
-      # The htpasswd's credential in the clear, for testing the append-only
-      # boundary by hand.
-      "rest-server/password".owner = "restic";
       # Read by the report above, which runs as the unit's own user.
       "healthchecks/restic-massfiles".owner = "restic";
       "healthchecks/restic-prune".owner = "restic";
@@ -105,7 +102,7 @@ in
     appendOnly = true;
 
     # The bind-mounted rpool/backups/restic dataset.
-    dataDir = "/srv/restic";
+    dataDir = repository;
 
     # A port only; see docs/nixos.md.
     listenAddress = "8000";
@@ -126,9 +123,9 @@ in
     inherit repository passwordFile;
     user = "restic";
     paths = [
-      "/srv/storage/photos"
-      "/srv/storage/books"
-      "/srv/storage/filesync"
+      "/mnt/storage/photos"
+      "/mnt/storage/books"
+      "/mnt/storage/filesync"
     ];
     # Between the cluster's backups and vzdump; see docs/backups.md.
     timerConfig = {
