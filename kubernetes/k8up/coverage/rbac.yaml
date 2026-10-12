@@ -1,6 +1,5 @@
-# Read-only, and cluster-wide on purpose: the check enumerates every claim and
-# every dump producer, including in namespaces no Schedule covers yet. The logs
-# are for restic's per-item error counts, read from K8up's backup Job pods.
+# Read-only and cluster-wide, so a namespace no Schedule covers still counts.
+# The logs are K8up backup pods', for restic's per-item error counts.
 apiVersion: v1
 kind: ServiceAccount
 metadata:

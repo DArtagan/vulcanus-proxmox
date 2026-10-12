@@ -293,9 +293,7 @@
           runtimeInputs = [
             pkgs.gnugrep
             # pyyaml rather than a line-based scan: a sops-nix file nests its
-            # values arbitrarily, and a regex that walks indentation to decide
-            # what it is looking at is how the data/stringData-only check came
-            # to miss everything that is not a Kubernetes Secret.
+            # values arbitrarily.
             (pkgs.python3.withPackages (ps: [ ps.pyyaml ]))
           ];
           text = ''
@@ -324,11 +322,8 @@
             document = yaml.safe_load(open(sys.argv[1])) or {}
             document.pop("sops", None)
 
-            # Which keys are meant to be encrypted depends on the creation rule
-            # that produced the file, and .sops.yaml carries two. A Kubernetes
-            # Secret encrypts only data/stringData and leaves apiVersion, kind
-            # and metadata readable on purpose. Everything else -- sops-nix
-            # included -- is encrypted whole, so every value in it must be.
+            # As .sops.yaml's two rules: a Kubernetes manifest encrypts only
+            # data/stringData, and anything else every value.
             if "data" in document or "stringData" in document:
                 subtrees = {k: document[k] for k in ("data", "stringData") if k in document}
             else:

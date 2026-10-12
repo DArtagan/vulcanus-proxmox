@@ -85,8 +85,7 @@ spec:
           volumeClaimTemplate:
             metadata:
               annotations:
-                # Silences and notification state, both regenerable. Same
-                # immutability caveat as the Prometheus claim above.
+                # Silences and notification state, both regenerable.
                 k8up.io/backup: "false"
             spec:
               storageClassName: openebs-hostpath
@@ -320,13 +319,8 @@ spec:
           volumeClaimTemplate:
             metadata:
               annotations:
-                # Regenerable, and the largest thing on the node. K8up's
-                # default is opt-out, so this has to be said.
-                #
-                # A volumeClaimTemplate annotation reaches PVCs created from
-                # here on. It is immutable on a live StatefulSet and does not
-                # propagate to the claim that already exists, which is why
-                # docs/backups.md carries the one-time kubectl annotate.
+                # Regenerable, and the largest thing on the node. It reaches
+                # only claims created from here on; see docs/backups.md.
                 k8up.io/backup: "false"
             spec:
               storageClassName: openebs-hostpath

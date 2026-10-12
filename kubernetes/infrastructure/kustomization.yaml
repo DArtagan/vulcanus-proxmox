@@ -7,8 +7,6 @@ resources:
   - audio-rw-arm-pv.yaml
   - audio-rw-beets-pv.yaml
   - audio-rw-pv.yaml
-  - grafana-prebackup-pod.yaml
-  - sqlite3-image.yaml
   #- authentik.yaml
   - basic-auth.sops.yaml
   - books-pv.yaml
@@ -22,6 +20,7 @@ resources:
   - games-pv.yaml
   - grafana-admin-secret.sops.yaml
   - grafana-auth.sops.yaml
+  - grafana-backups.yaml
   - image-update-automation.yaml
   - ingress-nginx-reverse-proxy.yaml
   - k8up.yaml
