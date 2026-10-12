@@ -96,10 +96,12 @@ per namespace, and the coverage check are in `kubernetes/k8up/`.
 ### What is in scope
 
 **Every PVC in a namespace with a Schedule is backed up**, `ReadWriteMany` included,
-unless the claim carries `k8up.io/backup: "false"`. Two kinds carry it:
+unless the claim carries `k8up.io/backup: "false"`. Three kinds carry it:
 
 - **Every SMB share**, covered by ZFS replication and the repository host's own
   backup. Their manifests carry the annotation without comment: this is the policy.
+- **A database's own data directory**, when that is all the claim holds: pinepods',
+  photoprism's and salamander's. The dump is its backup.
 - **Regenerable state:** pinepods' Valkey cache, rclone's bisync state, borgmatic's
   cache, and the Prometheus, Alertmanager and VictoriaLogs volumes.
 
@@ -144,16 +146,16 @@ and shows as one failed Job rather than one failed claim.
 
 ### Database dumps
 
-A file copy of a live database is crash-consistent at best, so each database worth
-having is also dumped, into a restic snapshot of its own at
-`/<namespace>-<container><extension>`:
+restic reads a running database's files one after another, so a volume copy of one is
+not a consistent backup. Each database worth having is dumped instead, into a restic
+snapshot of its own at `/<namespace>-<container><extension>`:
 
 | Database | Taken by | Snapshot path |
 |---|---|---|
 | pinepods (PostgreSQL 18) | an annotation on its pod | `/apps-database.pinepods.sql` |
 | photoprism (MariaDB) | an annotation on its pod | `/apps-database.photoprism.sql` |
 | salamander (MariaDB) | an annotation on its pod | `/apps-database.salamander.sql` |
-| headscale, linkding, plex, soft-serve (SQLite) | a PreBackupPod | `/apps-sqlite.<app>.sqlite` |
+| headscale, linkding, plex, soft-serve, stump (SQLite) | a PreBackupPod | `/apps-sqlite.<app>.sqlite` |
 | plex's blobs database (SQLite) | a PreBackupPod | `/apps-sqlite.plex-blobs.sqlite` |
 | grafana (SQLite) | a PreBackupPod | `/infrastructure-sqlite.grafana.sqlite` |
 
@@ -169,10 +171,10 @@ namespace's whole backup, volumes included. Dumps run in their own `prebackup` J
 and stop at the first failure; it retries up to six times, rerunning every dump
 before the failing one.
 
-**Seven SQLite databases have only their volume's file copy:** stump, mumble,
-speedtest-tracker, youtube-dl, headplane, beets and ARM's `arm.db`. All are
-journal-mode with negligible write rates, so the copy is very likely consistent,
-though beets could be torn mid-import.
+**Six SQLite databases have only their volume's file copy:** mumble,
+speedtest-tracker, youtube-dl, headplane, beets and ARM's `arm.db`. All are in journal
+mode and write rarely, so the copy is very likely consistent, though beets could be
+torn mid-import.
 
 ### Writing a backup command
 
@@ -440,6 +442,8 @@ restic dump <snapshot-id> <path>
 - **PinePods:** its Settings restore accepts only its own downloads, so load the dump
   with `psql`, as above.
 - **Grafana:** its configuration is in git, and its plugins on the volume.
+- **Stump:** its database holds accounts, reading progress and library settings; the
+  books themselves are on the books share. Its volume holds the configuration file.
 
 ## Reporting
 
