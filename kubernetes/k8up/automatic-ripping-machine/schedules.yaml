@@ -2,7 +2,6 @@ apiVersion: k8up.io/v1
 kind: Schedule
 metadata:
   name: full
-  namespace: automatic-ripping-machine
 spec:
   backup:
     # UTC. Staggered: K8up serialises jobs only within a namespace, so full

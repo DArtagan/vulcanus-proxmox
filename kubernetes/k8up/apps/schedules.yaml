@@ -2,7 +2,6 @@ apiVersion: k8up.io/v1
 kind: Schedule
 metadata:
   name: full
-  namespace: apps
 spec:
   backup:
     # UTC. Staggered: K8up serialises jobs only within a namespace, so full
@@ -18,7 +17,6 @@ apiVersion: k8up.io/v1
 kind: Schedule
 metadata:
   name: dumps
-  namespace: apps
 spec:
   backup:
     # The label narrows this to the dumps. `full` takes them at 01:00.

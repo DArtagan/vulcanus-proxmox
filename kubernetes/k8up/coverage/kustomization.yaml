@@ -1,7 +1,8 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-# No `namespace:` here either; see ../kustomization.yaml. Everything is in
-# infrastructure, beside the repository Secret it reads.
+# Everything here is in infrastructure, beside the repository Secret it reads.
+# Each object names it: a `namespace:` transformer would also rewrite the
+# ClusterRoleBinding's subject.
 resources:
   - cron-job.yaml
   - healthchecks.sops.yaml
