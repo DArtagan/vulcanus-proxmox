@@ -1432,11 +1432,6 @@ design might not. Where we already agree, nothing is noted.
 
 #### Still open
 
-- **The application guidance above is not yet in `docs/backups.md`**: restoring with
-  the version that wrote a dump, Plex's pair, linkding's pairing with its volume, and
-  PhotoPrism's own restore and rescan routes.
-- **Plex's `library.blobs.db` has no consistent nightly copy.** A second PreBackupPod
-  for it would give one.
 - **No restore runbook until Phase 6.** On a rebuilt cluster Flux reconciles
   applications onto fresh empty claims, and databases initialise before any restore
   lands, so the Kustomizations must be suspended first.
