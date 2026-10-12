@@ -1,31 +1,18 @@
 #!/usr/bin/env python3
 """Assert backup coverage per claim and per dump, from the repository itself.
 
-K8up's own signals cannot say this. Its job counters carry no claim label, a
-Backup reports Succeeded when restic exits 3 having read nothing (k8up#1032),
-and `k8up_schedule_last_job_succeeded` never covers a backup. So this reads the
-store -- `restic snapshots` through the rest-server -- and compares it with what
-the cluster says should be there.
+Lists the snapshots through rest-server and compares them with every PVC,
+`k8up.io/backupcommand` pod and PreBackupPod the cluster API returns, and reads
+each current dump back to see that it is whole. See docs/backups.md for why
+K8up's own signals cannot say this, and for the verdicts.
 
-Scope comes from the cluster API, cluster-wide: every PVC, every pod carrying
-`k8up.io/backupcommand`, and every PreBackupPod. Not from git, where six live
-claims have no literal declaration, and not from the namespaces that happen to
-have a Schedule, which cannot see a namespace created later.
+Two outcomes, as in ansible/files/pbs_freshness.py: failures ping /fail and exit
+non-zero; reports print and ride along in the ping's body. An excluded claim or
+a retired application's snapshots are statements, not failures -- failing on
+them would make this the always-on warning docs/README.md warns against.
 
-Two outcomes, as in ansible/files/pbs_freshness.py. Failures ping /fail and exit
-non-zero; reports print and ride along in the ping's body. An excluded claim, or
-a retired application's last snapshot, is a statement rather than a failure --
-failing on it would make this the always-on warning docs/README.md warns against.
-
-Each current dump is also read back from the store to see that it is whole:
-a SQLite copy's header states its own length, and a SQL dump ends in a
-completion marker. k8up#1109 once dropped the last ~1% of dumps with no error
-anywhere, well inside what a size comparison can see.
-
-Restic's count of unreadable files exists only in each backup Job's log, so it
-is read from there, and only reports: files deleted mid-scan count too, and a
-Job's pods go when K8up prunes its history or their node restarts. See
-docs/backups.md.
+restic's unreadable-file counts only report: files deleted mid-scan count too,
+and the Job logs they are read from do not last.
 """
 
 import json

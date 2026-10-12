@@ -113,33 +113,23 @@ provider "proxmox" {
 }
 
 
-# The restic repository: rest-server for the cluster, and a restic client for the
-# mass-file datasets it bind-mounts. See docs/backups.md for why the repository
-# is a dataset on a container rather than a zvol on a VM.
-#
-# NixOS, deployed with colmena. Terraform creates the container once and never
-# touches its contents again; `nixos/` is the source of truth for everything
-# inside it.
+# The restic repository. See docs/backups.md. NixOS: Terraform creates the
+# container, and nixos/ owns everything inside it. See docs/nixos.md.
 resource "proxmox_lxc" "restic_repository" {
   target_node = "vulcanus"
   hostname = "restic-repository"
   vmid = 108
 
-  # Built by `nix build ./nixos#restic-repository` and uploaded under a stable
-  # name. The build output carries the nixpkgs revision in its filename, which
-  # would make every flake update look like a new template and recreate the
-  # container -- hence both the rename and the lifecycle block below.
+  # Uploaded under a stable name; see docs/nixos.md.
   ostemplate = "local:vztmpl/nixos-restic-repository.tar.xz"
 
-  # Proxmox pushes no configuration into an `unmanaged` guest, which is what a
-  # NixOS container has to be. Everything it would normally write -- address,
-  # resolver, ssh keys -- is declared in nixos/hosts/restic-repository instead.
+  # Proxmox configures nothing in an `unmanaged` guest: address, resolver and
+  # keys are in nixos/hosts/restic-repository.
   ostype = "unmanaged"
 
   unprivileged = true
 
-  # `restic prune` holds the whole repository index in memory. 512 MB is what
-  # ruled the fileserver out of this job.
+  # `restic prune` holds the whole index in memory.
   memory = 4096
   cores = 2
   swap = 0
@@ -155,12 +145,9 @@ resource "proxmox_lxc" "restic_repository" {
     size = "20G"
   }
 
-  # Every mountpoint in this file is a bind mount, so none of them sets
-  # `storage`. The provider derives that attribute on read by splitting the
-  # volume on ":", which a host path does not contain, so it always reads back
-  # empty and any value set here is a diff that no apply can settle. It is also
-  # ignored when the mountpoint is written, since `volume` is what names the
-  # source, and it makes each apply attempt a storage move that Proxmox rejects.
+  # Never set `storage` on a bind mount, here or below. The provider reads it
+  # back empty from a host path, so any value is a diff no apply settles, and
+  # each apply attempts a storage move that Proxmox rejects.
   mountpoint {
     key = "0"
     slot = 0
@@ -169,12 +156,9 @@ resource "proxmox_lxc" "restic_repository" {
     size = "1M"
   }
 
-  # The mass-file datasets, which this container backs up into the repository
-  # above. They would be read-only if the provider could say so: `pct` has
-  # `ro=1` and `mountpoint` here has no equivalent. What keeps them safe is the
-  # unprivileged uid shift -- they are owned outside the container's mapped
-  # range, so they appear as `nobody` inside and their 755 directories are not
-  # writable. restic only ever reads them.
+  # The mass-file datasets it backs up. Read-only if the provider could say so;
+  # it has no `ro=1`. The uid shift keeps them safe: owned outside the
+  # container's range, they appear as `nobody` and are not writable inside.
   mountpoint {
     key = "1"
     slot = 1
@@ -199,10 +183,8 @@ resource "proxmox_lxc" "restic_repository" {
     size = "1M"
   }
 
-  # Proxmox does not apply this to an `unmanaged` guest -- systemd-networkd in
-  # nixos/hosts/restic-repository is what actually sets the address. It is
-  # stated here so `pct config 108` tells the truth, and the two must be changed
-  # together.
+  # Not applied to an `unmanaged` guest; nixos/hosts/restic-repository sets the
+  # address. Here so `pct config 108` tells the truth: change both together.
   network {
     name = "eth0"
     bridge = "vmbr0"
@@ -211,9 +193,7 @@ resource "proxmox_lxc" "restic_repository" {
   }
 
   lifecycle {
-    # The template is the seed for a container colmena owns from first boot.
-    # Rebuilding it on a newer nixpkgs must not destroy and recreate the
-    # machine holding every application backup.
+    # A rebuilt template must not recreate the machine holding the backups.
     ignore_changes = [ostemplate]
   }
 }

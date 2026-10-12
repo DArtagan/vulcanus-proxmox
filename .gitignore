@@ -1,6 +1,6 @@
 # Ansible
-# Anchored: an unanchored `hosts` matches at any depth, which silently swallowed
-# the whole nixos/hosts tree. The inventory in use is ansible/hosts.yaml.
+# Anchored: unanchored, it also ignores nixos/hosts. The inventory in use is
+# ansible/hosts.yaml.
 /ansible/hosts
 
 # Kubernetes

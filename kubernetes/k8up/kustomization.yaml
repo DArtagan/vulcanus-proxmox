@@ -1,9 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-# No `namespace:` here, deliberately. A Schedule backs up the namespace it lives
-# in, and a transformer would rewrite every object into the one it named -- the
-# apps Schedule included, leaving apps backed up by nothing while Flux reports
-# Ready. Each object names its own. See docs/backups.md.
+# No `namespace:` here: it would move every Schedule into one namespace. Each
+# object names its own. See docs/backups.md.
 resources:
   - coverage
   - image-update-automation.yaml

@@ -4,11 +4,8 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-    # Taken from upstream rather than from nixpkgs, which ships refs/tags/v0.4.0
-    # -- the May 2023 release, and the last one tagged. Upstream has since fixed
-    # things a deployment relies on, including `--evaluator streaming` being a
-    # no-op. flake.lock is the pin: "tracking main" here means one revision that
-    # changes only when someone runs `nix flake update`.
+    # Upstream main, not nixpkgs' v0.4.0, the last tag (May 2023). flake.lock
+    # pins the revision. See docs/nixos.md.
     colmena = {
       url = "github:nix-community/colmena";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -31,14 +28,9 @@
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
 
-      # One definition per host, feeding both the colmena node and the image
-      # build below. They must not diverge: an image built from different
-      # modules than the deployment expects is how a host ends up unmanageable
-      # the first time anyone tries to change it.
-      #
-      # `deployment` lives here rather than in the host module because it is a
-      # colmena option, and the plain nixosSystem that builds the image rejects
-      # options it has never heard of.
+      # One definition per host, feeding every output below; see
+      # docs/nixos.md. `deployment` is here, not in the module, because it is a
+      # colmena option, which a plain nixosSystem rejects.
       hosts = {
         restic-repository = {
           module = ./hosts/restic-repository;
@@ -50,9 +42,7 @@
       };
     in
     {
-      # The hive definition. The pinned colmena reads it through `colmenaHive`
-      # below and does not look at this attribute at all -- only 0.4.0, the tag
-      # nixpkgs still ships, consumes `colmena` directly.
+      # The hive, which the pinned colmena reads through `colmenaHive` below.
       colmena = {
         meta = {
           nixpkgs = pkgs;
@@ -64,14 +54,10 @@
         inherit (host) deployment;
       }) hosts;
 
-      # What the pinned colmena actually evaluates. It resolves
-      # `colmenaHive` and errors out if only `colmena` is present.
+      # What the pinned colmena evaluates; it errors without it.
       colmenaHive = colmena.lib.makeHive self.outputs.colmena;
 
-      # The same systems colmena deploys, reachable by the tools that expect
-      # this output -- `nixos-rebuild --flake`, and anything introspecting the
-      # flake. Built from `host.module` alone, since `deployment` is colmena's
-      # and a plain nixosSystem rejects it.
+      # The same systems, for `nixos-rebuild --flake` and the like.
       nixosConfigurations = builtins.mapAttrs (
         _: host:
         nixpkgs.lib.nixosSystem {
@@ -81,8 +67,7 @@
         }
       ) hosts;
 
-      # LXC templates to feed Proxmox when first creating a container. After
-      # that, colmena owns the host and these are only rebuilt to recreate it.
+      # LXC templates, for creating a container. colmena owns it after that.
       packages.${system} = builtins.mapAttrs (
         _: host:
         (nixpkgs.lib.nixosSystem {
