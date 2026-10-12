@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agents working in this repository.
 
 ## Development Environment
 
@@ -50,6 +50,29 @@ sops <file>        # Edit encrypted file
 ```bash
 treefmt            # Format the whole tree
 ```
+
+**Checking a change:**
+```bash
+check              # The checks for whatever changed: renders, tests, evals, lint
+check <path>...    # The same, for these paths
+```
+It prints one line when everything passes, and only the failures otherwise.
+
+### Working here as an agent
+
+Everything a command prints lands in the context window, so keep output to
+what carries the result.
+
+- **`git diff --no-ext-diff`.** The global git config sends `git diff` through
+  difftastic, whose side-by-side output is several times the size, and which
+  skips the masked view `.gitattributes` gives SOPS files.
+- **Verify with `check`, not by printing.** A successful Edit has already
+  matched its text exactly once; reading the result back proves nothing more.
+- **Edit a single file with the Edit tool.** Script an edit only when the same
+  change spans many files or a large block moves.
+- **Filter noisy commands** to the lines that carry the result: builds, evals,
+  applies and renders print far more than they conclude. Find a file's place
+  with `grep -n` and read that range, not the whole file.
 
 ## Architecture
 
