@@ -4,7 +4,6 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: backup-coverage
-  namespace: infrastructure
 spec:
   # UTC, after the full Schedules and each dumps slot. The healthchecks check
   # expects this cadence, and the script's age limits assume it.

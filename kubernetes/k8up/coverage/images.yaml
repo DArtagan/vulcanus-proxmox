@@ -3,7 +3,6 @@ apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImageRepository
 metadata:
   name: backup-coverage-python
-  namespace: infrastructure
 spec:
   image: python
   interval: 24h
@@ -13,7 +12,6 @@ apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImagePolicy
 metadata:
   name: backup-coverage-python
-  namespace: infrastructure
 spec:
   imageRepositoryRef:
     name: backup-coverage-python
@@ -29,7 +27,6 @@ apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImageRepository
 metadata:
   name: backup-coverage-restic
-  namespace: infrastructure
 spec:
   image: restic/restic
   interval: 24h
@@ -39,7 +36,6 @@ apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImagePolicy
 metadata:
   name: backup-coverage-restic
-  namespace: infrastructure
 spec:
   imageRepositoryRef:
     name: backup-coverage-restic
