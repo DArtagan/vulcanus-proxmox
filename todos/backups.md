@@ -1189,6 +1189,11 @@ figures, the wrong turns, and what is still open.
   password already are, the htpasswd derives from the latter, and the healthchecks
   URLs come from healthchecks.io.
 - **One repository Secret, under a directory per namespace** (review of PR #13).
+- **The repository host mounts under `/mnt`, not `/srv`** (review of PR #13), as
+  the fileserver does. Verbatim: *"Yes, let's move to `/mnt` - I accept the
+  change-over costs."* Its first mass-file run on the new paths re-reads everything.
+- **No REST password kept in the clear on the host** (review of PR #13): it served
+  only to test the append-only boundary by hand.
 - **The repository container has 1 GiB**, not 4 (review of PR #13): its recorded
   peak was 290 MiB.
 - **Each app's backup configuration in its `backups.yaml`**, with one shared sqlite3
