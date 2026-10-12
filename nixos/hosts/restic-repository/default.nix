@@ -1,7 +1,5 @@
-# The restic repository host: rest-server, append-only, for the cluster, and
-# restic's own jobs against the same repository on the local filesystem. See
-# docs/backups.md.
 {
+  address,
   config,
   inputs,
   modulesPath,
@@ -13,9 +11,6 @@ let
   repository = "/srv/restic";
   passwordFile = config.sops.secrets."restic/password".path;
 
-  # Reports a unit's outcome to healthchecks.io from ExecStopPost. The contract
-  # is ansible/templates/hc-report.j2's, kept in step with that and the mini-nas
-  # copy by hand, since this host can import neither. See docs/backups.md.
   hcReport = pkgs.writeShellScript "hc-report" ''
     set -eu
     url="$(cat "$1")"
@@ -32,7 +27,8 @@ let
     esac
   '';
 
-  # The leading "-" keeps a failed ping from failing the job it reports on.
+  # The leading "-" keeps a failed ping from failing the backup it reports on: a
+  # ping that never arrives turns its check red by itself.
   report = check: "-${hcReport} ${config.sops.secrets."healthchecks/${check}".path}";
 in
 {
@@ -57,14 +53,16 @@ in
     nameservers = [ "192.168.0.202" ];
   };
 
-  # These three, or the container has no network. See docs/nixos.md.
+  # manageNetwork turns the module's networking off rather than handing it over.
   systemd.network.enable = true;
+  # networkd turns resolved on, which refuses a container's default
+  # useHostResolvConf. One static nameserver needs no resolver daemon.
   networking.useHostResolvConf = false;
   services.resolved.enable = false;
 
   systemd.network.networks."10-eth0" = {
     matchConfig.Name = "eth0";
-    address = [ "192.168.0.108/24" ];
+    address = [ "${address}/24" ];
     routes = [ { Gateway = "192.168.0.1"; } ];
     linkConfig.RequiredForOnline = "routable";
   };
@@ -81,20 +79,18 @@ in
     enable = true;
     settings = {
       PasswordAuthentication = false;
-      # colmena deploys as root; there is no other account.
-      PermitRootLogin = "prohibit-password";
+      KbdInteractiveAuthentication = false;
     };
   };
 
   sops = {
     defaultSopsFile = ./secrets.sops.yaml;
-    # The host key, a recipient in .sops.yaml, so nothing need be copied here.
     age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
     secrets = {
       "restic/password".owner = "restic";
       "rest-server/htpasswd".owner = "restic";
-      # The htpasswd's credential in the clear, so this host can test its own
-      # append-only boundary. Anything that reads it can read the passphrase.
+      # The htpasswd's credential in the clear, for testing the append-only
+      # boundary by hand.
       "rest-server/password".owner = "restic";
       # Read by the report above, which runs as the unit's own user.
       "healthchecks/restic-massfiles".owner = "restic";
@@ -120,15 +116,12 @@ in
     prometheus = true;
   };
 
-  # The module does not open its own port. Without this the cluster's Jobs time
-  # out while a test from inside the container passes.
+  # The restic service module does not open its own port.
   networking.firewall.allowedTCPPorts = [ 8000 ];
 
   # For maintenance by hand: check, tag, restore.
   environment.systemPackages = [ pkgs.restic ];
 
-  # Bind-mounted from rpool/storage; terraform/main.tf says why they are safe
-  # though writable.
   services.restic.backups.massfiles = {
     inherit repository passwordFile;
     user = "restic";
@@ -142,9 +135,6 @@ in
       OnCalendar = "*-*-* 02:00:00";
       Persistent = true;
     };
-    # No pruneOpts, or the module prunes after every backup, and every prune is
-    # a rewrite mini-nas receives and pins for 60 days. Retention is monthly,
-    # below.
   };
 
   # A list, so it joins the module's own postStop cleanup rather than replacing it.
@@ -152,7 +142,7 @@ in
     (report "restic-massfiles")
   ];
 
-  # Retention for the whole repository, grouped by host and path.
+  # Retention for the whole repository.
   systemd.services.restic-prune = {
     description = "Apply the restic repository's retention policy";
     environment = {
@@ -173,7 +163,7 @@ in
     # it waits a month. A month's prune repacks about 200 MiB, so 20G binds only
     # after a large deletion.
     script = ''
-      ${pkgs.restic}/bin/restic forget --prune \
+      ${pkgs.restic}/bin/restic forget --prune --group-by host,paths \
         --keep-last 10 --keep-hourly 24 --keep-daily 30 \
         --keep-weekly 8 --keep-monthly 24 \
         --keep-tag decommissioned \
