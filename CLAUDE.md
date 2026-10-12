@@ -105,9 +105,11 @@ sops kubernetes/apps/<app>/secrets.sops.yaml
 
 - **Establish what produces an artifact before changing what consumes it.** The mirror of the rule above. The blocklist sync's manifest was rewritten to use its image's new entrypoint before anyone checked how that image is built — a workflow pinned to a fork tag that had not moved in months, so every image it published was old source wearing a fresh timestamp and a plausible-looking revision label. A green build, a current tag and a matching label all agreed, and all three were wrong. Ask what builds an artifact, and from which ref, before trusting what its tag claims.
 
-- **When the system is running, measure it rather than reasoning about it.** A claim that can be queried should be. Predicting from a rule's structure that `KubeMemoryOvercommit` could not clear took longer than the query proving it had, and was wrong regardless. Metric names deserve the same check — `kube_endpoint_info` exists as a name here but kube-state-metrics emits zero series for it, since its `endpoints` collector isn't enabled. Confirm a series has data before building on it.
+- **Read a product's own documentation before designing around it.** Its designers know which files belong together, what a restore or an upgrade needs, and what cannot be undone. The application backups were built before anyone read Plex's restore guide, which swaps `library.db` and `library.blobs.db` as a pair while only the first was being dumped, or headscale's, whose migrations are one-way and cannot skip a minor version. Read the vendor's guidance for the operation in hand, and note where the design departs from it and why.
 
-- **A verification step is part of the change and earns the same scrutiny.** State where each check runs from and why the number it reports moves for the reason claimed. `kubectl top node` was once offered as proof a memory fix worked — it counts page cache, and read ~84% on a node with 2 GiB genuinely free. `nc -zv` was offered against ports the tailnet policy doesn't grant, which fails regardless of service health. Vantage point matters throughout this repo — LAN, tailnet and in-cluster reach different things, and the tailnet reaches only what [`docs/tailnet.md`](docs/tailnet.md) lists. A check that cannot fail is not a check.
+- **When the system is running, measure it rather than reasoning about it.** A claim that can be queried should be. Predicting from a rule's structure that `KubeMemoryOvercommit` could not clear took longer than the query proving it had, and was wrong regardless. Metric names deserve the same check — `kube_endpoint_info` exists as a name here but kube-state-metrics emits zero series for it, since its `endpoints` collector isn't enabled. Confirm a series has data before building on it. The same holds for a reason written into a comment or a doc, which outlives the session and is read as settled. The restic repository's container was sized at 4 GiB because `restic prune` "holds the whole index in memory", and measured 290 MiB at its peak; `nesting = true` was justified as Proxmox's default, which it is only in the GUI, the API's being off. State a figure or a default once it has been read from the system, not before.
+
+- **A verification step is part of the change and earns the same scrutiny.** State where each check runs from and why the number it reports moves for the reason claimed. `kubectl top node` was once offered as proof a memory fix worked — it counts page cache, and read ~84% on a node with 2 GiB genuinely free. `nc -zv` was offered against ports the tailnet policy doesn't grant, which fails regardless of service health. Vantage point matters throughout this repo — LAN, tailnet and in-cluster reach different things, and the tailnet reaches only what [`docs/tailnet.md`](docs/tailnet.md) lists. A check that cannot fail is not a check. Its tests earn the same scrutiny: put their inputs at the boundaries the system really meets, not comfortably either side. The backup coverage check rounded ages down to the hour, so a dump missed at 07:00 read as 7h at 08:45 and passed a 7h limit; every test age sat hours from a limit, and the documented six-hour RPO was twelve in practice until a test sat at the CronJob's real :45.
 
 - **Ask what is consuming a saturated resource before trying to make it faster.** etcd here has been slow since the cluster was built, and every remedy considered — a SLOG, defragmentation, wider leases — aimed at helping the disk keep up with the load, without ever asking what the load was. Nearly all of it was `openebs-localpv-provisioner` renewing an Endpoints object and a Lease every 2s to arbitrate between one replica and nobody — a quarter of etcd's total writes, removed by two lines of chart values. Profile the demand before buying more supply.
 
@@ -201,15 +203,21 @@ Applies to comments and config as much as to prose here.
   [`docs/project_log.md`](docs/project_log.md), which is past tense by design —
   see [`docs/README.md`](docs/README.md) for why an index of pointers is not a
   file narrating its own edit history.
-- **Write it once, and point at it.** A fact belongs in exactly one place;
-  everywhere else refers to that place. Duplicating an explanation into a
-  manifest comment beside the doc that already holds it doubles the maintenance
-  and guarantees the two drift, at which point a reader cannot tell which is
-  current. Where the file lives decides what it may say: `docs/` carries the
-  explanation, and a comment carries only what a reader of *that file* needs and
-  could not infer — most often the warning that stops them reintroducing a bug,
-  which is the one thing worth repeating because its whole value is being where
-  the mistake would be made. "See `docs/network.md`" is a complete comment.
+- **Write it once, where it is needed.** A fact belongs in exactly one place.
+  Duplicating an explanation into a manifest comment beside the doc that already
+  holds it doubles the maintenance and guarantees the two drift, at which point a
+  reader cannot tell which is current. Where the file lives decides what it may
+  say: `docs/` carries the architecture and how to use it, and the reason an
+  implementation was chosen sits beside that implementation, where whoever
+  changes it will read it. A comment carries only what a reader of *that file*
+  needs and could not infer — most often the warning that stops them
+  reintroducing a bug, which is the one thing worth repeating because its whole
+  value is being where the mistake would be made. A comment that only points at a
+  doc tells the reader nothing they need, so leave it out.
+- **Write comments at their final length the first time.** A review spent
+  deleting restatements, history and pointers is a review not spent on the
+  change. Before committing a comment, ask what it says that the line beneath it
+  and the docs do not; if nothing, it goes.
 - **A doc is architecture and use, not implementation.** `docs/` says what a
   thing is, how it is reached and used, why it is shaped the way it is, and what
   to do when it breaks. Container ports, environment variable names, annotations
