@@ -13,6 +13,7 @@ resources:
   - schedule-apps.yaml
   - schedule-automatic-ripping-machine.yaml
   - schedule-infrastructure.yaml
+  - sqlite3-image.yaml
 patches:
   - path: schedule-defaults.yaml
     target:

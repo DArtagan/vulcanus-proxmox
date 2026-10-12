@@ -1,0 +1,42 @@
+# The sqlite3 image every PreBackupPod takes its copy with, scanned once. An
+# ImageUpdateAutomation reads only its own namespace's ImagePolicies, so each
+# namespace whose manifests carry the marker needs a policy of its own.
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: k8up-sqlite3
+  namespace: infrastructure
+spec:
+  image: keinos/sqlite3
+  interval: 15m0s
+  accessFrom:
+    namespaceSelectors:
+      - matchLabels:
+          kubernetes.io/metadata.name: apps
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: k8up-sqlite3
+  namespace: infrastructure
+spec:
+  imageRepositoryRef:
+    name: k8up-sqlite3
+  policy:
+    semver:
+      range: '>=3.53.4 <4.0.0'
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: k8up-sqlite3
+  namespace: apps
+spec:
+  imageRepositoryRef:
+    name: k8up-sqlite3
+    namespace: infrastructure
+  policy:
+    semver:
+      range: '>=3.53.4 <4.0.0'

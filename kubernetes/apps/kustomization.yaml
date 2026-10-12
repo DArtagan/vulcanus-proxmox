@@ -7,7 +7,6 @@ resources:
   - books-pvc.yaml
   - borg-backups-pvc.yaml
   - borgmatic
-  - sqlite3-image.yaml
   #- botamusique
   - beets
   - cloudflare-ddns
