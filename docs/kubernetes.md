@@ -180,9 +180,12 @@ add it to `dependsOn` in `kubernetes/cluster/k8up.yaml`.
 
 **Check it after the first night.** In the coverage check's latest ping in
 healthchecks, the summary's claim and dump counts should include the new ones, and
-nothing should still call them new or awaiting a backup. A restore is what proves a
-dump: load it once into a scratch database, as *Restoring from restic* in
-[`backups.md`](backups.md) describes.
+nothing should still call them new or awaiting a backup.
+
+**Write down how to restore it**, under *Each application* in
+[`backups.md`](backups.md): what the application's own guidance says a restore needs,
+which files go back together, and anything version-bound. Then restore its first
+backup once, into scratch space, before relying on it.
 
 ## Removing a stateful workload
 

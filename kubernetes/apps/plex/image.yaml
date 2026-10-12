@@ -5,6 +5,11 @@ metadata:
 spec:
   image: plexinc/pms-docker
   interval: 15m0s
+  # The backup coverage check runs Plex's SQLite from this image.
+  accessFrom:
+    namespaceSelectors:
+      - matchLabels:
+          kubernetes.io/metadata.name: infrastructure
 
 
 ---
