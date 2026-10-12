@@ -72,10 +72,11 @@ spec:
                 # that; if breakage reports start arriving from one house rather
                 # than from everywhere, NORMAL is the step back.
                 #
-                # About 193,000 domains after deduplication, roughly 65% of the
-                # 300,000 ceiling. Threat intelligence is deliberately absent: Cloudflare's
-                # own Security threats categories cover it for no list capacity at
-                # all, where hagezi's TIF-mini would cost 170,000 and not fit.
+                # Roughly two thirds of the 300,000 ceiling; docs/dns-filtering.md
+                # holds the current count. Threat intelligence is deliberately
+                # absent: Cloudflare's own Security threats categories cover it for
+                # no list capacity at all, where hagezi's TIF-mini would cost
+                # 170,000 and not fit.
                 - name: BLOCKLIST_URLS
                   value: |-
                     https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/pro-onlydomains.txt
