@@ -172,9 +172,9 @@ and stop at the first failure; it retries up to six times, rerunning every dump
 before the failing one.
 
 **Seven SQLite databases have only their volume's file copy:** stump, mumble,
-speedtest-tracker, youtube-dl, headplane, beets and ARM's `arm.db`. All are
-journal-mode with negligible write rates, so the copy is very likely consistent,
-though beets could be torn mid-import.
+speedtest-tracker, youtube-dl, headplane, beets and ARM's `arm.db`. All write rarely,
+so the copy is very likely consistent, though beets could be torn mid-import. stump's
+is in WAL mode, so a copy taken while it writes can miss its latest transactions.
 
 ### Writing a backup command
 
