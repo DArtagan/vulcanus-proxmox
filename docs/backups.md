@@ -163,24 +163,6 @@ takes a `.backup` copy. Each application's PreBackupPod is in its `backups.yaml`
 their shared image automation in `kubernetes/k8up/sqlite3-image.yaml`. Either way the
 extension carries the application's name, keeping every dump's path its own.
 
-**A new dump follows the same shape**, writing to a file of its own and streaming it
-only once checked:
-
-```sh
-set -e; f=$(mktemp); trap "rm -f $f" EXIT; <dump> > "$f"; test -s "$f"; cat "$f"
-```
-
-- A failed dump streams nothing: at worst a zero-byte snapshot the coverage check
-  fails, never a plausible prefix.
-- `test -s` catches a tool that exits 0 having written nothing.
-- The database is held only for a local write, not for as long as restic takes to
-  ingest through the apiserver.
-- `mktemp`, because K8up does not serialise Backups: with a shared path, an
-  overlapping dump truncates the file the first is still streaming.
-
-Label the producer `k8up-dump: "true"`, and give the dump a format whose end the
-coverage check can see: a SQLite copy, or plain SQL.
-
 **The two kinds fail differently.** A PreBackupPod that cannot become ready stops the
 namespace's whole backup, volumes included. Dumps run in their own `prebackup` Job
 and stop at the first failure; it retries up to six times, rerunning every dump
@@ -190,6 +172,46 @@ before the failing one.
 speedtest-tracker, youtube-dl, headplane, beets and ARM's `arm.db`. All are
 journal-mode with negligible write rates, so the copy is very likely consistent,
 though beets could be torn mid-import.
+
+### Writing a backup command
+
+Every dump, by annotation or PreBackupPod, follows one shape:
+
+```sh
+set -e; f=$(mktemp); trap "rm -f $f" EXIT; <dump> > "$f"; test -s "$f"; cat "$f"
+```
+
+Each part closes off a failure that would otherwise pass unseen:
+
+- **Dump to a file, then stream it.** Streamed straight to stdout, a dump that dies
+  halfway has already sent a plausible-looking prefix, which restic can save as a
+  complete snapshot. Under `set -e` a failed dump stops before the `cat`, so the worst
+  case is a zero-byte snapshot, which the coverage check fails.
+- **`test -s`** refuses an empty file: a tool that exits 0 having written nothing,
+  such as `sqlite3` pointed at the wrong path.
+- **The database is held only for a local write.** Streamed, the dump runs at
+  restic's pace, through the apiserver and kubelet, on the nights the disks are
+  busiest. Meanwhile `--single-transaction` holds MariaDB's read view open, and
+  `pg_dump` holds locks that block an application's migrations.
+- **`mktemp`, never a fixed path.** K8up can run two Backups at once, and with a
+  shared path the second dump truncates the file the first is still streaming.
+
+Beyond the shape:
+
+- **Dump where the tools are.** A relational database from inside its own container,
+  over the local socket. A SQLite database from a PreBackupPod, whose `.backup` copy is
+  consistent under a running writer and needs the seekable file anyway.
+- **Choose a format whose end can be seen**: a SQLite copy, whose header states its
+  length, or plain SQL, which ends in a completion marker. A size comparison cannot
+  see a dump cut short by a percent, and a truncated `pg_dump` custom-format archive
+  still lists cleanly.
+- **Name the application in the extension** (`k8up.io/file-extension`, or a
+  PreBackupPod's `fileExtension`), since every database container here is called
+  `database` and K8up names the dump after the container.
+- **Label the producer `k8up-dump: "true"`**, so the dumps-only Schedules take it.
+
+The cost is the dump sitting in the container's writable layer while it streams:
+about 200 MB at most.
 
 ## Retention
 

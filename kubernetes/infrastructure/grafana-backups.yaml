@@ -7,7 +7,7 @@ metadata:
   labels:
     k8up-dump: "true"
 spec:
-  # .backup needs a seekable destination, hence the file before the cat.
+  # See "Writing a backup command" in docs/backups.md.
   backupCommand: >-
     sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT;
     sqlite3 "/data/grafana.db" ".backup $f"; test -s "$f"; cat "$f"'

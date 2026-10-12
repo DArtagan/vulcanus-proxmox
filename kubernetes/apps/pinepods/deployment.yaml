@@ -18,9 +18,8 @@ spec:
         app: pinepods
         k8up-dump: "true"
       annotations:
-        # Into a file of this run's own, streamed only once checked. Plain SQL,
-        # not custom format: the coverage check reads its completion marker.
-        # See docs/backups.md.
+        # See "Writing a backup command" in docs/backups.md: plain SQL, not
+        # custom format, so the coverage check can see where it ends.
         k8up.io/backupcommand: >-
           sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT;
           pg_dump -U postgres -d "$POSTGRES_DB" -f "$f";
