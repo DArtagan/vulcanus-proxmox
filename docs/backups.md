@@ -84,14 +84,14 @@ mount is read-only. Like every replica it is otherwise unmounted (`mountpoint=no
 **The repository passphrase is the one credential whose loss makes every snapshot
 unreadable.** It is escrowed in the password manager, with the REST password beside
 it, so a restore needs only the passphrase and the backup media. The working copies
-are SOPS-encrypted: `kubernetes/k8up/secret-*.sops.yaml` for the cluster,
+are SOPS-encrypted: `kubernetes/k8up/repository/secret.sops.yaml` for the cluster,
 `nixos/hosts/restic-repository/secrets.sops.yaml` for the host.
 
 ## Kubernetes volumes and databases
 
 [K8up](https://k8up.io) runs restic in the cluster, against the repository above.
-The operator is `kubernetes/infrastructure/k8up.yaml`; the Schedules, one file per
-namespace, and the coverage check are in `kubernetes/k8up/`.
+The operator is `kubernetes/infrastructure/k8up.yaml`; the Schedules, one directory
+per namespace, and the coverage check are in `kubernetes/k8up/`.
 
 ### What is in scope
 
@@ -223,8 +223,9 @@ PBS retention is client-side: the vzdump job carries `prune-backups keep-last=31
 applies it per guest as it backs that guest up. The PVE storage entry sets
 `prune-backups keep-all=1`, so PVE never prunes the datastore itself.
 
-restic keeps its own history inside the repository, so `rpool/backups/restic`'s
-snapshots guard only against losing the repository itself. restic's retention runs
+Each restic snapshot is already a point-in-time copy, and the repository holds every
+one its retention keeps. So `rpool/backups/restic`'s own ZFS snapshots are only for
+recovering the repository itself, after a bad prune, say. restic's retention runs
 on the repository host on the 1st of the month, as one policy per host-and-path
 group, so every volume and every dump keeps its own history:
 
@@ -453,14 +454,15 @@ It **reports**:
 - new items;
 - an always-empty claim;
 - a group whose claim or producer is gone;
-- restic's per-item count of unreadable files.
+- files restic could not read on an item's latest run, normally none.
 
 A dump is whole when a SQLite copy's size matches what its header states, or a SQL
 dump ends in its completion marker.
 
-The unreadable-file counts live only in backup Job logs, which go when K8up prunes
-the Jobs or their node restarts. The summary line says how many items' counts were
-read, so "none read" never looks like "all clean".
+Those counts live only in backup Job logs, which go when K8up prunes the Jobs or
+their node restarts, so the summary line says how many items' counts it found. A
+file deleted mid-backup counts too, which is why a nonzero count reports rather than
+fails; a volume restic genuinely cannot read fails as empty or shrunk instead.
 
 ### Scrubs
 

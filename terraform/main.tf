@@ -135,13 +135,15 @@ resource "proxmox_lxc" "restic_repository" {
 
   unprivileged = true
 
-  # `restic prune` holds the whole index in memory.
-  memory = 4096
+  # restic holds the repository's index in memory, peaking near 250 MiB.
+  memory = 1024
   cores = 2
   swap = 0
   onboot = true
   start = true
 
+  # Not nested virtualization: lets systemd's per-service sandboxing create the
+  # namespaces it needs, which NixOS units use throughout.
   features {
     nesting = true
   }
@@ -151,9 +153,6 @@ resource "proxmox_lxc" "restic_repository" {
     size = "20G"
   }
 
-  # Never set `storage` on a bind mount, here or below. The provider reads it
-  # back empty from a host path, so any value is a diff no apply settles, and
-  # each apply attempts a storage move that Proxmox rejects.
   mountpoint {
     key = "0"
     slot = 0
@@ -162,9 +161,8 @@ resource "proxmox_lxc" "restic_repository" {
     size = "1M"
   }
 
-  # The mass-file datasets it backs up. Read-only if the provider could say so;
-  # it has no `ro=1`. The uid shift keeps them safe: owned outside the
-  # container's range, they appear as `nobody` and are not writable inside.
+  # Read-only in effect, though the provider has no `ro=1`: owned outside the
+  # container's uid range, they appear as `nobody` inside.
   mountpoint {
     key = "1"
     slot = 1
@@ -189,8 +187,7 @@ resource "proxmox_lxc" "restic_repository" {
     size = "1M"
   }
 
-  # Not applied to an `unmanaged` guest; nixos/hosts/restic-repository sets the
-  # address. Here so `pct config 108` tells the truth: change both together.
+  # Keep network IP in sync with `vmid` above.
   network {
     name = "eth0"
     bridge = "vmbr0"
@@ -199,7 +196,8 @@ resource "proxmox_lxc" "restic_repository" {
   }
 
   lifecycle {
-    # A rebuilt template must not recreate the machine holding the backups.
+    # ostemplate matters only at creation, and changing it would destroy and
+    # recreate the container holding the backups.
     ignore_changes = [ostemplate]
   }
 }
