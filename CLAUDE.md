@@ -152,8 +152,9 @@ already been through.
 2. The work is carried out, usually in its own session opened with that spec.
 3. Whatever the work leaves behind that is *permanently true* is written into
    `docs/` — the resulting architecture, conventions, operational notes.
-4. The spec in `todos/` is deleted — it was scaffolding — and an entry is added
-   to [`docs/project_log.md`](docs/project_log.md). Steps 3 and 4 belong in one
+4. The spec in `todos/` is deleted, with its evidence file if it has one — it
+   was scaffolding — and an entry is added to
+   [`docs/project_log.md`](docs/project_log.md). Steps 3 and 4 belong in one
    commit on the project branch, so the closing change lands inside the review.
 
 A spec phased across months does not have to reach step 4 in one sitting. It can

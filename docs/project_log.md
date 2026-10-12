@@ -7,7 +7,8 @@ This is not a description of what changed — git carries that. What lives here 
 what git does not: a registry of spent slugs, so a name is never reused, and the
 address of the review discussion.
 
-Deleted specs are recoverable: `git log --diff-filter=D -- todos/<slug>.md`
+Deleted specs are recoverable: `git log --diff-filter=D -- todos/<slug>.md
+todos/<slug>.evidence.md`
 
 Each entry is `slug (date): summary`, with the review link last. Where there was
 a spec to retire, the commit that retired it follows the date. A project phased
