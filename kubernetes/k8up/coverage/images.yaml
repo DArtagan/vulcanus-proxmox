@@ -22,9 +22,7 @@ spec:
     extract: '$version'
   policy:
     semver:
-      # The script is stdlib only and its tests run on 3.12, so a minor
-      # Python release is no boundary for it.
-      range: '>=3.14.7 <4.0.0'
+      range: '>=3.14.7'
 
 ---
 apiVersion: image.toolkit.fluxcd.io/v1

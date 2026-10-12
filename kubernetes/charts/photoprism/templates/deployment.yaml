@@ -12,7 +12,6 @@ spec:
     metadata:
       labels:
         app: {{ .Values.name }}
-        # Also picked up by the dumps-only Schedule.
         k8up-dump: "true"
       annotations:
         # Into a file of this run's own, streamed only once checked. See

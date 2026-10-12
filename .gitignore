@@ -1,6 +1,4 @@
 # Ansible
-# Anchored: unanchored, it also ignores nixos/hosts. The inventory in use is
-# ansible/hosts.yaml.
 /ansible/hosts
 
 # Kubernetes

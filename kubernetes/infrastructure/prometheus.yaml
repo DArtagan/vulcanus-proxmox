@@ -319,8 +319,7 @@ spec:
           volumeClaimTemplate:
             metadata:
               annotations:
-                # Regenerable, and the largest thing on the node. It reaches
-                # only claims created from here on; see docs/backups.md.
+                # Regenerable, and the largest volume on its node.
                 k8up.io/backup: "false"
             spec:
               storageClassName: openebs-hostpath
