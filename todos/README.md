@@ -22,13 +22,11 @@ Unlike the other specs here this one is **maintained through implementation** �
 spans sessions and carries a status table. Slug `backups`, branch `backups`.
 
 **2. [talosconfig-renewal.md](talosconfig-renewal.md) — keep `talosctl`'s certificate from lapsing unnoticed**
-The client certificate in `.talosconfig` expires 2026-11-07. The provider renews
-it only when an apply lands in the final month -- from 2026-10-07 -- and nothing
-announces the window opening. A lapse is recoverable with one apply, so this is
-small; it is second because it is the only item here with a date on it, and
-because `talosctl` is the tool needed when the cluster is the thing that is
-broken. Also carries the one command never to run: `-replace` on the machine
-secrets.
+The client certificate in `.talosconfig` expires 2026-11-07, and the provider
+renews it only on an apply from 2026-10-07, with nothing to announce it. A lapse
+costs one apply; it is second for its date, and because `talosctl` is the tool
+needed when the cluster is what is broken. Also carries the one command never to
+run: `-replace` on the machine secrets.
 
 **3. [cert-manager-dns01.md](cert-manager-dns01.md) — stop renewing certificates through the public IP**
 All 24 certificates validate over HTTP-01, so every renewal needs the public A
