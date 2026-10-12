@@ -83,8 +83,8 @@ data:
       #      Read out of _values_flex directly because computed getters take
       #      precedence over flexible fields in Model._get, so `db_obj.author`
       #      would recurse into this function rather than find the override.
-      #      Note it lives only in library.blb, which is not backed up, and is
-      #      never written to file tags.
+      #      Note it lives only in library.blb, and is never written to file
+      #      tags.
       #   2. albumartists[0]. MusicBrainz splits the credit into an ordered
       #      list with the author first. Populated for every MusicBrainz-
       #      matched album; the raw value is sometimes the literal string
