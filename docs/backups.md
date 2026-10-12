@@ -501,11 +501,12 @@ in a namespace with no Schedule, still counts. It is shaped and tested like
 
 It **fails**:
 - a claim or dump never backed up, once past its first night;
-- a volume whose newest snapshot is over 26 h old, or a dump over 7 h;
+- a volume whose newest snapshot is over 26 h old, or a dump over 7 h, so the check
+  after a missed dumps run fails;
 - an in-scope `ReadWriteMany` claim;
 - a volume that went empty, or any empty dump;
 - an item under half its previous size, from 1 MiB up;
-- a current dump that is not whole.
+- a current dump that is not whole, or that the store cannot serve back.
 
 It **reports**:
 - exclusions;
