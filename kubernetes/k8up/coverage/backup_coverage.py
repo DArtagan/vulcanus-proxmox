@@ -39,7 +39,7 @@ EXTENSION_ANNOTATION = "k8up.io/file-extension"
 # plus the slack a long run needs.
 VOLUME_MAX_AGE_HOURS = 26
 # Dumps run at 01:00 (with `full`), 07:00, 13:00 and 19:00: one six-hour cycle
-# plus an hour.
+# plus an hour, so the check after a missed run fails.
 DUMP_MAX_AGE_HOURS = 7
 # A claim or producer younger than this has not yet met a nightly run.
 NEW_GRACE_HOURS = 26
@@ -64,6 +64,8 @@ SQL_COMPLETION_MARKERS = (
     b"-- Dump completed on ",
     b"-- PostgreSQL database dump complete",
 )
+
+HOUR = 3600
 
 # healthchecks keeps the first 100 kB of a ping's body.
 PING_BODY_BYTES = 100_000
@@ -302,8 +304,14 @@ def _shrank(held: Series) -> bool:
     )
 
 
-def _hours(now: int, then: int) -> int:
-    return (now - then) // 3600
+def _older_than(now: int, then: int, hours: int) -> bool:
+    """Compare exactly: rounded to the hour, a 7h44m dump passes a 7h limit."""
+    return now - then > hours * HOUR
+
+
+def _age(now: int, then: int) -> str:
+    minutes = (now - then) // 60
+    return f"{minutes // 60}h{minutes % 60:02d}m"
 
 
 def _volume_contents(name: str, held: Series) -> tuple[str | None, str | None]:
@@ -328,15 +336,12 @@ def _judge_volume(
 ) -> tuple[str | None, str | None]:
     """Return (problem, report) for one in-scope claim; at most one of each."""
     if held is None:
-        if _hours(now, claim.created) < NEW_GRACE_HOURS:
+        if not _older_than(now, claim.created, NEW_GRACE_HOURS):
             return None, f"{name}: new, awaiting its first backup"
         return f"{name}: in scope and never backed up", None
-    age = _hours(now, held.newest)
-    if age > VOLUME_MAX_AGE_HOURS:
-        return (
-            f"{name}: newest snapshot {age}h old, limit {VOLUME_MAX_AGE_HOURS}h",
-            None,
-        )
+    if _older_than(now, held.newest, VOLUME_MAX_AGE_HOURS):
+        age = _age(now, held.newest)
+        return f"{name}: newest snapshot {age} old, limit {VOLUME_MAX_AGE_HOURS}h", None
     return _volume_contents(name, held)
 
 
@@ -367,20 +372,20 @@ def _judge_dump(
 ) -> tuple[str | None, str | None]:
     """Return (problem, report) for one dump; at most one of each."""
     if held is None:
-        if _hours(now, producer.created) < NEW_GRACE_HOURS:
+        if not _older_than(now, producer.created, NEW_GRACE_HOURS):
             return None, f"{name}: new, awaiting its first dump ({producer.source})"
         return f"{name}: never dumped ({producer.source})", None
-    age = _hours(now, held.newest)
-    if age > DUMP_MAX_AGE_HOURS:
-        return f"{name}: newest dump {age}h old, limit {DUMP_MAX_AGE_HOURS}h", None
+    if _older_than(now, held.newest, DUMP_MAX_AGE_HOURS):
+        age = _age(now, held.newest)
+        return f"{name}: newest dump {age} old, limit {DUMP_MAX_AGE_HOURS}h", None
     return _dump_contents(name, held, content)
 
 
 def _orphan_report(held: Series, now: int) -> str:
-    age = _hours(now, held.newest)
+    age = _age(now, held.newest)
     if DECOMMISSIONED in held.tags:
         return (
-            f"{held.host} {held.path}: decommissioned, newest snapshot {age}h old, "
+            f"{held.host} {held.path}: decommissioned, newest snapshot {age} old, "
             "kept by the prune's --keep-tag"
         )
     if held.path.startswith("/data/"):
@@ -388,7 +393,7 @@ def _orphan_report(held: Series, now: int) -> str:
             f"{held.host}/{held.path.removeprefix('/data/')}: claim gone, newest "
             f"snapshot {age}h old -- tag it {DECOMMISSIONED} if it is worth keeping"
         )
-    return f"{held.host} dump {held.path}: producer gone, newest dump {age}h old"
+    return f"{held.host} dump {held.path}: producer gone, newest dump {age} old"
 
 
 # Each argument is a separate source the verdicts read; bundling them would hide
@@ -510,12 +515,22 @@ def _dump_command(host: str, path: str) -> list[str]:
 
 
 def _dump_head(host: str, path: str, count: int) -> bytes:
-    """Read the first bytes of an item's newest snapshot, then stop restic."""
+    """Read the first bytes of an item's newest snapshot, then stop restic.
+
+    Shorter than asked for means restic stopped on its own, so its exit says
+    whether that was the end of the snapshot or a failure.
+    """
     with subprocess.Popen(
-        _dump_command(host, path), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+        _dump_command(host, path), stdout=subprocess.PIPE, stderr=subprocess.PIPE
     ) as process:
         head = process.stdout.read(count)
-        process.kill()
+        if len(head) == count:
+            process.kill()
+            return head
+        _, stderr = process.communicate()
+    if process.returncode != 0:
+        message = f"restic dump exited {process.returncode}: {stderr.decode().strip()}"
+        raise RuntimeError(message)
     return head
 
 
@@ -543,8 +558,8 @@ def inspect_dumps(
 ) -> dict[tuple[str, str], tuple[str | None, str | None]]:
     """Read each current dump back from the store and judge whether it is whole.
 
-    A dump that cannot be read at all is reported: which snapshots the store
-    can serve is the weekly Check's question, not this one's.
+    A dump the store cannot serve fails: a restore would meet the same, and the
+    weekly K8up Check never reads pack data to notice.
     """
     contents = {}
     for producer in producers:
@@ -561,7 +576,7 @@ def inspect_dumps(
                 tail = _dump_tail(series.host, series.path, TRAILER_WINDOW_BYTES)
                 contents[key] = sql_trailer_verdict(tail)
         except (OSError, RuntimeError) as error:
-            contents[key] = (None, f"could not read it back to check: {error}")
+            contents[key] = (f"could not read it back: {error}", None)
     return contents
 
 

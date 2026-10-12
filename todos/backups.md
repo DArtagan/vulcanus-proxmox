@@ -29,7 +29,7 @@ Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
 | A | Record the spec, open the review | **done** 2026-09-01 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3) |
 | 0 | Stop the bleeding — replication, retention, scrub | **done 2026-09-03.** Key escrow, retention, scrub, monitoring on both hosts, prune and diverged-dataset repair (30,404 → 1,083 snapshots, 89% → **76%**, **2.32 TiB reclaimed**), with the five datasets re-seeded — `syncoid-vulcanus-data` completed with zero errors for the first time since 2026-01-14 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3), merged 2026-09-18 |
 | 1 | Reclaim — dead guests, orphans | **done 2026-09-18.** Five orphaned datasets, guests 100/101/106, `rpool/rancheros`, three replicas, four PVCs, seven hostpath dirs and three PBS groups destroyed; vulcanus 28.3→**27.7 T**, mini-nas 77→**73%**, worker-0 **25.1 GiB** back. `zfs-replication-freshness` **green for the first time since inception**; `pbs-freshness` built and deployed here rather than in Phase 6, reports 5→2, zero failures — [PR #11](https://github.com/DArtagan/vulcanus-proxmox/pull/11) |
-| 2 | Application backups — K8up + restic | **built 2026-09-22**, [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13), in review. Repo LXC 108 on NixOS serving append-only; mass files (296.6 GiB) and every in-scope volume and seven dumps backed up, on five Schedules; coverage CronJob live, 0 failing; ARM and syncthing restored exact; replicated to mini-nas and `restic check`ed there. **Open:** the dumps have never been restored, and VictoriaLogs' chart is stuck — see *Still open*. Next: phase 2b |
+| 2 | Application backups — K8up + restic | **done 2026-10-12**, [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13), in review. Repo LXC 108 on NixOS serving append-only; mass files (296.6 GiB) and every in-scope volume and eight dumps backed up, on five Schedules; coverage CronJob live, 0 failing; ARM and syncthing volumes restored exact; every dump restored — the SQL into scratch servers matching live row for row, the SQLite copies through `integrity_check` — each against a corrupted control; replicated to mini-nas and `restic check`ed there. Next: phase 2b |
 | 2b | Delete the borg tree, after a restore is proven | not started |
 | 3 | Performance — drop the OpenEBS disks from vzdump | not started |
 | 4 | Platform images offsite — PBS #2 + sync | not started; **gated on the mini-nas disks** |
@@ -1180,6 +1180,9 @@ figures, the wrong turns, and what is still open.
   `pg_restore --list`. The four old `.pgdump` snapshots were forgotten on the host.
 - **No homepage entry.** Entries are for services with a web UI; rest-server and
   K8up have none.
+- **A dump the store cannot serve fails the coverage check**, and ages are compared
+  exactly (review of PR #13): rounded down to the hour, a missed 07:00 dumps run had
+  passed, making the six-hour RPO twelve in practice.
 - **Each app's backup configuration in its `backups.yaml`**, with one shared sqlite3
   image under `kubernetes/k8up/` (review of PR #13). Only for the PreBackupPod
   applications: the annotation route's config stays on its Deployment.
@@ -1271,6 +1274,23 @@ file copy suffices.
 | coverage check | 253 MiB peak reading salamander's dump back; 11 s live, 15 s scheduled |
 | first replication to mini-nas, 2026-09-22 | 302.9 GB in about 4 h at 16-28 MB/s; `restic check` clean on a read-only snapshot mount there |
 | first monthly prune, 2026-10-01 | 66 s, 202 MiB repacked, 165 MiB memory peak |
+| dump restores, 2026-10-12 | see below |
+
+**The dumps restore — 2026-10-12**, the 19:00 UTC dumps of 2026-10-11, each streamed
+from the repository host into a scratch pod on the live image, in a throwaway
+namespace:
+
+| Dump | Loaded into | Result |
+|---|---|---|
+| photoprism, 74 MB | mariadb 10.11.19 | exit 0 in 85 s; 39 tables and 270,341 rows, matching live row for row bar one `errors` row written since |
+| salamander, 203 MB | mariadb 10.11.19 | exit 0 in 127 s; 39 tables and 170,317 rows, the same |
+| pinepods, 18 MB | postgres 18.6, `ON_ERROR_STOP` | exit 0 in 34 s; 42 tables, matching live bar two episodes added since |
+| headscale, linkding, soft-serve, grafana | sqlite3 3.53.4 | bytes equal to the snapshot's, `integrity_check` `ok`, 8 to 95 tables each |
+| plex, 88.5 MB | `Plex SQLite`, from Plex's image | bytes equal, `integrity_check` `ok`. Stock sqlite3 cannot check it: no `icu_root` collation |
+
+Each check was shown to fail. Four pages of the linkding copy overwritten at random
+fail `integrity_check`; the photoprism dump cut at 30 of 74 MB stops mariadb with a
+syntax error at the cut; the pinepods dump cut at 9 of 18 MB stops `psql` with exit 3.
 
 Every snapshot carries restic's `summary`, which the coverage check's size verdicts
 need. The operator's `k8up_jobs_failed_counter` has no series until a first failure.
@@ -1335,21 +1355,25 @@ positive controls. The residue is freed blocks on `rpool/home`, which is unencry
   run; fixed test-first.
 - **`kubectl auth can-i get pods/log` answered "no"**, being parsed as a pod named
   `log`. `--subresource=log` answers "yes".
+- **The first SQLite restores proved nothing.** Piped into `kubectl exec -i ... sh -c
+  "cat > f"`, each landed as an empty file with every exit status 0, and an empty file
+  passes `integrity_check`. The same pipe kept every byte when the remote shell did
+  more after `cat`. Rerun comparing each file's size with the snapshot's.
+- **The first MariaDB load met the image's temporary init server**, which answered
+  the readiness ping and then restarted: "Server has gone away" at line 1, nothing
+  loaded. A cut-dump control was also lost once to a tailnet connection reset, and
+  rerun rather than counted.
 - **Escrow was first argued as necessary.** It was not; it is shorter and
   drift-proof, which is enough.
 - **The exclusion annotation broke VictoriaLogs' chart.** An annotation on a
   Helm-owned StatefulSet's `volumeClaimTemplates` cannot be applied to the live
-  object, so every upgrade since has failed and rolled back, and the HelmRelease
-  is Stalled on chart 0.13.9. Found in review of PR #13.
+  object, so every upgrade failed and rolled back, and the HelmRelease Stalled on
+  chart 0.13.9. Found in review of PR #13 and fixed 2026-10-12 by deleting the
+  StatefulSet with `--cascade=orphan`; Helm recreated it, upgraded to 0.13.10, and
+  logs kept flowing with their history intact.
 
 #### Still open
 
-- **The dumps have never been restored.** The Verification list's *each SQL dump
-  loads into a scratch database, and each SQLite dump returns `ok` from `PRAGMA
-  integrity_check`* is unrecorded. The content checks show a dump is whole, not that
-  it loads.
-- **VictoriaLogs' StatefulSet needs recreating** (`kubectl delete sts victoria-logs
-  --cascade=orphan`) for its chart to upgrade again; see the last wrong turn.
 - **No restore runbook until Phase 6.** On a rebuilt cluster Flux reconciles
   applications onto fresh empty claims, and databases initialise before any restore
   lands, so the Kustomizations must be suspended first.

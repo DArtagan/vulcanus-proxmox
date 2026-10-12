@@ -11,8 +11,11 @@ cluster API, restic and K8up's job logs were measured to produce on 2026-09-22.
 """
 
 import json
+import os
 import sys
+import tempfile
 import unittest
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import ClassVar
 
@@ -639,10 +642,6 @@ class TheEstateAsMeasured(unittest.TestCase):
         self.assertEqual(len(problems), 7)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ContentChecks(unittest.TestCase):
     """Whether a dump is whole, read from the store rather than its size alone.
 
@@ -760,3 +759,124 @@ class PingNeverRaises(unittest.TestCase):
 
     def test_an_unreachable_host_is_survived(self) -> None:
         backup_coverage.ping("http://127.0.0.1:9/ping", "body", failed=False)
+
+
+def utc(text: str) -> int:
+    return int(datetime.fromisoformat(text).replace(tzinfo=UTC).timestamp())
+
+
+class TheCronJobsCadence(unittest.TestCase):
+    """Ages as the CronJob meets them: at :45, after runs at :00 or :30.
+
+    The check that follows a missed run is the one that has to fail. Ages are
+    compared exactly: rounded down to the hour, a dump missed at 07:00 read as
+    7h at 08:45 and passed, and the 13:00 run then hid it for good.
+    """
+
+    def judge_dump(self, newest: str, now: str) -> list[str]:
+        path = "/apps-x.sql"
+        problems, _ = backup_coverage.classify(
+            [],
+            [producer(path, created=utc(now) - 30 * HOUR)],
+            {("apps", path): series(path, newest=utc(newest))},
+            now=utc(now),
+            item_errors={},
+            dump_contents={},
+        )
+        return problems
+
+    def judge_volume(self, newest: str, now: str) -> list[str]:
+        problems, _ = backup_coverage.classify(
+            [claim("a", created=utc(now) - 30 * HOUR)],
+            [],
+            {("apps", "/data/a"): series("/data/a", newest=utc(newest))},
+            now=utc(now),
+            item_errors={},
+            dump_contents={},
+        )
+        return problems
+
+    def test_the_check_after_each_dumps_run_is_silent(self) -> None:
+        self.assertEqual(self.judge_dump("2026-10-11 07:00:40", "2026-10-11 08:45"), [])
+
+    def test_a_missed_dumps_run_fails_the_next_check(self) -> None:
+        problems = self.judge_dump("2026-10-11 01:00:40", "2026-10-11 08:45")
+        self.assertEqual(len(problems), 1)
+        self.assertIn("7h44m", problems[0])
+
+    def test_a_night_missed_only_by_minutes_still_passes_at_dawn(self) -> None:
+        self.assertEqual(
+            self.judge_volume("2026-10-10 01:01:30", "2026-10-11 02:45"), []
+        )
+
+    def test_a_missed_night_fails_the_morning_check(self) -> None:
+        problems = self.judge_volume("2026-10-10 01:01:30", "2026-10-11 08:45")
+        self.assertEqual(len(problems), 1)
+        self.assertIn("31h43m", problems[0])
+
+
+class ReadBack(unittest.TestCase):
+    """Reading a dump back runs restic; a fake one on PATH stands in for it.
+
+    A dump the store cannot serve fails: it is exactly what a restore would
+    meet, and the weekly K8up Check never reads pack data to notice it.
+    """
+
+    SQL = "/apps-database.x.sql"
+    SQLITE = "/apps-sqlite.x.sqlite"
+
+    def setUp(self) -> None:
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.output = Path(self.dir.name) / "output"
+        fake = Path(self.dir.name) / "restic"
+        fake.write_text(
+            "#!/bin/sh\n"
+            'cat "$FAKE_RESTIC_OUTPUT"\n'
+            '[ -n "$FAKE_RESTIC_ERROR" ] && echo "$FAKE_RESTIC_ERROR" >&2 && exit 1\n'
+            "exit 0\n"
+        )
+        fake.chmod(0o755)
+        saved = dict(os.environ)
+
+        def restore() -> None:
+            os.environ.clear()
+            os.environ.update(saved)
+
+        self.addCleanup(restore)
+        os.environ["PATH"] = f"{self.dir.name}:{os.environ['PATH']}"
+        os.environ["FAKE_RESTIC_OUTPUT"] = str(self.output)
+        os.environ.pop("FAKE_RESTIC_ERROR", None)
+
+    def inspect(
+        self, path: str, size: int = 50_000_000
+    ) -> tuple[str | None, str | None]:
+        return backup_coverage.inspect_dumps(
+            [producer(path)], {("apps", path): series(path, size=size)}
+        )[("apps", path)]
+
+    def test_a_whole_sql_dump_is_silent(self) -> None:
+        self.output.write_bytes(b"INSERT ...;\n-- Dump completed on 2026-10-11\n")
+        self.assertEqual(self.inspect(self.SQL), (None, None))
+
+    def test_a_whole_sqlite_copy_is_silent(self) -> None:
+        self.output.write_bytes(sqlite_header(4096, 22) + bytes(200))
+        self.assertEqual(self.inspect(self.SQLITE, size=4096 * 22), (None, None))
+
+    def test_a_sql_dump_restic_cannot_read_fails(self) -> None:
+        self.output.write_bytes(b"INSERT ")
+        os.environ["FAKE_RESTIC_ERROR"] = "Fatal: pack 1a2b damaged"
+        problem, report = self.inspect(self.SQL)
+        self.assertIsNone(report)
+        self.assertIn("pack 1a2b damaged", problem)
+
+    def test_a_sqlite_copy_restic_cannot_read_fails_with_restics_error(self) -> None:
+        self.output.write_bytes(b"")
+        os.environ["FAKE_RESTIC_ERROR"] = "Fatal: pack 1a2b damaged"
+        problem, report = self.inspect(self.SQLITE)
+        self.assertIsNone(report)
+        self.assertIn("pack 1a2b damaged", problem)
+
+
+if __name__ == "__main__":
+    unittest.main()

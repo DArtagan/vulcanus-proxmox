@@ -11,7 +11,7 @@ Work still outstanding lives in [`todos/backups.md`](../todos/backups.md), not h
 | ZFS snapshots (sanoid) | everything on `rpool` | vulcanus, in place |
 | ZFS replication (syncoid) | `rpool/storage`, `rpool/ROOT`, `rpool/data`, `rpool/backups/restic` | mini-nas, offsite |
 | vzdump → PBS | every guest except `107` | PBS VM 107, on `rpool` |
-| restic, via K8up | every Kubernetes volume in scope, and seven database dumps | the restic repository, LXC 108 |
+| restic, via K8up | every Kubernetes volume in scope, and the database dumps | the restic repository, LXC 108 |
 | restic, from the repository host | `rpool/storage/{photos,books,filesync}` | the same repository |
 
 Snapshots are the instant-rollback layer, exposed to SMB clients as VSS shadow copies
@@ -413,9 +413,17 @@ volume. Otherwise it names the newest snapshot in the whole repository.
   Schedules, or every restored file belongs to 65532. Or, on the repository host:
   `restic restore latest --host <ns> --path /data/<pvc> --target <dir>`.
 - **A relational dump:** `restic dump --host apps --path <path> latest <path>`, piped
-  into `psql` or `mariadb`.
+  into `mariadb`, or into `psql -v ON_ERROR_STOP=1`. The MariaDB dumps create their
+  own database; pinepods' needs `pinepods_database` created first.
 - **A SQLite dump:** the same `restic dump`, into a file. With the application scaled
-  to zero, put the file in place and remove its `-wal` and `-shm`.
+  to zero, put the file in place and remove its `-wal` and `-shm`. Check it with
+  `PRAGMA integrity_check` first; Plex's copy needs the `Plex SQLite` binary from its
+  own image, for its `icu_root` collation.
+
+**Count the bytes that arrive.** A stream piped into `kubectl exec -i` can end before
+the remote command has read it, leaving an empty file and every exit status 0 — and
+an empty file passes `integrity_check`. Compare the file's size with the snapshot's,
+from `restic snapshots --json`.
 
 **A restore into a fresh claim leaves the claim's root as `0777 root:root`**: K8up
 restores the root's contents, not the root itself. `restic ls -l <snapshot>
@@ -501,11 +509,12 @@ in a namespace with no Schedule, still counts. It is shaped and tested like
 
 It **fails**:
 - a claim or dump never backed up, once past its first night;
-- a volume whose newest snapshot is over 26 h old, or a dump over 7 h;
+- a volume whose newest snapshot is over 26 h old, or a dump over 7 h, so the check
+  after a missed dumps run fails;
 - an in-scope `ReadWriteMany` claim;
 - a volume that went empty, or any empty dump;
 - an item under half its previous size, from 1 MiB up;
-- a current dump that is not whole.
+- a current dump that is not whole, or that the store cannot serve back.
 
 It **reports**:
 - exclusions;
