@@ -28,7 +28,14 @@ costs one apply; it is second for its date, and because `talosctl` is the tool
 needed when the cluster is what is broken. Also carries the one command never to
 run: `-replace` on the machine secrets.
 
-**3. [cert-manager-dns01.md](cert-manager-dns01.md) — stop renewing certificates through the public IP**
+**3. [mariadb-datadir-rebuild.md](mariadb-datadir-rebuild.md) — rebuild two downgraded MariaDB data directories**
+PhotoPrism's and salamander's MariaDB run 10.11 on data directories that 11.0 and
+12.2 last upgraded, after salamander's image went untagged for years and was then
+pinned back. MariaDB does not support downgrades, and both log a change-buffer error
+at every start. The data reads correctly today, and each dump has been loaded into a
+fresh 10.11, so the fix is proven; which version to settle on is the open decision.
+
+**4. [cert-manager-dns01.md](cert-manager-dns01.md) — stop renewing certificates through the public IP**
 All 24 certificates validate over HTTP-01, so every renewal needs the public A
 record, port 80 and `ingress-nginx-external`. Fourteen internal-only hostnames
 are included, because the solver names the external ingress class and is used
@@ -36,27 +43,27 @@ whatever class the certificate's own ingress has. Above the ingress migration
 because that migration has to rework this solver anyway; doing it first deletes
 the question rather than answering it mid-migration.
 
-**4. [ingress-nginx-migration-prompt.md](ingress-nginx-migration-prompt.md) — move to Gateway API**
+**5. [ingress-nginx-migration-prompt.md](ingress-nginx-migration-prompt.md) — move to Gateway API**
 ingress-nginx is retired upstream: no releases, no bugfixes and **no security
 patches** since March 2026. It is the internet-facing entry point, and it had an
 unauthenticated RCE as recently as CVE-2025-1974. Its announced successor,
 InGate, is archived. Traefik is ruled out on prior experience; the doc records
 why so it does not get proposed again.
 
-**5. [version-notification-prompt.md](version-notification-prompt.md) — notice when a version stops tracking**
+**6. [version-notification-prompt.md](version-notification-prompt.md) — notice when a version stops tracking**
 23 of 34 ImagePolicies will silently stop advancing when a new major appears
 outside their range, and two are already stuck. This is the work that makes the
 other items visible rather than needing to be rediscovered by audit. It also
 closes the separate gap where no metric can express a Flux object being unready.
 
-**6. [talos-terraform-migration-prompt.md](talos-terraform-migration-prompt.md) — Talos versions under Terraform**
+**7. [talos-terraform-migration-prompt.md](talos-terraform-migration-prompt.md) — Talos versions under Terraform**
 kube-proxy ran eight minor versions behind the control plane for roughly three
 years, because Talos refreshes bootstrap manifests only via `upgrade-k8s`, which
 the documented upgrade path here never ran. Fixed by hand on 2026-08-07; this is
 about making it not recur. Newer provider versions also make the factory image
 schematic declarative.
 
-**7. [config-change-rollouts.md](config-change-rollouts.md) — make a ConfigMap change reach the running process**
+**8. [config-change-rollouts.md](config-change-rollouts.md) — make a ConfigMap change reach the running process**
 Flux applies an updated ConfigMap without restarting the workload that reads it,
 so the cluster can run configuration that no longer matches the repo with
 nothing to indicate it — `flux get kustomizations` reports healthy, correctly,
@@ -65,13 +72,13 @@ the beets stack on 2026-08-13 and eight Deployments are exposed. Here because
 the failure mode is invisible rather than loud, which is the same reason the
 alerting work sits where it does.
 
-**8. [openebs-4x-migration-prompt.md](openebs-4x-migration-prompt.md) — OpenEBS 3.10 to 4.x**
+**9. [openebs-4x-migration-prompt.md](openebs-4x-migration-prompt.md) — OpenEBS 3.10 to 4.x**
 The chart repository in use was abandoned in December 2023, so the unpinned
 version silently meant "3.10.0 forever". 4.x is an architectural change touching
 every PVC in the cluster. Last not because it matters least but because it
 carries the most risk and needs a verified restore path first — which is item 1.
 
-**9. [tailnet-multi-user.md](tailnet-multi-user.md) — family on the tailnet**
+**10. [tailnet-multi-user.md](tailnet-multi-user.md) — family on the tailnet**
 Every policy rule is `src: will@`, so a second Headscale user currently gets no
 access at all — their devices would register and then reach nothing, which
 presents as a broken tunnel rather than an intentional deny. Needs a tag scheme,
@@ -79,7 +86,7 @@ rules for them, and a less manual way to issue keys. Low in the ordering
 because nothing is broken until someone is actually added — it and the item
 below are the two here driven by a new want rather than an existing defect.
 
-**10. [pod-security-namespace-level.md](pod-security-namespace-level.md) — put pod security at the namespace**
+**11. [pod-security-namespace-level.md](pod-security-namespace-level.md) — put pod security at the namespace**
 `apps` carries no Pod Security Admission labels at all, so workloads that want
 the restricted profile restate it individually and the rest are simply
 unexamined. Last because nothing is broken today: the
