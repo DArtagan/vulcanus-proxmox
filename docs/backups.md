@@ -518,7 +518,8 @@ It **fails**:
 - an in-scope `ReadWriteMany` claim;
 - a volume that went empty, or any empty dump;
 - an item under half its previous size, from 1 MiB up;
-- a current dump that is not whole, or that the store cannot serve back.
+- a current dump that is not whole, or that the store cannot serve back;
+- a SQLite copy that fails `PRAGMA integrity_check`.
 
 It **reports**:
 - exclusions;
@@ -528,7 +529,10 @@ It **reports**:
 - files restic could not read on an item's latest run, normally none.
 
 A dump is whole when a SQLite copy's size matches what its header states, or a SQL
-dump ends in its completion marker.
+dump ends in its completion marker. Each SQLite copy is also read back whole and run
+through `integrity_check`, the check a restore depends on. Plex's two use Plex's own
+SQLite, copied into the CronJob from Plex's image at the server's version: no other
+build can open them.
 
 Those counts live only in backup Job logs, which go when K8up prunes the Jobs or
 their node restarts, so the summary line says how many items' counts it found. A

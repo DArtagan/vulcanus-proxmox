@@ -12,9 +12,11 @@ cluster API, restic and K8up's job logs were measured to produce on 2026-09-22.
 
 import json
 import os
+import sqlite3
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import ClassVar
@@ -859,9 +861,55 @@ class ReadBack(unittest.TestCase):
         self.output.write_bytes(b"INSERT ...;\n-- Dump completed on 2026-10-11\n")
         self.assertEqual(self.inspect(self.SQL), (None, None))
 
+    def write_database(self) -> int:
+        """Write a real SQLite copy, in WAL mode like the ones taken, as the dump."""
+        db = sqlite3.connect(self.output)
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")
+        db.execute("CREATE INDEX t_v ON t (v)")
+        db.executemany(
+            "INSERT INTO t (v) VALUES (?)", [(str(i) * 50,) for i in range(500)]
+        )
+        db.commit()
+        db.close()
+        return self.output.stat().st_size
+
+    def fake_plex_sqlite(self, output: str, status: int) -> None:
+        fake = Path(self.dir.name) / "Plex SQLite"
+        fake.write_text(f"#!/bin/sh\necho '{output}'\nexit {status}\n")
+        fake.chmod(0o755)
+        self.enterContext(
+            unittest.mock.patch.object(backup_coverage, "PLEX_SQLITE", fake)
+        )
+
     def test_a_whole_sqlite_copy_is_silent(self) -> None:
-        self.output.write_bytes(sqlite_header(4096, 22) + bytes(200))
-        self.assertEqual(self.inspect(self.SQLITE, size=4096 * 22), (None, None))
+        size = self.write_database()
+        self.assertEqual(self.inspect(self.SQLITE, size=size), (None, None))
+
+    def test_a_sqlite_copy_that_fails_its_integrity_check_fails(self) -> None:
+        size = self.write_database()
+        page = 4096
+        with self.output.open("r+b") as f:
+            f.seek(3 * page)
+            f.write(b"\xff" * page)
+        problem, report = self.inspect(self.SQLITE, size=size)
+        self.assertIsNone(report)
+        self.assertIn("integrity", problem)
+
+    def test_plexs_copies_are_checked_by_plexs_own_sqlite(self) -> None:
+        size = self.write_database()
+        self.fake_plex_sqlite(
+            "Tree 3 page 819: btreeInitPage() returns error code 11", 1
+        )
+        problem, _ = self.inspect("/apps-sqlite.plex-blobs.sqlite", size=size)
+        self.assertIn("btreeInitPage", problem)
+
+    def test_a_plex_copy_its_own_sqlite_passes_is_silent(self) -> None:
+        size = self.write_database()
+        self.fake_plex_sqlite("ok", 0)
+        self.assertEqual(
+            self.inspect("/apps-sqlite.plex.sqlite", size=size), (None, None)
+        )
 
     def test_a_sql_dump_restic_cannot_read_fails(self) -> None:
         self.output.write_bytes(b"INSERT ")

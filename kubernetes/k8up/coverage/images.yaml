@@ -42,3 +42,20 @@ spec:
   policy:
     semver:
       range: '>=0.19.1 <1.0.0'
+
+---
+# Follows Plex's own policy, through the apps ImageRepository.
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: backup-coverage-plex
+spec:
+  imageRepositoryRef:
+    name: plex
+    namespace: apps
+  filterTags:
+    pattern: '^(?P<version>[0-9]+\.[0-9]+\.[0-9]+)\.[0-9]+-[0-9a-f]+$'
+    extract: '$version'
+  policy:
+    semver:
+      range: '^1.0.0'

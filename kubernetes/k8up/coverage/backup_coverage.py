@@ -22,13 +22,16 @@ and the Job logs they are read from do not last.
 import json
 import os
 import re
+import sqlite3
 import ssl
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.parse
 import urllib.request
 from collections.abc import Iterable, Mapping
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -60,6 +63,11 @@ DECOMMISSIONED = "decommissioned"
 
 # The first 100 bytes of a SQLite file are its header.
 SQLITE_HEADER_BYTES = 100
+# Plex's databases use its own collation and full-text tokenizer, so only its
+# build of SQLite can check them. The CronJob copies it in from Plex's image.
+PLEX_SQLITE = Path("/tools/plex/Plex SQLite")
+PLEX_DUMPS = (".plex.sqlite", ".plex-blobs.sqlite")
+INTEGRITY_REPORT_LINES = 3
 SQLITE_MAGIC = b"SQLite format 3\x00"
 # pg_dump 18 follows its marker with an \unrestrict line, 118 bytes from the end
 # of the pinepods dump; mariadb-dump's is its last line. A kilobyte covers both.
@@ -518,24 +526,57 @@ def _dump_command(host: str, path: str) -> list[str]:
     ]
 
 
-def _dump_head(host: str, path: str, count: int) -> bytes:
-    """Read the first bytes of an item's newest snapshot, then stop restic.
-
-    Shorter than asked for means restic stopped on its own, so its exit says
-    whether that was the end of the snapshot or a failure.
-    """
-    with subprocess.Popen(
-        _dump_command(host, path), stdout=subprocess.PIPE, stderr=subprocess.PIPE
-    ) as process:
-        head = process.stdout.read(count)
-        if len(head) == count:
-            process.kill()
-            return head
-        _, stderr = process.communicate()
+def _dump_to_file(host: str, path: str, destination: Path) -> None:
+    """Stream an item's newest snapshot into a file, failing if restic does."""
+    with (
+        destination.open("wb") as out,
+        subprocess.Popen(
+            _dump_command(host, path), stdout=out, stderr=subprocess.PIPE
+        ) as process,
+    ):
+        stderr = process.stderr.read().decode().strip()
     if process.returncode != 0:
-        message = f"restic dump exited {process.returncode}: {stderr.decode().strip()}"
+        message = f"restic dump exited {process.returncode}: {stderr}"
         raise RuntimeError(message)
-    return head
+
+
+def sqlite_integrity_verdict(path: str, copy: Path) -> tuple[str | None, str | None]:
+    """Run SQLite's integrity_check on a copy: the one check a restore relies on."""
+    if path.endswith(PLEX_DUMPS):
+        result = subprocess.run(
+            [str(PLEX_SQLITE), str(copy), "PRAGMA integrity_check;"],
+            capture_output=True,
+            check=False,
+            timeout=600,
+        )
+        lines = (result.stdout + result.stderr).decode().split("\n")
+        lines = [line for line in lines if line.strip()]
+        if result.returncode == 0 and lines == ["ok"]:
+            return None, None
+    else:
+        # immutable: the copy never changes, so no -shm is needed to read it.
+        try:
+            with closing(sqlite3.connect(f"file:{copy}?immutable=1", uri=True)) as db:
+                lines = [row[0] for row in db.execute("PRAGMA integrity_check")]
+        except sqlite3.DatabaseError as error:
+            lines = [str(error)]
+        if lines == ["ok"]:
+            return None, None
+    detail = "; ".join(lines[:INTEGRITY_REPORT_LINES])
+    return f"integrity_check failed: {detail}", None
+
+
+def _sqlite_contents(series: Series) -> tuple[str | None, str | None]:
+    """Read a SQLite copy back whole, then check its length and its integrity."""
+    with tempfile.TemporaryDirectory() as scratch:
+        copy = Path(scratch) / "copy.sqlite"
+        _dump_to_file(series.host, series.path, copy)
+        with copy.open("rb") as f:
+            header = f.read(SQLITE_HEADER_BYTES)
+        verdict = sqlite_header_verdict(header, series.size)
+        if verdict != (None, None):
+            return verdict
+        return sqlite_integrity_verdict(series.path, copy)
 
 
 def _dump_tail(host: str, path: str, count: int) -> bytes:
@@ -574,13 +615,12 @@ def inspect_dumps(
             continue
         try:
             if kind == "sqlite":
-                head = _dump_head(series.host, series.path, SQLITE_HEADER_BYTES)
-                contents[key] = sqlite_header_verdict(head, series.size)
+                contents[key] = _sqlite_contents(series)
             else:
                 tail = _dump_tail(series.host, series.path, TRAILER_WINDOW_BYTES)
                 contents[key] = sql_trailer_verdict(tail)
-        except (OSError, RuntimeError) as error:
-            contents[key] = (f"could not read it back: {error}", None)
+        except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+            contents[key] = (f"could not read it back and check it: {error}", None)
     return contents
 
 

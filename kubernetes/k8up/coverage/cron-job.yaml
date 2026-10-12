@@ -47,6 +47,31 @@ spec:
               volumeMounts:
                 - name: tools
                   mountPath: /tools
+            # Plex's build of SQLite, the only one that can check its databases.
+            # The same version as the server's, which wrote them.
+            - name: plex-sqlite
+              image: plexinc/pms-docker:1.43.4.10903-e5521bd8c # {"$imagepolicy": "infrastructure:backup-coverage-plex"}
+              command:
+                - sh
+                - -c
+                - >-
+                  mkdir /tools/plex && cd /usr/lib/plexmediaserver &&
+                  cp -a "Plex SQLite" "Plex Media Server" lib /tools/plex/
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  memory: 64Mi
+              volumeMounts:
+                - name: tools
+                  mountPath: /tools
           containers:
             - name: coverage
               image: python:3.14.7-alpine # {"$imagepolicy": "infrastructure:backup-coverage-python"}
@@ -57,6 +82,9 @@ spec:
                 # So the index loads once per run, not once per dump.
                 - name: RESTIC_CACHE_DIR
                   value: /cache
+                # Where each SQLite copy is read back whole to be checked.
+                - name: TMPDIR
+                  value: /scratch
                 - name: RESTIC_REPOSITORY
                   # As ../schedule-defaults.yaml. Credentials come from the
                   # environment below, not the URL.
@@ -102,6 +130,8 @@ spec:
                   mountPath: /tools
                 - name: cache
                   mountPath: /cache
+                - name: scratch
+                  mountPath: /scratch
           volumes:
             - name: script
               configMap:
@@ -110,3 +140,7 @@ spec:
               emptyDir: {}
             - name: cache
               emptyDir: {}
+            # One copy at a time; Plex's blobs database, the largest, is 140 MB.
+            - name: scratch
+              emptyDir:
+                sizeLimit: 1Gi
