@@ -29,15 +29,26 @@
     opentofu.enable = true;
   };
 
-  claude.code = {
-    enable = true;
-  };
+  # The driver .gitattributes names for SOPS files.
+  enterShell = ''
+    git config diff.sops.textconv tools/sops-diff-view.sh
+  '';
+
+  # Scripts resolve the checkout they run in, not $DEVENV_ROOT: that is the
+  # checkout whose shell loaded the environment, so from a worktree it would
+  # run main's files.
 
   # The colmena nixos/flake.lock pins, so the binary matches the flake's
   # makeHive. Runs from anywhere in the repository.
   scripts.colmena.exec = ''
-    exec nix run --inputs-from "$DEVENV_ROOT/nixos" colmena -- \
-      --config "$DEVENV_ROOT/nixos/flake.nix" "$@"
+    root=$(git rev-parse --show-toplevel)
+    exec nix run --inputs-from "$root/nixos" colmena -- \
+      --config "$root/nixos/flake.nix" "$@"
+  '';
+
+  # Runs the checks that apply to what changed, printing only failures.
+  scripts.check.exec = ''
+    exec "$(git rev-parse --show-toplevel)/tools/check.sh" "$@"
   '';
 
   scripts.beets-shell.exec = ''
