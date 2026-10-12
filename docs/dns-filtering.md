@@ -81,12 +81,12 @@ by its hostname.
 
 ## Blocklists and exceptions
 
-The blocklist is **hagezi Multi PRO**, about 211,900 domains after deduplication
-and roughly 70% of the ceiling. hagezi describes PRO as having rare restrictions
+The blocklist is **hagezi Multi PRO**, about 193,000 domains after deduplication
+and roughly 65% of the ceiling. hagezi describes PRO as having rare restrictions
 that "work best if you've got an admin nearby"; the relatives' houses have no
 admin and cannot allowlist anything themselves, so a false positive there is a
 phone call rather than a self-service fix. The tier was chosen knowing that.
-NORMAL, at 174,100, is the step back if breakage reports start arriving.
+NORMAL, at about 157,700, is the step back if breakage reports start arriving.
 
 A daily CronJob rebuilds the lists with
 [cloudflare-gateway-pihole-scripts](https://github.com/mrrfv/cloudflare-gateway-pihole-scripts).
