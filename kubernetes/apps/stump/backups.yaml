@@ -1,0 +1,32 @@
+# A copy of Stump's database, taken by a pod of our own: Stump's image has no
+# sqlite3. The books themselves are on the books share.
+apiVersion: k8up.io/v1
+kind: PreBackupPod
+metadata:
+  name: stump-sqlite
+  labels:
+    k8up-dump: "true"
+spec:
+  backupCommand: >-
+    sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT;
+    sqlite3 "/data/stump.db" ".backup $f"; test -s "$f"; cat "$f"'
+  fileExtension: .stump.sqlite
+  pod:
+    spec:
+      # The database's owner, so any -wal or -shm this pod creates stays
+      # usable by stump.
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: sqlite
+          image: keinos/sqlite3:3.53.4 # {"$imagepolicy": "apps:k8up-sqlite3"}
+          # Held open for K8up to exec into; tini passes on the stop signal.
+          args: [tail, -f, /dev/null]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: stump-config-pvc

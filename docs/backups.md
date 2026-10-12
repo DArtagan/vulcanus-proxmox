@@ -155,7 +155,7 @@ snapshot of its own at `/<namespace>-<container><extension>`:
 | pinepods (PostgreSQL 18) | an annotation on its pod | `/apps-database.pinepods.sql` |
 | photoprism (MariaDB) | an annotation on its pod | `/apps-database.photoprism.sql` |
 | salamander (MariaDB) | an annotation on its pod | `/apps-database.salamander.sql` |
-| headscale, linkding, plex, soft-serve (SQLite) | a PreBackupPod | `/apps-sqlite.<app>.sqlite` |
+| headscale, linkding, plex, soft-serve, stump (SQLite) | a PreBackupPod | `/apps-sqlite.<app>.sqlite` |
 | plex's blobs database (SQLite) | a PreBackupPod | `/apps-sqlite.plex-blobs.sqlite` |
 | grafana (SQLite) | a PreBackupPod | `/infrastructure-sqlite.grafana.sqlite` |
 
@@ -171,10 +171,10 @@ namespace's whole backup, volumes included. Dumps run in their own `prebackup` J
 and stop at the first failure; it retries up to six times, rerunning every dump
 before the failing one.
 
-**Seven SQLite databases have only their volume's file copy:** stump, mumble,
-speedtest-tracker, youtube-dl, headplane, beets and ARM's `arm.db`. All write rarely,
-so the copy is very likely consistent, though beets could be torn mid-import. stump's
-is in WAL mode, so a copy taken while it writes can miss its latest transactions.
+**Six SQLite databases have only their volume's file copy:** mumble,
+speedtest-tracker, youtube-dl, headplane, beets and ARM's `arm.db`. All are in journal
+mode and write rarely, so the copy is very likely consistent, though beets could be
+torn mid-import.
 
 ### Writing a backup command
 
@@ -442,6 +442,8 @@ restic dump <snapshot-id> <path>
 - **PinePods:** its Settings restore accepts only its own downloads, so load the dump
   with `psql`, as above.
 - **Grafana:** its configuration is in git, and its plugins on the volume.
+- **Stump:** its database holds accounts, reading progress and library settings; the
+  books themselves are on the books share. Its volume holds the configuration file.
 
 ## Reporting
 
