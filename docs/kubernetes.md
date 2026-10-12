@@ -155,10 +155,11 @@ Then work down the list and take the first that fits:
    regenerable: caches, metrics, logs, sync state that a resync rebuilds. Also for
    every SMB share, which ZFS snapshots and replication cover instead. An exclusion
    is a statement, not an omission; the coverage check lists them.
-3. **Back up the volume and dump the database** when a database writes to the
-   claim continuously: PostgreSQL, MariaDB, or SQLite in WAL mode or with steady
-   writes. A file copy of a live database is crash-consistent at best, so the
-   volume backup is a fallback and the dump is what a restore uses.
+3. **Dump the database** when one writes to the claim continuously: PostgreSQL,
+   MariaDB, or SQLite in WAL mode or with steady writes. A volume copy of a running
+   database is not a consistent backup, so the dump is what a restore uses. If the
+   claim holds nothing but the database's data directory, exclude it as above;
+   if it holds more beside the database, keep the volume backup too.
    - A relational database: a `k8up.io/backupcommand` annotation on its pod,
      running the dump inside the database's own container.
    - SQLite: a PreBackupPod in the application's `backups.yaml`, using the shared

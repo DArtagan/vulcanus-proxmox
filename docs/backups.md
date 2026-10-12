@@ -96,10 +96,12 @@ per namespace, and the coverage check are in `kubernetes/k8up/`.
 ### What is in scope
 
 **Every PVC in a namespace with a Schedule is backed up**, `ReadWriteMany` included,
-unless the claim carries `k8up.io/backup: "false"`. Two kinds carry it:
+unless the claim carries `k8up.io/backup: "false"`. Three kinds carry it:
 
 - **Every SMB share**, covered by ZFS replication and the repository host's own
   backup. Their manifests carry the annotation without comment: this is the policy.
+- **A database's own data directory**, when that is all the claim holds: pinepods',
+  photoprism's and salamander's. The dump is its backup.
 - **Regenerable state:** pinepods' Valkey cache, rclone's bisync state, borgmatic's
   cache, and the Prometheus, Alertmanager and VictoriaLogs volumes.
 
@@ -144,9 +146,9 @@ and shows as one failed Job rather than one failed claim.
 
 ### Database dumps
 
-A file copy of a live database is crash-consistent at best, so each database worth
-having is also dumped, into a restic snapshot of its own at
-`/<namespace>-<container><extension>`:
+restic reads a running database's files one after another, so a volume copy of one is
+not a consistent backup. Each database worth having is dumped instead, into a restic
+snapshot of its own at `/<namespace>-<container><extension>`:
 
 | Database | Taken by | Snapshot path |
 |---|---|---|
