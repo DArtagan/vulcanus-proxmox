@@ -1390,8 +1390,6 @@ positive controls. The residue is freed blocks on `rpool/home`, which is unencry
 - **No restore runbook until Phase 6.** On a rebuilt cluster Flux reconciles
   applications onto fresh empty claims, and databases initialise before any restore
   lands, so the Kustomizations must be suspended first.
-- **`pinepods-backups-pvc` is empty and can be retired**, the annotation dump having
-  replaced what it was for.
 - **A stale grant on mini-nas:** `zfs allow` on `rpool/foreign-backups/vulcanus` names
   uid 994, where the syncoid user is 993. Cruft, not a dependency: the syncoid module
   grants what it needs around every run.
