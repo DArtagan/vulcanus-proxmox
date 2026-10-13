@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agents working in this repository.
 
 ## Development Environment
 
@@ -50,6 +50,33 @@ sops <file>        # Edit encrypted file
 ```bash
 treefmt            # Format the whole tree
 ```
+
+**Checking a change:**
+```bash
+devenv test                    # Every hook over every tracked file
+PREK_QUIET=1 devenv -q test    # The same, printing only failing hooks
+```
+The hooks are the ones `git commit` runs: formatting, linters, the SOPS guard,
+Flux renders, NixOS evaluation, Ansible syntax, `tofu validate` and the Python
+suites. All of it is offline, so a server-side dry run is still worth doing
+before deploying. Files git does not track are invisible to it; `git add -N` a
+new file first.
+
+### Working here as an agent
+
+Everything a command prints lands in the context window, so keep output to
+what carries the result.
+
+- **`git diff --no-ext-diff`.** The global git config sends `git diff` through
+  difftastic, whose side-by-side output is several times the size, and which
+  skips the masked view `.gitattributes` gives SOPS files.
+- **Verify with `PREK_QUIET=1 devenv -q test`, not by printing.** A successful Edit has already
+  matched its text exactly once; reading the result back proves nothing more.
+- **Edit a single file with the Edit tool.** Script an edit only when the same
+  change spans many files or a large block moves.
+- **Filter noisy commands** to the lines that carry the result: builds, evals,
+  applies and renders print far more than they conclude. Find a file's place
+  with `grep -n` and read that range, not the whole file.
 
 ## Architecture
 
@@ -345,7 +372,7 @@ the project. Whatever a conclusion rests on beyond that belongs in the spec or
 
 Every formatter in the repo is a [treefmt](https://treefmt.com/) formatter,
 configured in the `treefmt` block of `devenv.nix`. `treefmt` formats the tree;
-entering the devenv shell runs it too, and it runs again on `git commit`.
+it runs again on `git commit` and under `devenv test`.
 
 `nixfmt`, `deadnix` and `statix` cover Nix; `yamlfmt` YAML; `ruff-format`
 Python; `jsonfmt` JSON; `taplo` TOML. Terraform goes through a wrapper that

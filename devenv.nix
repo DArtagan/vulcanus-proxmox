@@ -29,15 +29,28 @@
     opentofu.enable = true;
   };
 
-  claude.code = {
-    enable = true;
-  };
+  # The driver .gitattributes names for SOPS files; and one provider cache for
+  # every worktree, so `tofu init` in each links providers rather than fetching.
+  enterShell = ''
+    git config diff.sops.textconv tools/sops-diff-view.sh
+    export TF_PLUGIN_CACHE_DIR="''${XDG_CACHE_HOME:-$HOME/.cache}/opentofu/plugin-cache"
+    mkdir -p "$TF_PLUGIN_CACHE_DIR"
+  '';
+
+  # treefmt runs on commit, under `devenv test` and by hand: entering a
+  # checkout does not rewrite its files.
+  tasks."devenv:treefmt:run".before = lib.mkForce [ ];
+
+  # Scripts resolve the checkout they run in, not $DEVENV_ROOT: that is the
+  # checkout whose shell loaded the environment, so from a worktree it would
+  # run main's files.
 
   # The colmena nixos/flake.lock pins, so the binary matches the flake's
   # makeHive. Runs from anywhere in the repository.
   scripts.colmena.exec = ''
-    exec nix run --inputs-from "$DEVENV_ROOT/nixos" colmena -- \
-      --config "$DEVENV_ROOT/nixos/flake.nix" "$@"
+    root=$(git rev-parse --show-toplevel)
+    exec nix run --inputs-from "$root/nixos" colmena -- \
+      --config "$root/nixos/flake.nix" "$@"
   '';
 
   scripts.beets-shell.exec = ''
@@ -280,12 +293,52 @@
 
   git-hooks.hooks = {
     # Formatting is all treefmt; these are linters. ruff is the exception that
-    # also rewrites, applying its safe fixes wherever the hooks run -- which is
-    # every file in the repo on shell entry, not just the one being worked on.
+    # also rewrites, applying its safe fixes wherever the hooks run -- which
+    # under `devenv test` is every file in the repo, not just the one changed.
     ruff.enable = true;
     shellcheck.enable = true;
     tflint.enable = true;
     treefmt.enable = true;
+
+    # Each checks its whole scope when anything in it changes: a render, an
+    # eval or a playbook reaches past the file that triggered it. Scripts live
+    # in tools/hooks/ so an edit applies without re-entering the shell.
+    flux-render = {
+      enable = true;
+      name = "flux-render";
+      entry = "tools/hooks/flux-render.sh";
+      files = "^kubernetes/";
+      pass_filenames = false;
+    };
+    nixos-eval = {
+      enable = true;
+      name = "nixos-eval";
+      entry = "tools/hooks/nixos-eval.sh";
+      files = "^nixos/";
+      pass_filenames = false;
+    };
+    ansible-syntax = {
+      enable = true;
+      name = "ansible-syntax";
+      entry = "tools/hooks/ansible-syntax.sh";
+      files = "^ansible/";
+      pass_filenames = false;
+    };
+    tofu-validate = {
+      enable = true;
+      name = "tofu-validate";
+      entry = "tools/hooks/tofu-validate.sh";
+      files = "^terraform/";
+      pass_filenames = false;
+    };
+    # The exception, mapping files to the suites beside them: one suite takes
+    # 15s. Serial, or prek splits the files and runs a suite once per batch.
+    python-tests = {
+      enable = true;
+      name = "python-tests";
+      entry = "tools/hooks/python-tests.sh";
+      require_serial = true;
+    };
 
     sops-encrypted = {
       enable = true;
