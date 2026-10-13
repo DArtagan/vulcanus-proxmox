@@ -94,6 +94,13 @@ unexamined. Last because nothing is broken today: the
 cluster-level fallback admits these pods, and the work is auditing what each
 workload actually needs rather than setting a label.
 
+**12. [nfs-cluster-volumes.md](nfs-cluster-volumes.md) — cluster media volumes over NFS**
+Each node's SMB traffic funnels through one single-threaded smbd, and NFS
+from the host measured 3–15x faster for directory walks and small-file opens.
+This is a speed-up, not a defect. It waits on
+[smb-charset-utf8.md](smb-charset-utf8.md), because NFS shows the Latin-1 filenames
+Samba translates.
+
 ## Waiting on a decision
 
 **[generic-device-plugin-upstream.md](generic-device-plugin-upstream.md) — file the issue upstream**
