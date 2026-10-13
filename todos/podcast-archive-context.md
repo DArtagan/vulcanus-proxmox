@@ -35,9 +35,9 @@ which Pinepods does not store.
 | `podcasts-legacy/` | The relocated 248.7 GB of pre-existing content |
 | `podcasts-feeds/` | Raw RSS snapshots, one directory per feed |
 
-`pg_dump` output goes to `pinepods-backups-pvc` on `openebs-hostpath`. It was
-meant for the borg share so it would reach offsite storage, but that share is not
-writable from Kubernetes — see `todos/backups.md`.
+`pg_dump` output goes to `pinepods-backups-pvc` on `openebs-hostpath`. What reaches
+offsite storage is K8up's own dump of the database; see *Database dumps* in
+`docs/backups.md`.
 
 ## Why Pinepods
 

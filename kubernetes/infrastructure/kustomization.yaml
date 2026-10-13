@@ -10,7 +10,6 @@ resources:
   #- authentik.yaml
   - basic-auth.sops.yaml
   - books-pv.yaml
-  - borg-backups-pv.yaml
   - cert-manager.yaml
   - coredns-servers.sops.yaml
   - coredns.yaml

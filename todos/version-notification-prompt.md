@@ -32,16 +32,15 @@ a major roughly monthly, and its range is `>=88.1.5 <89.0.0`.
 
 ## Scope: which policies are affected
 
-34 `ImagePolicy` objects, categorised 2026-08-08.
+33 `ImagePolicy` objects, categorised 2026-08-08.
 
-**Capped — will silently stop at a boundary (23).** Note that caret ranges cap
+**Capped — will silently stop at a boundary (22).** Note that caret ranges cap
 exactly as hard as an explicit `<` bound, and on a `0.x` version caret pins the
 *minor*, which is tighter still.
 
 | Policy | Range | Caps | Resolved |
 |---|---|---|---|
 | apps/beets | `^2.0.0` | major | 2.13.1 |
-| apps/borgmatic | `^1.0.0` | major | 1.9.14 |
 | apps/headplane | `^0.6.1` | **minor** | 0.6.3 |
 | apps/headscale | `^0.28.0` | **minor** | v0.28.0 |
 | apps/hello-world | `^1.0.0` | major | v1.0.0 |

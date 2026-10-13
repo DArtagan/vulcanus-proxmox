@@ -195,7 +195,7 @@ class ClaimParsing(unittest.TestCase):
                 {
                     "metadata": {
                         "namespace": "apps",
-                        "name": "borg-backups-pvc",
+                        "name": "video-pvc",
                         "creationTimestamp": "2023-01-08T00:00:00Z",
                         "annotations": {"k8up.io/backup": "false"},
                     },
@@ -209,11 +209,11 @@ class ClaimParsing(unittest.TestCase):
         self.claims = {c.name: c for c in backup_coverage.parse_claims(self.PVCS)}
 
     def test_the_annotation_excludes(self) -> None:
-        self.assertTrue(self.claims["borg-backups-pvc"].excluded)
+        self.assertTrue(self.claims["video-pvc"].excluded)
         self.assertFalse(self.claims["headscale-data-pvc"].excluded)
 
     def test_read_write_many_marks_a_shared_volume(self) -> None:
-        self.assertTrue(self.claims["borg-backups-pvc"].shared)
+        self.assertTrue(self.claims["video-pvc"].shared)
         self.assertFalse(self.claims["headscale-data-pvc"].shared)
 
     def test_creation_time_is_read(self) -> None:
