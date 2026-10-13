@@ -1,136 +1,61 @@
 # Backups: a 3-2-1-0 architecture for vulcanus + mini-nas
 
-Supersedes the 2026-08-06 audit that previously occupied this file. That audit's
-findings are folded in below; anything it recorded and this does not is superseded
-rather than lost — `git log --diff-filter=D -- todos/backups.md` recovers it.
-
-**This spec is maintained through implementation.** Unlike most files here it is
-not written once and deleted on completion — the work spans sessions, so this is
-the handover artefact. Every session updates the status table, records what was
-*verified* and when, and records wrong turns honestly.
+**This spec is maintained through implementation.** The work spans sessions, so
+this is the handover artefact: every session updates the status table and what it
+verified, records wrong turns honestly, and adds its log to
+[`backups.evidence.md`](backups.evidence.md). That file also holds the starting
+state, the K8up comparison, the capacity working, and each finished phase as it
+happened.
 
 **Documentation lands at the end of each phase, not at the end of the project.** A
-deliberate departure from the usual lifecycle, for the same reason this spec is
-maintained rather than written once: a phase's output is running in production the
-moment it deploys, and leaving its permanent facts in a file marked "not yet done"
-strands them — `docs/` is meant to describe the running system, and between phases it
-would not. So each phase ends by writing what it made permanently true into
-[`docs/backups.md`](../docs/backups.md), extending what earlier phases left rather
-than replacing it. Only deleting this spec and adding the
+phase's output is running in production the moment it deploys, and `docs/` is meant
+to describe the running system, so each phase ends by writing what it made
+permanently true into [`docs/backups.md`](../docs/backups.md), extending what earlier
+phases left. Only deleting this spec and adding the
 [`docs/project_log.md`](../docs/project_log.md) entry wait for the end.
 
-Slug `backups`. Branch `backups`, worktree `.worktrees/backups`, review base
-`review/backups-base`.
+Slug `backups`. Phase 2's review closed at its phase boundary, so the next phase
+branches from `main` under the same slug, in `.worktrees/backups`, and opens a new
+review after its first commit.
 
 ## Status
 
 | Phase | What | State |
 |---|---|---|
-| A | Record the spec, open the review | **done** 2026-09-01 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3) |
-| 0 | Stop the bleeding — replication, retention, scrub | **done 2026-09-03.** Key escrow, retention, scrub, monitoring on both hosts, prune and diverged-dataset repair (30,404 → 1,083 snapshots, 89% → **76%**, **2.32 TiB reclaimed**), with the five datasets re-seeded — `syncoid-vulcanus-data` completed with zero errors for the first time since 2026-01-14 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3), merged 2026-09-18 |
-| 1 | Reclaim — dead guests, orphans | **done 2026-09-18.** Five orphaned datasets, guests 100/101/106, `rpool/rancheros`, three replicas, four PVCs, seven hostpath dirs and three PBS groups destroyed; vulcanus 28.3→**27.7 T**, mini-nas 77→**73%**, worker-0 **25.1 GiB** back. `zfs-replication-freshness` **green for the first time since inception**; `pbs-freshness` built and deployed here rather than in Phase 6, reports 5→2, zero failures — [PR #11](https://github.com/DArtagan/vulcanus-proxmox/pull/11) |
-| 2 | Application backups — K8up + restic | **done 2026-10-12** — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13), closed at this phase boundary. Repo LXC 108 on NixOS serving append-only, replicated to mini-nas and `restic check`ed there; mass files (297.6 GiB) and every in-scope volume backed up nightly, ten database dumps every six hours, on five Schedules; the coverage CronJob reads every dump back, runs `integrity_check` on each SQLite copy (Plex's with Plex SQLite), and reports 0 failing. Every dump restored once into scratch, each against a corrupted control; ARM and syncthing volumes restored exact. Next: phase 2b |
-| 2b | Delete the borg tree, after a restore is proven | not started |
+| A | Record the spec, open the review | done 2026-09-01 |
+| 0 | Stop the bleeding — replication, retention, scrub | done 2026-09-03 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3) |
+| 1 | Reclaim — dead guests, orphans | done 2026-09-18 — [PR #11](https://github.com/DArtagan/vulcanus-proxmox/pull/11) |
+| 2 | Application backups — K8up + restic | done 2026-10-12 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13) |
+| 2b | Delete the borg tree | **next**; the restores it waited on are proven |
 | 3 | Performance — drop the OpenEBS disks from vzdump | not started |
 | 4 | Platform images offsite — PBS #2 + sync | not started; **gated on the mini-nas disks** |
 | 5 | The offline copy — external disk | not started; needs a ~$200 purchase |
 | 6 | Verification, notification, runbook | not started |
 
+What phases 0 to 2 built is in [`docs/backups.md`](../docs/backups.md): the layers,
+retention, the restic repository, K8up's schedules and dumps, restoring, reporting,
+capacity and the operational notes. The repository host is in
+[`docs/nixos.md`](../docs/nixos.md).
+
 **Two purchases gate later phases.** 2x 4 TB for the mini-nas vdev expansion, which
-Phase 4 waits on; and one 14-16 TB external disk for Phase 5. Phases 0 through 3 need
-neither. Deferred 2026-09-01, user's call — purchasing takes time. See *Operating
-without the vdev expansion* for what changes meanwhile.
+Phase 4 waits on; and one 14-16 TB external disk for Phase 5. Phases 2b and 3 need
+neither. Deferred 2026-09-01, user's call — purchasing takes time. See *Capacity,
+until the mini-nas disks arrive*.
 
 ---
 
 ## Why this exists
 
-The Kubernetes-side backup stack does not work. Borgmatic fails on every run and no
-`openebs-hostpath` volume is covered at cluster level. Reconnaissance on 2026-08-24,
-done to answer the five open questions the previous audit could not, turned up three
-*live* failures it did not know about.
+Reconnaissance on 2026-08-24 found that the Kubernetes backups had never produced a
+backup, and three live failures besides: offsite replication of the VM datasets
+failing every run since 2026-01-14, sanoid on mini-nas never once succeeding, and an
+offsite pool never scrubbed in its life. Phases 0 to 2 closed all four.
 
 The goal: satisfy 3-2-1-0, report when it stops working, restore one application
 without rolling back a whole VM, and stop the nightly backup driving etcd into
 eight-second fsyncs.
 
 **Constraint, user's call 2026-08-24:** self-hosted only, no cloud subscription.
-
----
-
-## What is true — verified 2026-08-24
-
-| | vulcanus (remote site) | mini-nas (local site) |
-|---|---|---|
-| Role | Proxmox VE 9.2.2, everything runs here | NixOS + Proxmox VE, replication target |
-| Pool | `rpool`, 2x raidz2 (4x4 TB + 4x10 TB) | `rpool`, 2x **raidz1** (3x4 TB + 3x3 TB) |
-| Usable / used | 24.5 TiB / 13.9 TiB (56%) | 12.6 TiB / 11.3 TiB (**88%**) |
-| Scrub | monthly, last 2026-08-09, clean | **never, in the pool's life** |
-| SSD | **none.** 8 spindles, no SLOG, no L2ARC | none |
-| ZFS | 2.4.2, `raidz_expansion` **disabled** | 2.4.4, `raidz_expansion` **enabled** |
-| Spare capacity | ~1 free SATA port; hot-swap bay | all 8 bays full; `spool` 1.8 TiB unimported |
-
-### Three live failures
-
-1. **`syncoid-vulcanus-data` has failed every run since 2026-01-14.** Five datasets
-   have diverged snapshot chains and syncoid correctly refuses to clobber them.
-   Offsite staleness: `vm-911-disk-0/1/2` (**all of talos-worker-1**) 2026-01-16;
-   `vm-910-disk-2` 2026-01-12; `subvol-105-disk-0` (fileserver LXC rootfs, holding
-   the Samba config) 2026-05-26. No `OnFailure=` on any unit, so nothing reported it.
-2. **`sanoid` on mini-nas has never once succeeded**, fataling hourly since
-   2026-01-09: `services.sanoid.enable = true` with no `datasets` declared generates
-   an empty config file. Nothing prunes the replication target — **29,305 snapshots
-   offsite against 1,467 onsite** — which is the direct cause of the 88%.
-3. **mini-nas has never been scrubbed.** Nine months, 11.1 TiB, raidz1 across drives
-   up to thirteen years old. A disk replaced 2026-07-28 took **2 d 21 h** to
-   resilver.
-
-### The structural problem
-
-PBS runs as **VM 107 on vulcanus** with its 2 TB datastore as a raw file on `rpool`
-— the same eight spindles holding the originals. Otherwise the healthiest component
-in the estate (weekly GC succeeds, 37x dedup, every recent job `OK`), but with **no
-verify job, no prune job, no sync job and no offsite copy**. Losing `rpool` loses
-the primaries and every VM backup together.
-
-`rpool/backups/borg` holds 2.14 TiB in six repositories (video 1.5T, audio 413G,
-photos 144G, rancheros 76G, games 46G, syncthing 20G), each last written **December
-2022**, replicated nowhere. The share root is `root:root` 0755 and the SMB user
-`rancher` cannot create the repositories borgmatic expects, which is why borgmatic
-has never produced a backup.
-
-### Performance
-
-Per [`etcd-disk-latency.md`](etcd-disk-latency.md): nightly vzdump drives etcd p99
-WAL fsync from a 0.25 s floor to 3.8-8.7 s and pages on **every** run. After a guest
-restart QEMU discards its dirty bitmap and the next run reads the whole 1 TB device
-— 142 minutes instead of 23.
-
-### Application state, measured
-
-139 GB total: **122 GB on worker-0**, 17 GB on worker-1. ~27 GB is observability
-data (Prometheus TSDB 12 GB, VictoriaLogs 15 GB) and 6.8 GB is borgmatic's own
-regenerable cache. **Irreplaceable application state is under 100 GB.**
-
-Databases: **pinepods** (PostgreSQL 18.6, 31 MB), **photoprism** (MariaDB 10.11,
-149 MB), **salamander** (MariaDB 10.11, 364 MB). The two MariaDB instances already
-write daily `.sql` dumps via PhotoPrism's *own* scheduler — undeclared in this repo,
-so a future image default could silently stop them. Pinepods'
-`pinepods-backups-pvc` is **empty**; its intended `pg_dump` never runs.
-
-Fourteen SQLite databases, several in WAL mode (headscale, linkding, rustdesk) where
-a naive file copy is not crash-consistent. Several PVCs hold **cryptographic
-identity** that no data restore repairs: `headscale-data-pvc`
-(`noise_private.key`), `syncthing-data-pvc` (`cert.pem`/`key.pem` — the device ID
-*is* the key), `rustdesk-data-pvc`.
-
-### Debris to clear
-
-Three orphaned hostpath directories on worker-0 with no PV object (25 GB stale
-PhotoPrism storage, 434 MB, 131 MB); four orphaned `traefik*` PVCs in
-`infrastructure`; PBS groups `vm/200`, `vm/101` and `vm/106` pinned forever because
-prune is client-side; dead guests still replicating offsite (`vm-100-disk-0` 256 GB,
-`rpool/rancheros` 40 GB, `vm-101-disk-0` 6 GB).
 
 ---
 
@@ -143,19 +68,17 @@ performance.
 
 5. **Per-data-class RPO/RTO.** Media, photos and databases have different value and
    different change rates; one policy for all of them is why 7.75 TiB of re-rippable
-   media consumes the offsite pool everything else needs.
+   media consumed the offsite pool everything else needs.
 6. **Assert freshness per protected object, not per job.** `syncoid-vulcanus-data`
    was red for seven months — but a green exit code would *also* have lied, because
    it was syncing eight of thirteen datasets and succeeding for those. The unit's
    result is not the backup's health.
-7. **Recovery of the keys, not just the data.** `age.agekey` sits unencrypted in the
-   repo working directory. Losing it makes every SOPS secret in git permanently
-   undecryptable and no restore of anything helps.
+7. **Recovery of the keys, not just the data.** Losing the age key makes every SOPS
+   secret in git permanently undecryptable, and no restore of anything helps.
 8. **Resistance to logical corruption, not only hardware loss.** Replication
    propagates a mistake within the hour. The defence is retention depth and an
    append-only store, not another mirror.
-9. **A written, exercised runbook.** RTO is dominated by knowing what to do. Nothing
-   here has ever been restored.
+9. **A written, exercised runbook.** RTO is dominated by knowing what to do.
 
 ---
 
@@ -165,13 +88,14 @@ performance.
   a couple of servers, I'd like to design a system that takes advantage of the
   hardware we've already got and saves cost by not paying a subscription."*
 - **K8up** for application backups, chosen after a three-way comparison against
-  Stash/KubeStash and Velero.
+  Stash/KubeStash and Velero (in the evidence). Its honest weakness is that it does
+  not back up Kubernetes objects, acceptable only because Flux owns them — stated so
+  the omission is not mistaken for an oversight.
 - **Second PBS VM on mini-nas + sync job** for the platform layer offsite.
 - **Password manager** for bootstrap key escrow.
 - **List the borg archives, then delete** — deferred until after a restore is proven.
-- **The restic repository lives in its own dedicated LXC.** Not the fileserver
-  (privileged, 512 MB RAM); not a VM (cannot bind-mount a ZFS dataset, which is what
-  makes the offsite replica independently verifiable).
+- **The restic repository lives in its own dedicated LXC**, on a ZFS dataset, so
+  mini-nas can mount the replica and verify it natively.
 - **Media's offsite replica on mini-nas is a primary tenet, not a lever.** Verbatim:
   *"While it is 'technically' possible to recreate — the level of effort is so great
   as to make the overall collection of data nearly priceless. Backing up that data
@@ -188,48 +112,63 @@ performance.
 - **A deleted guest's disks retain exactly as a live guest's would**, on both layers,
   with nothing destroyed automatically — freeing that space is a deliberate act after
   inspecting what is there.
+- **A reused VMID is reported and pushed to Pushover, never failed** (2026-09-19).
+  Failing `pbs-freshness` would hold it down for up to 31 runs, and healthchecks
+  notifies only on transitions, so a genuine backup failure inside that window would
+  be silent.
+- **VMIDs may be reused** — a guarantee kept by hand forever is not one worth
+  promising. The cost, eviction from PBS within 31 runs, is in `docs/backups.md`.
 
-### Why K8up, against Stash and Velero
+### Phase 2's
 
-Compared 2026-08-24 against each project's own source, API reference and licence.
-
-| | K8up | Stash / KubeStash | Velero |
-|---|---|---|---|
-| Repo | `k8up-io/k8up` | `stashed/stash` | `velero-io/velero` |
-| Licence | **Apache-2.0** | AppsCode-Community-1.0.0 (open core) | Apache-2.0 |
-| Activity | 1,017 stars, v4.10.0 2026-07-17 | 1,424 stars, **v0.42.0 2025-10-24** | 10,253 stars, v1.18.2 |
-| Licence key to install | no | **yes, even the free tier** | no |
-| Engine | restic | restic | Kopia |
-| Backs up K8s objects | no | yes | **yes** |
-| Self-hosted repo target | **`Local` and `RestServer`** | **Enterprise only** | **object storage only** |
-| Database dumps | **`backupcommand` annotation** | **Enterprise only** | exec hooks |
-| Scheduled integrity check | **`Check` CRD** | — | none |
-| Restore | `Restore` CRD to existing PVC | yes | by namespace/label |
-
-All three work on the volume type. Velero's FSB documents *"hostPath volumes are not
-supported. Local persistent volumes are supported"* — all 34 OpenEBS PVs here use
-`spec.local` with node affinity, so they qualify. No `VolumeSnapshotClass` exists, so
-every option reads the live filesystem.
-
-- **Stash is out on licence mechanics, not quality.** Community Edition lacks
-  *Database Backup, Auto-Backup, Batch Backup and Local Backend support* — both
-  capabilities most needed here are behind Enterprise, contradicting the
-  no-subscription constraint. It requires a renewable key for the *free* tier,
-  putting a vendor licence server in the backup path, and is superseded by KubeStash
-  whose feature split is not publicly documented.
-- **Velero's strength is already paid for.** Flux reconstructs every object from git,
-  SOPS secrets included. Its cost is real: FSB accepts object storage only, so
-  self-hosting means MinIO or Garage — a new stateful service on `rpool` that joins
-  the backup path and must itself be protected. No scheduled repository verification,
-  and FSB backs up only volumes mounted by a running pod, currently excluding
-  `audio-pvc`, `media-pvc`, `podgrab-data-pvc` and the four orphan `traefik*` PVCs.
-- **K8up's honest weakness: it does not back up Kubernetes objects.** Acceptable only
-  because Flux owns them. Stated explicitly so a future reader does not mistake the
-  omission for an oversight.
-
-Borgmatic stays out on mechanism: borg locks a repository to a single writer, so
-per-PVC backups serialise. VolSync was assessed and is out for having no database
-dump hooks and no documented integrity check.
+- **The repository host is NixOS, deployed with colmena** (2026-09-20), starting the
+  NixOS migration here rather than with the fileserver. Taken knowing colmena has not
+  tagged a release since v0.4.0 (2023-05-15), against clan, which is far more active
+  but is a framework whose scope overlaps this project's own backup layer.
+- **Every backed-up PVC is backed up whole** (2026-09-20). No per-path exclusions,
+  and `k8up.io/backup-restic-args` is not used. Verbatim: *"let's not bother
+  excluding the PhotoPrism caches - keep it simple and back up the whole thing."*
+- **`borg-backups-pvc` must never be backed up** (2026-09-20). Verbatim: *"We must
+  not re-back-up borg-backups-pvc during this. That would take far too much hard
+  drive capacity, and we're going to blow it away in a later phase anyway."*
+- **Dumps: annotations for the relational three, PreBackupPods for SQLite**
+  (2026-09-21). A PreBackupPod has its own network namespace and cannot reach a
+  database over loopback; a ClusterIP Service per database was weighed against the
+  annotations, which won as less machinery for the same result.
+- **One weekly K8up Check**, on `apps`' `full` (2026-09-21). The host's
+  `--read-data-subset` pass is Phase 6's.
+- **The Pushgateway push is off** (2026-09-21). K8up's `POST` under one grouping key
+  per namespace keeps only the last item pushed.
+- **The `.talosconfig` is not escrowed** (2026-09-21), being derived from the
+  machine secrets, which are.
+- **The coverage check reads the store, per claim and per dump** (2026-09-22). A
+  kube-state-metrics rule was weighed and left out; restic-exporter was ruled out.
+  Image automation was extended to `kubernetes/k8up/` rather than moving the check
+  into `infrastructure/`.
+- **Content checks for every dump format, with pinepods dumped as plain SQL**
+  (2026-09-22): a truncated custom-format dump still lists cleanly under
+  `pg_restore --list`.
+- **No homepage entry** for rest-server or K8up: entries are for services with a
+  web UI.
+- **A dump the store cannot serve fails the coverage check, and ages are compared
+  exactly** (review of PR #13): rounded down to the hour, a missed 07:00 dumps run
+  had passed, making the six-hour RPO twelve in practice.
+- **The NixOS secrets are not encrypted to Flux's key** (review of PR #13). Verbatim:
+  *"This can't be our reason, that's using one security context to do something
+  else."*
+- **One repository Secret, under a directory per namespace** (review of PR #13).
+- **The repository host mounts under `/mnt`, not `/srv`** (review of PR #13), as
+  the fileserver does. Verbatim: *"Yes, let's move to `/mnt` - I accept the
+  change-over costs."*
+- **No REST password kept in the clear on the host** (review of PR #13).
+- **The repository container has 1 GiB** (review of PR #13): its recorded peak was
+  290 MiB.
+- **A claim holding only a database's data directory is excluded**, its dump standing
+  in (review of PR #13).
+- **Every WAL-mode SQLite database is dumped, and every SQLite copy is
+  integrity-checked from the store**, Plex's with Plex SQLite (review of PR #13).
+- **Each app's PreBackupPod lives in its own `backups.yaml`**, with one shared
+  sqlite3 image under `kubernetes/k8up/` (review of PR #13).
 
 ---
 
@@ -243,18 +182,18 @@ Seven layers, unified not by one tool but by one **contract**:
 
 | Layer | What | State |
 |---|---|---|
-| 0 | ZFS snapshots on vulcanus (sanoid, VSS-exposed) | exists, keep |
-| 1 | ZFS replication to mini-nas (syncoid pull) | exists, repaired in Phase 0 |
-| 2 | Application backups — K8up + restic, dedicated repo LXC | exists, built in Phase 2 |
-| 3 | Platform images — vzdump to PBS, scope reduced | exists, reduce |
-| 4 | Platform images offsite — PBS #2 VM on mini-nas + sync | new |
-| 5 | Offline copy — external disk on vulcanus, restic | new |
-| 6 | Verification, notification, runbook, key escrow | new |
+| 0 | ZFS snapshots on vulcanus (sanoid, VSS-exposed) | built |
+| 1 | ZFS replication to mini-nas (syncoid pull) | built, repaired in Phase 0 |
+| 2 | Application backups — K8up + restic, dedicated repo LXC | built in Phase 2 |
+| 3 | Platform images — vzdump to PBS | built; Phase 3 reduces its scope |
+| 4 | Platform images offsite — PBS #2 VM on mini-nas + sync | Phase 4 |
+| 5 | Offline copy — external disk on vulcanus, restic | Phase 5 |
+| 6 | Verification, notification, runbook, key escrow | escrow done; the rest is Phase 6 |
 
 ### Failure domains
 
-Application state lives on `/var/openebs` = `vm-910-disk-1`, a zvol on `rpool`, so a
-restic repo at `rpool/backups/restic` **shares its failure domain**.
+Application state lives on `/var/openebs` = `vm-910-disk-1`, a zvol on `rpool`, so
+the restic repository at `rpool/backups/restic` **shares its failure domain**.
 
 | Class | Domain 1 | Domain 2 | Domain 3 | Fast-restore tier |
 |---|---|---|---|---|
@@ -265,20 +204,17 @@ restic repo at `rpool/backups/restic` **shares its failure domain**.
 
 The local restic repository is **kept but not counted**. It is the fast-restore tier
 and earns its place on the cases that actually happen — accidental deletion, a bad
-upgrade, rolling back one app — which are far likelier than pool loss and are the
-granularity objective itself. At ~100 GB of PVCs plus ~320 GB of mass-file archives
-it is nearly free. This is the same structural objection that ruled out a local
-restic copy of *media*, at 1/15th the price: there the copy cost 7.5 TiB, here 0.4.
+upgrade, rolling back one app — which are far likelier than pool loss. At ~0.3 TiB
+it is nearly free, where a local restic copy of *media* would have cost 7.5 TiB.
 
 **VM/LXC images stay at two domains, deliberately.** They are reconstructible from
 `terraform` plus `talosctl` with their data restored from restic, and from `ansible`
-for the LXCs; the only irreplaceable component, the Talos machine secrets, goes to
-the password manager under objective 7.
+for the LXCs; the one irreplaceable component, the Talos machine secrets, is
+escrowed.
 
 ### RPO and RTO per class
 
-Objective 5 made concrete. RTO assumes the runbook exists and the restore is not
-being invented on the spot.
+RTO assumes the runbook exists and the restore is not being invented on the spot.
 
 | Class | RPO domain 2 | RPO domain 3 | RTO | Why |
 |---|---|---|---|---|
@@ -288,1227 +224,228 @@ being invented on the spot.
 | Media | 1 h | quarterly | days | Re-servable from mini-nas in place |
 | VM/LXC images | 24 h | — | 8 h | Rebuildable from IaC |
 
-### Retention
+### Retention still to build
 
-Objective 8's mechanism is retention depth, so it is specified rather than implied.
-It also silently sizes the restic repository and mini-nas's snapshot space.
+What runs today is under *Retention* in `docs/backups.md`. Still to come:
 
 | Store | Policy | Depth |
 |---|---|---|
-| sanoid vulcanus `rpool/storage` | 36 hourly, 30 daily, 24 monthly | 2 y *(unchanged)* |
-| sanoid vulcanus PVE datasets | 30 daily | 30 d *(unchanged)* |
-| **sanoid mini-nas `storage/*`** | 24 hourly, **60 daily**, 24 monthly | 2 y, deeper daily than source |
-| **sanoid mini-nas `data/*`, `ROOT`** | 30 daily | 30 d, matching source |
-| **restic** (app + mass files) | keep-last 10, hourly 24, daily 30, weekly 8, monthly 24, `--keep-tag decommissioned` | 2 y |
-| PBS primary | keep-last 31 | 31 d *(unchanged)* |
 | **PBS #2** | none of its own — sync with `remove-vanished`, mirroring the primary | tracks primary |
 | **External disk** | keep-monthly 12, keep-yearly 3 | 3 y |
+| **PBS primary, retired guests** | forget a group whose newest backup is over two years old | 2 y — Phase 4 |
 
-mini-nas's daily depth deliberately exceeds vulcanus's. syncoid uses
-`--no-sync-snap`, so a target retaining more than the source is what makes the
-offsite copy survive a deletion discovered late — which is the whole of objective 8.
+### Schedule still to add
 
-### Schedule matrix
-
-The performance problem is partly a scheduling problem, so the schedule is part of
-the design — and **the estate runs four different clocks**, so the schedule is stated
-in UTC. Local time is what goes in each config; UTC is the only frame in which two
-rows on different hosts can be compared.
-
-| Host | Zone | Offset |
-|---|---|---|
-| vulcanus | `America/Denver` | UTC-6 (MDT) |
-| mini-nas | `America/New_York` | UTC-4 (EDT) |
-| Kubernetes CronJobs | **UTC** — no `timeZone` field is set anywhere in this repo | UTC |
-| PBS VM 107 | unverified; its GC schedule is in its own local time | ? |
-| repo LXC (new) | set it to `America/Denver` explicitly, matching its host | UTC-6 |
+The estate runs four clocks, so the schedule is stated in UTC: vulcanus is
+`America/Denver`, mini-nas `America/New_York`, Kubernetes UTC, and PBS VM 107's zone
+is unverified — its jobs run in its own local time. What runs today is under
+*Schedules* in `docs/backups.md`.
 
 **10:00 UTC is reserved for vzdump** and nothing else touches the spindles then.
 
-| UTC | Local as configured | Job | Where |
-|---|---|---|---|
-| hourly `:00` | — | sanoid snapshot | vulcanus |
-| hourly `:15` | — | syncoid pull | mini-nas |
-| 00:00 / 06:00 / 12:00 / 18:00 | same (UTC) | K8up database Schedules | cluster |
-| 01:00 | same (UTC) | K8up volume Schedules | cluster |
-| 08:00 | 02:00 MDT | restic mass-file backup | repo LXC |
-| **10:00** | **04:00 MDT** | **vzdump to PBS** | vulcanus |
-| 11:00 | 05:00 PBS-local | PBS sync to PBS #2 | PBS |
-| 12:30 | 08:30 EDT | ZFS replication freshness | mini-nas |
-| 14:00 | 08:00 MDT | PBS freshness | vulcanus |
-| 09:00 1st of month | 03:00 MDT | `restic forget --prune` | repo LXC |
-| Sat 13:00 | Sat 07:00 PBS-local | PBS GC | PBS |
-| Sun 14:00 | Sun 08:00 PBS-local | PBS verify (both datastores) | PBS |
-| Sun 15:00 | Sun 09:00 MDT | `restic check` | repo LXC |
-| Sun 16:00 | same (UTC) | restore drill | cluster |
-| 2nd Sun 06:24 | 00:24 MDT | ZFS scrub | vulcanus |
-| 3rd Sun 07:00 | 03:00 EDT | ZFS scrub | mini-nas |
-
-Two things the UTC view makes visible that the local-time view hid. The restore
-drill was originally written as "Sun 10:00", which in Kubernetes means 10:00 **UTC**
-— exactly vzdump's window; it is moved to 16:00. And the hourly syncoid pull will
-always have one run inside the vzdump window whatever offset it is given, competing
-for the same reads. That is left alone deliberately: an hourly delta on `storage` is
-about a megabyte, and skipping a specific hour costs more complexity than it saves.
-
-**Phase 2 adds spindle load where Phase 3 removes more.** K8up walks ~34 PVCs on the
-OpenEBS zvol nightly and writes the delta to `rpool/backups/restic` on the same eight
-spindles, and syncoid then sends it. restic does not re-read unchanged files — change
-detection is mtime and size — so the nightly cost is a metadata walk plus a few GB of
-delta, against vzdump's 253 GB. Not a wash, but real, which is why the windows are
-deconflicted and why Phase 3's acceptance test measures the net rather than vzdump
-alone.
-
-### Repository placement — a dedicated LXC
-
-`rest-server --append-only` in a **new unprivileged LXC**, 2-4 GB RAM, with one bind
-mount of a new `rpool/backups/restic` dataset, matching the existing 103/104/105
-pattern.
-
-**Not the fileserver LXC.** 105 is **privileged**, bind-mounts every host dataset,
-and has **512 MB of RAM** — `restic prune` loads the full repository index into
-memory and will not fit.
-
-**Not a VM.** The repository must be a ZFS **dataset**, because that is what lets
-mini-nas mount the replica read-only and run `restic check` against it natively. An
-offsite copy that cannot be independently verified is not a verified copy. A VM
-cannot bind-mount a host dataset; it would need a zvol (an opaque blob, needing
-something booted to verify it) or a network mount, reintroducing the CIFS semantics
-this design exists to avoid.
-
-- Outside the cluster, so the repository survives losing the cluster, and restic
-  writes to a **local filesystem** — no CIFS locking, which is where a
-  restic-over-SMB design would rot.
-- **`--append-only` means a compromised or misbehaving cluster cannot delete its own
-  backup history** (objective 8).
-- Offsite by adding `rpool/backups` to syncoid's command list.
-- Unprivileged, with the dataset chowned into the container's mapped uid range.
-- NixOS ships `services.restic.server`, so this carries across the eventual
-  fileserver migration.
-
-**The repo LXC is also a restic client**, bind-mounting
-`rpool/storage/{photos,books,filesync}` read-only into the same repository — no
-network, no SMB.
-
-**Prune is not append-only, and is not free.** restic's docs state prune *"requires
-full read, write and delete access"* and cannot function against an append-only
-server. So K8up's `Prune` schedule is disabled and retention runs from a systemd
-timer on the repo LXC — better than the default, because retention authority sits
-where the cluster cannot reach it. But `forget --prune` **rewrites pack files**, so
-the ZFS send afterwards is large and mini-nas's snapshots retain the superseded
-packs. Budget accordingly: prune runs monthly rather than weekly, bounded with
-`--max-repack-size`, and the offsite projection carries ~0.15 TiB for superseded
-packs held by mini-nas's 60-daily retention.
-
-### Declaration policy
-
-K8up defaults to opt-out — *"If omitted, K8up will default to `true`, unless
-`$BACKUP_SKIP_WITHOUT_ANNOTATION` is set"* — and that default is **kept**, because it
-means a newly added PVC is protected unless someone actively excludes it.
-
-- **Fleet policy is central:** one `Schedule` per namespace under
-  `kubernetes/infrastructure/k8up/`. Retention is not a per-application decision.
-- **Exceptions live with the application:** `k8up.io/backup: "false"` on regenerable
-  PVCs, and `k8up.io/backupcommand` plus `k8up.io/file-extension` on the database
-  pods. Those encode app-specific knowledge and belong in the app's own directory.
-
-**Coverage cannot be asserted from K8up's own metrics.** Its operator metrics
-(`k8up_jobs_total`, `_successful_counter`, `_failed_counter`) carry `namespace` and
-`jobType` but **no `pvc`** label; its per-PVC metrics are pushed to a Prometheus
-Pushgateway and carry file and byte counts but **no last-success timestamp**.
-Building the freshness alert on them would reproduce the "green but wrong" shape.
-
-### Freshness assertions — objective 6, on every layer
-
-The layer that actually failed for seven months was ZFS replication, so it gets the
-same treatment as the application layer rather than a one-off Phase 0 check. Each
-runs on a schedule, reads **the store**, and pings its own check.
-
-| Layer | Assertion | Runs on |
+| UTC | Job | Where |
 |---|---|---|
-| ZFS replication | newest snapshot age < 25 h for **every** dataset in the source list, and the target list matches the source list. A replica whose guest is destroyed reads as staleness, which is why one is destroyed with its guest rather than retained | mini-nas timer |
-| PBS | newest snapshot age < 26 h for every guest **the job is scoped to back up** — see below | vulcanus timer |
-| restic app layer | per-PVC newest snapshot age; PVCs with no snapshot at all; snapshots whose PVC no longer exists | cluster CronJob |
-| External disk | last successful attach older than 35 days | healthchecks period |
+| 11:00 | PBS sync to PBS #2 | PBS |
+| Sun 14:00 | PBS verify, both datastores | PBS |
+| Sun 15:00 | `restic check --read-data-subset` | repository host |
+| Sun 16:00 | restore drill — **not 10:00**, which in Kubernetes is vzdump's window | cluster |
 
-A PBS sync carrying 8 of 13 groups and exiting 0 is the identical failure to
-`syncoid-vulcanus-data`, and only a per-guest assertion catches it.
+The hourly syncoid pull always has one run inside the vzdump window, whatever offset
+it is given. That is left alone deliberately: an hourly delta on `storage` is about a
+megabyte, and skipping one hour costs more complexity than it saves.
 
-**The PBS assertion needs the job's scope, not just the group list.** Staleness alone
-cannot tell a broken backup from a guest that no longer exists, and a check that fires
-on every retired guest forever is the always-on warning
-[`docs/README.md`](../docs/README.md) warns against. Scope comes from
-`/etc/pve/jobs.cfg` — `all 1` minus `exclude` — read at runtime rather than hardcoded,
-so a guest created tomorrow is expected without anyone remembering to add it. That is
-the same guard as *a target that is never created cannot alert as down*.
+### Freshness still to assert
 
-| Guest | Group | Verdict |
-|---|---|---|
-| live, **in scope** | newest snapshot older than 26 h | **fail** — backups broken for this guest |
-| live, **in scope** | no group at all | **fail** — never backed up |
-| guest gone | group frozen | *report* — a pending retention decision |
-| live, **excluded** | frozen or absent | *report* — a coverage statement |
-| any | oldest and newest snapshot carry different guest UUIDs | *report*, **plus a Pushover push** — the VMID was reused and the prior machine is being evicted, with a deadline |
+The ZFS, PBS and restic assertions are built; see *Reporting* in `docs/backups.md`.
+What remains:
 
-A frozen group never fails. Neither does a reused VMID — it takes a third route,
-decided 2026-09-19, user's call: reported here and pushed to Pushover directly, on a
-stateless ladder. Failing the check would have held it down for up to 31 runs, and
-healthchecks only notifies on transitions, so a genuine backup failure inside that
-window would have been silent. Once a guest is gone no backup can be taken, so its
-staleness carries no information; what carries information is a guest still in scope
-going stale, which is the PBS analogue of syncoid succeeding on eight datasets of
-thirteen. The reports are what the retention decision above depends on — without them
-"someone inspects and decides" has nothing to prompt it.
+- **The external disk:** last successful attach older than 35 days, as a
+  healthchecks period.
+- **A vzdump check.** A running backup already creates its PBS group, timestamped at
+  start, so `pbs-freshness` reads an in-flight backup as fresh coverage. A job that
+  started and died every night would look healthy to it alone.
 
-Built and deployed in Phase 1 rather than Phase 6, because Phase 1's verification is
-this classifier being watched as it moves. It is `ansible/files/pbs_freshness.py` on a
-daily 08:00 timer on vulcanus. Two corrections the first real run produced: `vm/107` is
-an *empty* group rather than an absent one, and an in-flight backup already creates its
-group, so a job that starts and dies nightly reads as fresh coverage here.
+Two things `pbs-freshness` does not catch, named rather than assumed. **A group
+vanishing**: the check compares against the live guest list, so a vanished group has
+nothing to be compared with; catching it needs a remembered inventory, which matters
+more after Phase 4, where `remove-vanished` propagates a primary-side deletion
+straight to PBS #2. And **scope drift**: adding a live guest to `exclude` moves it
+from "fail if stale" to "report", making the check quieter rather than louder.
 
-**The reuse row is the one that needed no remembered state.** A group that stops being
-frozen because its VMID was reissued looks identical to a healthy group from the live
-guest list alone, and the eviction it starts is silent — see *VMID reuse is tolerated,
-and reported* in Phase 1 for why the UUID comparison catches it and a day-over-day
-inventory would not.
-
-Two things this shape still does not catch, named rather than assumed. **A group
-vanishing** — retention keeps frozen groups forever, so a disappearance is notable,
-but a check comparing against the *live* guest list has nothing to compare a vanished
-group against; catching it needs a remembered inventory. That matters more after Phase 4,
-where `remove-vanished` propagates a primary-side deletion straight to PBS #2. And
-**scope drift** — adding a live guest to `exclude` moves it from "fail if stale" to
-"report", making the check quieter rather than louder, which is why excluded-but-live
-guests are reported even though they are not failures.
-
-**Remains of decommissioned workloads.** The restic assertion's third output is the
-handle. Left alone, a deleted app's snapshots quietly age out on the normal retention
-window — and months later is exactly when they are wanted. On decommission, tag the
-final snapshot `decommissioned`; `--keep-tag decommissioned` survives retention. The
-step goes in `docs/kubernetes.md`'s existing *"Removing a stateful workload"*
-section, which exists because deleting Loki cost ~131 GiB.
-
-### Pool health — not just job exit codes
-
-**A successful scrub unit is not a clean scrub.** `zfs-scrub@` exits 0 having found
-errors, so `OnFailure=` and a success ping do not catch it. A timer on each host
-pings only if all of these hold:
-
-- `zpool status -x` reports all pools healthy — catches DEGRADED, which no scrub exit
-  code reports
-- read, write and cksum error counts are zero
-- capacity below 80%, with a separate critical at 90%
-- last scrub completed within 45 days
-
-A pool at 88% and an unverified raidz1 are the two conditions that produced this
-entire situation, and nothing currently watches either.
+`pbs-freshness` carries two standing reports: `vm/100`, frozen and kept on purpose,
+and `vm/107`, PBS itself, an empty group. Neither is a failure.
 
 ### Notification budget
 
-The healthchecks.io free tier is 20 checks and the enumerated list is exactly 20, so
-it is accounted for rather than assumed:
+The healthchecks.io free tier is 20 checks. Spending them only on what Prometheus
+**cannot** see — the two hosts, PBS and the disk — is principled rather than a
+bundling compromise: everything in-cluster uses Prometheus rules, plus **one**
+external check the coverage CronJob pings, because Prometheus and that CronJob both
+die with the cluster.
 
-Watchdog · syncoid-storage · syncoid-root · sanoid vulcanus · sanoid mini-nas · pool
-health vulcanus · pool health mini-nas · ZFS freshness · vzdump · PBS GC · PBS verify
-· PBS sync · PBS #2 verify · PBS freshness · restic mass-file · restic forget/prune ·
-restic check · **cluster backup dead-man's switch** · restore drill · external disk
+**Thirteen exist:** Watchdog, syncoid-storage, syncoid-root, syncoid-data,
+sanoid-mini-nas, sanoid-vulcanus, pool-health-mini-nas, pool-health-vulcanus,
+zfs-replication-freshness, pbs-freshness, restic-massfiles, restic-prune and
+backup-coverage.
 
-**Thirteen exist as of 2026-09-22** — Watchdog, syncoid-storage, syncoid-root,
-syncoid-data, sanoid-mini-nas, sanoid-vulcanus, pool-health-mini-nas,
-pool-health-vulcanus and zfs-replication-freshness from Phase 0; pbs-freshness from
-Phase 1; restic-massfiles, restic-prune and `backup-coverage` from Phase 2. The last
-is the cluster backup dead-man's switch, pinged by the CronJob of the same name on
-`45 2,8,14,20 * * *` UTC with an hour's grace. syncoid-data narrows rather than
-retires at Phase 4 and keeps its slot.
+**Eight are still to come:** vzdump, PBS GC, PBS verify, PBS sync, PBS #2 verify,
+restic check, the restore drill and the external disk.
 
-The split is principled rather than a bundling compromise: checks are spent only on
-what Prometheus **cannot** see — the two hosts, PBS, and the disk. Everything
-in-cluster uses Prometheus rules, with **one** external check that the reconciliation
-CronJob pings on success, because Prometheus and that CronJob both die with the
-cluster.
+That is 21, one over. The enumerated twenty assumed `syncoid-vulcanus-data` would
+retire in Phase 4, but it narrows to `rpool/data/vm-107-disk-0` and keeps its name and
+slot. So one check has to fold into another, or healthchecks — Apache-2.0 — gets
+self-hosted **on mini-nas**, a third failure domain from both the cluster and
+vulcanus, at no subscription cost.
 
-`syncoid-vulcanus-data` **does not retire** in Phase 4 and frees no slot: it narrows to
-`rpool/data/vm-107-disk-0` and keeps its name, so the enumerated 20 has no slack left.
-If that binds, healthchecks is Apache-2.0 and self-hosting it **on mini-nas** puts it in
-a third failure domain from both the cluster and vulcanus, at no subscription cost.
-
-All alerts land in Pushover via the existing Alertmanager receiver; healthchecks
-routes to the same place. **PVE 9.2.2 and PBS 4.1 both support webhook notification
-targets** — verified, `pvesh get /cluster/notifications/endpoints/webhook` returns
-`[]` rather than an error — so vzdump and PBS ping directly via a matcher, with no
+All alerts land in Pushover. **PVE 9.2.2 and PBS 4.1 both support webhook
+notification targets** — verified, `pvesh get /cluster/notifications/endpoints/webhook`
+returns `[]` rather than an error — so vzdump and PBS ping directly, with no
 scripting.
 
 ### The external disk
 
 - **Attached to vulcanus** via the hot-swap bay, and **shelved away from the vulcanus
-  site**. If it lives where it attaches, domains 1 and 3 are co-located and one fire
-  leaves a single backup copy on raidz1. Carried to the mini-nas site.
+  site**, at the mini-nas site. If it lives where it attaches, domains 1 and 3 are
+  co-located and one fire leaves a single backup copy on raidz1.
 - **A restic repository**, populated by `restic backup` of `rpool/storage/*` and
-  **`restic copy`** from the local repo. `restic copy` rather than backing the
-  repository up as files: a nested repo would make `--read-data` verify only the
-  outer layer and turn a restore into a two-stage extraction needing two passphrases.
-  This is the same standard that ruled out a VM for the repo LXC.
+  **`restic copy`** from the local repository. Not the repository backed up as files:
+  a nested repository would make `--read-data` verify only the outer layer and turn a
+  restore into a two-stage extraction needing two passphrases.
 - **Filesystem:** a single-vdev ZFS pool with `copies=2` on metadata, for checksums
   and self-healing of metadata damage on a disk with no parity.
 - **Repair path:** `restic check --read-data-subset=1/12` monthly detects damage; the
-  repair is to re-copy the affected packs from the local repo or from mini-nas.
-  Stated because detection without a written repair path is not a plan.
+  repair is to re-copy the affected packs from the local repository or from mini-nas.
+  Detection without a written repair path is not a plan.
 - **Automation:** a udev rule matching `ID_SERIAL` starts a systemd unit — backup,
   copy, check, ping, then Pushover *"safe to detach."*
 - **The reminder and the monitor are the same object:** a healthchecks check with a
-  35-day period. Attaching pings it; not attaching turns it red and nags. No separate
-  reminder to maintain, and no way for a skipped month to pass unnoticed.
+  35-day period. Attaching pings it; not attaching turns it red and nags.
 - Growth is measured, not guessed: monthly snapshots run 6.14 TiB (2024-09) to
-  6.87 TiB (2026-08), **~380 GB/year**. One 14-16 TB disk (~$200) carries the whole
-  7.5 TiB working set with roughly fifteen years of runway.
+  6.87 TiB (2026-08), **~380 GB/year**. One 14-16 TB disk carries the whole 7.5 TiB
+  working set with roughly fifteen years of runway.
 
 ---
 
-## Operating without the vdev expansion
+## Capacity, until the mini-nas disks arrive
 
-The two disks that take mini-nas from 12.6 to 19.1 TiB are deferred — user's call
-2026-09-01, purchasing takes time. The work proceeds, with three adjustments.
+The two disks that take mini-nas from 12.6 to 19.1 TiB are deferred. The capacity
+model and the purchase equation are in `docs/backups.md`; the worked figures are in
+the evidence.
 
-**The steady state is fine; the transient is not.** mini-nas at 12.6 TiB supports
-vulcanus up to **14.8 TiB used** (12.6 / 0.85). vulcanus is at 13.9, so the
-constraint holds with ~0.9 TiB of headroom. The standing rule until disks arrive:
-**do not let vulcanus pass ~14.8 TiB used.**
+**The standing rule: do not let vulcanus pass ~14.8 TiB used** (12.6 / 0.85). It was
+at 13.9 TiB on 2026-08-24, before Phase 1's reclaim. mini-nas read 73% after Phase 1.
 
-But occupancy through the phases, at 12.6 TiB, would have peaked badly:
+**Phase 4 waits for the disks.** Holding PBS #2 and a still-replicated `rpool/data`
+at the same time, at 12.6 TiB, peaks at 93%, the range where ZFS allocation degrades.
+Built after the expansion, PBS #2 goes straight onto the expanded `rpool` and
+`vulcanus-data` retires in the same phase, leaving occupancy near
+(10.95 + 1.2 − 1.8) / 17.6 ≈ **59%**. Deferring costs a format gap, not a coverage
+gap: `rpool/data` still carries the guests offsite as ZFS. *Fallback, if Phase 4 has
+to happen first:* PBS #2's datastore on `spool`, which keeps `rpool` off 93% but must
+move when `spool` is destroyed for its bays — a `zfs send` or a full ~1.2 TiB re-sync
+over the WAN. Take it only if the wait becomes long.
 
-| After | mini-nas holds | Occupancy at 12.6 TiB |
-|---|---|---|
-| Phase 0 (sanoid finally prunes) | 10.3 | 82% |
-| Phase 2 (+ restic replica 0.65) | 10.95 | **87%** ← the peak |
-| Phase 3 | unchanged | 87% |
-| Phase 4a (+ PBS #2, `rpool/data` still replicated) | 11.75 | 93% |
-| Phase 4b (`vulcanus-data` retired, −1.8) | 9.95 | 79% |
+**mini-nas's pool-health thresholds are 90% warning / 94% critical until the
+expansion**, against 80/90 everywhere else, so a warning does not fire continuously
+against a predicted 82-87%. Restore 80/90 once the expansion lands.
 
-93% is not a threshold quibble — it is the range where ZFS allocation degrades, which
-is why Phase 4 does not run at 12.6 TiB.
+### What to buy, and what the expansion involves
 
-**Adjustment 1: Phase 4 waits for the disks.** The 93% peak comes from holding
-PBS #2 and a still-replicated `rpool/data` at the same time. Deferring Phase 4 until
-`rpool` is expanded avoids it outright, and avoids ever having to move a datastore:
-PBS #2 is built directly on the expanded pool, and `vulcanus-data` retires in the
-same phase. Occupancy afterwards is (10.95 + 1.2 − 1.8) / 17.6 ≈ **59%**.
+Buy **2x 4 TB** and put them in `spool`'s two bays, the only free room in the 8-bay
+chassis. `spool`'s own 1.8 TiB disks cannot expand `rpool`: `zpool attach` onto a
+raidz vdev needs a disk at least as large as the smallest member, 3.64 TiB in
+raidz1-0 and 2.72 TiB in raidz1-1. So destroy `spool`, fit the new disks, and expand
+both vdevs from 3 to 4 wide — mini-nas has `feature@raidz_expansion` enabled. The two
+2 TB Toshibas become cold spares. One 4 TB disk strands ~0.9 TiB in raidz1-1 until
+that vdev's older members are replaced, which is worth it for uniform disks when the
+cascade later delivers 4 TB drives.
 
-Deferring costs a format gap, not a coverage gap — once Phase 0 repairs it,
-`rpool/data` still carries the guests offsite, just as ZFS rather than as PBS chunks.
-Nothing in Phases 2 or 3 depends on Phase 4.
+- **The gain is ~5.0 TiB, not 6.5**, because expansion keeps existing blocks' parity
+  ratio: ~17.6 TiB effective at once, converging on 19.1 as old data is rewritten.
+- **Expansion is slow.** It reflows the whole vdev, and a single-disk resilver here
+  took 2 d 21 h, so budget days per vdev and do them one at a time.
+- **All the swap is on the `spool` disks** — two 16 GiB partitions. The replacements
+  need swap partitions carved by hand before joining the pool, and `disk-config.nix`
+  updated to match, because disko does not apply to a live system.
 
-*Fallback, if Phase 4 has to happen before the disks arrive:* put PBS #2's datastore
-on `spool`, which is why the pool is imported. That works and keeps `rpool` at 87%,
-but the datastore then has to move when `spool` is destroyed for its bays — either a
-`zfs send` or a full ~1.2 TiB re-sync over the WAN. Take it only if the wait becomes
-long.
-
-**Adjustment 2: retention depth only where it is cheap.** The 60-daily figure for
-mini-nas was sized against 19.1 TiB. At 12.6, apply it to `storage/*` — media barely
-changes, so extra dailies cost almost nothing — and hold `data/*` at 30 daily
-matching source, since those are high-churn zvols that retire in Phase 4 anyway.
-
-**Adjustment 3: mini-nas pool-health thresholds are 90% warning / 94% critical**
-until the expansion, not 80/90. A warning at 80% would fire continuously against a
-*predicted* 82-87% and train everyone to ignore it, which is the anti-pattern
-`docs/README.md` names directly. Restore 80/90 once the expansion lands. vulcanus
-keeps 80/90 throughout.
-
-**Nothing here changes the purchase ceiling below.** The equation governs disk sizes
-at upgrade time; these adjustments govern how the work is sequenced while the pool is
-small. Once expanded, the numbers in the four-round table apply unchanged.
-
-## Capacity: the cascade and the purchase ceiling
-
-Disks cascade — vulcanus gets new larger ones, its retired vdev moves to mini-nas.
-The coupling has a closed-form limit that decides how large a disk is worth buying.
-**This is the durable rule and belongs in `docs/backups.md` when the work lands.**
-
-### r — the fraction of vulcanus's data needing an offsite twin
-
-| vulcanus dataset | USED (TiB) | Offsite twin |
-|---|---|---|
-| `rpool/storage` | 8.06 | yes, ZFS replica 8.10 |
-| `rpool/data` | 1.44 | no, as ZFS — content lives in PBS |
-| `rpool/proxmox_backup_server` | 1.61 | no, as ZFS — PBS *sync* carries the content |
-| `rpool/ROOT/pve-1` | 0.20 | yes, 0.21 |
-| `rpool/backups/restic` (new) | 0.50 | yes, 0.65 including superseded packs |
-| PBS datastore #2 on mini-nas | — | 1.20 |
-| **vulcanus used 11.8** | | **mini-nas needs 10.2** |
-
-**r = 10.2 / 11.8 ~= 0.85.** The gap from 1.0 is entirely the VM layer: vulcanus pays
-3.05 TiB for it (live zvols plus datastore) while mini-nas pays 1.20. Everything else
-is 1:1, so there is no further slack to find.
-
-`r` was ~0.70 before this work only because borg (2.14 TiB) and the PBS datastore
-inflated vulcanus's usage without inflating mini-nas's. **That slack was an artefact
-of the backups being fake.** A lower ceiling on disk-size jumps is the price of a
-working 3-2-1, not a regression.
-
-### Geometry
-
-vulcanus retires exactly **4 disks** per vdev upgrade and yields 2 data disks per 4
-(4-disk raidz2). What mini-nas does with those four decides the whole ceiling:
-
-| mini-nas vdev | Data disks per 4 received | Ratio | Max size jump *k* |
-|---|---|---|---|
-| 3-disk raidz1 + hot spare | 2 | 1/k | 1.47x |
-| 4-disk raidz2 | 2 | 1/k | 1.47x |
-| **4-disk raidz1** | **3** | **1.5/k** | **2.21x** |
-
-**4-disk raidz1 is the only geometry under which a 2x disk upgrade is sustainable.**
-raidz2 looks free when compared against 3-disk raidz1 plus a spare — both give two
-data disks — but against 4-disk raidz1 it costs a third of the pool, and that third
-is exactly what makes the cascade work.
-
-Single parity is proportionate because **parity should follow a copy's position in
-the hierarchy.** vulcanus is copy 1 with no local peer, so raidz2. mini-nas is copy 2
-with copy 3 on the external disk, so raidz1 is an appropriate risk — backed by the
-monthly scrub Phase 0 adds, which is what stops a latent error surfacing during a
-2 d 21 h resilver.
-
-**Available in place:** mini-nas runs zfs-2.4.4 with `feature@raidz_expansion`
-**enabled**, so `zpool attach` grows a 3-disk raidz1 to 4 disks with no rebuild.
-vulcanus has the feature `disabled` — its pool has never been `zpool upgrade`d —
-which does not matter here.
-
-### `spool`: bays, not disks
-
-The 8-bay chassis is full, so `spool`'s two slots are the only expansion room mini-nas
-has. But **`spool`'s disks cannot themselves expand `rpool`.** `zpool attach` onto a
-raidz vdev requires the new disk to be at least as large as the smallest member, and
-the numbers do not allow it:
-
-| vdev | Members | Smallest | A 1.8 TiB `spool` disk? |
-|---|---|---|---|
-| `rpool` raidz1-0 | 3x 3.64 TiB | 3.64 TiB | too small |
-| `rpool` raidz1-1 | 3x 2.72 TiB | 2.72 TiB | too small |
-| `spool` | 2x 1.8 TiB | — | — |
-
-**The bays are the resource, not the disks in them.** Destroy `spool`, buy two disks,
-put them in those slots, and expand both `rpool` vdevs to 4-wide. The two 2 TB
-Toshibas come out and become cold spares on a shelf, which is a better use for them
-than a pool nothing reads.
-
-Buy **2x 4 TB**. One is the correct size for raidz1-0; the other strands ~0.9 TiB in
-raidz1-1 until that vdev's older members are replaced, which is worth it for having
-uniform disks when the cascade later delivers 4 TB drives.
-
-**This returns PBS #2's datastore to `rpool`**, which is fine precisely because
-`rpool` is no longer small. It also removes the reason `spool` had to be imported at
-all, so that decision is superseded rather than merely revised.
-
-Three things to expect, none of them obvious:
-
-- **Expansion does not improve the efficiency of existing data.** RAIDZ expansion
-  reflows blocks onto the new disk but preserves each block's original data-to-parity
-  ratio; only new writes use the wider stripe. So the gain is real but smaller than
-  the naive arithmetic: raidz1-0 goes from ~1.04 to ~3.9 TiB of writable space and
-  raidz1-1 from ~0.41 to ~2.5 TiB, a gain of **~5.0 TiB rather than 6.5**. Effective
-  capacity is ~17.6 TiB immediately, converging on 19.1 TiB as old data is rewritten
-  — which for media is essentially never, and that is acceptable.
-- **Expansion is slow.** It reflows the whole vdev. A single-disk resilver here took
-  2 d 21 h, so budget days per vdev and do them one at a time.
-- **All the swap is on the `spool` disks** — two 16 GiB partitions, 31 GiB active.
-  Removing them removes it. The replacements need swap partitions carved by hand
-  before joining the pool, and `disk-config.nix` updated to match, because disko does
-  not apply to a live system.
-
-### How the cascade physically happens
-
-Worth stating because the obvious reading is wrong: **a raidz vdev cannot be removed
-from a pool.** ZFS device removal covers top-level mirrors and single disks only. So
-each cascade round is not "retire a vdev and add another" — it is `zpool replace` on
-each of the four disks of mini-nas's oldest vdev in turn, after which the vdev
-autoexpands. The capacity figures in the four-round table are unaffected; only the
-method is.
-
-With all 8 bays full, a replace-in-place leaves the vdev **at zero parity for the
-duration of each resilver** — four resilvers of roughly three days each, per round, on
-single parity. Attach the replacement temporarily over USB or eSATA instead: with both
-disks present, `zpool replace` resilvers from the old member and the vdev is never
-degraded. Given these disk ages, that is worth the adapter.
-
-### The purchase equation
-
-```
-                (n_m - 1) * (d1 + d0)
-    d_new  <=   ---------------------  -  d2
-                      2 * r * u
-```
-
-- `d_new` — size of the new disks for vulcanus
-- `d1` — disks of the vdev being retired (the four moving to mini-nas)
-- `d0` — mini-nas's other vdev after the move
-- `d2` — vulcanus's surviving vdev
-- `n_m` — disks per mini-nas vdev; the `2` is vulcanus's data disks per vdev
-- `u` — how full vulcanus is permitted to get, 0.80
-
-With `n_m = 4`, `r = 0.85`, `u = 0.80` this collapses to:
-
-```
-    d_new <= 2.21 * (d1 + d0) - d2
-```
-
-### Four rounds of upgrades
-
-TiB throughout; constraint is mini-nas usable >= 0.68 x vulcanus usable.
-
-| Round | Action | vulcanus | usable | mini-nas | usable | needs | |
-|---|---|---|---|---|---|---|---|
-| 0 | today | 4, 10 TB | 25.5 | 3x4, 3x3 TB | 12.7 | 17.3 | fails |
-| 1 | +2 disks, expand both vdevs to 4-wide | 4, 10 TB | 25.5 | 4x4, 4x3 | **19.1** | 17.3 | ok |
-| 2 | 4 to **8 TB**; 4 TB replaces mini-nas's 3 TB members | 8, 10 TB | 32.8 | 4x4, 4x4 | 21.8 | 22.3 | marginal |
-| 3 | 10 to **16 TB**; 10 TB replaces mini-nas's 4 TB members | 8, 16 TB | 43.7 | 4x10, 4x4 | 38.2 | 29.7 | ok |
-| 4 | 8 to **20 TB**; 8 TB replaces the other vdev's members | 20, 16 TB | 54.7 | 4x10, 4x8 | 49.1 | 37.2 | ok |
-
-- **Round 0 already fails at u = 0.80.** Supported utilisation today is 58.7% and
-  vulcanus sits at 56% — *at* the limit, not approaching it. Round 1 is not optional
-  and costs two used disks.
-- **Round 2 is the pinch point.** 8 TB (7.28 TiB) misses the 6.99 TiB ceiling by 2%,
-  capping vulcanus at 78.4% rather than 80%. Acceptable; 6 TB is the comfortable
-  choice.
-- **After round 3 the constraint stops binding** — 38.2 TiB against 29.7 needed, and
-  rounds 4+ allow ~22 TB disks. The discipline is entirely front-loaded.
-
-See *`spool`: bays, not disks* above for why its disks cannot join either vdev, and
-why its bays are wanted anyway.
+**The later rounds:** round 2 is the pinch point — 8 TB disks for vulcanus cap it at
+78.4% used rather than 80%, so 6 TB is the comfortable choice — and after round 3 the
+constraint stops binding.
 
 ---
 
-## Phasing
-
-Phase status is maintained in the table above as the work proceeds, and **every phase
-ends by updating [`docs/backups.md`](../docs/backups.md)** with whatever it made
-permanently true — see the header for why that is per-phase rather than saved for the
-end of the project.
-
-### Phase A — record the spec
-
-Create the `backups` branch as a worktree off `main`, write this spec superseding
-the 2026-08-06 audit, commit with a `Project: backups` trailer. Then **the user runs
-`wt review-open`** to freeze `review/backups-base` and open the draft PR —
-`.config/wt.toml` notes every alias there pushes and the SSH key is
-passphrase-protected, so an agent cannot unlock it. Nothing else starts until the
-review exists, because the PR must be opened after the first commit and before the
-first deploy.
-
-### Phase 0 — stop the bleeding
-
-- ~~**Key escrow first**~~ — **done 2026-09-01.** The age keypair is in the password
-  manager and the local `age.agekey` was deleted. That cost no access: `.sops.yaml`
-  carries three recipients and any one private half opens every file, local `sops -d`
-  goes through the `thenixbeast_will` ssh-ed25519 key, and Flux decrypts from the
-  in-cluster `sops-age` Secret in `flux-system`, which still holds the key.
-  ~~Still outstanding: `.talosconfig` and the Talos machine secrets.~~ Closed in
-  Phase 2: the machine secrets are escrowed, and the `.talosconfig`, derived from
-  them, deliberately is not. See *Escrow, including what Phase 0 left open*.
-- Repair the five diverged syncoid datasets — the procedure is below.
-- Declare `services.sanoid.datasets` on mini-nas per the retention table. **Expect the
-  first run to be long and I/O-heavy**: it destroys roughly 27,000 snapshots in one
-  pass. Run it when nothing else needs the pool.
-- Enable `services.zfs.autoScrub` on mini-nas, and **start a scrub by hand once
-  deployed**. Until one completes, `pool-health-mini-nas` reports the pool as never
-  scrubbed and stays red — which is accurate rather than noisy, but it will take days
-  on 11 TiB of raidz1, so it is worth starting deliberately rather than discovering.
-- Import `spool` and add the matching `fileSystems` entry — the gotcha mini-nas's own
-  CLAUDE.md warns about.
-- ~~**Expand both mini-nas vdevs from 3 to 4 disks**~~ — **deferred 2026-09-01**,
-  pending disk purchase. Buy **2x 4 TB** and put them in `spool`'s bays; see
-  *`spool`: bays, not disks* for why its own disks cannot do the job, what the
-  expansion actually yields, and the swap that comes out with it. Meanwhile see
-  *Operating without the vdev expansion*.
-- **Import `spool`** — so its contents and true size are visible before it is
-  destroyed for its bays, and so it can host PBS #2 if that phase cannot wait.
-- `OnFailure=` plus a success ping on every sanoid and syncoid unit.
-- Pool-health timers on both hosts.
-
-#### Measured on 2026-09-02, after deploying
-
-Three numbers that correct estimates elsewhere in this spec.
-
-**The offsite bloat was never in `storage`.** Pruning `photos` from ~5,783 snapshots
-to 114 freed almost nothing. Snapshots of data that does not change cost essentially
-nothing, so the ~1.2 TiB of excess is all in the `data` zvols, which churn — and
-those are what Phase 4 retires. Any future estimate of what retention will reclaim
-should be made against `data` alone.
-
-Final, after both the prune and the diverged-dataset repair: rpool 89% → **76%**,
-2.07 → **4.39 TiB free**, **2.32 TiB reclaimed**, and 30,404 → **1,083** snapshots.
-The count settled *below* the ~1,230 the retention policy allows, because several
-datasets do not have enough history to fill it.
-
-That is well ahead of the ~1.2-1.4 TiB projected, because 624 GB of it was in the
-diverged datasets and nothing had accounted for those. Occupancy also lands at 76%
-rather than the 82% predicted in *Operating without the vdev expansion*, which buys
-more headroom than that section assumes before the disks arrive.
-
-**The first scrub in the pool's life came back clean** — `repaired 0B in 20:23:38
-with 0 errors`, 2026-09-02. 11 TiB of the only offsite copy, on raidz1 across drives
-up to thirteen years old. That was the largest unknown in the estate and it is now a
-known.
-
-**A scrub starves the prune.** Running concurrently, sanoid managed ~2 snapshot
-destroys per minute — a ten-day pace for the backlog. With the scrub finished the
-same work runs orders of magnitude faster. Sequence these rather than overlapping
-them.
-
-#### Stale syncoid holds survive the prune
-
-Five snapshots under `storage` carry `syncoid_vulcanus` ZFS holds dated 5-6 January
-2026 — days before `syncoid-vulcanus-data` first failed on the 14th. They are
-leftovers from interrupted sends, `userrefs: 1`, and sanoid can never destroy them:
-
-```
-cannot destroy snapshot ...@autosnap_2026-01-05_03:00:06_hourly: it's being held
-```
-
-Harmless in themselves, but they are the oldest snapshots on those datasets, so they
-pin every block freed since January. On `storage`, where the data barely changes,
-that costs little. Release them with `zfs release syncoid_vulcanus <snapshot>` when
-convenient. None are on `data`, so they do not block the diverged-dataset repair.
-
-Note `zfs holds -r <dataset>` does not find them — that command takes snapshot names.
-`zfs get -r -t snapshot userrefs <dataset>` is the query that works.
-
-#### Do not run sanoid by hand while its timer is enabled
-
-Sanoid serialises on `/var/run/sanoid/sanoid_pruning.lock`. A run that finds a valid
-lock held by another process exits early and silently, which looks exactly like a run
-that decided there was nothing to do. Worse, the staleness check compares the
-lockfile's recorded command against `ps -p <pid> -o args=`, and when that comparison
-fails it *unlinks the lock* — so two concurrent runs can destroy each other, one
-exiting `RC=2` with `No valid lockfile found`.
-
-This cost a long detour: a manual prune and the hourly timer fought, the timer's runs
-exited in fifteen seconds each, and the fifteen-second exits were misread as sanoid
-refusing to prune at all. Let the timer do the work, or stop it first.
-
-#### Why the datasets diverged: a reused VMID
-
-Worth recording, because the names actively mislead. The offsite
-`data/vm-911-*` datasets are **not** old copies of talos-worker-1. They belong to a
-different guest that held VMID 911 before worker-1 existed.
-
-| | Diverged copy | Source today |
-|---|---|---|
-| `vm-911-disk-0` volsize | **100 G** (80.5 G used) | **1 M** (372 K) |
-| `vm-911-disk-1` volsize | **1 T** (543 G used) | **100 G** (23.7 G) |
-| `vm-911-disk-2` volsize | 100 G (74.6 K) | 100 G (23.0 G) |
-
-`usedbysnapshots` is 234 K on the 1 T volume, so essentially all 543 G is live data
-in one snapshot rather than churn.
-
-The partition tables settle what each disk was, without inference:
-`vm-911-disk-0-diverged` carries Talos's boot layout (EFI / BIOS / BOOT / META /
-STATE / EPHEMERAL), and `vm-911-disk-1-diverged` is a single partition spanning the
-whole 1024 G — the OpenEBS volume. So the January guest ran boot on `disk-0` and its
-PV data on a **1 TB** `disk-1`, where today's worker-1 runs boot on `disk-1` and PV
-data on a 100 G `disk-2`. Those 543 G are **Kubernetes PVC data**, not media, and a
-1.02x compressratio only says the content was already compressed.
-
-The sequence: a guest is created at VMID 911 around 13 January with a 1 TB disk;
-`syncoid-vulcanus-data` fails for the first time on the 14th, on a 477 GB full send
-of `vm-911-disk-1` that dies mid-stream; the last snapshot is the 16th and the guest
-goes away. Terraform then creates the real worker-1 on **2026-04-06**, reusing VMID
-911 with 100 G / 100 G — `git log -S911 terraform/main.tf` shows that as the only
-commit ever to mention it.
-
-So the seven-month outage was one oversized initial send that failed, and the
-orphaned datasets were then camouflaged by the VMID reuse. Nothing in them relates
-to the node running today, and the mismatched `volsize` is a second reason syncoid
-could not reconcile them beyond the absent common snapshot.
-
-#### Repairing the five diverged datasets
-
-syncoid refuses to replicate into a target with no matching snapshot, correctly — it
-would have to destroy the target to proceed. The repair sets the stale copy aside
-rather than destroying it, so a copy exists throughout:
-
-| Dataset under `rpool/foreign-backups/vulcanus/data/` | Offsite as of |
-|---|---|
-| `subvol-105-disk-0` (fileserver LXC rootfs) | 2026-05-26 |
-| `vm-910-disk-2` | 2026-01-12 |
-| `vm-911-disk-0` | 2026-01-16 |
-| `vm-911-disk-1` | 2026-01-16 |
-| `vm-911-disk-2` | 2026-01-16 |
-
-Per dataset, on mini-nas:
-
-1. `zfs rename <target> <target>-diverged`
-2. Let the hourly timer fire, or run the syncoid unit by hand. It does a full send.
-3. Confirm the new target has a snapshot from today.
-4. `zfs destroy -r <target>-diverged`
-
-Total re-seed is ~30 GB, not the ~120 GB the disk sizes suggest, because `referenced`
-is far below `used` on these zvols.
-
-Two things to expect. `-diverged` datasets have no source counterpart, so syncoid
-ignores them — but `zfs-replication-freshness` will report them as stale until step 4,
-which is correct and self-resolving. And the source-list comparison in that check is
-what would have caught this class of failure originally: a dataset that is *missing*
-rather than stale has no old snapshot to look wrong.
-
-#### What the repair found, 2026-09-03
-
-The five datasets were re-seeded and the diverged copies destroyed, freeing ~624 GB.
-`syncoid-vulcanus-data` now exits 0.
-
-**The diverged `vm-911-*` datasets were not worker-1's.** A guest held VMID 911
-before worker-1 was created on 2026-04-06, with a Talos boot disk on `disk-0` and a
-**1 TB** OpenEBS volume on `disk-1` — where today's worker-1 runs boot on `disk-1`
-and a 100 GB OpenEBS volume on `disk-2`. Confirmed from partition tables, not
-inferred: `disk-0` carried Talos's EFI/BIOS/BOOT/META/STATE/EPHEMERAL layout, and
-`disk-1` a single partition spanning the whole volume.
-
-Its 543 GB held a January 2026 copy of the cluster's PVC data, of which **418 GB was
-`pvc-b52710af` — the Loki volume that had already been deliberately deleted.** The
-audit that opened this project recorded that deletion reclaiming 452 GB of chunks
-retention had never removed; this was the state before it. Roughly 85 GB more was
-derived or regenerable (photo thumbnails, Prometheus TSDB, borgmatic's cache), and
-about 10 GB was genuine application state — the databases, configs and identity
-material. Destroyed outright on the user's call: eight months stale, superseded by
-K8up within weeks.
-
-**Two lessons worth keeping.** The oldest surviving snapshot says nothing about when
-a dataset was created — sanoid's 30-day retention meant January snapshots on a
-filesystem dating to 2022, which was read here as a January-created guest. And a
-`compressratio` of 1.02x says only that content is already compressed; it was read as
-media when it was Loki chunks.
-
-**syncoid never removes datasets from the target.** Every guest ever deleted on
-vulcanus leaves its replica behind: `vm-107-disk-1`, `vm-200-disk-0/1` and
-`vm-901-disk-0` have no source counterpart at all (~8.3 GB), and nothing will ever
-clean them up. Phase 1's work, alongside `vm-100-disk-0` (235 GB, the stopped
-rancheros guest, which *is* still replicated because it still exists at source).
-
-#### Documentation written
-
-[`docs/backups.md`](../docs/backups.md) — the layers and the pull-not-push property,
-retention on both hosts and why the offsite copy keeps more dailies, the eight checks
-and the three rules shaping them, scrub scheduling and why the jitter is 15 minutes,
-the capacity model and purchase equation, and the operational notes. Row added to
-[`docs/README.md`](../docs/README.md).
-
-### Phase 1 — reclaim, and settle what retains a deleted guest — **done 2026-09-18**
-
-Destroyed what had accumulated, and put the retention of a deleted guest on the one
-layer that actually holds it. What follows is what happened, not what was planned;
-where the two differ the difference is called out, because Phases 2-6 read back into
-this section.
-
-**The borg tree was inspected, not deleted** — Phase 2b still owns that.
-`rpool/backups/borg` holds 2.14 TiB in six repositories under `vulcanus-borgmatic/`
-(`audio`, `games`, `photos`, `rancheros`, `syncthing`, `video`), none written since
-December 2022.
-
-#### What was destroyed
-
-On mini-nas, five orphaned datasets with no source counterpart — **the spec had four**.
-`vm-911-disk-3` was missed: guest 911 carries disks 0-2, so the fourth is an orphan
-like the rest. Identified from their partition tables, read without mounting:
-
-| Dataset | Size | What it was |
-|---|---|---|
-| `vm-901-disk-0` | 6.60 G | a Talos node — EFI/BIOS/BOOT/META/STATE/EPHEMERAL, the same layout as the live `vm-900-disk-0` |
-| `vm-200-disk-1` | 1.72 G | `cdrom-test` — EFI + ext4 + swap |
-| `vm-200-disk-0` | 144 K | its efidisk |
-| `vm-107-disk-1` | 74.6 K | a 10 G zvol with no partition table, never formatted |
-| `vm-911-disk-3` | 123 K | a 1 M efidisk stub |
-
-`vm-901-disk-0` was the last copy anywhere — no `vm/901` PBS group exists. Destroyed
-regardless, because a Talos node holds no unique state: `terraform/modules/talos/`
-plus `talosctl` rebuild it, which is why the failure-domain table gives guests two
-copies rather than three.
-
-On vulcanus, guests 100, 101 and 106, and `rpool/rancheros` (40.1 G of
-`docker-vulcanus/` from December 2020, 92 snapshots). Then their three replicas on
-mini-nas.
-
-**Two things the destroy table did not have.** Guest 100 carried a second disk,
-`scsi1: rancheros:vm-100-disk-0`, so `qm destroy` freed both. And `rpool/rancheros`
-was a *registered PVE storage* — `pvesm remove rancheros` was needed as well as the
-destroy, or PVE keeps a storage entry pointing at a pool that is gone. That
-registration was made by hand and never appeared in `ansible/zfs.yaml` with the
-others, which is why nothing in the repo removed it.
-
-In the cluster: the four `traefik*` PVCs, and **seven** orphaned hostpath directories
-on worker-0 where the spec said three — 23.7 GiB of stale PhotoPrism storage (20.5 GiB
-of it regenerable thumbnail `cache/`), a second 825 M PhotoPrism store, two MariaDB
-data directories at 426 M and 136 M, and three 1 M `config/db/logs` skeletons from
-January 2024. Plus `pvc-b52710af`, a **Released** PV for `infrastructure/storage-loki-0`
-whose directory was already gone — an object holding nothing.
-
-Checked before deleting: the live PhotoPrism store has an `albums/album/` directory the
-orphans lack, and 26,299 sidecars against their 14,811. User-created albums live in
-`album/`; the orphans held only the `folder`/`moment`/`month`/`state` groupings
-PhotoPrism regenerates from its index. Nothing unique was stranded.
-
-#### Guest 100 was backed up first, changing the numbers
-
-The spec's plan was to let guest 100 go entirely — it had no PBS group, being excluded
-from the job, so destroying it removed every current copy in one step. **The user chose
-otherwise**: a one-off `vzdump 100 --storage pbs --mode stop` before the destroy. It
-took 2h25m, transferred 512 GiB, and cost 141 GiB after dedup reused 323.61 GiB (63%).
-
-That changes Phase 1's arithmetic permanently, and a later session reading the old
-numbers would misread the result:
-
-- **The spec predicted reports 5 → 4 → 1.** Guest 100 was to "leave the list entirely,
-  having neither scope nor a group".
-- **What happens is 5 → 5 → 2.** With a group, `vm/100` becomes a frozen group like any
-  other retired guest and stays a standing report — permanently, since keeping the copy
-  is the point.
-
-The two remaining reports are `vm/100` (frozen, deliberate) and `vm/107` (an empty
-group, live and excluded).
-
-#### The vzdump exclude list is now `107`
-
-Trimmed after the destroys, never before: trimming first would have put three
-still-existing dead VMs *in scope*, which the 04:00 run would have backed up and the
-classifier would have correctly called a failure. `107` is PBS itself, whose datastore
-lives on `rpool`, so backing it up is circular — the only standing reason to exclude a
-guest. Recorded in [`vzdump-job-in-terraform.md`](vzdump-job-in-terraform.md), which
-carries the job's full state until the provider gap closes.
-
-#### The PBS freshness assertion was built here, not in Phase 6
-
-It had to be. Phase 1's verification is the report count moving, and the classifier
-could not be watched to move if it did not exist. Phase 6 inherits a deployed check
-rather than one to build.
-
-`ansible/files/pbs_freshness.py`, installed to `/usr/local/bin/pbs-freshness` by
-[`ansible/backup-monitoring.yaml`](../ansible/backup-monitoring.yaml), on a timer at
-**08:00 local** — not the 06:30 the schedule matrix first carried. At 06:30 a slow
-vzdump left eight minutes of margin against the 2h22m run of 2026-08-19; 08:00 gives
-four hours. Reads scope from `/etc/pve/jobs.cfg`, the live guest list from
-`/etc/pve/.vmlist`, and the group list from the datastore. Python rather than a Jinja
-template, under `ansible/files/` rather than `tools/`, because `tools/` is for things a
-person runs by hand — and `copy:` rather than `template:` means the deployed file is
-the file its 22 tests run against.
-
-**Three mechanics the spec left open, settled by measurement:**
-
-- The config blob is `qemu-server.conf.blob` / `pct.conf.blob`, and it reads **without
-  mounting and without a single-file restore**: `proxmox-backup-client restore
-  <group>/<iso> qemu-server.conf.blob -` prints it to stdout in 0.24 s.
-- **Nothing is encrypted.** Every file in every group reports `crypt-mode: "none"`, so
-  the check runs unattended on the datastore password at
-  `/etc/pve/priv/storage/pbs.pw`.
-- **Containers have no `smbios1`.** The reuse comparison uses `net0`'s `hwaddr` for
-  `ct/<vmid>`, which PVE generates per container and which survives a restore of the
-  same container.
-
-**Two states the spec did not anticipate:**
-
-- **`vm/107` is an empty group, not an absent one** — `count=0`, no files,
-  `snapshots vm/107` returns `[]`. The spec's 2026-09-18 note had 100 and 107 both with
-  "no group at all"; only 100 did. An empty group must not read as coverage, and must
-  not crash the age comparison.
-- A PVE config section's keys arrive on the lines *after* its header, so the parser
-  returns a list rather than generating one. A generator hands out each dict while it is
-  still empty, and a caller filtering on `enabled` reads every section as unset.
-
-#### What the numbers did
-
-| Measure | Before | After |
-|---|---|---|
-| vulcanus `rpool` | 28.3 T alloc, 55% | **27.7 T, 54%** |
-| mini-nas `rpool` | 14.8 T alloc, 77% | **14.1 T, 73%** |
-| worker-0 `/dev/vdb1` (OpenEBS) | — | **25.1 GiB freed**, now 9% of 1023.9 G |
-| `zfs-replication-freshness` | red every run since inception | **`Result=success`** |
-| PBS reports / failures | 5 / 0 | **2 / 0** |
-
-**`zpool list` alone reports these destroys as no change.** ZFS frees large datasets
-asynchronously: immediately after `qm destroy` the pool read identically, and
-`zpool get freeing` showed 214 G draining to zero over two minutes before `allocated`
-moved. Watch `freeing`, not just `allocated`, or a correct destroy looks like a failed
-one.
-
-The mini-nas figure keeps falling after the destroys as sanoid prunes snapshots that
-are no longer referenced — 77% → 75% immediately, 73% within the hour.
-
-#### What this phase did *not* do
-
-- `pvc-b52710af` aside, no other Released or unbound PV was touched.
-- The borg tree stands; Phase 2b deletes it after a restore proves the replacement.
-- **A backup that is still running already creates its PBS group**, timestamped at
-  start. The check therefore reads an in-flight backup as fresh coverage. A job that
-  started and then died every night would look healthy to `pbs-freshness` alone; the
-  vzdump check enumerated in the notification budget is what closes that, and does not
-  exist yet. Named here rather than assumed.
-
-### Phase 2 — application backups
-
-Opened 2026-09-20; built and deployed by 2026-09-22. What it built is described in
-[`docs/backups.md`](../docs/backups.md) — the restic repository, Kubernetes volumes
-and databases, retention, restoring, coverage — and [`docs/nixos.md`](../docs/nixos.md).
-This section keeps what those do not: the decisions, what measuring overturned, the
-figures, the wrong turns, and what is still open.
-
-#### Decisions, user's call
-
-- **The repo LXC is NixOS, deployed with colmena** (2026-09-20) — starting the NixOS
-  migration here rather than with the fileserver. Taken knowing colmena has not
-  tagged a release since v0.4.0 (2023-05-15), against clan, which is far more active
-  but is a framework whose scope overlaps this project's own backup layer.
-- **Every backed-up PVC is backed up whole** (2026-09-20). No per-path exclusions,
-  and `k8up.io/backup-restic-args` is not used. Verbatim: *"let's not bother
-  excluding the PhotoPrism caches - keep it simple and back up the whole thing."*
-- **`borg-backups-pvc` must never be backed up** (2026-09-20). Verbatim: *"We must
-  not re-back-up borg-backups-pvc during this. That would take far too much hard
-  drive capacity, and we're going to blow it away in a later phase anyway."*
-- **Dumps: annotations for the relational three, PreBackupPods for SQLite**
-  (2026-09-21). The 2026-09-20 call was PreBackupPods for all seven, but a
-  PreBackupPod has its own network namespace and cannot reach a database over
-  loopback. A ClusterIP Service per database was weighed against `backupcommand`
-  annotations carrying the application's name in the file extension (the k8up#1068
-  workaround); the annotations won, as less machinery for the same result.
-- **One weekly K8up Check**, on `apps`' `full` (2026-09-21). The host's
-  `--read-data-subset` pass stays in Phase 6.
-- **The Pushgateway push is off** (2026-09-21).
-- **The `.talosconfig` is not escrowed** (2026-09-21), being derived from the
-  machine secrets, which are.
-- **The coverage check reads the store, per claim and per dump** (2026-09-22), with
-  restic's per-item error counts from the Job logs. A kube-state-metrics rule was
-  weighed and left out; restic-exporter was ruled out. Image automation was extended
-  to `kubernetes/k8up/` (the user's suggestion) rather than moving the check into
-  `infrastructure/`.
-- **Content checks for all three dump formats, switching pinepods to plain SQL**
-  (2026-09-22): a truncated custom-format dump still lists cleanly under
-  `pg_restore --list`. The four old `.pgdump` snapshots were forgotten on the host.
-- **No homepage entry.** Entries are for services with a web UI; rest-server and
-  K8up have none.
-- **A dump the store cannot serve fails the coverage check**, and ages are compared
-  exactly (review of PR #13): rounded down to the hour, a missed 07:00 dumps run had
-  passed, making the six-hour RPO twelve in practice.
-- **The NixOS secrets are not encrypted to Flux's key** (review of PR #13). Verbatim:
-  *"This can't be our reason, that's using one security context to do something
-  else."* Nothing else needs escrowing for them: the restic passphrase and REST
-  password already are, the htpasswd derives from the latter, and the healthchecks
-  URLs come from healthchecks.io.
-- **One repository Secret, under a directory per namespace** (review of PR #13).
-- **The repository host mounts under `/mnt`, not `/srv`** (review of PR #13), as
-  the fileserver does. Verbatim: *"Yes, let's move to `/mnt` - I accept the
-  change-over costs."* Its first mass-file run on the new paths re-reads everything.
-- **No REST password kept in the clear on the host** (review of PR #13): it served
-  only to test the append-only boundary by hand.
-- **The repository container has 1 GiB**, not 4 (review of PR #13): its recorded
-  peak was 290 MiB.
-- **A claim holding only a database's data directory is excluded**, its dump standing
-  in (review of PR #13): pinepods', photoprism's and salamander's. A volume copy of a
-  running database is not a consistent backup, and they added two thirds of the
-  nightly growth.
-- **Every WAL-mode SQLite database is dumped**, Stump's included, and every SQLite copy
-  is integrity-checked from the store, Plex's two with Plex SQLite (review of PR #13).
-- **Each app's backup configuration in its `backups.yaml`**, with one shared sqlite3
-  image under `kubernetes/k8up/` (review of PR #13). Only for the PreBackupPod
-  applications: the annotation route's config stays on its Deployment.
-
-#### What measuring overturned
-
-The plan this section carried was written before anything was measured. Each of
-these changed what was built.
-
-1. **K8up's opt-out default put ~16 TiB of SMB volumes in scope.** All twelve SMB
-   claims qualified, `borg-backups-pvc` among them. The plan named only the
-   regenerable volumes. *Nothing could schedule a backup until the exclusions were
-   live*, so they landed first.
-2. **The `backupcommand` plan did not work for SQLite.** headscale and rustdesk have
-   no shell, linkding has only Python, stump has nothing; and `.backup` needs a
-   seekable destination, so it cannot stream to stdin regardless.
-3. **The WAL risk was overstated for the apps named.** For headscale, rustdesk and
-   syncthing the irreplaceable material is a key file, safe to copy if the Job can
-   read it. The databases that need a consistent dump are linkding's, Plex's, and
-   Grafana's, a fifteenth SQLite database holding an admin password no longer
-   recoverable from SOPS.
-4. **Schedules cannot live under `kubernetes/infrastructure/`**, whose `namespace:`
-   transformer would have put all three in `infrastructure`: that namespace backed
-   up three times, `apps` never, Flux Ready throughout.
-5. **`pvesh get /cluster/nextid` returned 100**, the guest Phase 1 destroyed and
-   whose PBS group is kept on purpose. A VMID is checked against the datastore's
-   groups, not `nextid`.
-6. **K8up's default uid cannot read most of the volumes** (k8up#1032). Mounting all
-   22 in-scope claims read-only and walking them as 65532:0, 13 held something it
-   could not read: syncthing's whole volume, headscale's `noise_private.key`, both
-   PhotoPrism signing keys and its own SQL backups, every database data directory,
-   `grafana.db`, Plex's `.LocalAdminToken`, headplane's `tailscaled.state`,
-   RustDesk's config. K8up counts restic's exit 3 as success, so the `apps` Schedule
-   would have reported Succeeded every night without them. Hence `runAsUser: 0` on
-   every Schedule and Restore, and never `fsGroup`.
-7. **Sizes come from `talosctl usage`**, not `kubelet_volume_stats_used_bytes`, which
-   for hostpath reports the underlying filesystem: every worker-0 PVC read 90.31 GiB.
-
-**Upstream details worth not rediscovering.** K8up's REST password field is
-`passwordSecretReg`, an upstream typo; `...Ref` is silently ignored. rest-server's
-append-only mode still allows deleting locks, so restic locks normally. K8up's chart
-tag and operator version differ: chart 4.10.0 deploys operator v2.16.0, and the
-source findings here are read at `v2.16.0`. K8up names a dump
-`/<namespace>-<container><extension>`: read from source, upstream's e2e test and
-k8up#1068, since the documentation does not say. k8up#910 (a failed
-`backupcommand` reported Succeeded) is fixed in the running operator; its test
-never checked whether a partial snapshot survives, which is why every dump goes to a
-file first.
-
-**A Pushgateway would keep one item per namespace.** K8up pushes with `POST` under a
-grouping key of job, namespace and cluster, and a `POST` replaces every metric of the
-same name under that key. Reproduced against Pushgateway 1.11.3: a push for linkding
-removed headscale's series outright.
-
-#### Every PVC, and its route
-
-22 in scope and 18 excluded, the live split on 2026-09-21. "Volume" alone means the
-file copy suffices.
-
-| Namespace | PVC | Route | Why |
-|---|---|---|---|
-| apps | `headscale-data` | Volume + PreBackupPod | `noise_private.key` is a file; the dump is insurance for the node table |
-| apps | `linkding-data` | Volume + PreBackupPod | the rows are the whole value |
-| apps | `plex-config` | Volume + PreBackupPod | watch state; Plex's own 3-day copies ride the volume too |
-| apps | `pinepods-database` | Volume + Annotation | PostgreSQL; the file copy is only crash-consistent |
-| apps | `photoprism-database`, `salamander-database` | Volume + Annotation | MariaDB; same |
-| apps | `rustdesk-data` | Volume | `id_ed25519` is a file; the peer table regenerates |
-| apps | `syncthing-data` | Volume | the device ID *is* `key.pem` |
-| apps | `photoprism-data`, `salamander-data` | Volume | whole, per the decision above |
-| apps | `rclone-dropbox-config` | Volume | holds the OAuth token |
-| apps | `stump-config`, `mumble-data`, `speedtest-tracker`, `youtube-dl`, `headplane-data`, `beets-library`, `beets-flask-config`, `filebot` | Volume | journal-mode SQLite or plain files |
-| apps | `pinepods-backups` | Volume | empty, made for a `pg_dump` that never ran |
-| automatic-ripping-machine | `automatic-ripping-machine-pvc` | Volume | the canary, on worker-1 |
-| infrastructure | `kube-prometheus-grafana` | Volume + PreBackupPod | its admin password is not in SOPS |
-| apps | the twelve SMB claims | Excluded | the ZFS layer and the repo host cover them |
-| apps | `borgmatic-data`, `rclone-dropbox-bisync-cache`, `pinepods-valkey` | Excluded | regenerable |
-| infrastructure | Prometheus, Alertmanager, VictoriaLogs | Excluded | regenerable |
-
-#### Figures
-
-| What | Measured |
-|---|---|
-| colmena spike, 2026-09-20 | a switch moved a throwaway LXC from `.199` to `.108`; "succeeds but applies nothing" did not reproduce |
-| first mass-file run, 2026-09-21 | 296.58 GiB, 109,969 files, 2 h 09 m; 45.1 GiB duplicate across the three datasets; 247.59 GiB stored, compression saving 1.5% |
-| first `apps` run, by hand, 2026-09-21 | 20 PVCs, 680,901 files, 66.1 GB read, 59.4 GB added, 99 min, 0 errors; dumps Job 39 s |
-| first scheduled night, 2026-09-22 | `apps` volume Job 78 s, 68 MB added, 0 errors |
-| a second dumps run, minutes after the first | added 308 B (headscale) to 953 KB (pinepods' 18.4 MB) |
-| etcd WAL fsync p99, mean / peak, against a control | mass-file run 0.651 / 1.912 s (0.245 / 0.402 s); `apps` run 0.368 / 1.745 s (0.241 s). `etcdHighFsyncDurations` went critical on the first only; no container restarted. vzdump nights reach 3.8-8.7 s |
-| coverage check | 253 MiB peak reading salamander's dump back; 11 s live, 15 s scheduled |
-| first replication to mini-nas, 2026-09-22 | 302.9 GB in about 4 h at 16-28 MB/s; `restic check` clean on a read-only snapshot mount there |
-| first monthly prune, 2026-10-01 | 66 s, 202 MiB repacked, 165 MiB memory peak |
-| dump restores, 2026-10-12 | see below |
-
-**The dumps restore — 2026-10-12**, the 19:00 UTC dumps of 2026-10-11, each streamed
-from the repository host into a scratch pod on the live image, in a throwaway
-namespace:
-
-| Dump | Loaded into | Result |
-|---|---|---|
-| photoprism, 74 MB | mariadb 10.11.19 | exit 0 in 85 s; 39 tables and 270,341 rows, matching live row for row bar one `errors` row written since |
-| salamander, 203 MB | mariadb 10.11.19 | exit 0 in 127 s; 39 tables and 170,317 rows, the same |
-| pinepods, 18 MB | postgres 18.6, `ON_ERROR_STOP` | exit 0 in 34 s; 42 tables, matching live bar two episodes added since |
-| headscale, linkding, soft-serve, grafana | sqlite3 3.53.4 | bytes equal to the snapshot's, `integrity_check` `ok`, 8 to 95 tables each |
-| plex, 88.5 MB | `Plex SQLite`, from Plex's image | bytes equal, `integrity_check` `ok`. Stock sqlite3 cannot check it: no `icu_root` collation |
-
-Each check was shown to fail. Four pages of the linkding copy overwritten at random
-fail `integrity_check`; the photoprism dump cut at 30 of 74 MB stops mariadb with a
-syntax error at the cut; the pinepods dump cut at 9 of 18 MB stops `psql` with exit 3.
-
-Every snapshot carries restic's `summary`, which the coverage check's size verdicts
-need. The operator's `k8up_jobs_failed_counter` has no series until a first failure.
-
-#### Escrow, including what Phase 0 left open — done 2026-09-21
-
-Escrowed by the user into the password manager, before the repository held data:
-
-- **The restic repository passphrase**, with the REST password beside it as a
-  convenience: that protects no data and can be regenerated.
-- **The Talos machine secrets**, closing Phase 0's open item. Taken from the running
-  control plane with talosctl's own converter, into `/dev/shm`:
-
-  ```
-  talosctl -n 192.168.0.190 get machineconfig v1alpha1 -o jsonpath='{.spec}' \
-    | talosctl gen secrets --from-controlplane-config /dev/stdin -o /dev/shm/talos-secrets.yaml
-  ```
-
-  All 14 fields matched tfstate's `talos_machine_secrets.main` by hash; the one field
-  only in state, `secretboxencryptionsecret`, is empty.
-- **Not the `.talosconfig`.** Its certificate is signed by the OS CA in the secrets,
-  and a talosconfig minted from them with `talosctl gen config --with-secrets` was
-  accepted by the control plane. It expires 2026-11-07, while the CAs run to
-  2032-11-03; see [`talosconfig-renewal.md`](talosconfig-renewal.md).
-
-With the secrets escrowed, guest images' "reconstructible from `terraform` plus
-`talosctl`" — the failure-domain table's reason for two copies, not three — holds.
-
-**Why escrow a passphrase SOPS already holds.** The Flux age key, escrowed in
-Phase 0, already opened `kubernetes/k8up/secret-*.sops.yaml`. The direct entry is
-the shorter chain, and independent of recipient drift — which happened here: the
-NixOS rule first left its secrets file the one in 33 the Flux key could not open.
-Phase 5's acceptance test, a restore from the passphrase alone, depends on it.
-
-**Where the credentials could have leaked.** Generated with `secrets.token_urlsafe`,
-and bcrypt via `htpasswd -nbB`, in one shell under `umask 077`, written straight into
-the files and encrypted seconds later; only lengths were printed. Five generations,
-only the fifth live. Every transcript, the scratch space, memory and every git object
-were then searched from the container against `/run/secrets`: 0 hits in 144 MB, with
-positive controls. The residue is freed blocks on `rpool/home`, which is unencrypted.
-**Generate any future secret into `/dev/shm`.**
-
-#### Wrong turns
-
-- **The first append-only check could not fail.** `| tail` hid the exit code and the
-  flags were invalid, so both paths failed for one unrelated reason and it read as a
-  pass.
-- **A rationale overstated.** Commit `830e2723` justified file-first dumps because a
-  dump dying halfway "could otherwise be saved as a plausible-looking snapshot". From
-  the source, restic almost certainly loses that race. The file comes first anyway,
-  for reasons that do not depend on it; see docs.
-- **salamander did not roll on the first deploy.** Its HelmRelease takes the chart
-  from Git under `reconcileStrategy: ChartVersion`, so template changes without a
-  `Chart.yaml` bump are never packaged. This chart has hit it twice.
-- **The ARM canary compared with `-mindepth 1`**, so it could not see that a restore
-  leaves the claim's root as `0777 root:root`. syncthing's restore found it.
-- **The first identity comparison printed nothing** through a diff-script bug, and
-  was rerun rather than read as a pass.
-- **`/proc/<pid>/io` was used to monitor the first mass-file run** and overshot,
-  since restic reads its own packs back. ETAs built on it were wrong both ways.
-- **`ping` raised on a malformed URL**, outside its `try`. Found by the first live
-  run; fixed test-first.
-- **`kubectl auth can-i get pods/log` answered "no"**, being parsed as a pod named
-  `log`. `--subresource=log` answers "yes".
-- **The first SQLite restores proved nothing.** Piped into `kubectl exec -i ... sh -c
-  "cat > f"`, each landed as an empty file with every exit status 0, and an empty file
-  passes `integrity_check`. The same pipe kept every byte when the remote shell did
-  more after `cat`. Rerun comparing each file's size with the snapshot's.
-- **The first MariaDB load met the image's temporary init server**, which answered
-  the readiness ping and then restarted: "Server has gone away" at line 1, nothing
-  loaded. A cut-dump control was also lost once to a tailnet connection reset, and
-  rerun rather than counted.
-- **Escrow was first argued as necessary.** It was not; it is shorter and
-  drift-proof, which is enough.
-- **The exclusion annotation broke VictoriaLogs' chart.** An annotation on a
-  Helm-owned StatefulSet's `volumeClaimTemplates` cannot be applied to the live
-  object, so every upgrade failed and rolled back, and the HelmRelease Stalled on
-  chart 0.13.9. Found in review of PR #13 and fixed 2026-10-12 by deleting the
-  StatefulSet with `--cascade=orphan`; Helm recreated it, upgraded to 0.13.10, and
-  logs kept flowing with their history intact.
-
-#### Each application's own backup guidance — read 2026-10-12
-
-Read once per stateful application, to see what its designers know that this
-design might not. Where we already agree, nothing is noted.
-
-- **PhotoPrism** ([backups](https://docs.photoprism.app/user-guide/backups/),
-  [restore](https://docs.photoprism.app/user-guide/backups/restore/)): back up the
-  originals, the index, and the storage folder. Restore the folders, then the index
-  with `photoprism restore -i -f`, which takes the newest of its own dumps in
-  `storage/backup/mysql`; those ride the data volume. Without an index, a rescan
-  plus the YAML sidecars and album files recovers metadata and albums. A restored
-  index brings back accounts and passwords as of the dump. It advises testing a dump
-  on a separate instance before replacing a live index — done on 2026-10-12.
-  Originals are on the photos share, covered by ZFS and the mass-file backup.
-- **Plex** ([backing up](https://support.plex.tv/articles/201539237-backing-up-plex-media-server-data/),
-  [repair](https://support.plex.tv/articles/repair-a-corrupted-database),
-  [restoring a scheduled backup](https://support.plex.tv/articles/202485658-restore-a-database-backed-up-via-scheduled-tasks/)):
-  the whole data directory, `Cache` excludable; on Linux `Preferences.xml` is inside
-  it. **A restore replaces `library.db` and `library.blobs.db` as a pair**, owned by
-  plex. Our dump takes only `library.db`; `library.blobs.db` (140 MB, WAL, 14,738
-  blobs) exists only as a live file copy in the volume snapshot, and as Plex's own
-  dated pairs, the newest up to three days old. Only Plex's SQLite can repair or
-  fully check either file, which we already use.
-- **linkding** ([backups](https://linkding.link/backups)): recommends its
-  `full_backup` zip, and warns that copying `db.sqlite3` is not transaction-safe.
-  Our `.backup` copy is transaction-safe, matching its deprecated `backup` command.
-  **The database references HTML snapshots in `assets/`**, so a restore should pair
-  a dump with the volume snapshot from the same full run. Favicons regenerate.
-- **headscale** ([upgrade](https://headscale.net/stable/setup/upgrade/)): config,
-  data directory and database; migrations run on upgrade and are one-way, so back up
-  before upgrading. **Upgrades must step through every minor version.** So a dump
-  restores with the headscale version that wrote it, from git history, then steps
-  forward. Image automation moves one minor per release, and dumps are at most six
-  hours old at any upgrade.
-- **Grafana** ([back up](https://grafana.com/docs/grafana/latest/administration/back-up-grafana/)):
-  configuration, plugin data and the database. It advises stopping Grafana before
-  copying the SQLite file; `.backup` makes that unnecessary. Configuration is in git,
-  plugins on the volume.
-- **PinePods** ([server backup and restore](https://pinepods.online/docs/tutorial-basics/Backup-Restore),
-  [Postgres major upgrade](https://pinepods.online/docs/Troubleshooting/PostgresMajorUpgrade)):
-  a manual SQL download from Settings; its restore accepts only its own files, so ours
-  restores through `psql`, as proven. A Postgres data directory is bound to its major
-  version; the image policy is already minor-only for that reason. A plain `pg_dump`
-  loads into any newer major, so the dump is also the route across one.
-
-#### Still open
-
-- **No restore runbook until Phase 6.** On a rebuilt cluster Flux reconciles
-  applications onto fresh empty claims, and databases initialise before any restore
-  lands, so the Kustomizations must be suspended first.
+## Loose ends from finished phases
+
+- **Five stale `syncoid_vulcanus` holds on `storage`**, dated 5-6 January 2026, pin
+  every block freed since. Harmless but worth releasing:
+  `zfs release syncoid_vulcanus <snapshot>`. `zfs holds -r <dataset>` does not find
+  them; `zfs get -r -t snapshot userrefs <dataset>` does.
 - **A stale grant on mini-nas:** `zfs allow` on `rpool/foreign-backups/vulcanus` names
   uid 994, where the syncoid user is 993. Cruft, not a dependency: the syncoid module
   grants what it needs around every run.
-- **Phase 4's `rpool/data` retirement was gated on the restic replica**, which until
-  it existed left `rpool/data/vm-910-disk-1` the only offsite copy of PVC data. That
-  gate is now open.
+- **No restore runbook until Phase 6.** See the sequencing hazard there.
 
-### Phase 2b — delete the borg tree
+---
 
-**After** Phase 2's canary restore proves the replacement works. `borg list` each of
-the six repositories, show the manifest, delete on confirmation. `games` (46 G) and
-`rancheros` (76 G) may have no live counterpart at all, so the inspection is not a
-formality. The passphrase is in the SOPS Secret `borg`; if it no longer opens them,
-that is itself the answer.
+## Phase 2b — delete the borg tree
 
-Deliberately *not* in Phase 1: the 2.14 TiB is not needed until Phase 2, and deleting
-the only copy of 2022-era data before the new system has restored anything once is
-the wrong order.
+Phase 2's restores are proven, which is what this waited on. `rpool/backups/borg`
+holds 2.14 TiB in six repositories under `vulcanus-borgmatic/` (`audio`, `games`,
+`photos`, `rancheros`, `syncthing`, `video`), none written since December 2022. `borg
+list` each, show the manifest, delete on confirmation. `games` (46 G) and `rancheros`
+(76 G) may have no live counterpart at all, so the inspection is not a formality. The
+passphrase is in the SOPS Secret `borg`; if it no longer opens them, that is itself
+the answer.
 
-### Phase 3 — performance
+## Phase 3 — performance
 
 `backup=0` on `vm-910-disk-1` and `vm-911-disk-2` (the OpenEBS data disks). Safe only
 after Phase 2, which is what makes the sequencing non-negotiable: granularity first,
-then performance.
+then performance. Nightly vzdump drives etcd's p99 WAL fsync from a 0.25 s floor to
+3.8-8.7 s; see [`etcd-disk-latency.md`](etcd-disk-latency.md). After a guest restart
+QEMU discards its dirty bitmap and the next run reads the whole 1 TB device — 142
+minutes instead of 23. Phase 2 added load of its own: the mass-file run took etcd's
+p99 to 0.651 s mean against a 0.245 s control, which is why this phase measures the
+net.
 
-### Phase 4 — platform images offsite
+## Phase 4 — platform images offsite
 
-**Gated on the two mini-nas disks.** Building PBS #2 while `rpool` is unexpanded and
-`rpool/data` is still replicated puts the pool at 93%; waiting means the datastore is
-built once, on the expanded pool, rather than built on `spool` and moved later. See
-*Operating without the vdev expansion*, Adjustment 1, including the fallback if the
-wait becomes long.
+**Gated on the two mini-nas disks**, and its datastore goes on the expanded `rpool`;
+see *Capacity, until the mini-nas disks arrive*, including the `spool` fallback.
 
 Second PBS VM on mini-nas's Proxmox VE — **not** the NixOS module. proxmox-nixos
 lists "Proxmox backup server" under its **Roadmap**, and the module is 101 lines
 exposing only `enable` and `localIP`.
 
-**Its datastore goes on `spool`, not `rpool`** — see *Operating without the vdev
-expansion*. That keeps `rpool` off 93% while the expansion is pending, and puts the
-offsite VM images on different spindles from the offsite ZFS replica.
-
 Remote plus scheduled sync job, and **a verify job on the target, because PBS sync
 does not verify chunks on arrival.** Add the verify job the primary datastore also
-lacks — but **not a prune job on PBS #2**: see *Retention, and what ends it*, which has
-it sync with `remove-vanished` and no prune of its own, so it tracks the primary exactly
-and a retired guest's frozen group is preserved rather than expired.
+lacks — but **not a prune job on PBS #2**: it syncs with `remove-vanished` and keeps
+no retention of its own, so it tracks the primary exactly and a retired guest's
+frozen group is preserved rather than expired.
 
-#### Retiring `rpool/data` from replication — except the PBS appliance
+**On the apparent contradiction:** a VM was ruled out for the restic repository
+because a zvol is opaque to the host and cannot be verified from outside. PBS #2 is a
+VM with exactly that property. The difference is that PBS verifies *itself* from
+inside the guest, which restic on a zvol would not. The in-guest verify job is
+load-bearing, not optional, and is the reason the two decisions are consistent.
+
+### Retiring `rpool/data` from replication — except the PBS appliance
 
 Guest images leave ZFS for PBS, with **one exception that stays replicated**:
 `rpool/data/vm-107-disk-0`, the Proxmox Backup Server VM's own OS disk. Decided
 2026-09-19, user's call.
 
 **Why the exception.** PBS #2 gives the *chunks* an offsite twin, but nothing gives
-PBS #1's own configuration one. `/etc/proxmox-backup` — datastore definitions, users,
-ACLs, prune/GC/verify job schedules, and the TLS certificate whose fingerprint is
-pinned in vulcanus's `/etc/pve/storage.cfg` — lives on that OS disk. Retiring
-`rpool/data` wholesale leaves it as the only thing in the estate with one copy that a
-reinstall cannot reconstruct; everything else ends this phase with two. Keeping the one
-dataset costs ~18 GiB against a 19.1 TiB pool, needs no new mechanism, and preserves a
-`zfs send`-back restore that skips the manual install
-`terraform/modules/proxmox_backup_server/main.tf` still requires ("complete the install
-manually via the booted GUI").
+PBS #1's own configuration one. `/etc/proxmox-backup` lives on that OS disk, and
+retiring `rpool/data` wholesale would leave it the only thing in the estate with one
+copy that a reinstall cannot reconstruct. Keeping the one dataset costs ~18 GiB, needs
+no new mechanism, and preserves a `zfs send`-back restore that skips the manual
+install `terraform/modules/proxmox_backup_server/main.tf` still requires.
 
-**What it does not buy.** If `rpool` is lost, recovery still goes *through PBS #2* — it
-is a working PBS holding every backup, and reading its datastore never needs the
+**What it does not buy.** If `rpool` is lost, recovery still goes *through PBS #2* —
+it is a working PBS holding every backup, and reading its datastore never needs the
 primary's config. The exception buys a faster rebuild of the primary, not the backups
-themselves. It is cheap insurance against rebuild friction, not a second lineage.
+themselves.
 
 Four changes that must land together, because each one alone breaks the freshness
 check:
@@ -1520,9 +457,8 @@ check:
   lineage with the source, so syncoid continues incrementally.
 
   Keep the command's *name*. `checkNameFor` derives the healthchecks check from the
-  unit name, so renaming it to match its narrower scope costs a new check and a new
-  sops secret for no functional gain. A comment at the command carries the scope
-  instead.
+  unit name, so renaming it costs a new check and a new sops secret for no functional
+  gain. A comment at the command carries the scope instead.
 
 - **Narrow the check's source roots** at
   `~/repositories/mini-nas/modules/backup_monitoring/default.nix:183`, from
@@ -1540,95 +476,79 @@ check:
   `replica-shallow` with `recursive = true`, which goes on pruning the retained child
   unchanged. Verified 2026-09-19 — the one step here easiest to "fix" unnecessarily.
 
-Afterwards PBS is the only lineage holding **guest images**, which is what makes the
-two-year cliff the whole of *Retention, and what ends it* rather than half of it: there
-is no longer a ZFS copy of a guest whose indefinite retention would make the shorter
-policy fiction. `vm-107-disk-0` is not a guest image — it is the appliance that stores
-them — so it sits outside the cliff and keeps `rpool/data`'s ordinary sanoid policy.
+Afterwards PBS is the only lineage holding **guest images**. `vm-107-disk-0` is not a
+guest image — it is the appliance that stores them — so it sits outside the two-year
+expiry below and keeps `rpool/data`'s ordinary sanoid policy.
 
-#### Deleted guests expire at two years
+### Deleted guests expire at two years
 
-Decided 2026-09-18, and the automatic half of *Retention, and what ends it*: a group
-whose newest backup is older than two years is forgotten entirely. No ladder, no
-thinning — user's call: *"keep it simple with just a two-year expiration of the whole
-group."*
-
-Thinning would not pay for itself in any case. PBS dedups at 37x and a dead guest's 31
-backups are one full plus thirty deltas of a machine that stopped changing, so the
-deltas are nearly free. All of the space is in the cliff.
+Decided 2026-09-18: a group whose newest backup is older than two years is forgotten
+entirely. No ladder, no thinning — user's call: *"keep it simple with just a two-year
+expiration of the whole group."* Thinning would not pay for itself anyway: PBS dedups
+at 37x, and a dead guest's 31 backups are one full plus thirty deltas of a machine
+that stopped changing. All of the space is in the cliff.
 
 **The predicate carries no liveness question:**
 
 > Forget any group whose newest backup is older than two years.
 
-A live, in-scope guest cannot have a two-year-old newest backup — if one does, that is
-a failure the PBS freshness assertion already reports. So the job never asks whether a
-guest still exists: no source list, no SSH, and none of the false-positive path that
-sank Phase 1's quarantine. A live but *excluded* guest falls under the same rule
-deliberately; a two-year-old backup of a running machine is not one anyone restores.
+A live, in-scope guest cannot have a two-year-old newest backup — if one does,
+`pbs-freshness` already reports it. So the job never asks whether a guest still
+exists: no source list, no SSH, and none of the false-positive path that sank the
+quarantine design (see the wrong turns). A live but *excluded* guest falls under the
+same rule deliberately; a two-year-old backup of a running machine is not one anyone
+restores.
 
 **It runs against the primary only.** PBS #2 syncs with `remove-vanished`, so a
 forgotten group propagates on the next sync and both stores stay identical from one
-policy in one place. That is the `remove-vanished` residual risk above working as
-intended rather than against us.
+policy in one place.
 
-**Why it lands in this phase and not in Phase 1.** Until `vulcanus-data` is retired
-from syncoid — which happens here — mini-nas still holds guest zvols that no age rule
-expires: sanoid has no age term, and `replica-shallow` carries only dailies, so there
-is no ladder to decay through. A two-year PBS policy shipped before that is fiction of
-exactly the kind *Retention, and what ends it* warns against, because the effective
-retention would be the longer of the two, which is forever. The two land together so
-the figure is true when it is written down.
+**Why it lands in this phase.** Until `vulcanus-data` is retired from syncoid, mini-nas
+still holds guest zvols that no age rule expires: sanoid has no age term, and
+`replica-shallow` carries only dailies. A two-year PBS policy shipped before that
+would be fiction, because the effective retention would be the longer of the two,
+which is forever. Nothing expires before March 2028 in any case — `vm/200` is the
+oldest frozen group, last written April 2026.
 
-Nothing expires before March 2028 in any case — `vm/200` is the oldest frozen group
-and was last written in April 2026 — so the wait costs nothing.
-
-**If this phase slips past that.** The fallback is the symmetric job on mini-nas:
-destroy a replica dataset whose newest snapshot is older than two years, same age-only
-predicate, same absence of a liveness question. Not built now, because it is work for a
-lineage this phase retires.
+**If this phase slips past that,** the fallback is the symmetric job on mini-nas:
+destroy a replica dataset whose newest snapshot is older than two years, the same
+age-only predicate. Not built now, because it is work for a lineage this phase
+retires.
 
 **PBS has no native job for this** — prune jobs thin, they do not forget — so it is a
 timer and a script: list groups, compare the newest backup's timestamp, forget the
 group. The GUI forgets a group in one action, so the capability is certain; the CLI or
 API call that does it is not yet confirmed and should be before this is built.
 
-**On the apparent contradiction:** a VM was ruled out for the restic repo because a
-zvol datastore is opaque to the host and cannot be verified from outside. PBS #2 is a
-VM with exactly that property. The difference is that PBS verifies *itself* from
-inside the guest, which restic on a zvol would not. The in-guest verify job is
-load-bearing, not optional, and is the reason the two decisions are consistent.
-
-### Phase 5 — the offline copy
+## Phase 5 — the offline copy
 
 Gated on buying one 14-16 TB external disk (~$200). Hot-swap into vulcanus; ZFS pool
 with `copies=2` metadata; `restic backup` the mass files and `restic copy` the app
 repository; udev-triggered automation; Pushover on completion; shelved at the
-mini-nas site. Passphrase to the password manager.
+mini-nas site. Passphrase to the password manager. See *The external disk*.
 
-### Phase 6 — verification, notification and the runbook
+## Phase 6 — verification, notification and the runbook
 
-- `restic check` weekly; a `--read-data-subset` pass monthly on both repositories,
-  **including the offsite replica**, which is what makes it a verified copy rather
-  than a hopeful one.
-- Freshness assertions per the table above — **the PBS one already exists**, built in
-  Phase 1; what remains is the restic layer and the external disk.
+- A `--read-data-subset` pass monthly on both repositories, **including the offsite
+  replica**, which is what makes it a verified copy rather than a hopeful one. The
+  weekly K8up Check is structural only.
+- The freshness assertions and checks under *Freshness still to assert* and
+  *Notification budget*.
 - **The automated restore drill**, weekly: restore designated canaries — one Postgres
-  dump, one WAL-mode SQLite DB, one config directory — into scratch space and assert
-  integrity (the Postgres dump loads, `PRAGMA integrity_check` returns `ok`, a
+  dump, one WAL-mode SQLite database, one config directory — into scratch space and
+  assert integrity (the Postgres dump loads, `PRAGMA integrity_check` returns `ok`, a
   manifest checksum matches), then ping a check. This is the "0" in 3-2-1-0 and the
-  leg nobody builds.
+  leg nobody builds. *Restoring from restic* in `docs/backups.md` carries what the
+  manual restores of 2026-10-12 learned.
 - Prometheus rules for the in-cluster layer, following the `cronjob-health`
   convention. **The bucket table in `cronjob:max_seconds_without_success` has no
   weekly branch** — a weekly job lands in the 26 h bucket and would alert falsely
   every day. Extend that rule first.
-- Homepage entries under Cluster, per repo convention.
-- **`docs/backups.md`, including the restore runbook** — objective 9's deliverable.
-  It must carry the sequencing hazard: on a rebuilt cluster **Flux reconciles
-  applications against freshly provisioned empty PVCs, and databases initialise
-  before any restore lands.** The runbook has to suspend the relevant Kustomizations,
-  restore, then resume. Writing that ordering down before it is needed is the whole
-  point.
+- **The restore runbook in `docs/backups.md`** — objective 9's deliverable. It must
+  carry the sequencing hazard: on a rebuilt cluster **Flux reconciles applications
+  against freshly provisioned empty PVCs, and databases initialise before any restore
+  lands.** The runbook has to suspend the relevant Kustomizations, restore, then
+  resume. Writing that ordering down before it is needed is the whole point.
 
 ---
 
@@ -1636,60 +556,13 @@ mini-nas site. Passphrase to the password manager.
 
 Each phase asserts a number that moves for the reason claimed. Checks that outlive
 the session become alert rules rather than notes, per the Documentation Protocol.
+What phases 0 to 2 asserted is in the evidence.
 
-- **Phase 0** — `Result=success` on all four mini-nas units; offsite snapshot count
-  falls from 29,305; newest-snapshot age under 25 h for **all thirteen** guest
-  datasets, asserted per dataset rather than per job; `zpool status` shows a scrub
-  scheduled; **mini-nas occupancy falls from 88% to ~82%** once sanoid prunes, which
-  is the number that says the retention fix worked. `zpool list spool` confirms its
-  usable size before PBS #2 is sized against it. The ~19.1 TiB figure applies only
-  once the deferred expansion lands.
-- **Phase 1** — done, and what it actually asserted. vulcanus 28.3 → 27.7 T
-  (55% → 54%), mini-nas 14.8 → 14.1 T (77% → 73%), worker-0's OpenEBS disk 25.1 GiB
-  lighter. `zpool list` alone reports none of the ZFS destroys: freeing is asynchronous,
-  so `zpool get freeing` is the measure until it reaches zero. The PBS reports moved
-  5 → 5 → 2, not the predicted 5 → 4 → 1, because guest 100 was backed up before being
-  destroyed and so became a frozen group rather than leaving the list; 101 and 106
-  crossing from *live, excluded* to *guest gone* is the first time that classification
-  has been watched to move. `zfs-replication-freshness` returned `Result=success` for
-  the first time since it was written, against a matched baseline of the same five
-  failures on every prior run — and stayed green after the three replicas were
-  destroyed, which is what says a retired guest's replica going is correct rather than
-  merely quiet. The reuse report was exercised on its negative case against all ten
-  groups in the estate, whose ends each carry one identity, and on its positive case
-  against synthetic fixtures in the test suite, there being no group here that spans two
-  machines.
-- **Phase 2** — restore a canary PVC into scratch space and diff it against the live
-  volume: the first restore this estate has ever performed. Restore a second one
-  holding identity material (`headscale-data` or `syncthing-data`), because that is
-  the case that matters. Then confirm the reconciliation job reports zero unbacked
-  PVCs, and prove it in the other direction by annotating one PVC
-  `k8up.io/backup: "false"` and seeing it appear.
-
-  Five more, each asserting a number that moves for the reason claimed. A colmena
-  deploy changes something observable *inside* the throwaway LXC — not "the command
-  succeeded" — before anything is built on NixOS. The twelve SMB PVCs carry their
-  exclusion on the live objects **while no Schedule exists**, asserted as a
-  set-difference against `kubectl get pvc -A`; a check that runs after the first
-  backup is not a check. `restic forget` through the rest-server URL fails while the
-  same command against the local path succeeds, which is the only proof
-  `--append-only` is doing anything. The repository lands near ~60 GB after the first
-  `apps` run **and the second night's delta is small**, which is what says the
-  thumbnail caches are a one-time cost rather than nightly churn — `restic stats`
-  twice, not once. And the dumps restore rather than merely exist: each SQL dump
-  loads into a scratch database, and each SQLite dump returns `ok` from `PRAGMA
-  integrity_check`.
-
-  The offsite leg has its own: `restic check` against the mini-nas replica with
-  `--no-lock` and against `.zfs/snapshot/<latest>/` rather than the live dataset, or
-  it verifies a mid-receive state. That is the property that justified a dataset over
-  a zvol in the first place.
 - **Phase 2b** — `zfs list rpool/backups`.
 - **Phase 3** — vzdump task-log **duration** for VM 910 before and after, *and* the
   net change in `avg_over_time` of etcd fsync p99 across matched 24 h windows — not
   just the backup window, because Phase 2 added load elsewhere. `transferred` reports
-  logical device size and is not the measure. The `etcdHighFsyncDurations` silence
-  expires 2026-09-17, the natural checkpoint.
+  logical device size and is not the measure.
 - **Phase 4** — a verify job passing on the mini-nas datastore, and a test restore of
   one guest **from the offsite copy**. `zfs-replication-freshness` stays green across
   the `rpool/data` retirement, which is what says the source-root trim and the replica
@@ -1698,11 +571,10 @@ the session become alert rules rather than notes, per the Documentation Protocol
   `rpool/foreign-backups/vulcanus/data/vm-107-disk-0` gains a snapshot newer than the
   retirement, and that it is the only dataset left under `.../vulcanus/data`. A syncoid
   command narrowed to a dataset that stopped receiving would pass the source-root
-  comparison and fail nothing until the 26 h limit caught it the next morning. The two-year expiry is
-  asserted by running it
-  with the threshold lowered until it selects a known frozen group and nothing else,
-  because at two years it correctly names nothing and a job that has only ever matched
-  nothing is untested.
+  comparison and fail nothing until the 26 h limit caught it the next morning. The
+  two-year expiry is asserted by running it with the threshold lowered until it
+  selects a known frozen group and nothing else, because at two years it correctly
+  names nothing and a job that has only ever matched nothing is untested.
 - **Phase 5** — `restic restore` from the external on a machine that has never seen
   it, using only the passphrase from the password manager, pulling back one database
   dump **and** one media file. A disk that has only ever been written is not a copy.
@@ -1714,75 +586,53 @@ the session become alert rules rather than notes, per the Documentation Protocol
 
 ## Wrong turns, recorded so they are not repeated
 
-Design errors caught during planning. Inheriting mistaken reasoning is worse than
-inheriting none.
+Inheriting mistaken reasoning is worse than inheriting none. The full list, with the
+operational slips of each phase, is in the evidence; these are the ones the remaining
+phases could repeat.
 
-- **`rest-server` was first placed on the fileserver LXC** before checking it. 105 is
-  *privileged* with *512 MB of RAM* — the second of which cannot hold restic's prune
-  index. Check the container before designing for it.
 - **proxmox-nixos was described as "shipping" a `proxmox-backup` module.** It does,
   but the project lists "Proxmox backup server" under its **Roadmap** and the module
   exposes only `enable` and `localIP`. Read the roadmap, not just the module list.
-- **mini-nas was projected at ~70% occupancy after Phase 4.** Wrong: the snapshot
-  bloat was subtracted *and* the `rpool/data` retirement was subtracted, when the
-  bloat lived almost entirely *inside* `rpool/data` (2.68 TiB offsite against 1.44 at
-  source). The true figure is ~80% before the vdev expansion.
-- **4-disk raidz2 was recommended for mini-nas** on the grounds that it is free
-  against 3-disk raidz1 plus a spare. True, but the relevant comparison is 4-disk
-  *raidz1*, against which it costs a third of the pool — and that third is what makes
-  the cascade sustainable.
+- **mini-nas was projected at ~70% occupancy after Phase 4.** The snapshot bloat was
+  subtracted *and* the `rpool/data` retirement was subtracted, when the bloat lived
+  almost entirely *inside* `rpool/data`. Check that two savings are not the same
+  bytes.
 - **The external disk was first specified as `zfs send`,** and then as a restic
-  backup *of the restic repository as files*. Both were wrong: the first gives no
-  format diversity, and the second nests repositories so `--read-data` verifies only
-  the outer layer and a restore needs two passphrases and two stages. `restic copy`
-  is the correct primitive.
+  backup *of the restic repository as files*. The first gives no format diversity;
+  the second nests repositories. `restic copy` is the correct primitive.
 - **Photos, books and filesync were given four copies** when three was the
   requirement. Counting stopped at "how many exist" instead of "how many are
   wanted".
-- **The replication freshness check was to learn orphan-against-superseded
-  classification,** so that retained replicas of deleted guests could sit in the target
-  tree without failing it. Two sessions of design for a lineage that leaves ZFS in
-  Phase 4 — and the simpler reading was available throughout: the check already detects
-  both conditions, it just calls them staleness, and that is sufficient when the replica
-  is destroyed with the guest rather than retained. Ask what still needs the mechanism
-  after the next phase lands, before building it.
-- **A datastore-wide PBS prune was believed to expire a frozen group.** It does not:
-  prune counts the buckets that contain backups, not elapsed calendar time, so
-  `keep-daily 30` keeps 30 snapshots of a group frozen in April and stops. The error
-  mattered twice — it was the stated reason a prune job on PBS #2 would break the
-  retention decision, and it hid the fact that *no* setting on either layer expires a
-  retired guest. One dry-run in the GUI settled it, against a frozen group that was
-  being kept as a test fixture for an unrelated reason.
-- **An `rpool/archive` tree and a two-sided rename runbook were designed** to hold
-  retired guests, with an automated quarantine — three guards, a circuit breaker and a
-  persistence file — to catch guests destroyed without following the runbook. Both were
-  redundant: PBS and the mini-nas replica already freeze a destroyed guest's backups
-  indefinitely, so the archive was a third copy of the same promise, and the quarantine
-  existed to catch failures of a runbook that need not exist. The archive also collided
-  with its own detection twice over — it was to be both the syncoid target for
-  `rpool/archive` and the quarantine destination, so a quarantined orphan would be
-  re-quarantined every run; and its datasets are frozen by design, which the freshness
-  check's 26 h threshold would have failed forever.
-- **VMIDs were to be never reused, and the case for dropping the rule was argued
-  wrongly.** The rule went on the user's call, which stands: a guarantee kept by hand
-  forever is not one worth promising. But the reasoning offered for it — that reuse is
-  merely recoverable, costing a re-seed and an operator action — was reached without
-  looking at what reuse does to PBS, where a group is keyed `vm/<vmid>` and
-  `keep-last 31` evicts the retired guest's backups within 31 runs. Reuse is tolerable
-  *and* it destroys data, which is a different thing from tolerable. The argument was
-  built on the one layer that happened to be in view.
 - **The copy count hid a failure-domain inversion.** App state showed three copies,
-  but two of them shared `rpool` — leaving the databases at two failure domains while
-  media had three. Count domains, not copies.
+  but two of them shared `rpool`. Count domains, not copies.
+- **The replication freshness check was to learn orphan-against-superseded
+  classification**, two sessions of design for a lineage that leaves ZFS in Phase 4,
+  when destroying a replica with its guest made the existing check sufficient. Ask
+  what still needs a mechanism after the next phase lands, before building it.
+- **An `rpool/archive` tree, a rename runbook and an automated quarantine were
+  designed** to hold retired guests. PBS and the mini-nas replica already freeze a
+  destroyed guest's backups indefinitely, so the archive was a third copy of the same
+  promise, and the quarantine existed to catch failures of a runbook that need not
+  exist.
+- **The case for reusing VMIDs was first argued on the one layer in view.** Reuse was
+  called merely recoverable without looking at PBS, where `keep-last 31` evicts the
+  retired guest. Reuse is tolerable *and* it destroys data.
+- **The first append-only check could not fail.** `| tail` hid the exit code and the
+  flags were invalid, so both paths failed for one unrelated reason and it read as a
+  pass. Phase 6's break-it-both-ways test exists for this.
+- **The first MariaDB restore met the image's temporary init server**, which answered
+  the readiness ping and then restarted: "Server has gone away" at line 1, nothing
+  loaded. A restore drill has to wait for the real server.
 
 ---
 
 ## Prompt to open with
 
-> Read `todos/backups.md`. It is the live spec for the `backups` project and carries
-> a status table near the top saying which phases are done. Work is on the `backups`
-> branch in `.worktrees/backups`, with its review at `review/backups-base`. Pick up
-> at the first phase not marked done, and update the status table plus the verified
-> facts as you go — this spec is the handover between sessions, so leave it able to
-> start the next one cold. `wt review-open`, `wt deploy` and `wt review-close` push
-> and must be run by the user, not by you.
+> Read `todos/backups.md` in full. It is the live spec for the `backups` project,
+> and its status table says which phases are done. Phase 2's review closed at its
+> phase boundary, so branch from `main` under the slug `backups` in
+> `.worktrees/backups`. Pick up at the first phase not marked done. Keep the status
+> table and the verified facts current as you go, and add your session's log to
+> `todos/backups.evidence.md` — this spec is the handover between sessions, so leave
+> it able to start the next one cold. `wt review-open`, `wt deploy` and
+> `wt review-close` push and must be run by the user, not by you.

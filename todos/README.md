@@ -11,12 +11,13 @@ sitting in this directory means the work has not been done.
 ## Infrastructure, in the order worth tackling
 
 **1. [backups.md](backups.md) — build a 3-2-1-0 backup architecture**
-The Kubernetes-side backups do not work, and reconnaissance found three live
-failures beyond that: offsite replication of the VM datasets has failed every run
-since 2026-01-14 leaving worker-1 seven months stale, sanoid on mini-nas has never
-once succeeded so nothing prunes the replication target, and that pool has never
-been scrubbed. PBS's datastore also sits on the same pool as the VMs it protects.
-First because it is the only item where the failure mode is losing data.
+Replication, retention and scrubs work again, and every Kubernetes volume and
+database is backed up to an append-only restic repository with a verified
+offsite replica. What remains is the borg tree's deletion, taking the OpenEBS
+disks out of vzdump, PBS offsite, the offline disk and the restore runbook. Until
+PBS has its offsite twin, losing `rpool` loses every guest image together with
+its backups. First because it is the only item where the failure mode is losing
+data.
 
 Unlike the other specs here this one is **maintained through implementation** — it
 spans sessions and carries a status table. Slug `backups`, branch `backups`.
@@ -155,7 +156,7 @@ Separate track; these do not compete with the infrastructure ordering.
 | [smb-charset-utf8.md](smb-charset-utf8.md) | Samba runs `unix charset = ISO-8859-1`, so any filename above U+00FF fails with EIO on every share. Blocks a TV rip today; latent for any title with a curly apostrophe |
 | [video-library-ingest.md](video-library-ingest.md) | Ripped films stop in `import/` and never reach the library. Nothing watches the video inbox and FileBot, the one tool that could file them, reports `Bad License` |
 | [acoustid-identification.md](acoustid-identification.md) | Identifying discs MusicBrainz has no disc ID for, by fingerprinting the audio rather than the table of contents |
-| [disc-ripping.md](disc-ripping.md) | Getting ARM to rip audio CD, DVD, Blu-ray and 4K reliably into the `import/` folders. No job has ever produced a transcoded file; a one-year manual-identification wait wedges the drive on every disc |
+| [disc-ripping.md](disc-ripping.md) | Getting ARM to rip audio CD, DVD, Blu-ray and 4K reliably into the `import/` folders. CD, DVD and Blu-ray rip end to end; 4K is unproven, and the drive intermittently drops off its SATA link |
 
 The nine beets-flask v2.0.0-rc5 bugs that used to sit here moved to
 `~/repositories/beets-flask/todos/` on 2026-08-14, decomposed one spec per bug.
@@ -172,6 +173,29 @@ What makes these useful when opened cold, months later:
   on experience will not re-propose it.
 - **Include the prompt.** Ending with the literal text to open a session with
   removes the work of reconstructing intent.
+- **Every line is read as context.** A session opens a spec by reading all of
+  it and carries it to the end, so a line that neither helps the next session
+  act nor stops it repeating a mistake costs every session after. What belongs:
+  where things stand and what is next, the work still to do, the decisions that
+  bind it, the wrong turns it could repeat, and the prompt.
+- **Collapse finished work to what still binds.** When a phase or an item
+  closes, its working comes out. What stays is what later work depends on, where
+  the result is now written down, and the pull request. The commits carry the
+  rest, and git keeps the old text.
+- **Point at `docs/` rather than restate it.** Once work has written its
+  permanent facts into `docs/`, the spec names the doc and the section. Two
+  copies drift, and the spec's is the one that rots.
+- **Correct in place.** When a finding is overturned, rewrite the passage to say
+  what is true rather than appending a correction beneath it, so no reader has to
+  reconcile a claim with its refutation. A mistake a later session could
+  plausibly make again also goes under the wrong turns.
+- **Evidence goes beside the spec, in `<slug>.evidence.md`.** Session journals,
+  measurements, traces, timelines and transcripts: what a conclusion rests on,
+  rather than the conclusion. The spec states the conclusion and names the
+  evidence entry, and a session opens the evidence only to re-examine one. A
+  session's log entry goes there; what it changes about where things stand goes
+  in the spec. The evidence file is not a spec, has no slug of its own, and is
+  deleted with its spec.
 - **Note decisions already made, and by whom.** Where the user has expressed a
   preference — accepting unattended major upgrades, say — record it verbatim so
   it is not relitigated.
