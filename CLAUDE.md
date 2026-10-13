@@ -73,10 +73,12 @@ what carries the result.
 - **Verify with `PREK_QUIET=1 devenv -q test`, not by printing.** A successful Edit has already
   matched its text exactly once; reading the result back proves nothing more.
 - **Edit a single file with the Edit tool.** Script an edit only when the same
-  change spans many files or a large block moves.
+  change spans many files or a large block moves, and have the script assert that
+  each pattern matched: `sed -i` succeeds on no match.
 - **Filter noisy commands** to the lines that carry the result: builds, evals,
   applies and renders print far more than they conclude. Find a file's place
-  with `grep -n` and read that range, not the whole file.
+  with `grep -n` and read that range with Read's `offset` and `limit`, not the
+  whole file.
 
 ## Architecture
 
