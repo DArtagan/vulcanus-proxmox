@@ -493,6 +493,38 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  name: container-health
+spec:
+  groups:
+    - name: container-health
+      rules:
+        # The chart's rule, minus pods in a terminal phase. When an init
+        # container fails under restartPolicy Never, the pod goes Failed but
+        # kube-state-metrics goes on reporting its main container as waiting in
+        # PodInitializing until the pod is deleted. For a CronJob that is
+        # whenever failedJobsHistoryLimit rotates it out, so one transient
+        # failure would page for weeks — the same inversion that retired
+        # KubeJobFailed. Whether the CronJob is working is CronJobNotSucceeding's
+        # question.
+        - alert: KubeContainerWaiting
+          expr: |
+            kube_pod_container_status_waiting_reason{reason!="CrashLoopBackOff", job="kube-state-metrics"} > 0
+            unless on (namespace, pod) (kube_pod_status_phase{phase=~"Failed|Succeeded"} == 1)
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: Pod container waiting longer than 1 hour
+            description: >-
+              pod/{{ $labels.pod }} in namespace {{ $labels.namespace }} on
+              container {{ $labels.container }} has been in waiting state for
+              longer than 1 hour (reason: "{{ $labels.reason }}").
+            runbook_url: https://runbooks.prometheus-operator.dev/runbooks/kubernetes/kubecontainerwaiting
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
   name: public-dns
 spec:
   groups:

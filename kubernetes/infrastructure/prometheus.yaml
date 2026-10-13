@@ -175,6 +175,9 @@ spec:
         # twice — single Dropbox-side failures that alerted for seven days and
         # four days respectively, each across runs that had already recovered.
         KubeJobFailed: true
+        # Replaced by the KubeContainerWaiting in prometheus-rules.yaml, which
+        # skips pods that have already finished.
+        KubeContainerWaiting: true
         # Two questions welded together with `or`, only one of which applies
         # here. Its first branch — do the declared requests fit at all — is the
         # useful one, and is replaced by cluster-capacity in
