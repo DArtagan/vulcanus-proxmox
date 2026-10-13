@@ -45,6 +45,14 @@
    map system = no
    map hidden = no
 
+   # With EA support on, smbd calls listxattr on every entry it lists, about a
+   # quarter of the time a directory walk takes. Nothing here needs EAs over
+   # SMB except FileBot, which stores its match and original-filename metadata
+   # as user.net.filebot.* xattrs. Those already on disk become invisible over
+   # SMB and new ones fail to write without failing the rename; FileBot keeps
+   # the same data in .xattr folders if net.filebot.xattr.store=.xattr is set.
+   ea support = no
+
 [media]
    # For use by guests, to be read-write but only for pubic files
    # Share should be `chown -R nobody:fileshare` and `chmod -R 777`
