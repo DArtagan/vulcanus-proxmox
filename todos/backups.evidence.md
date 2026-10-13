@@ -778,7 +778,136 @@ design might not. Where we already agree, nothing is noted.
   version; the image policy is already minor-only for that reason. A plain `pg_dump`
   loads into any newer major, so the dump is also the route across one.
 
-## What phases 0 to 2 asserted
+## Phase 2b — delete the borg tree — **done 2026-10-13**
+
+### Why borgmatic never produced a backup
+
+Two faults, either sufficient. Its config named `/mnt/repositories/<name>`, one
+directory above where the six repositories live (`vulcanus-borgmatic/<name>`), so
+every run since January 2023 logged "Repository ... does not exist". And the
+passphrase in the SOPS Secret `borg`, unchanged since the commit that added borgmatic
+on 2023-01-20, opens none of them, empty passphrase included: the repositories were
+written in 2022 by the RancherOS-era borgmatic, under an older passphrase. The user
+found that one in their own records on the second attempt; the first candidate was
+byte-identical to the Secret.
+
+### What the repositories held
+
+Listed with borg 1.4.0 from the borgmatic pod, `--bypass-lock`, read-only.
+
+| Repo | Archives | Span | Deduplicated | Newest archive, logical |
+|---|---|---|---|---|
+| audio | 39 | 2022-06-21 – 12-10 | 440.9 GB | 453.6 GB |
+| games | 42 | 2022-06-22 – 12-10 | 45.7 GB | 60.8 GB |
+| photos | 44 | 2022-06-19 – 12-10 | 146.4 GB | 150.6 GB |
+| rancheros | 44 | 2022-06-19 – 12-10 | 81.0 GB | 114.4 GB |
+| syncthing | 41 | 2022-07-01 – 12-10 | 19.5 GB | 25.9 GB |
+| video | 37 | 2022-06-21 – 12-09 | — | 1,842 GB |
+
+`borg info` on `video` died with `ArchiveTAMInvalid` — borg 1.4 refusing an archive
+written without a TAM by an older borg. `borg list` worked on all six.
+
+### Compared against live storage
+
+Each regular file in each newest archive, matched first by path under its live root,
+then by name and size anywhere under `rpool/storage`, then by name alone. The second
+pass needed a one-off index of all 1.93 million live files (`find -printf "%s\t%f"`,
+about 30 minutes); walking the tree once per repository did not finish in 30.
+
+| Repo | By path | Moved | Renamed or retagged | No match |
+|---|---|---|---|---|
+| games | 60.8 GB | — | — | 0 |
+| photos | 150.6 GB | — | — | 0 |
+| video | 1,415 GB | 416 GB | — | 10.3 GB |
+| audio | 212.5 GB | 169.9 GB | 58.0 GB | 13.2 GB |
+| syncthing | 24.1 GB | 1.5 GB | — | 0.2 GB |
+
+The unmatched remainder: a Princess Mononoke ISO and m4v where live has a newer
+`.mkv`, one YouTube download, audiobook folders that exist live under beets'
+naming at similar sizes, Syncthing's own index database and a handful of ebooks.
+The user judged none of it worth keeping.
+
+### rancheros, and Fallgrane
+
+The user's one requirement from `rancheros`: *"There's only one thing from rancheros
+that needs to be preserved: the "fallgrane" minecraft server and all it's consituent
+files."* Nothing else in it matters.
+
+The tree is the old `docker-vulcanus` directory. Fallgrane appears in it twice:
+`minecraft/worlds/fallgrane*` (with `fallgrane_2*`) and an older copy under
+`minecraft.backup.20200120/minecraft/Fallgrane*`. Sixteen archives sampled from June
+to August 2022, and the newest, all carry the same 1,347 Fallgrane files outside the
+dynmap tiles, newest modification 2020-03-18; the first archive carries none.
+
+`rpool/storage/media/backups/docker-configs/minecraft` was already a live copy of the
+2020 layout, matching by size except six `level.dat`/`level.dat_old` files. **The
+newer `worlds/fallgrane*` — 684 files, 0.8 GB — existed only in borg.**
+
+Extracted from the 2022-12-10 archive to
+`rpool/storage/media/backups/docker-configs/minecraft.borg-2022-12-10/`, beside the
+older copy rather than over it: all of `minecraft/` except the 9.7 GB of dynmap tiles,
+which were already live with identical sizes, plus the archive's six differing
+`level.dat*`. 29,588 of 29,588 files present at the archived size; borg authenticates
+each chunk as it decrypts. 740 MB on disk, owned `1100:1100` like its neighbour. Seen
+in `autosnap_2026-10-13_15:00:01_hourly` on vulcanus, and the same snapshot on
+mini-nas holds all 29,588 files.
+
+**PBS `vm/100` holds the same tree, later.** The RancherOS guest's 2026-09-18 backup
+has it on `scsi0` at `/home/rancher/docker-vulcanus`; `scsi1` carries no filesystem.
+Mapped with `proxmox-backup-client map`, mounted `ro,noload`: 123.9 GB and 3,514,836
+files against borg's 114.4 GB and 3,506,985. 99.6% of borg's files exist there; the
+13,257 that do not (2.55 GB) are churn from apps that ran on after December 2022 —
+Plex metadata, Airsonic's Postgres WAL and stats, rotated logs, podgrab's rolling
+backups — none under `minecraft`. Its `worlds/` and all 380 `fallgrane_2` region
+files match the extracted copy by size.
+
+### Removing it
+
+The dataset was held in four places, each released in order: the borgmatic pod's SMB
+session (Flux prune on deploy), the `[borg]` share (the fileserver playbook,
+`smbcontrol reload-config`, no restart), the bind mount inside LXC 105, and the same
+mount staged in the `lxc-start` process's namespace.
+
+- **Proxmox cannot remove a mount point from a running container.**
+  `vmconfig_hotplug_pending` in `PVE/LXC/Config.pm` skips `mpN` deletions, leaving them
+  pending until the next start. `tofu apply` therefore left `delete mp3` pending, and
+  the plan's apparent `mp3`-becomes-books renumbering did not materialise: `books`
+  stayed `mp4`.
+- **Unmounting inside the container is not enough.** PVE stages each mount point at
+  `/var/lib/lxc/.pve-staged-mounts/mpN` in the `lxc-start` namespace and bind-mounts it
+  into the rootfs from there, so `zfs destroy` stayed busy until both were unmounted
+  with `nsenter -t <lxc-start pid> -m umount`. Finding it took a grep for the dataset
+  name across every `/proc/*/mountinfo`.
+- **`tofu apply` was targeted at `proxmox_lxc.fileserver`.** The full plan also
+  replaced `local_sensitive_file.kubeconfig`, its content having drifted — unrelated to
+  this phase and the file `kubectl` reads.
+- `pvesm remove backups_borg` dropped the storage entry. Nothing held a snapshot hold,
+  and mini-nas never had a replica.
+
+`rpool/backups` 2.44 T → 305 G, `restic` alone. Pool allocation was still freeing
+when this was written — 1.67 T left, `zfs list rpool` 13.9 → 13.4 T, 56% → 54% — and
+converges on the ~11.8 T the capacity model already assumed, since borg was never
+replicated and never counted against mini-nas.
+
+### Wrong turns
+
+- **`| tail` hid the destroy's failure.** `zfs destroy -r -v ... | tail -3` showed the
+  "will destroy" lines and dropped "dataset is busy"; only the follow-up `zfs list`
+  caught it. The same mistake as Phase 2's append-only check, repeated a phase later.
+- **The first Fallgrane extraction went through the SMB share** and silently lost three
+  of each pair of files differing only in case (`fallgrane.pending` and
+  `Fallgrane.pending`). Caught by checking every listed file's size afterwards;
+  redone as `borg export-tar` onto the share and `tar -x` on the host into ZFS. A
+  restore that lands through SMB is not faithful, which the Phase 6 drill must not
+  repeat.
+- **Streaming the PBS subtree as a tar to size it** ran at ~5 MB/s, six hours for
+  114 GB. Mapping the image and running `du` read only metadata.
+- **`pkill -f "bash pbs-size.sh"` matched its own SSH command line** and killed the
+  session. Scope a `pkill -f` pattern so it cannot match the command issuing it.
+- **`find -xdev` from `/rpool/storage` returned nothing**, the files being in child
+  datasets.
+
+## What phases 0 to 2b asserted
 
 - **Phase 0** — `Result=success` on all four mini-nas units; offsite snapshot count
   falls from 29,305; newest-snapshot age under 25 h for **all thirteen** guest
@@ -827,6 +956,9 @@ design might not. Where we already agree, nothing is noted.
   `--no-lock` and against `.zfs/snapshot/<latest>/` rather than the live dataset, or
   it verifies a mid-receive state. That is the property that justified a dataset over
   a zvol in the first place.
+- **Phase 2b** — `zfs list rpool/backups`: 2.44 T → 305 G, `rpool/backups/borg`
+  gone. Before the destroy, every Fallgrane file present at its archived size on live
+  storage and in mini-nas's replica, 29,588 of 29,588.
 
 ## Wrong turns in design
 
