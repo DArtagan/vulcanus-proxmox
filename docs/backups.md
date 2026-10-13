@@ -15,13 +15,12 @@ Work still outstanding lives in [`todos/backups.md`](../todos/backups.md), not h
 | restic, from the repository host | `rpool/storage/{photos,books,filesync}` | the same repository |
 
 Snapshots are the instant-rollback layer, exposed to SMB clients as VSS shadow copies
-on every share except `borg`. Replication is the offsite copy. PBS is the per-guest
-image backup, and the only one that restores a whole guest with a single command.
-restic is the granular layer: one volume, file or database, as of any night retention
-still holds.
+on every share. Replication is the offsite copy. PBS is the per-guest image backup,
+and the only one that restores a whole guest with a single command. restic is the
+granular layer: one volume, file or database, as of any night retention still holds.
 
 **mini-nas pulls the restic repository too**, giving Kubernetes state a second
-failure domain: `rpool/backups/restic` alone, not the borg tree beside it.
+failure domain.
 
 **Replication is a pull, not a push.** mini-nas holds the SSH key and runs syncoid;
 vulcanus grants it `hold,send` on `rpool` and nothing more. A host that is compromised
@@ -102,8 +101,8 @@ unless the claim carries `k8up.io/backup: "false"`. Three kinds carry it:
   backup. Their manifests carry the annotation without comment: this is the policy.
 - **A database's own data directory**, when that is all the claim holds: pinepods',
   photoprism's and salamander's. The dump is its backup.
-- **Regenerable state:** pinepods' Valkey cache, rclone's bisync state, borgmatic's
-  cache, and the Prometheus, Alertmanager and VictoriaLogs volumes.
+- **Regenerable state:** pinepods' Valkey cache, rclone's bisync state, and the
+  Prometheus, Alertmanager and VictoriaLogs volumes.
 
 **A new share is backed up unless it is annotated**, so the coverage check fails any
 in-scope `ReadWriteMany` claim: every one here is a share.

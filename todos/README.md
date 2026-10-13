@@ -52,7 +52,7 @@ InGate, is archived. Traefik is ruled out on prior experience; the doc records
 why so it does not get proposed again.
 
 **6. [version-notification-prompt.md](version-notification-prompt.md) — notice when a version stops tracking**
-23 of 34 ImagePolicies will silently stop advancing when a new major appears
+22 of 33 ImagePolicies will silently stop advancing when a new major appears
 outside their range, and two are already stuck. This is the work that makes the
 other items visible rather than needing to be rediscovered by audit. It also
 closes the separate gap where no metric can express a Flux object being unready.
@@ -69,7 +69,7 @@ Flux applies an updated ConfigMap without restarting the workload that reads it,
 so the cluster can run configuration that no longer matches the repo with
 nothing to indicate it — `flux get kustomizations` reports healthy, correctly,
 because the desired state *was* applied. It caused two silent misbehaviours in
-the beets stack on 2026-08-13 and eight Deployments are exposed. Here because
+the beets stack on 2026-08-13 and seven Deployments are exposed. Here because
 the failure mode is invisible rather than loud, which is the same reason the
 alerting work sits where it does.
 

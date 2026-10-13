@@ -11,7 +11,7 @@ PROXMOX_API_PASSWORD=password
 
 ## Principles
 
-* Data files are snapshotted by ZFS and backed up for remote sync by borg.
+* Data files are snapshotted by ZFS and replicated offsite to mini-nas; application state is backed up with restic. See [docs/backups.md](docs/backups.md).
 * VMs and such are backed up by Proxmox Backup Server, with retention controlled in Proxmox.  We keep a minimal number of ZFS snapshots of those locations (just enough to rule out short term error).
 
 

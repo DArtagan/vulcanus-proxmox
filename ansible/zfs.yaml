@@ -33,12 +33,6 @@
         state: present
       notify: 'add books dataset to proxmox'
 
-    - name: 'backups/borg dataset'
-      community.general.zfs:
-        name: "{{ zpool }}/backups/borg"
-        state: present
-      notify: 'add backups/borg dataset to proxmox'
-
     - name: 'backups/restic dataset'
       community.general.zfs:
         name: "{{ zpool }}/backups/restic"
@@ -72,9 +66,6 @@
 
     - name: 'add books dataset to proxmox'
       shell: pvesm add dir storage_books --path /rpool/storage/books --is_mountpoint 1 --shared 0 --content snippets
-
-    - name: 'add backups/borg dataset to proxmox'
-      shell: pvesm add dir backups_borg --path /rpool/backups/borg --is_mountpoint 1 --shared 0 --content snippets
 
     - name: 'add proxmox_backup_server dataset to the rpool'
       shell: pvesm add dir proxmox_backup_server --path /rpool/proxmox_backup_server --is_mountpoint 1 --shared 0 --content images

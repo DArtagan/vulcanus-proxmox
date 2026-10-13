@@ -246,14 +246,6 @@ resource "proxmox_lxc" "fileserver" {
   }
 
   mountpoint {
-    key = "3"
-    slot = 3
-    volume = "/rpool/backups/borg"
-    mp = "/mnt/backups/borg"
-    size = "1M"
-  }
-
-  mountpoint {
     key = "4"
     slot = 4
     volume = "/rpool/storage/books"

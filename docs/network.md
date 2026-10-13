@@ -255,8 +255,7 @@ internal ingress via the wildcard; sync traffic uses `syncthing-sync`.
 
 | Service | Notes |
 |---------|-------|
-| borgmatic | Backup orchestration |
-| rclone | Cloud sync (Dropbox, B2) |
+| rclone | Cloud sync (Dropbox) |
 | cloudflare-ddns | DDNS updater, see Public DNS above |
 | beets | Music library CronJob |
 | tinyproxy | HTTP proxy (disabled) |
