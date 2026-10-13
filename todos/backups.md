@@ -14,9 +14,10 @@ permanently true into [`docs/backups.md`](../docs/backups.md), extending what ea
 phases left. Only deleting this spec and adding the
 [`docs/project_log.md`](../docs/project_log.md) entry wait for the end.
 
-Slug `backups`. Phase 2's review closed at its phase boundary, so the next phase
-branches from `main` under the same slug, in `.worktrees/backups`, and opens a new
-review after its first commit.
+Slug `backups`. Phase 2b is under review in
+[PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17), on the `backups` branch
+in `.worktrees/backups`. Whether Phase 3 continues on that branch or the review closes
+at this phase boundary first is the user's call.
 
 ## Status
 
@@ -26,19 +27,19 @@ review after its first commit.
 | 0 | Stop the bleeding — replication, retention, scrub | done 2026-09-03 — [PR #3](https://github.com/DArtagan/vulcanus-proxmox/pull/3) |
 | 1 | Reclaim — dead guests, orphans | done 2026-09-18 — [PR #11](https://github.com/DArtagan/vulcanus-proxmox/pull/11) |
 | 2 | Application backups — K8up + restic | done 2026-10-12 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13) |
-| 2b | Delete the borg tree | **next**; the restores it waited on are proven |
-| 3 | Performance — drop the OpenEBS disks from vzdump | not started |
+| 2b | Delete the borg tree | done 2026-10-13 — [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) |
+| 3 | Performance — drop the OpenEBS disks from vzdump | **next** |
 | 4 | Platform images offsite — PBS #2 + sync | not started; **gated on the mini-nas disks** |
 | 5 | The offline copy — external disk | not started; needs a ~$200 purchase |
 | 6 | Verification, notification, runbook | not started |
 
-What phases 0 to 2 built is in [`docs/backups.md`](../docs/backups.md): the layers,
+What phases 0 to 2b built is in [`docs/backups.md`](../docs/backups.md): the layers,
 retention, the restic repository, K8up's schedules and dumps, restoring, reporting,
 capacity and the operational notes. The repository host is in
 [`docs/nixos.md`](../docs/nixos.md).
 
 **Two purchases gate later phases.** 2x 4 TB for the mini-nas vdev expansion, which
-Phase 4 waits on; and one 14-16 TB external disk for Phase 5. Phases 2b and 3 need
+Phase 4 waits on; and one 14-16 TB external disk for Phase 5. Phase 3 needs
 neither. Deferred 2026-09-01, user's call — purchasing takes time. See *Capacity,
 until the mini-nas disks arrive*.
 
@@ -93,7 +94,6 @@ performance.
   the omission is not mistaken for an oversight.
 - **Second PBS VM on mini-nas + sync job** for the platform layer offsite.
 - **Password manager** for bootstrap key escrow.
-- **List the borg archives, then delete** — deferred until after a restore is proven.
 - **The restic repository lives in its own dedicated LXC**, on a ZFS dataset, so
   mini-nas can mount the replica and verify it natively.
 - **Media's offsite replica on mini-nas is a primary tenet, not a lever.** Verbatim:
@@ -128,9 +128,6 @@ performance.
 - **Every backed-up PVC is backed up whole** (2026-09-20). No per-path exclusions,
   and `k8up.io/backup-restic-args` is not used. Verbatim: *"let's not bother
   excluding the PhotoPrism caches - keep it simple and back up the whole thing."*
-- **`borg-backups-pvc` must never be backed up** (2026-09-20). Verbatim: *"We must
-  not re-back-up borg-backups-pvc during this. That would take far too much hard
-  drive capacity, and we're going to blow it away in a later phase anyway."*
 - **Dumps: annotations for the relational three, PreBackupPods for SQLite**
   (2026-09-21). A PreBackupPod has its own network namespace and cannot reach a
   database over loopback; a ClusterIP Service per database was weighed against the
@@ -384,18 +381,12 @@ constraint stops binding.
   uid 994, where the syncoid user is 993. Cruft, not a dependency: the syncoid module
   grants what it needs around every run.
 - **No restore runbook until Phase 6.** See the sequencing hazard there.
+- **LXC 105 carries a pending `delete mp3`** until its next restart. That was the borg
+  tree's bind mount, already released by hand; Proxmox cannot remove a mount point from
+  a running container, and applies the deletion before the next start, so the missing
+  dataset cannot fail that boot. `pct pending 105` shows it.
 
 ---
-
-## Phase 2b — delete the borg tree
-
-Phase 2's restores are proven, which is what this waited on. `rpool/backups/borg`
-holds 2.14 TiB in six repositories under `vulcanus-borgmatic/` (`audio`, `games`,
-`photos`, `rancheros`, `syncthing`, `video`), none written since December 2022. `borg
-list` each, show the manifest, delete on confirmation. `games` (46 G) and `rancheros`
-(76 G) may have no live counterpart at all, so the inspection is not a formality. The
-passphrase is in the SOPS Secret `borg`; if it no longer opens them, that is itself
-the answer.
 
 ## Phase 3 — performance
 
@@ -510,6 +501,11 @@ would be fiction, because the effective retention would be the longer of the two
 which is forever. Nothing expires before March 2028 in any case — `vm/200` is the
 oldest frozen group, last written April 2026.
 
+**`vm/100` expires in September 2028, and nothing wanted goes with it.** It is the
+RancherOS guest, and its root disk carries the old `docker-vulcanus` tree. The one
+thing the user wanted from that tree, the Fallgrane Minecraft server, was extracted to
+`rpool/storage/media` during Phase 2b and replicates with it; see the evidence.
+
 **If this phase slips past that,** the fallback is the symmetric job on mini-nas:
 destroy a replica dataset whose newest snapshot is older than two years, the same
 age-only predicate. Not built now, because it is work for a lineage this phase
@@ -556,9 +552,8 @@ mini-nas site. Passphrase to the password manager. See *The external disk*.
 
 Each phase asserts a number that moves for the reason claimed. Checks that outlive
 the session become alert rules rather than notes, per the Documentation Protocol.
-What phases 0 to 2 asserted is in the evidence.
+What phases 0 to 2b asserted is in the evidence.
 
-- **Phase 2b** — `zfs list rpool/backups`.
 - **Phase 3** — vzdump task-log **duration** for VM 910 before and after, *and* the
   net change in `avg_over_time` of etcd fsync p99 across matched 24 h windows — not
   just the backup window, because Phase 2 added load elsewhere. `transferred` reports
@@ -629,9 +624,10 @@ phases could repeat.
 ## Prompt to open with
 
 > Read `todos/backups.md` in full. It is the live spec for the `backups` project,
-> and its status table says which phases are done. Phase 2's review closed at its
-> phase boundary, so branch from `main` under the slug `backups` in
-> `.worktrees/backups`. Pick up at the first phase not marked done. Keep the status
+> and its status table says which phases are done. The slug is `backups`, worked in
+> `.worktrees/backups`; the header says whether the branch and its review are still
+> open or the next phase starts a new one from `main`. Pick up at the first phase not
+> marked done. Keep the status
 > table and the verified facts current as you go, and add your session's log to
 > `todos/backups.evidence.md` — this spec is the handover between sessions, so leave
 > it able to start the next one cold. `wt review-open`, `wt deploy` and

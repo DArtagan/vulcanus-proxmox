@@ -13,8 +13,8 @@ sitting in this directory means the work has not been done.
 **1. [backups.md](backups.md) — build a 3-2-1-0 backup architecture**
 Replication, retention and scrubs work again, and every Kubernetes volume and
 database is backed up to an append-only restic repository with a verified
-offsite replica. What remains is the borg tree's deletion, taking the OpenEBS
-disks out of vzdump, PBS offsite, the offline disk and the restore runbook. Until
+offsite replica. What remains is taking the OpenEBS disks out of vzdump, PBS
+offsite, the offline disk and the restore runbook. Until
 PBS has its offsite twin, losing `rpool` loses every guest image together with
 its backups. First because it is the only item where the failure mode is losing
 data.
