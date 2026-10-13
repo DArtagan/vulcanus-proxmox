@@ -53,10 +53,14 @@ treefmt            # Format the whole tree
 
 **Checking a change:**
 ```bash
-check              # The checks for whatever changed: renders, tests, evals, lint
-check <path>...    # The same, for these paths
+devenv test                    # Every hook over every tracked file
+PREK_QUIET=1 devenv -q test    # The same, printing only failing hooks
 ```
-It prints one line when everything passes, and only the failures otherwise.
+The hooks are the ones `git commit` runs: formatting, linters, the SOPS guard,
+Flux renders, NixOS evaluation, Ansible syntax, `tofu validate` and the Python
+suites. All of it is offline, so a server-side dry run is still worth doing
+before deploying. Files git does not track are invisible to it; `git add -N` a
+new file first.
 
 ### Working here as an agent
 
@@ -66,7 +70,7 @@ what carries the result.
 - **`git diff --no-ext-diff`.** The global git config sends `git diff` through
   difftastic, whose side-by-side output is several times the size, and which
   skips the masked view `.gitattributes` gives SOPS files.
-- **Verify with `check`, not by printing.** A successful Edit has already
+- **Verify with `PREK_QUIET=1 devenv -q test`, not by printing.** A successful Edit has already
   matched its text exactly once; reading the result back proves nothing more.
 - **Edit a single file with the Edit tool.** Script an edit only when the same
   change spans many files or a large block moves.
@@ -367,7 +371,7 @@ the project. Whatever a conclusion rests on beyond that belongs in the spec or
 
 Every formatter in the repo is a [treefmt](https://treefmt.com/) formatter,
 configured in the `treefmt` block of `devenv.nix`. `treefmt` formats the tree;
-entering the devenv shell runs it too, and it runs again on `git commit`.
+it runs again on `git commit` and under `devenv test`.
 
 `nixfmt`, `deadnix` and `statix` cover Nix; `yamlfmt` YAML; `ruff-format`
 Python; `jsonfmt` JSON; `taplo` TOML. Terraform goes through a wrapper that
