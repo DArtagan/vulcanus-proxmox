@@ -22,7 +22,7 @@
         regexp: "^smtp.gmail.com"
         line: "smtp.gmail.com {{ lookup('env', 'GMAIL_ADDRESS') }}:{{ lookup('env', 'GMAIL_PASSWORD') }}"
         mode: 0600
-      notify: 
+      notify:
         - hash postfix credentials
         - restart postfix
 

@@ -386,6 +386,12 @@ spec:
         # 8. A rule built on the counter alone would have watched all of that
         # and reported nothing.
         #
+        # Both halves select the ripper by name, not just by namespace, because
+        # the namespace also holds k8up's nightly backup pods: a namespace-wide
+        # max() takes each one's start as the ripper being replaced and fires
+        # every night at 02:00. kube_pod_start_time's own `container` label is
+        # kube-state-metrics', so that half has to match on the pod name.
+        #
         # Clears by itself an hour after the event — the same shape as
         # ControlPlaneContainerRestarting above. Deliberate restarts page once,
         # which is worth keeping: a Flux image bump landing mid-rip destroys
@@ -393,12 +399,16 @@ spec:
         - alert: RipperRestarted
           expr: |
             (
-              time() - max(kube_pod_start_time{namespace="automatic-ripping-machine"}) < 3600
+              time() - max(kube_pod_start_time{
+                namespace="automatic-ripping-machine",
+                pod=~"automatic-ripping-machine-.+"
+              }) < 3600
             )
             or
             (
               sum(increase(kube_pod_container_status_restarts_total{
-                namespace="automatic-ripping-machine"
+                namespace="automatic-ripping-machine",
+                container="automatic-ripping-machine"
               }[1h])) > 0
             )
           for: 5m
