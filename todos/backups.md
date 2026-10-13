@@ -615,6 +615,9 @@ phases could repeat.
 - **The first append-only check could not fail.** `| tail` hid the exit code and the
   flags were invalid, so both paths failed for one unrelated reason and it read as a
   pass. Phase 6's break-it-both-ways test exists for this.
+- **A restore through an SMB share silently merged files differing only in case**
+  (Phase 2b, `fallgrane.pending` and `Fallgrane.pending`), with every exit status 0.
+  Restore onto ZFS directly, and check every file's size against the snapshot's.
 - **The first MariaDB restore met the image's temporary init server**, which answered
   the readiness ping and then restarted: "Server has gone away" at line 1, nothing
   loaded. A restore drill has to wait for the real server.
