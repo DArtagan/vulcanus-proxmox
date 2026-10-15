@@ -101,14 +101,21 @@ This is a speed-up, not a defect. It waits on
 [smb-charset-utf8.md](smb-charset-utf8.md), because NFS shows the Latin-1 filenames
 Samba translates.
 
+## Waiting on evidence
+
+**[generic-device-plugin-memory.md](generic-device-plugin-memory.md) — is the plugin's degradation its memory limit?**
+The plugin degraded 18–24h a day from 2026-10-06 with GOMAXPROCS still pinned.
+A degraded process sits at its 20Mi limit, thrashing its own code through
+page cache. The limit is raised to 64Mi with nothing else changed, and the spec
+says which readouts decide the question. Runs two weeks.
+
 ## Waiting on a decision
 
 **[generic-device-plugin-upstream.md](generic-device-plugin-upstream.md) — file the issue upstream**
-A finished draft for `squat/generic-device-plugin`: its shipped 50m CPU limit
-makes a slow `/metrics` unrecoverable, and without the limit the Go runtime sizes
-itself to the node and the plugin degrades on multi-core hosts until
-`GOMAXPROCS` is pinned. Fixed locally; waiting on Will to file it, since he does
-the filing himself.
+A draft for `squat/generic-device-plugin` about its shipped CPU limit and
+`GOMAXPROCS`. Blocked on generic-device-plugin-memory above, whose result may
+move the mechanism from GOMAXPROCS to the memory limit. After that, waiting on
+Will to file it, since he does the filing himself.
 
 **[etcd-disk-latency.md](etcd-disk-latency.md) — get etcd off spinning disks**
 etcd's p99 WAL fsync is 0.25s at rest against a target of 0.010s, because `rpool`
