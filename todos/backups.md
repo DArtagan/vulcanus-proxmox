@@ -411,18 +411,75 @@ trim costs in `docs/talos.md`. The baseline, the coverage of `/var/openebs`, and
 source reading that says the flag applies live and what a restore does are in the
 evidence.
 
-What remains, in order:
+Deployed and applied 2026-10-16, ahead of the 10-17 backup. `qm config` shows
+`backup=0` on both workers' `virtio1` with nothing pending, and both QEMU processes
+date from 10-09 04:26 UTC, so the apply restarted neither. The coverage-check fixes
+went out in the same deploy.
 
-1. ~~Deploy and apply~~ — done 2026-10-16, ahead of the 10-17 backup. `qm config`
-   shows `backup=0` on both workers' `virtio1` with nothing pending, and both QEMU
-   processes date from 10-09 04:26 UTC, so the apply restarted neither.
-2. Confirm from the 10-17 task log that `virtio1` is excluded on both workers and
-   `virtio0` reports `dirty-bitmap status: OK`, not `created new`.
-3. Measure the after against the baseline in the evidence — a week of ordinary
-   nights against 10-10 to 10-16; see *Verification*.
-4. The PBS datastore should shrink once the last backup holding a `virtio1` leaves
-   `keep-last 31` and GC runs, from 643 GiB used on 10-16. Record the figure; Phase 4's
-   PBS #2 sizing and the mini-nas occupancy sums used ~1.2 TiB.
+### Verification schedule
+
+vzdump starts at 10:00 UTC until US daylight saving ends on 11-01, and at 11:00 UTC
+after — 06:00 Eastern throughout — and has been finishing by about 10:35. Each
+10:00-11:30 window below moves an hour later from 11-01.
+
+| When (UTC) | Check | Passes when |
+|---|---|---|
+| **10-17, after 11:00** | A. First night | `virtio1` gone from the backup, nothing restarted |
+| **10-24, after 11:00** | B. The week, nights 10-17 to 10-23 | clearly better than 10-10 to 10-16 |
+| 11-16 | 10-16's backup, the last holding a `virtio1`, leaves `keep-last 31` in that night's run | — |
+| **first GC after 11-16, ~11-24** | C. PBS space returned | well under 643 GiB |
+| the morning after a worker's QEMU restarts | D. The full-read case | VM 910 far under 49 min |
+| after LXC 105's next restart | E. Books on `mp3` | see below |
+
+**A — 10-17.** From the night's task log:
+
+```bash
+ssh root@vulcanus.forge.local 'u=$(grep vzdump /var/log/pve/tasks/index | tail -1 | cut -d" " -f1); grep -hE "virtio1|virtio0: dirty-bitmap|Finished Backup of VM 91[01]" /var/log/pve/tasks/*/"$u"*'
+```
+
+`virtio1` appears for 910 and 911 only as excluded, with no `virtio1: dirty-bitmap`
+line. `virtio0` reads `dirty-bitmap status: OK`; `created new` means a QEMU restart,
+which makes the night check D's rather than an ordinary one. VM 910 falls below its
+7-14 min baseline, reading only the boot disk. Also: the coverage check's 02:45 and
+08:45 runs, the first on the new code, succeeded (`kubectl get jobs -n infrastructure
+| grep coverage`), and `backup-coverage` is green on healthchecks.
+
+**B — 10-24.** The same measures as the baseline table in the evidence, over
+10:00-11:30 UTC each night, leaving out any night whose bitmap was `created new`:
+
+| Measure | Baseline, ordinary nights | Bar |
+|---|---|---|
+| VM 910 duration | 7-14 min | clearly lower |
+| minutes with fsync p99 > 0.5 s | 6-17 | clearly lower |
+| peak p99 | 0.80-1.24 s | lower |
+| failed proposals | 0-20 | no worse |
+| 24 h mean of p99 | 0.246-0.301 s | no worse; it barely moves, see *Verification* |
+
+The p99 expression is
+`histogram_quantile(0.99, sum by (le) (rate(etcd_disk_wal_fsync_duration_seconds_bucket[5m])))`,
+taken with `max_over_time`, `count_over_time((… > 0.5)[90m:1m])` and
+`avg_over_time` evaluated at 11:30, and failed proposals as
+`sum(increase(etcd_server_proposals_failed_total[90m]))`. Also: no coverage-check
+failures all week, and no `OOMKilled` init container. If B passes, Phase 3 closes:
+results into the evidence, the status table marked done, and the review closed at
+this boundary if the user chooses. C can be recorded after.
+
+**C — ~11-24.** The 11-16 run prunes the last backup holding a `virtio1`; the space
+returns at PBS's next weekly GC, whose day is not recorded — PBS refuses SSH from
+the workstation; the GUI shows it under Datastore → primary → Prune & GC. After
+it has run, `ssh root@vulcanus.forge.local 'pvesm status --storage pbs'` and record
+the used figure against 643 GiB. Phase 4's PBS #2 sizing and the mini-nas occupancy
+sums used ~1.2 TiB.
+
+**D — opportunistic.** A host reboot, `qm stop`/`start`, or an apply that reboots a
+worker; a reboot from inside Talos keeps the QEMU process and does not count. The
+largest win and the one that cannot be scheduled: before, VM 910 re-read 1.10 TiB in
+49 min with fsync p99 above 0.5 s for 52-56 min, and it now reads the 100 GiB boot
+disk. Run A's command the next morning.
+
+**E — opportunistic.** `pct config 105 --current` shows books as `mp3` and neither
+`mp4` nor the borg mount, the books share is still reachable, and a plan shows
+nothing for LXC 105.
 
 ## Phase 4 — platform images offsite
 
@@ -586,10 +643,10 @@ What phases 0 to 2b asserted is in the evidence.
   just the backup window, because Phase 2 added load elsewhere. `transferred` reports
   logical device size and is not the measure. The 24 h mean moves little: half an
   hour of backup in a day, it read 0.246-0.301 s across the baseline including two
-  full reads. So also compare minutes above 0.5 s, peak p99 and failed proposals over
-  10:00-11:30, where an ordinary baseline night reads 6-17 m, 0.8-1.24 s and 0-20.
-  The full-read case, 1.10 TiB becoming 100 GiB, is the larger win and has no
-  matched night until something restarts a worker's QEMU process.
+  full reads. So the backup window itself is compared too; the measures, bars and
+  dates are under Phase 3's *Verification schedule*. The full-read case, 1.10 TiB
+  becoming 100 GiB, is the larger win and has no matched night until something
+  restarts a worker's QEMU process.
 - **Phase 4** — a verify job passing on the mini-nas datastore, and a test restore of
   one guest **from the offsite copy**. `zfs-replication-freshness` stays green across
   the `rpool/data` retirement, which is what says the source-root trim and the replica
