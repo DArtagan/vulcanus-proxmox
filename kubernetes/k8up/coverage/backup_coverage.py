@@ -55,6 +55,11 @@ NEW_GRACE_HOURS = 26
 # ordinary churn -- headscale's whole database is 90 KB.
 SHRINK_RATIO = 0.5
 SHRINK_FLOOR_BYTES = 1 << 20
+# SQLite's transient files. A checkpoint folds the WAL back into the database
+# and truncates it, so a volume holding little else halves overnight with
+# nothing lost: headscale's went from 2.36 MB to 242 KB that way. A volume that
+# shrinks is totalled again without them before it fails.
+SQLITE_SIDECARS = ("-wal", "-shm", "-journal")
 # Snapshots the repository host takes of its own mounts. Its timer reports them
 # to healthchecks itself, and they belong to no claim.
 REPOSITORY_HOSTS = frozenset({"restic-repository"})
@@ -125,6 +130,8 @@ class Series(NamedTuple):
     previous_files: int | None
     previous_size: int | None
     tags: frozenset[str]
+    snapshot_id: str
+    previous_id: str | None
 
 
 def parse_time(text: str) -> int:
@@ -166,6 +173,8 @@ def parse_snapshots(text: str | bytes) -> dict[tuple[str, str], Series]:
             if previous is None
             else _summary(previous, "total_bytes_processed"),
             tags=frozenset(newest.get("tags") or ()),
+            snapshot_id=newest["id"],
+            previous_id=None if previous is None else previous["id"],
         )
     return held
 
@@ -307,13 +316,33 @@ def sql_trailer_verdict(tail: bytes) -> tuple[str | None, str | None]:
     )
 
 
-def _shrank(held: Series) -> bool:
+def _halved(previous: int | None, size: int | None) -> bool:
     return (
-        held.size is not None
-        and held.previous_size is not None
-        and held.previous_size >= SHRINK_FLOOR_BYTES
-        and held.size < held.previous_size * SHRINK_RATIO
+        size is not None
+        and previous is not None
+        and previous >= SHRINK_FLOOR_BYTES
+        and size < previous * SHRINK_RATIO
     )
+
+
+def _shrank(held: Series) -> bool:
+    return _halved(held.previous_size, held.size)
+
+
+def size_without_sidecars(listing: Iterable[str | bytes]) -> int:
+    """Total the files in `restic ls --json` output, leaving out SQLite's own."""
+    total = 0
+    for line in listing:
+        if not line.strip():
+            continue
+        node = json.loads(line)
+        if (
+            node.get("struct_type") == "node"
+            and node.get("type") == "file"
+            and not node["name"].endswith(SQLITE_SIDECARS)
+        ):
+            total += node.get("size", 0)
+    return total
 
 
 def _older_than(now: int, then: int, hours: int) -> bool:
@@ -326,8 +355,14 @@ def _age(now: int, then: int) -> str:
     return f"{minutes // 60}h{minutes % 60:02d}m"
 
 
-def _volume_contents(name: str, held: Series) -> tuple[str | None, str | None]:
-    """Judge what a current snapshot holds, against the one before it."""
+def _volume_contents(
+    name: str, held: Series, recount: tuple[int, int] | None
+) -> tuple[str | None, str | None]:
+    """Judge what a current snapshot holds, against the one before it.
+
+    `recount` is the (previous, newest) pair totalled without SQLite's sidecar
+    files, taken only for a volume that shrank. Without one the shrink stands.
+    """
     if held.files == 0:
         if held.previous_files:
             return (
@@ -335,16 +370,26 @@ def _volume_contents(name: str, held: Series) -> tuple[str | None, str | None]:
                 f"before held {held.previous_files}. Can the Job still read it?"
             ), None
         return None, f"{name}: in scope and holds nothing"
-    if _shrank(held):
-        return (
-            f"{name}: shrank from {held.previous_size} to {held.size} bytes "
-            "between its last two snapshots"
-        ), None
-    return None, None
+    if not _shrank(held):
+        return None, None
+    shrank = (
+        f"{name}: shrank from {held.previous_size} to {held.size} bytes "
+        "between its last two snapshots"
+    )
+    if recount is None:
+        return shrank, None
+    without = f"{recount[0]} to {recount[1]} without SQLite's -wal, -shm and -journal"
+    if _halved(*recount):
+        return f"{shrank}, {without}", None
+    return None, f"{shrank}; {without}"
 
 
 def _judge_volume(
-    name: str, claim: Claim, held: Series | None, now: int
+    name: str,
+    claim: Claim,
+    held: Series | None,
+    now: int,
+    recount: tuple[int, int] | None,
 ) -> tuple[str | None, str | None]:
     """Return (problem, report) for one in-scope claim; at most one of each."""
     if held is None:
@@ -354,7 +399,7 @@ def _judge_volume(
     if _older_than(now, held.newest, VOLUME_MAX_AGE_HOURS):
         age = _age(now, held.newest)
         return f"{name}: newest snapshot {age} old, limit {VOLUME_MAX_AGE_HOURS}h", None
-    return _volume_contents(name, held)
+    return _volume_contents(name, held, recount)
 
 
 def _dump_contents(
@@ -418,6 +463,7 @@ def classify(  # noqa: PLR0913
     now: int,
     item_errors: Mapping[tuple[str, str], int],
     dump_contents: Mapping[tuple[str, str], tuple[str | None, str | None]],
+    volume_recounts: Mapping[tuple[str, str], tuple[int, int]],
 ) -> tuple[list[str], list[str]]:
     """Sort every claim, dump and snapshot series into failures and reports.
 
@@ -451,7 +497,9 @@ def classify(  # noqa: PLR0913
                 'backup set by default? Annotate it k8up.io/backup: "false".'
             )
         else:
-            record(_judge_volume(name, claim, held.get(key), now))
+            record(
+                _judge_volume(name, claim, held.get(key), now, volume_recounts.get(key))
+            )
 
     for producer in sorted(producers, key=lambda p: (p.namespace, p.path)):
         key = (producer.namespace, producer.path)
@@ -624,6 +672,50 @@ def inspect_dumps(
     return contents
 
 
+def _listed_size(snapshot_id: str) -> int:
+    """Total one snapshot's files without SQLite's sidecars, streaming the list."""
+    with subprocess.Popen(
+        ["restic", "ls", "--json", "--no-lock", snapshot_id],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    ) as process:
+        total = size_without_sidecars(process.stdout)
+        stderr = process.stderr.read().decode().strip()
+    if process.returncode != 0:
+        message = f"restic ls exited {process.returncode}: {stderr}"
+        raise RuntimeError(message)
+    return total
+
+
+def recount_shrunk_volumes(
+    claims: Iterable[Claim], held: Mapping[tuple[str, str], Series]
+) -> tuple[dict[tuple[str, str], tuple[int, int]], list[str]]:
+    """Total each shrunk volume's last two snapshots again, without sidecars.
+
+    Only where the summaries already say it shrank, since a listing reads the
+    snapshot's whole tree. A recount that fails leaves the shrink failing, and
+    says why in a report.
+    """
+    recounts = {}
+    errors = []
+    for claim in claims:
+        key = (claim.namespace, f"/data/{claim.name}")
+        series = held.get(key)
+        if claim.excluded or claim.shared or series is None or not _shrank(series):
+            continue
+        try:
+            recounts[key] = (
+                _listed_size(series.previous_id),
+                _listed_size(series.snapshot_id),
+            )
+        except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as error:
+            errors.append(
+                f"{claim.namespace}/{claim.name}: could not total it without "
+                f"SQLite's sidecars: {error}"
+            )
+    return recounts, errors
+
+
 def collect_item_errors() -> dict[tuple[str, str], int]:
     """Read each item's error count from the newest finished Job that took it."""
     query = urllib.parse.urlencode({"labelSelector": "k8up.io/type=backup"})
@@ -702,6 +794,9 @@ def main() -> int:
         item_errors = {}
         extra.append(f"could not read restic's per-item error counts: {error}")
 
+    recounts, recount_errors = recount_shrunk_volumes(claims, held)
+    extra.extend(recount_errors)
+
     problems, reports = classify(
         claims,
         producers,
@@ -709,6 +804,7 @@ def main() -> int:
         now=int(time.time()),
         item_errors=item_errors,
         dump_contents=inspect_dumps(producers, held),
+        volume_recounts=recounts,
     )
     reports.extend(extra)
 

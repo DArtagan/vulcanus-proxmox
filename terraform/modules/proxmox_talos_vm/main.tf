@@ -207,11 +207,10 @@ resource "proxmox_vm_qemu" "main" {
     # the high-water mark and never shrinks: worker-0's OpenEBS volume holds
     # 122 GB of live data against 786 GB referenced on rpool.
     #
-    # The cost lands on backups. Whenever the QEMU process restarts, its PBS
-    # dirty bitmap goes with it and the next backup reads the whole disk, so
-    # those dead blocks are read too — 1.10 TiB over two hours on 2026-08-19,
-    # against ~10 GiB for an ordinary incremental. That saturates rpool and
-    # stalls etcd's WAL fsync for the duration.
+    # On a disk vzdump reads, the dead blocks cost the backup too. Whenever the
+    # QEMU process restarts, its PBS dirty bitmap goes with it and the next
+    # backup reads the whole disk, dead blocks included, saturating rpool and
+    # stalling etcd's WAL fsync for the duration.
     #
     # TRIM is not issued automatically: Talos runs no fstrim timer, and its
     # machine.disks patch exposes a mountpoint but no mount options, so the
@@ -232,7 +231,10 @@ resource "proxmox_vm_qemu" "main" {
           disk {
             size = virtio1.value.size
             storage = virtio1.value.storage_pool
-            backup = true
+            # Every volume on this disk is backed up on its own by K8up, so
+            # imaging it as well buys nothing and costs a read off rpool that
+            # stalls etcd — the whole disk after any QEMU restart.
+            backup = false
             discard = true
           }
         }

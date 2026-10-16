@@ -1,9 +1,10 @@
 # Talos runs no fstrim timer and the machine.disks patch exposes a mountpoint
 # with no mount options, so the `discard` mount option is out of reach and
 # nothing in the guest ever returns freed blocks to ZFS. Left alone a zvol grows
-# to its high-water mark and stays there: worker-0's reached 786 GB referenced
-# against 122 GB of live data, and the nightly Proxmox backup dragged all of it
-# off the platters on every full read.
+# to its high-water mark and stays there: worker-0's OpenEBS volume reached
+# 786 GB referenced against 122 GB of live data. On /var, which the nightly
+# Proxmox backup reads, every full read drags the dead blocks off the platters
+# too.
 #
 # A hostPath reaches only the node its pod lands on, so this is one CronJob per
 # node rather than one job carrying a list of hosts. They are otherwise

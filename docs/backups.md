@@ -10,7 +10,7 @@ Work still outstanding lives in [`todos/backups.md`](../todos/backups.md), not h
 |---|---|---|
 | ZFS snapshots (sanoid) | everything on `rpool` | vulcanus, in place |
 | ZFS replication (syncoid) | `rpool/storage`, `rpool/ROOT`, `rpool/data`, `rpool/backups/restic` | mini-nas, offsite |
-| vzdump → PBS | every guest except `107` | PBS VM 107, on `rpool` |
+| vzdump → PBS | every guest except `107`, less the workers' OpenEBS disks | PBS VM 107, on `rpool` |
 | restic, via K8up | every Kubernetes volume in scope, and the database dumps | the restic repository, LXC 108 |
 | restic, from the repository host | `rpool/storage/{photos,books,filesync}` | the same repository |
 
@@ -56,6 +56,33 @@ new fingerprint and PVE refuses the connection until that line is updated. It ri
 the replicated OS disk, so it has an offsite copy. The datastore itself needs no such
 care: a chunk store is self-describing, and `datastore create` against an existing one
 adopts it.
+
+### The workers' OpenEBS disks
+
+Each Talos worker's `virtio1`, the disk under `/var/openebs` that holds every
+Kubernetes volume, carries **`backup=0`**. K8up backs each of those volumes up on its
+own, so imaging the disk as well would only duplicate them, and vzdump reading it
+off `rpool` is what stalls etcd: a few GiB scattered across the disk on an ordinary
+night, all 1 TiB after anything restarts the VM's QEMU process. The cost to etcd is
+in [`talos.md`](talos.md).
+
+So a worker's PBS backup is its boot disk. **Restoring one from PBS leaves the
+OpenEBS disk in place but detached:** the restore frees only the disks it brings
+back, keeps the rest as `unused0`, and writes the excluded `virtio1` line into the
+config commented out. Reattach it before starting the VM, since Talos expects the
+disk at `/dev/vdb`, and before any `tofu apply`, which expects a `virtio1` and has
+never been run against one missing:
+
+```bash
+qm set 910 --virtio1 local-zfs:vm-910-disk-1,backup=0,discard=on,replicate=0
+```
+
+The `unused0` entry drops out by itself once the volume is attached. **Never
+`--delete unused0`**: deleting an unused entry frees the volume, and deletions run
+before the attach in the same command.
+
+If the disk itself is lost, the volumes come back from restic; see *Restoring from
+restic*.
 
 ### The restic repository
 
@@ -520,7 +547,8 @@ It **fails**:
 - a volume whose newest snapshot is over 26 h old, or a dump over 7 h;
 - an in-scope `ReadWriteMany` claim;
 - a volume that went empty, or any empty dump;
-- an item under half its previous size, from 1 MiB up;
+- an item under half its previous size, from 1 MiB up, a volume still so once
+  SQLite's `-wal`, `-shm` and `-journal` files are left out of both totals;
 - a current dump that is not whole, or that the store cannot serve back;
 - a SQLite copy that fails `PRAGMA integrity_check`.
 
@@ -529,6 +557,7 @@ It **reports**:
 - new items;
 - an always-empty claim;
 - a group whose claim or producer is gone;
+- a volume that halved only in SQLite's sidecar files, as a WAL checkpoint does;
 - files restic could not read on an item's latest run, normally none.
 
 A dump is whole when a SQLite copy's size matches what its header states, or a SQL
