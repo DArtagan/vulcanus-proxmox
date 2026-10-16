@@ -223,15 +223,13 @@ is watching. Proxmox Backup Server tracks changed blocks in a dirty bitmap held
 in the QEMU process' memory. Anything that restarts that process — `qm
 stop`/`start`, `qm reboot`, a `tofu apply` that changes a parameter needing a
 reboot, a host reboot — discards the bitmap, so the next backup has no
-incremental to work from and reads **every block of every disk**.
+incremental to work from and reads **every block of every disk it backs up**.
 
-For worker-0 that is 1.10 TiB instead of ~10 GiB, and about two hours instead of
-eight minutes. `rpool` is saturated throughout, etcd's WAL fsync p99 rises from
-0.25s to around 5.5s, and the control plane degrades for as long as it runs:
-failed etcd proposals reach several hundred against a couple of dozen on an
-ordinary night, and `kube-scheduler` and `kube-controller-manager` restart even
-on their widened leases. Anything still holding a 15s lease restarts dozens of
-times, which is why so little here does.
+That is each VM's boot disk, 100 GiB on a worker. The workers' 1 TiB OpenEBS
+disks carry `backup=0` ([backups.md](backups.md)), which is what keeps the bill
+bounded: read in full, worker-0's took 49 minutes even trimmed, and held etcd's
+WAL fsync p99 above 0.5 s for most of an hour against 15 minutes on an ordinary
+night.
 
 A reboot from inside the guest (`talosctl reboot`) keeps the QEMU process alive
 and the bitmap with it. The distinction is the QEMU process, not the guest OS.
@@ -317,30 +315,27 @@ ssh root@vulcanus.forge.local 'zfs list -o name,volsize,used,referenced rpool/da
 ```
 
 `referenced` is the number that should fall. Space held by sanoid's 31 daily
-snapshots is released only as those age out, but the reduction in backup read
-volume is immediate — that is the point of doing it.
+snapshots is released only as those age out.
 
 ### A trim inflates the next backup
 
 Every discarded region is a write as far as QEMU is concerned, so it enters the
-PBS dirty bitmap and the following backup re-processes all of it. The dirty
-counts after the 2026-08-23 trim track the free space that was discarded almost
-exactly:
+PBS dirty bitmap and the following backup re-processes all of it. That holds for
+the boot disks, `/var`; trimming `/var/openebs` costs the backup nothing, since
+vzdump does not read that disk. The dirty counts after the 2026-08-23 trim track
+the free space that was discarded almost exactly:
 
 | drive | mount | free when trimmed | dirty next morning |
 |---|---|---|---|
-| `910` virtio1 | `/var/openebs` | ~909 GiB | 790.2 GiB |
 | `911` virtio0 | `/var` | ~79.7 GiB | 83.0 GiB |
-| `911` virtio1 | `/var/openebs` | ~84.6 GiB | 88.1 GiB |
 | `910` virtio0 | `/var` | ~68.7 GiB | 70.6 GiB |
 | `911` efidisk0 | — | not trimmed | **drive clean** |
 
 That last row is the control: the one drive not trimmed reported nothing dirty.
 
 The bill is wall-clock, not etcd. Those regions are unallocated, so they come
-back as zeros at 468 MiB/s rather than being read off platters — worker-0's
-backup took 31m21s against 5m34s the night before, and the whole job 45 minutes
-against 19. No timing avoids it: a dirty bit persists until a backup consumes
+back as zeros at several hundred MiB/s rather than being read off platters. No
+timing avoids it: a dirty bit persists until a backup consumes
 it, so on an ordinary day trimming right after a backup is no cheaper than
 trimming right before. The advice below to trim *before* the next backup is a
 different case — there the guest has been rebooted, the bitmap is gone and a

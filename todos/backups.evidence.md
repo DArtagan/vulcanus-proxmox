@@ -907,6 +907,97 @@ replicated and never counted against mini-nas.
 - **`find -xdev` from `/rpool/storage` returned nothing**, the files being in child
   datasets.
 
+## Phase 3 — drop the OpenEBS disks from vzdump
+
+Opened 2026-10-16. PR #17 had closed at the 2b boundary on 10-13, so this is a fresh
+`backups` branch from `main`.
+
+### The baseline, measured 2026-10-16
+
+Per-VM figures from `/var/log/pve/tasks`; the job has run `--exclude 107
+--performance max-workers=2` throughout. etcd figures are WAL fsync p99 over
+10:00-11:30 UTC, the window evaluated at 11:30.
+
+| night | VM 910 | 910 virtio0 / virtio1 dirty | VM 911 | job | > 0.5 s | peak | failed proposals |
+|---|---|---|---|---|---|---|---|
+| 10-03 | 4m59s | 2.6 / 3.7 GiB | 2m19s | 26m | 1m | 0.50 s | 0 |
+| 10-04 | 6m11s | 2.9 / 5.6 GiB | 2m27s | 27m | 9m | 0.60 s | 0 |
+| 10-05 | 5m34s | 2.9 / 4.1 GiB | 2m25s | 27m | 9m | 0.85 s | 0 |
+| 10-06 | **49m15s** | full read, 1.10 TiB | 7m56s | 77m | **52m** | 1.00 s | 13 |
+| 10-07 | 9m07s | 6.9 / 5.6 GiB | 2m45s | 30m | 10m | 0.75 s | 20 |
+| 10-08 | 7m18s | 3.5 / 6.7 GiB | 2m21s | 28m | 6m | 0.85 s | 1 |
+| 10-09 | **49m49s** | full read, 1.10 TiB | 8m05s | 78m | **56m** | 1.57 s | 16 |
+| 10-10 | 7m06s | 3.7 / 5.7 GiB | 2m24s | 27m | 6m | 0.81 s | 3 |
+| 10-11 | 7m06s | 3.9 / 4.0 GiB | 2m54s | 47m | 14m | 0.96 s | 0 |
+| 10-12 | 9m10s | 5.1 / 5.7 GiB | 3m37s | 32m | 14m | 0.98 s | 0 |
+| 10-13 | 14m05s | 5.4 / 14.1 GiB | 3m07s | 36m | 17m | 1.00 s | 0 |
+| 10-14 | 8m56s | 5.6 / 4.4 GiB | 3m14s | 31m | 16m | 1.24 s | 17 |
+| 10-15 | 9m13s | 5.4 / 6.3 GiB | 3m10s | 31m | 14m | 0.92 s | 0 |
+| 10-16 | 8m42s | — | 3m24s | 31m | 16m | 0.96 s | 0 |
+
+Worker-1's `virtio1` is 250-820 MiB dirty a night, a rounding error beside its boot
+disk. On an ordinary night the OpenEBS disk is about half of VM 910's read; the large
+win is the full-read nights, 1.10 TiB that becomes 100 GiB. On 10-06 and 10-09 both
+workers' bitmaps were `created new` on every drive, so both QEMU processes had
+restarted. What restarted them was not looked into.
+
+The 24 h `avg_over_time` of p99, windows ending 09:50 so each holds one backup, read
+0.246-0.301 s from 10-01 to 10-16: 0.267 and 0.296 for the windows holding the two
+full reads. Thirty minutes of backup in 1,440 barely moves a daily mean, so this is
+the net check the spec asks for, not the sensitive one; the window columns above are.
+
+PBS datastore: 674,588,420 KiB used (643 GiB) of 2 TB, from `pvesm status`.
+`rpool/proxmox_backup_server` 1.99T used, 1.61T referenced.
+
+### What was established before applying
+
+- **Coverage of everything on `/var/openebs`.** Every OpenEBS claim is in `apps`,
+  `infrastructure` or `automatic-ripping-machine`, the three namespaces with a
+  Schedule, and is either backed up or annotated out under the documented policy.
+  Each `pvc-*` directory under `/var/openebs/local` on both workers matches a live PV
+  (24 on worker-0, 3 on worker-1); `ndm` and `sparse` hold a few bytes each.
+- **The flag applies live.** `vmconfig_update_disk` in PVE 9.2.20's
+  `QemuServer.pm`, for a drive whose file is unchanged, dies `skip` only on `aio`,
+  `discard`, `iothread`, `queues`, `product`, `cache`, `ssd`, `vendor` or `ro`, and
+  otherwise returns 1. `backup` is not in the list, so no QEMU restart and the
+  bitmaps survive. Neither VM had `backup=` set, so both were on the default of 1.
+- **The plan is the flag and nothing else.** Targeted at the two workers: two
+  in-place updates, `virtio1.disk.backup true -> false`. Run from the worktree with
+  the main checkout's state and `TF_DATA_DIR`, `-lock=false`.
+- **An untargeted apply would also touch LXC 105.** The plan wants to add `mp4`
+  (books) to `proxmox_lxc.fileserver`, which already has it; `pct pending 105` still
+  shows `del mp3`, the borg mount from 2b, and the provider misreads the slots while
+  that is pending. Hence the targeted apply.
+- **What a PBS restore does with an excluded disk**, read from the same source.
+  `restore_update_config_line` writes a `backup=0` drive's line commented out;
+  `restore_cleanup_oldconf` frees only the disks being restored and keeps the rest as
+  `unused`. The VMA path differs — it calls `destroy_vm`, which frees every owned
+  disk — but storage `pbs` takes the PBS path. Reattaching with `qm set --virtio1`
+  drops the `unused` entry by itself ("remove 'unusedX' settings if we re-add a
+  volume" in `write_config`); `--delete unusedN` goes through `try_deallocate_drive`
+  and frees the volume, and `update_vm` processes deletes before sets.
+
+### Two coverage-check failures, both the check misfiring
+
+`backup-coverage` failed at 14:45 and 20:45 on 10-15 and at 14:45 on 10-16, passing
+at 08:45 on 10-16 between them.
+
+- **10-15: `apps/headscale-data-pvc: shrank from 2360120 to 242416 bytes`.** A WAL
+  checkpoint. Snapshot `7bea56ab` (10-14 01:00 UTC) held a 2,233,072-byte
+  `db.sqlite-wal`; `b72d72ab` a day later held 111,272 bytes of WAL and a
+  `db.sqlite` grown from 94,208 to 98,304. headscale reports 8 nodes, 6 online. The
+  shrink rule compares the last two snapshots, so it fired for a day and cleared
+  itself. It will do this to any WAL-mode database volume.
+- **10-16 14:45: the `plex-sqlite` init container `OOMKilled`, exit 137, one second
+  in.** Its limit is 64 Mi and it `cp -a`s Plex's binaries and `lib`. The other runs
+  that day completed the same container; why this one did not was not looked into.
+
+### Wrong turns
+
+- **The first reattach command in `docs/backups.md` carried `--delete unused0`**, to
+  tidy the entry. It would have freed the OpenEBS disk before attaching it. Caught by
+  reading `update_vm` before committing.
+
 ## What phases 0 to 2b asserted
 
 - **Phase 0** — `Result=success` on all four mini-nas units; offsite snapshot count

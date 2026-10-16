@@ -14,10 +14,10 @@ permanently true into [`docs/backups.md`](../docs/backups.md), extending what ea
 phases left. Only deleting this spec and adding the
 [`docs/project_log.md`](../docs/project_log.md) entry wait for the end.
 
-Slug `backups`. Phase 2b is under review in
-[PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17), on the `backups` branch
-in `.worktrees/backups`. Whether Phase 3 continues on that branch or the review closes
-at this phase boundary first is the user's call.
+Slug `backups`. [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) closed
+at the 2b boundary on 2026-10-13. Phase 3 is on a fresh `backups` branch from `main`,
+in `.worktrees/backups`; its review opens with `wt review-open` once the first commit
+is in.
 
 ## Status
 
@@ -28,7 +28,7 @@ at this phase boundary first is the user's call.
 | 1 | Reclaim — dead guests, orphans | done 2026-09-18 — [PR #11](https://github.com/DArtagan/vulcanus-proxmox/pull/11) |
 | 2 | Application backups — K8up + restic | done 2026-10-12 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13) |
 | 2b | Delete the borg tree | done 2026-10-13 — [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) |
-| 3 | Performance — drop the OpenEBS disks from vzdump | **next** |
+| 3 | Performance — drop the OpenEBS disks from vzdump | **in progress** — committed, not yet applied |
 | 4 | Platform images offsite — PBS #2 + sync | not started; **gated on the mini-nas disks** |
 | 5 | The offline copy — external disk | not started; needs a ~$200 purchase |
 | 6 | Verification, notification, runbook | not started |
@@ -384,7 +384,16 @@ constraint stops binding.
 - **LXC 105 carries a pending `delete mp3`** until its next restart. That was the borg
   tree's bind mount, already released by hand; Proxmox cannot remove a mount point from
   a running container, and applies the deletion before the next start, so the missing
-  dataset cannot fail that boot. `pct pending 105` shows it.
+  dataset cannot fail that boot. `pct pending 105` shows it. **Until then an untargeted
+  `tofu apply` would push a mountpoint change at LXC 105**: the plan wants to add `mp4`,
+  which exists, the provider misreading the slots while `mp3`'s deletion is pending.
+  Re-plan after the restart before trusting an untargeted apply.
+- **The coverage check misfires two ways** (found 2026-10-16, see the evidence). Its
+  shrink rule reads a WAL checkpoint as data loss — headscale's volume "shrank" from
+  2.36 MB to 242 KB when `db.sqlite-wal` was checkpointed — and will do so for any
+  WAL-mode database volume. And the `plex-sqlite` init container was `OOMKilled` at its
+  64 Mi limit copying Plex's binaries, once. Both turn `backup-coverage` red without a
+  coverage gap, which is how a real one stops being believed.
 
 ---
 
@@ -392,7 +401,30 @@ constraint stops binding.
 
 `backup=0` on `vm-910-disk-1` and `vm-911-disk-2` (the OpenEBS data disks). Safe only
 after Phase 2, which is what makes the sequencing non-negotiable: granularity first,
-then performance. Nightly vzdump drives etcd's p99 WAL fsync from a 0.25 s floor to
+then performance.
+
+**Where it stands, 2026-10-16.** `backup = false` on `virtio1` in
+`terraform/modules/proxmox_talos_vm/main.tf`, inlined rather than a variable, and the
+docs written for the state it produces: *The workers' OpenEBS disks* in
+`docs/backups.md`, which carries the PBS restore's reattach step, and the restart and
+trim costs in `docs/talos.md`. The baseline, the coverage of `/var/openebs`, and the
+source reading that says the flag applies live and what a restore does are in the
+evidence.
+
+What remains, in order:
+
+1. The user runs `wt review-open`, then `wt deploy`.
+2. From the main checkout, **targeted**, because of LXC 105's drift (*Loose ends*):
+   `tofu apply -target=module.talos_worker_0 -target=module.talos_worker_1`. The plan
+   is two in-place updates of `virtio1.disk.backup` and nothing else.
+3. Confirm it took without a restart: `qm config 910` shows `backup=0` on `virtio1`,
+   and the next task log excludes `virtio1` on both workers while `virtio0` reports
+   `dirty-bitmap status: OK`, not `created new`.
+4. Measure the after against the baseline in the evidence — a week of ordinary
+   nights against 10-10 to 10-16; see *Verification*.
+5. The PBS datastore should shrink once the last backup holding a `virtio1` leaves
+   `keep-last 31` and GC runs, from 643 GiB used on 10-16. Record the figure; Phase 4's
+   PBS #2 sizing and the mini-nas occupancy sums used ~1.2 TiB. Nightly vzdump drives etcd's p99 WAL fsync from a 0.25 s floor to
 3.8-8.7 s; see [`etcd-disk-latency.md`](etcd-disk-latency.md). After a guest restart
 QEMU discards its dirty bitmap and the next run reads the whole 1 TB device — 142
 minutes instead of 23. Phase 2 added load of its own: the mass-file run took etcd's
@@ -557,7 +589,12 @@ What phases 0 to 2b asserted is in the evidence.
 - **Phase 3** — vzdump task-log **duration** for VM 910 before and after, *and* the
   net change in `avg_over_time` of etcd fsync p99 across matched 24 h windows — not
   just the backup window, because Phase 2 added load elsewhere. `transferred` reports
-  logical device size and is not the measure.
+  logical device size and is not the measure. The 24 h mean moves little: half an
+  hour of backup in a day, it read 0.246-0.301 s across the baseline including two
+  full reads. So also compare minutes above 0.5 s, peak p99 and failed proposals over
+  10:00-11:30, where an ordinary baseline night reads 6-17 m, 0.8-1.24 s and 0-20.
+  The full-read case, 1.10 TiB becoming 100 GiB, is the larger win and has no
+  matched night until something restarts a worker's QEMU process.
 - **Phase 4** — a verify job passing on the mini-nas datastore, and a test restore of
   one guest **from the offsite copy**. `zfs-replication-freshness` stays green across
   the `rpool/data` retirement, which is what says the source-root trim and the replica
