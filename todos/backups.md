@@ -16,8 +16,8 @@ phases left. Only deleting this spec and adding the
 
 Slug `backups`. [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) closed
 at the 2b boundary on 2026-10-13. Phase 3 is on a fresh `backups` branch from `main`,
-in `.worktrees/backups`; its review opens with `wt review-open` once the first commit
-is in.
+in `.worktrees/backups`, under review in
+[PR #19](https://github.com/DArtagan/vulcanus-proxmox/pull/19).
 
 ## Status
 
@@ -407,7 +407,7 @@ evidence.
 
 What remains, in order:
 
-1. The user runs `wt review-open`, then `wt deploy`.
+1. The user runs `wt deploy`; the review is open.
 2. From the main checkout, **targeted**, because of LXC 105's drift (*Loose ends*):
    `tofu apply -target=module.talos_worker_0 -target=module.talos_worker_1`. The plan
    is two in-place updates of `virtio1.disk.backup` and nothing else.
