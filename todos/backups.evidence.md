@@ -992,6 +992,16 @@ at 08:45 on 10-16 between them.
   in.** Its limit is 64 Mi and it `cp -a`s Plex's binaries and `lib`. The other runs
   that day completed the same container; why this one did not was not looked into.
 
+Both fixed the same day, on the user's word. The shrink rule now lists both snapshots
+of a volume it would fail and totals them again without `-wal`, `-shm` and
+`-journal`; only a volume still halved fails, and one halved only in those files
+reports. Run against the real listings, headscale's pair totals 94,280 and 98,376
+bytes. The init container's limit is 256 Mi, above the 107 MiB it copies
+(`Plex Media Server` 23 MiB, `lib` 84 MiB). The page-cache explanation for the OOM
+is not established: at 14:45 etcd's fsync p99 was 0.26 s, worker-0's disks 11% busy
+and 1.7 MiB dirty, no different from the runs that passed. The limit holds the whole
+copy whatever the cause.
+
 ### Wrong turns
 
 - **The first reattach command in `docs/backups.md` carried `--delete unused0`**, to

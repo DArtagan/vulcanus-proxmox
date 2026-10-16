@@ -79,15 +79,19 @@ def series(  # noqa: PLR0913
         previous_files=previous_files,
         previous_size=previous_size,
         tags=tags,
+        snapshot_id="newest",
+        previous_id="previous",
     )
 
 
-def verdicts(
+def verdicts(  # noqa: PLR0913 -- one keyword per classify input
     claims: list[backup_coverage.Claim],
     producers: list[backup_coverage.Producer],
     held: list[backup_coverage.Series],
+    *,
     errors: dict[tuple[str, str], int] | None = None,
     contents: dict[tuple[str, str], tuple[str | None, str | None]] | None = None,
+    recounts: dict[tuple[str, str], tuple[int, int]] | None = None,
 ) -> tuple[list[str], list[str]]:
     return backup_coverage.classify(
         claims,
@@ -96,6 +100,7 @@ def verdicts(
         now=NOW,
         item_errors=errors or {},
         dump_contents=contents or {},
+        volume_recounts=recounts or {},
     )
 
 
@@ -117,6 +122,7 @@ class SnapshotParsing(unittest.TestCase):
     SNAPSHOTS = json.dumps(
         [
             {
+                "id": "5e0a",
                 "time": "2026-09-21T20:56:08.561764618Z",
                 "paths": ["/data/automatic-ripping-machine-pvc"],
                 "hostname": "automatic-ripping-machine",
@@ -126,6 +132,7 @@ class SnapshotParsing(unittest.TestCase):
                 },
             },
             {
+                "id": "9c31",
                 "time": "2026-09-22T02:00:05.522581991Z",
                 "paths": ["/data/automatic-ripping-machine-pvc"],
                 "hostname": "automatic-ripping-machine",
@@ -135,6 +142,7 @@ class SnapshotParsing(unittest.TestCase):
                 },
             },
             {
+                "id": "d47f",
                 "time": "2026-09-21T11:45:02.123456789-06:00",
                 "paths": [
                     "/mnt/storage/books",
@@ -158,6 +166,15 @@ class SnapshotParsing(unittest.TestCase):
         self.assertEqual(arm.previous_files, 44)
         self.assertEqual(arm.size, 82201226)
         self.assertEqual(arm.previous_size, 82176668)
+
+    def test_both_snapshot_ids_are_kept_for_a_recount(self) -> None:
+        arm = self.held[
+            "automatic-ripping-machine", "/data/automatic-ripping-machine-pvc"
+        ]
+        self.assertEqual((arm.previous_id, arm.snapshot_id), ("5e0a", "9c31"))
+        self.assertIsNone(
+            self.held["restic-repository", "/mnt/storage/books"].previous_id
+        )
 
     def test_nanosecond_times_are_read_to_the_second(self) -> None:
         arm = self.held[
@@ -445,6 +462,40 @@ class VerdictTable(unittest.TestCase):
     def test_a_first_snapshot_has_nothing_to_shrink_from(self) -> None:
         held = series("/data/a", previous_files=None, previous_size=None)
         self.assertEqual(verdicts([claim("a")], [], [held]), ([], []))
+
+    # headscale's volume on 2026-10-15, when its WAL was checkpointed.
+    HEADSCALE = series(
+        "/data/headscale-data-pvc",
+        files=5,
+        size=242_416,
+        previous_files=5,
+        previous_size=2_360_120,
+    )
+
+    def test_a_shrink_that_was_only_a_wal_checkpoint_reports(self) -> None:
+        problems, reports = verdicts(
+            [claim("headscale-data-pvc")],
+            [],
+            [self.HEADSCALE],
+            recounts={("apps", "/data/headscale-data-pvc"): (94_280, 98_376)},
+        )
+        self.assertEqual(problems, [])
+        self.assertIn("94280 to 98376 without SQLite's", reports[0])
+
+    def test_a_shrink_that_survives_the_recount_fails(self) -> None:
+        problems, _ = verdicts(
+            [claim("a")],
+            [],
+            [series("/data/a", size=20_000_000, previous_size=50_000_000)],
+            recounts={("apps", "/data/a"): (48_000_000, 18_000_000)},
+        )
+        self.assertEqual(len(problems), 1)
+        self.assertIn("48000000 to 18000000 without", problems[0])
+
+    def test_a_shrink_with_no_recount_still_fails(self) -> None:
+        problems, _ = verdicts([claim("headscale-data-pvc")], [], [self.HEADSCALE])
+        self.assertEqual(len(problems), 1)
+        self.assertIn("shrank from 2360120 to 242416", problems[0])
 
     def test_a_fresh_dump_is_silent(self) -> None:
         path = "/apps-database.pinepods.pgdump"
@@ -784,6 +835,7 @@ class TheCronJobsCadence(unittest.TestCase):
             now=utc(now),
             item_errors={},
             dump_contents={},
+            volume_recounts={},
         )
         return problems
 
@@ -795,6 +847,7 @@ class TheCronJobsCadence(unittest.TestCase):
             now=utc(now),
             item_errors={},
             dump_contents={},
+            volume_recounts={},
         )
         return problems
 
@@ -817,15 +870,8 @@ class TheCronJobsCadence(unittest.TestCase):
         self.assertIn("31h43m", problems[0])
 
 
-class ReadBack(unittest.TestCase):
-    """Reading a dump back runs restic; a fake one on PATH stands in for it.
-
-    A dump the store cannot serve fails: it is exactly what a restore would
-    meet, and the weekly K8up Check never reads pack data to notice it.
-    """
-
-    SQL = "/apps-database.x.sql"
-    SQLITE = "/apps-sqlite.x.sqlite"
+class FakeRestic(unittest.TestCase):
+    """A fake restic on PATH, printing a file and optionally failing."""
 
     def setUp(self) -> None:
         self.dir = tempfile.TemporaryDirectory()
@@ -849,6 +895,17 @@ class ReadBack(unittest.TestCase):
         os.environ["PATH"] = f"{self.dir.name}:{os.environ['PATH']}"
         os.environ["FAKE_RESTIC_OUTPUT"] = str(self.output)
         os.environ.pop("FAKE_RESTIC_ERROR", None)
+
+
+class ReadBack(FakeRestic):
+    """Reading a dump back runs restic; a fake one on PATH stands in for it.
+
+    A dump the store cannot serve fails: it is exactly what a restore would
+    meet, and the weekly K8up Check never reads pack data to notice it.
+    """
+
+    SQL = "/apps-database.x.sql"
+    SQLITE = "/apps-sqlite.x.sqlite"
 
     def inspect(
         self, path: str, size: int = 50_000_000
@@ -924,6 +981,96 @@ class ReadBack(unittest.TestCase):
         problem, report = self.inspect(self.SQLITE)
         self.assertIsNone(report)
         self.assertIn("pack 1a2b damaged", problem)
+
+
+class SidecarRecount(FakeRestic):
+    """A shrunk volume totalled again from `restic ls`, without SQLite's files."""
+
+    # `restic ls --json` of headscale's volume, 2026-10-14, timestamps trimmed.
+    LISTING = (
+        "\n".join(
+            json.dumps(node)
+            for node in [
+                {
+                    "time": "2026-10-14T01:00:56Z",
+                    "paths": ["/data/headscale-data-pvc"],
+                    "struct_type": "snapshot",
+                },
+                {"name": "data", "type": "dir", "path": "/data", "struct_type": "node"},
+                {
+                    "name": "headscale-data-pvc",
+                    "type": "dir",
+                    "path": "/data/headscale-data-pvc",
+                    "struct_type": "node",
+                },
+                {
+                    "name": "db.sqlite",
+                    "type": "file",
+                    "size": 94208,
+                    "path": "/data/headscale-data-pvc/db.sqlite",
+                    "struct_type": "node",
+                },
+                {
+                    "name": "db.sqlite-shm",
+                    "type": "file",
+                    "size": 32768,
+                    "path": "/data/headscale-data-pvc/db.sqlite-shm",
+                    "struct_type": "node",
+                },
+                {
+                    "name": "db.sqlite-wal",
+                    "type": "file",
+                    "size": 2233072,
+                    "path": "/data/headscale-data-pvc/db.sqlite-wal",
+                    "struct_type": "node",
+                },
+                {
+                    "name": "noise_private.key",
+                    "type": "file",
+                    "size": 72,
+                    "path": "/data/headscale-data-pvc/noise_private.key",
+                    "struct_type": "node",
+                },
+            ]
+        )
+        + "\n"
+    )
+
+    SHRUNK = series("/data/a", size=200_000, previous_size=2_400_000)
+
+    def test_the_sidecars_are_left_out_of_the_total(self) -> None:
+        total = backup_coverage.size_without_sidecars(self.LISTING.splitlines())
+        self.assertEqual(total, 94208 + 72)
+
+    def test_a_shrunk_volume_is_listed_and_totalled_again(self) -> None:
+        self.output.write_text(self.LISTING)
+        recounts, errors = backup_coverage.recount_shrunk_volumes(
+            [claim("a")], {("apps", "/data/a"): self.SHRUNK}
+        )
+        self.assertEqual(errors, [])
+        self.assertEqual(recounts, {("apps", "/data/a"): (94280, 94280)})
+
+    def test_a_volume_that_did_not_shrink_is_never_listed(self) -> None:
+        os.environ["FAKE_RESTIC_ERROR"] = "Fatal: listed"
+        self.output.write_text("")
+        held = {
+            ("apps", "/data/a"): series("/data/a"),
+            ("apps", "/data/b"): self.SHRUNK,
+        }
+        recounts, errors = backup_coverage.recount_shrunk_volumes(
+            [claim("a"), claim("b", excluded=True)], held
+        )
+        self.assertEqual((recounts, errors), ({}, []))
+
+    def test_a_listing_restic_cannot_serve_leaves_the_shrink_failing(self) -> None:
+        os.environ["FAKE_RESTIC_ERROR"] = "Fatal: pack 1a2b damaged"
+        self.output.write_text("")
+        held = {("apps", "/data/a"): self.SHRUNK}
+        recounts, errors = backup_coverage.recount_shrunk_volumes([claim("a")], held)
+        self.assertEqual(recounts, {})
+        self.assertIn("pack 1a2b damaged", errors[0])
+        problems, _ = verdicts([claim("a")], [], [self.SHRUNK], recounts=recounts)
+        self.assertIn("shrank", problems[0])
 
 
 if __name__ == "__main__":

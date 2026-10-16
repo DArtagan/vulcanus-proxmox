@@ -388,12 +388,6 @@ constraint stops binding.
   `tofu apply` would push a mountpoint change at LXC 105**: the plan wants to add `mp4`,
   which exists, the provider misreading the slots while `mp3`'s deletion is pending.
   Re-plan after the restart before trusting an untargeted apply.
-- **The coverage check misfires two ways** (found 2026-10-16, see the evidence). Its
-  shrink rule reads a WAL checkpoint as data loss — headscale's volume "shrank" from
-  2.36 MB to 242 KB when `db.sqlite-wal` was checkpointed — and will do so for any
-  WAL-mode database volume. And the `plex-sqlite` init container was `OOMKilled` at its
-  64 Mi limit copying Plex's binaries, once. Both turn `backup-coverage` red without a
-  coverage gap, which is how a real one stops being believed.
 
 ---
 

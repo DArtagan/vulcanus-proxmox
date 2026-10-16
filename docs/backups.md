@@ -547,7 +547,8 @@ It **fails**:
 - a volume whose newest snapshot is over 26 h old, or a dump over 7 h;
 - an in-scope `ReadWriteMany` claim;
 - a volume that went empty, or any empty dump;
-- an item under half its previous size, from 1 MiB up;
+- an item under half its previous size, from 1 MiB up, a volume still so once
+  SQLite's `-wal`, `-shm` and `-journal` files are left out of both totals;
 - a current dump that is not whole, or that the store cannot serve back;
 - a SQLite copy that fails `PRAGMA integrity_check`.
 
@@ -556,6 +557,7 @@ It **reports**:
 - new items;
 - an always-empty claim;
 - a group whose claim or producer is gone;
+- a volume that halved only in SQLite's sidecar files, as a WAL checkpoint does;
 - files restic could not read on an item's latest run, normally none.
 
 A dump is whole when a SQLite copy's size matches what its header states, or a SQL
