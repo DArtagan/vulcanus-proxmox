@@ -381,19 +381,14 @@ constraint stops binding.
   uid 994, where the syncoid user is 993. Cruft, not a dependency: the syncoid module
   grants what it needs around every run.
 - **No restore runbook until Phase 6.** See the sequencing hazard there.
-- **LXC 105 carries a pending `delete mp3`** until its next restart. That was the borg
-  tree's bind mount, already released by hand; Proxmox cannot remove a mount point from
-  a running container, and applies the deletion before the next start, so the missing
-  dataset cannot fail that boot. `pct pending 105` shows it.
-- **LXC 105's books mount is moving from `mp4` to `mp3`** (2026-10-16). With `mp3`
-  gone the slots ran 0, 1, 2, 4, and the provider reads back slots `0..N-1`, so books
-  never reached state and every plan added it again. `terraform/main.tf` now declares
-  it at slot 3. The provider deletes only slots it holds in state, which `mp4` never
-  was, so after the apply that adds `mp3`, remove the old entry by hand:
-  `pct set 105 --delete mp4`. A bind mount's entry is only a config line; deleting it
-  touches no data. Then a plan should show nothing for LXC 105. Both changes stay
-  pending until the container restarts, and books stays mounted at the same path
-  throughout.
+- **LXC 105 carries pending mountpoint changes until its next restart**: books moves
+  from `mp4` to `mp3`, replacing the borg tree's bind mount, already released by hand.
+  Proxmox cannot change a running container's mount points, and applies these before
+  the next start, so the missing borg dataset cannot fail that boot; books stays at
+  `/mnt/storage/books` throughout. `pct pending 105` shows them. The renumbering
+  closed a gap at slot 3 that hid books from the provider's read-back; done and
+  verified 2026-10-16, with no plan change for LXC 105 since. The apply after it
+  drops a stale slot-4 entry from the state file.
 
 ---
 
