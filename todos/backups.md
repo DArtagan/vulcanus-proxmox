@@ -568,9 +568,11 @@ mini-nas site. Passphrase to the password manager. See *The external disk*.
   every day. Extend that rule first.
 - **The restore runbook in `docs/backups.md`** — objective 9's deliverable. It must
   carry the sequencing hazard: on a rebuilt cluster **Flux reconciles applications
-  against freshly provisioned empty PVCs, and databases initialise before any restore
-  lands.** The runbook has to suspend the relevant Kustomizations, restore, then
-  resume. Writing that ordering down before it is needed is the whole point.
+  against freshly provisioned empty PVCs, and databases initialise before any
+  restore lands.** The runbook has to suspend the relevant Kustomizations,
+  restore, then resume. Likewise, we need to account for and rebuild the
+  worker's OpenEBS disk up from fully empty, using K8up backups. Writing that
+  ordering down before it is needed is the whole point.
 
 ---
 
