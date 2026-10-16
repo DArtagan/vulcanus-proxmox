@@ -62,12 +62,16 @@ spec:
                 capabilities:
                   drop:
                     - ALL
+              # cp itself needs almost nothing, but the 107 MiB it writes is
+              # charged to this container as page cache until written back,
+              # so the limit holds the whole copy. Below it, a copy is
+              # OOM-killed now and then even with the disks idle.
               resources:
                 requests:
                   cpu: 10m
                   memory: 16Mi
                 limits:
-                  memory: 64Mi
+                  memory: 256Mi
               volumeMounts:
                 - name: tools
                   mountPath: /tools
