@@ -28,7 +28,7 @@ in `.worktrees/backups`, under review in
 | 1 | Reclaim — dead guests, orphans | done 2026-09-18 — [PR #11](https://github.com/DArtagan/vulcanus-proxmox/pull/11) |
 | 2 | Application backups — K8up + restic | done 2026-10-12 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13) |
 | 2b | Delete the borg tree | done 2026-10-13 — [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) |
-| 3 | Performance — drop the OpenEBS disks from vzdump | **in progress** — committed, not yet applied |
+| 3 | Performance — drop the OpenEBS disks from vzdump | **in progress** — applied 2026-10-16, measuring |
 | 4 | Platform images offsite — PBS #2 + sync | not started; **gated on the mini-nas disks** |
 | 5 | The offline copy — external disk | not started; needs a ~$200 purchase |
 | 6 | Verification, notification, runbook | not started |
@@ -384,10 +384,16 @@ constraint stops binding.
 - **LXC 105 carries a pending `delete mp3`** until its next restart. That was the borg
   tree's bind mount, already released by hand; Proxmox cannot remove a mount point from
   a running container, and applies the deletion before the next start, so the missing
-  dataset cannot fail that boot. `pct pending 105` shows it. **Until then an untargeted
-  `tofu apply` would push a mountpoint change at LXC 105**: the plan wants to add `mp4`,
-  which exists, the provider misreading the slots while `mp3`'s deletion is pending.
-  Re-plan after the restart before trusting an untargeted apply.
+  dataset cannot fail that boot. `pct pending 105` shows it.
+- **LXC 105's books mount is moving from `mp4` to `mp3`** (2026-10-16). With `mp3`
+  gone the slots ran 0, 1, 2, 4, and the provider reads back slots `0..N-1`, so books
+  never reached state and every plan added it again. `terraform/main.tf` now declares
+  it at slot 3. The provider deletes only slots it holds in state, which `mp4` never
+  was, so after the apply that adds `mp3`, remove the old entry by hand:
+  `pct set 105 --delete mp4`. A bind mount's entry is only a config line; deleting it
+  touches no data. Then a plan should show nothing for LXC 105. Both changes stay
+  pending until the container restarts, and books stays mounted at the same path
+  throughout.
 
 ---
 
@@ -395,7 +401,12 @@ constraint stops binding.
 
 `backup=0` on `vm-910-disk-1` and `vm-911-disk-2` (the OpenEBS data disks). Safe only
 after Phase 2, which is what makes the sequencing non-negotiable: granularity first,
-then performance.
+then performance. Nightly vzdump drives etcd's p99 WAL fsync from a 0.25 s floor to
+3.8-8.7 s; see [`etcd-disk-latency.md`](etcd-disk-latency.md). After a guest restart
+QEMU discards its dirty bitmap and the next run reads the whole 1 TB device — 142
+minutes instead of 23. Phase 2 added load of its own: the mass-file run took etcd's
+p99 to 0.651 s mean against a 0.245 s control, which is why this phase measures the
+net.
 
 **Where it stands, 2026-10-16.** `backup = false` on `virtio1` in
 `terraform/modules/proxmox_talos_vm/main.tf`, inlined rather than a variable, and the
@@ -407,23 +418,16 @@ evidence.
 
 What remains, in order:
 
-1. The user runs `wt deploy`; the review is open.
-2. From the main checkout, **targeted**, because of LXC 105's drift (*Loose ends*):
-   `tofu apply -target=module.talos_worker_0 -target=module.talos_worker_1`. The plan
-   is two in-place updates of `virtio1.disk.backup` and nothing else.
-3. Confirm it took without a restart: `qm config 910` shows `backup=0` on `virtio1`,
-   and the next task log excludes `virtio1` on both workers while `virtio0` reports
-   `dirty-bitmap status: OK`, not `created new`.
-4. Measure the after against the baseline in the evidence — a week of ordinary
+1. ~~Deploy and apply~~ — done 2026-10-16, ahead of the 10-17 backup. `qm config`
+   shows `backup=0` on both workers' `virtio1` with nothing pending, and both QEMU
+   processes date from 10-09 04:26 UTC, so the apply restarted neither.
+2. Confirm from the 10-17 task log that `virtio1` is excluded on both workers and
+   `virtio0` reports `dirty-bitmap status: OK`, not `created new`.
+3. Measure the after against the baseline in the evidence — a week of ordinary
    nights against 10-10 to 10-16; see *Verification*.
-5. The PBS datastore should shrink once the last backup holding a `virtio1` leaves
+4. The PBS datastore should shrink once the last backup holding a `virtio1` leaves
    `keep-last 31` and GC runs, from 643 GiB used on 10-16. Record the figure; Phase 4's
-   PBS #2 sizing and the mini-nas occupancy sums used ~1.2 TiB. Nightly vzdump drives etcd's p99 WAL fsync from a 0.25 s floor to
-3.8-8.7 s; see [`etcd-disk-latency.md`](etcd-disk-latency.md). After a guest restart
-QEMU discards its dirty bitmap and the next run reads the whole 1 TB device — 142
-minutes instead of 23. Phase 2 added load of its own: the mass-file run took etcd's
-p99 to 0.651 s mean against a 0.245 s control, which is why this phase measures the
-net.
+   PBS #2 sizing and the mini-nas occupancy sums used ~1.2 TiB.
 
 ## Phase 4 — platform images offsite
 

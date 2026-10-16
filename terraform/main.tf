@@ -221,6 +221,9 @@ resource "proxmox_lxc" "fileserver" {
     size = "8G"
   }
 
+  # Keep the slots contiguous from 0. The provider reads back slots 0 to N-1
+  # for N mountpoints, so a gap hides the highest from every refresh and each
+  # plan adds it again.
   mountpoint {
     key = "0"
     slot = 0
@@ -246,8 +249,8 @@ resource "proxmox_lxc" "fileserver" {
   }
 
   mountpoint {
-    key = "4"
-    slot = 4
+    key = "3"
+    slot = 3
     volume = "/rpool/storage/books"
     mp = "/mnt/storage/books"
     size = "1M"
