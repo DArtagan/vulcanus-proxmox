@@ -939,7 +939,8 @@ Worker-1's `virtio1` is 250-820 MiB dirty a night, a rounding error beside its b
 disk. On an ordinary night the OpenEBS disk is about half of VM 910's read; the large
 win is the full-read nights, 1.10 TiB that becomes 100 GiB. On 10-06 and 10-09 both
 workers' bitmaps were `created new` on every drive, so both QEMU processes had
-restarted. What restarted them was not looked into.
+restarted. For 10-09 it was the whole host: both QEMU processes and LXC 105 date from
+10-09 04:26 UTC. What restarted them before 10-06 was not looked into.
 
 The 24 h `avg_over_time` of p99, windows ending 09:50 so each holds one backup, read
 0.246-0.301 s from 10-01 to 10-16: 0.267 and 0.296 for the windows holding the two
@@ -965,9 +966,10 @@ PBS datastore: 674,588,420 KiB used (643 GiB) of 2 TB, from `pvesm status`.
   in-place updates, `virtio1.disk.backup true -> false`. Run from the worktree with
   the main checkout's state and `TF_DATA_DIR`, `-lock=false`.
 - **An untargeted apply would also touch LXC 105.** The plan wants to add `mp4`
-  (books) to `proxmox_lxc.fileserver`, which already has it; `pct pending 105` still
-  shows `del mp3`, the borg mount from 2b, and the provider misreads the slots while
-  that is pending. Hence the targeted apply.
+  (books) to `proxmox_lxc.fileserver`, which already has it. Hence the targeted apply
+  recommended here; the user applied untargeted instead, which queued all four
+  mountpoints as pending with identical values and restarted nothing. The cause is
+  under *Wrong turns*.
 - **What a PBS restore does with an excluded disk**, read from the same source.
   `restore_update_config_line` writes a `backup=0` drive's line commented out;
   `restore_cleanup_oldconf` frees only the disks being restored and keeps the rest as
@@ -1007,6 +1009,15 @@ copy whatever the cause.
 - **The first reattach command in `docs/backups.md` carried `--delete unused0`**, to
   tidy the entry. It would have freed the OpenEBS disk before attaching it. Caught by
   reading `update_vm` before committing.
+- **LXC 105's drift was put down to `mp3`'s pending deletion**, with the spec saying
+  it would clear at the next restart. It would not have. `FlattenDevicesList` in the
+  provider (v3.0.2-rc07) loops `index := 0; index < len(devices)`, so slots 0, 1, 2, 4
+  read back as 0, 1, 2 and books never reached state, even after an apply. The plan
+  never showing `mp3` was the clue: the provider reads the API's default view, pending
+  changes applied, where `mp3` is already gone and stays gone after a restart. The
+  provider also builds its delete list from state alone (`processLxcDiskChanges`), and
+  proxmox-api-go's `UpdateConfig` sends only what is set, so renumbering books to
+  slot 3 leaves `mp4` behind until it is deleted by hand.
 
 ## What phases 0 to 2b asserted
 
