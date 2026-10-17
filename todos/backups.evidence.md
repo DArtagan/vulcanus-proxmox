@@ -1018,6 +1018,60 @@ copy whatever the cause.
   provider also builds its delete list from state alone (`processLxcDiskChanges`), and
   proxmox-api-go's `UpdateConfig` sends only what is set, so renumbering books to
   slot 3 leaves `mp4` behind until it is deleted by hand.
+- **Check C was written to read returned space from `pvesm status`**, which is PBS's
+  count from inside the guest. The host's raw file, without `discard`, would not have
+  moved, so C would have passed on space vulcanus never got back. Caught 10-16 while
+  sizing PBS #2, by setting `zfs get` on `rpool/proxmox_backup_server` beside it.
+
+## Phase 4 — reassessed before starting, 2026-10-16
+
+Asked whether Phase 4 could start while the mini-nas disks are still unbought. All
+reads, nothing changed.
+
+### The disk gate, against the pool as it stands
+
+The disks are not in: mini-nas's `rpool` is still raidz1-0 and raidz1-1 at three
+disks each, and `spool` is imported on the two Toshibas, empty (1.31M allocated).
+
+| | Projected 2026-09-01 | Measured 2026-10-16 |
+|---|---|---|
+| mini-nas `rpool` used | 10.95 TiB (87%) | 9.89 of 12.57 TiB (79%), `zfs list` |
+| `rpool/foreign-backups/vulcanus/data` | 1.44 TiB | 904 GiB, of which `vm-910-disk-1` 651G, `vm-910-disk-0` 145G, `vm-107-disk-0` 17.9G |
+| PBS #2's datastore | 1.20 TiB | 643 GiB, the primary's `pvesm status` |
+| peak, PBS #2 with `rpool/data` still replicated | 93% | (9.89 + 0.63) / 12.57 ≈ 84% |
+| after the retirement | 79% | (10.52 − 0.87) / 12.57 ≈ 77% |
+
+`zpool get ashift` reads 12; compression is lz4, recordsize 128K. A 16K block on
+3-wide raidz1 is four data sectors over two data columns, two rows, two parity
+sectors, six in all, already a multiple of two: the 2:1 ratio space accounting assumes,
+so a zvol datastore costs no padding beyond its contents. lz4 gains nothing on PBS's
+already-compressed chunks.
+
+The user ruled 2026-10-16 that Phase 4 goes ahead on this, without waiting for the
+disks or Phase 3's 11-16 prune.
+
+### mini-nas's PVE
+
+`pve-cluster`, `pvedaemon` and `pveproxy` active; `pvesh get /nodes` reports 8
+CPUs, 16,640,897,024 bytes of memory, uptime ~28 days. `qm list` is empty. `ip -br
+link` lists `lo`, `eth0` and `tailscale0` — no `vmbr0`, the bridge in `proxmox.nix`
+matching `ens18`. `pvesm status` lists only `local`, a directory; there is no
+`/etc/pve/storage.cfg`. `free -g`: 15 total, 8 used, 7 available. mini-nas's
+`main.tf` carries a `proxmox_backup_server` module, commented out.
+
+### The primary datastore's footprint on vulcanus
+
+`rpool/proxmox_backup_server`: `usedbydataset` 1.61T, `usedbysnapshots` 385G,
+`logicalused` 2.00T, `compressratio` 1.00x. `vm-107-disk-0.raw` is 2.0T apparent,
+1.7T allocated by `du`. PBS's own figure, 643 GiB. `/etc/pve/qemu-server/107.conf`:
+`virtio1: proxmox_backup_server:107/vm-107-disk-0.raw,backup=0,replicate=0,size=2T`,
+no `discard`. sanoid applies `dailies` (`daily = 30`, autoprune) to the dataset; 30
+snapshots, 09-17 to 10-16. `qm agent 107` reports the guest agent not running, so the
+datastore's filesystem was not read.
+
+The 1.61T was already in the Phase 3 baseline above; what it means, a guest
+high-water mark the host never gets back, was not drawn from it until now. The user
+ruled the same day that Phase 4 builds discard and trim for both datastores.
 
 ## What phases 0 to 2b asserted
 
@@ -1087,6 +1141,11 @@ inheriting none.
   bloat was subtracted *and* the `rpool/data` retirement was subtracted, when the
   bloat lived almost entirely *inside* `rpool/data` (2.68 TiB offsite against 1.44 at
   source). The true figure is ~80% before the vdev expansion.
+- **Phase 4 was gated on the mini-nas disks for six weeks on a projection.** The 93%
+  peak was computed 2026-09-01 and never re-measured, though Phase 0's own result on
+  09-02 — 76% against a predicted 82% — said the projections ran high. Measured on
+  10-16 the peak was 84%, with every input smaller than projected. Re-measure a gate
+  set on a forecast before obeying it.
 - **4-disk raidz2 was recommended for mini-nas** on the grounds that it is free
   against 3-disk raidz1 plus a spare. True, but the relevant comparison is 4-disk
   *raidz1*, against which it costs a third of the pool — and that third is what makes

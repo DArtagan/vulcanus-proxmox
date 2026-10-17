@@ -29,7 +29,7 @@ in `.worktrees/backups`, under review in
 | 2 | Application backups — K8up + restic | done 2026-10-12 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13) |
 | 2b | Delete the borg tree | done 2026-10-13 — [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) |
 | 3 | Performance — drop the OpenEBS disks from vzdump | **in progress** — applied 2026-10-16, measuring |
-| 4 | Platform images offsite — PBS #2 + sync | not started; **gated on the mini-nas disks** |
+| 4 | Platform images offsite — PBS #2 + sync | not started; ungated 2026-10-16, **blocked first on mini-nas's PVE**, which cannot yet run a guest |
 | 5 | The offline copy — external disk | not started; needs a ~$200 purchase |
 | 6 | Verification, notification, runbook | not started |
 
@@ -38,10 +38,11 @@ retention, the restic repository, K8up's schedules and dumps, restoring, reporti
 capacity and the operational notes. The repository host is in
 [`docs/nixos.md`](../docs/nixos.md).
 
-**Two purchases gate later phases.** 2x 4 TB for the mini-nas vdev expansion, which
-Phase 4 waits on; and one 14-16 TB external disk for Phase 5. Phase 3 needs
-neither. Deferred 2026-09-01, user's call — purchasing takes time. See *Capacity,
-until the mini-nas disks arrive*.
+**One purchase gates a later phase:** one 14-16 TB external disk for Phase 5. The 2x
+4 TB for the mini-nas vdev expansion gate nothing: measured 2026-10-16, Phase 4 fits
+the pool as it stands. The expansion is still wanted for growth and the later rounds.
+Both deferred 2026-09-01, user's call — purchasing takes time. See *Capacity, until
+the mini-nas disks arrive*.
 
 ---
 
@@ -166,6 +167,17 @@ performance.
   integrity-checked from the store**, Plex's with Plex SQLite (review of PR #13).
 - **Each app's PreBackupPod lives in its own `backups.yaml`**, with one shared
   sqlite3 image under `kubernetes/k8up/` (review of PR #13).
+
+### Phase 4's
+
+- **Phase 4 does not wait for the mini-nas disks, nor for Phase 3's prune**
+  (2026-10-16), on the capacity measured that day. Verbatim: *"it sounds like
+  there's no hard limits to moving ahead with Phase 4."* Syncing before 11-16 costs
+  WAN transfer and disk work, not capacity.
+- **Space PBS frees returns to the host pool, on both datastores**, as part of what
+  Phase 4 builds (2026-10-16). Verbatim: *"We'll want to include dealing with the
+  discarding/trimming of aged-out disks as part of the system built in Phase 4."*
+  See *Returning freed space to the host*.
 
 ---
 
@@ -332,15 +344,19 @@ the evidence.
 **The standing rule: do not let vulcanus pass ~14.8 TiB used** (12.6 / 0.85). It was
 at 13.9 TiB on 2026-08-24, before Phase 1's reclaim. mini-nas read 73% after Phase 1.
 
-**Phase 4 waits for the disks.** Holding PBS #2 and a still-replicated `rpool/data`
-at the same time, at 12.6 TiB, peaks at 93%, the range where ZFS allocation degrades.
-Built after the expansion, PBS #2 goes straight onto the expanded `rpool` and
-`vulcanus-data` retires in the same phase, leaving occupancy near
-(10.95 + 1.2 − 1.8) / 17.6 ≈ **59%**. Deferring costs a format gap, not a coverage
-gap: `rpool/data` still carries the guests offsite as ZFS. *Fallback, if Phase 4 has
-to happen first:* PBS #2's datastore on `spool`, which keeps `rpool` off 93% but must
-move when `spool` is destroyed for its bays — a `zfs send` or a full ~1.2 TiB re-sync
-over the WAN. Take it only if the wait becomes long.
+**Phase 4 fits without the disks**, measured 2026-10-16. mini-nas's `rpool` holds
+9.89 of 12.57 TiB (79%), the `rpool/data` replica is 904 GiB, and PBS #2 mirrors a
+primary holding 643 GiB. Holding PBS #2 and a still-replicated `rpool/data` at once
+peaks near (9.89 + 0.63) / 12.57 ≈ **84%**, under the interim 90% warning, and
+retiring the replica leaves ≈ **77%**. raidz adds nothing on top: at ashift 12 a 16K
+block on 3-wide raidz1 takes four data sectors and two parity, the ratio ZFS's space
+accounting already assumes. The datastore goes on mini-nas's `rpool` and stays there
+through the expansion, which grows the vdevs in place.
+
+The peak arrives with PBS #2's first sync, whenever that is. A sync before 11-16, when
+Phase 3's last `virtio1` backups leave the primary, also carries the OpenEBS disks'
+chunks, whose share of the 643 GiB check C measures; they are pruned that night, and
+come back to mini-nas only through *Returning freed space to the host*.
 
 **mini-nas's pool-health thresholds are 90% warning / 94% critical until the
 expansion**, against 80/90 everywhere else, so a warning does not fire continuously
@@ -427,7 +443,7 @@ after — 06:00 Eastern throughout — and has been finishing by about 10:35. Ea
 | **10-17, after 11:00** | A. First night | `virtio1` gone from the backup, nothing restarted |
 | **10-24, after 11:00** | B. The week, nights 10-17 to 10-23 | clearly better than 10-10 to 10-16 |
 | 11-16 | 10-16's backup, the last holding a `virtio1`, leaves `keep-last 31` in that night's run | — |
-| **first GC after 11-16, ~11-24** | C. PBS space returned | well under 643 GiB |
+| **first GC after 11-16, ~11-24** | C. PBS space returned | PBS's own figure well under 643 GiB |
 | the morning after a worker's QEMU restarts | D. The full-read case | VM 910 far under 49 min |
 | after LXC 105's next restart | E. Books on `mp3` | see below |
 
@@ -464,12 +480,23 @@ failures all week, and no `OOMKilled` init container. If B passes, Phase 3 close
 results into the evidence, the status table marked done, and the review closed at
 this boundary if the user chooses. C can be recorded after.
 
-**C — ~11-24.** The 11-16 run prunes the last backup holding a `virtio1`; the space
-returns at PBS's next weekly GC, whose day is not recorded — PBS refuses SSH from
-the workstation; the GUI shows it under Datastore → primary → Prune & GC. After
-it has run, `ssh root@vulcanus.forge.local 'pvesm status --storage pbs'` and record
-the used figure against 643 GiB. Phase 4's PBS #2 sizing and the mini-nas occupancy
-sums used ~1.2 TiB.
+**C — ~11-24.** The 11-16 run prunes the last backup holding a `virtio1`; its chunks
+go at PBS's next weekly GC, whose day is not recorded — PBS refuses SSH from the
+workstation; the GUI shows it under Datastore → primary → Prune & GC. After it has
+run, record both views:
+
+```bash
+ssh root@vulcanus.forge.local 'pvesm status --storage pbs; zfs get -H -o property,value usedbydataset,usedbysnapshots rpool/proxmox_backup_server'
+```
+
+`pvesm status` is PBS's own count of its chunks, read from inside the guest. It should
+fall well under 643 GiB, and it is the figure that sizes PBS #2. The host's figures
+do not follow it: `virtio1` has no `discard`, so the raw file keeps every block the
+guest has ever written — 1.61 TiB on 10-16 — and sanoid's 30 dailies of
+`rpool/proxmox_backup_server` held 385 GiB more. Until Phase 4's trim has landed and
+a month of those snapshots has rolled over, an unchanged host figure is expected and
+not a failure of C. If the trim is in by then, record the date it went in beside the
+host figures.
 
 **D — opportunistic.** A host reboot, `qm stop`/`start`, or an apply that reboots a
 worker; a reboot from inside Talos keeps the QEMU process and does not count. The
@@ -483,8 +510,32 @@ nothing for LXC 105.
 
 ## Phase 4 — platform images offsite
 
-**Gated on the two mini-nas disks**, and its datastore goes on the expanded `rpool`;
-see *Capacity, until the mini-nas disks arrive*, including the `spool` fallback.
+**Not gated on the mini-nas disks**; its datastore goes on mini-nas's `rpool` as it
+stands. See *Capacity, until the mini-nas disks arrive*. What blocks it first is the
+host.
+
+### mini-nas's PVE has never run a guest
+
+Read 2026-10-16. PVE's services are active and `pvesh get /nodes` answers, but
+`qm list` is empty and nothing a guest needs exists:
+
+- **No `vmbr0`.** `proxmox.nix` enslaves an interface matched as `ens18`, beside a
+  `TODO: double check this`; the NIC is `eth0`, so the bridge was never created.
+  Fixing it moves the host's LAN address onto the bridge, and Tailscale rides the
+  same NIC, so a mistake cuts the host off remotely. Deploy it with a path back that
+  needs no network — deploy-rs's magic rollback, wired up as `deploy .#mini-nas` — or
+  with someone on site.
+- **No storage for a guest disk.** `local`, a directory, is the only storage, and
+  `/etc/pve/storage.cfg` does not exist.
+- **15 GiB of RAM, ~7 GiB available.** PBS's own requirements, not yet read, decide
+  what the VM gets and whether that is enough.
+- **Two starting points:** a `proxmox_backup_server` module commented out in
+  mini-nas's `main.tf` from an earlier attempt, and vulcanus's
+  `terraform/modules/proxmox_backup_server/`.
+
+Prove the host boots and networks a guest before building PBS on it.
+
+### PBS #2
 
 Second PBS VM on mini-nas's Proxmox VE — **not** the NixOS module. proxmox-nixos
 lists "Proxmox backup server" under its **Roadmap**, and the module is 101 lines
@@ -501,6 +552,35 @@ because a zvol is opaque to the host and cannot be verified from outside. PBS #2
 VM with exactly that property. The difference is that PBS verifies *itself* from
 inside the guest, which restic on a zvol would not. The in-guest verify job is
 load-bearing, not optional, and is the reason the two decisions are consistent.
+
+### Returning freed space to the host
+
+Built for both datastores; user's call 2026-10-16. PBS frees space by deleting chunk
+files at GC, inside the guest. The host gets it back only if the datastore disk
+passes discards down and the guest issues them; otherwise the raw file or zvol holds
+the guest's high-water mark forever. Prune, the two-year expiry and `remove-vanished`
+all free space this way, so without it none of them frees anything on the host. The
+primary shows the cost: on 10-16 PBS counted 643 GiB while `vm-107-disk-0.raw` held
+1.61 TiB and sanoid's snapshots of its dataset 385 GiB more — 1.99 TiB of vulcanus
+for 643 GiB of backups.
+
+- **`discard=on` on each datastore disk.** PBS #2's from creation; the primary's on
+  `virtio1` in `terraform/modules/proxmox_backup_server/main.tf`. PVE refuses to
+  change `discard` on a running VM (`vmconfig_update_disk`, in the evidence under
+  Phase 3), so the primary's takes effect at VM 107's next restart — schedule it clear
+  of vzdump and of the sync.
+- **A trim in the guest after GC**: the datastore mounted with `discard`, or a
+  scheduled `fstrim` placed after the weekly GC. Which one PBS's documentation
+  recommends, and the primary datastore's filesystem, are not yet read — its guest
+  agent is not running.
+- **Snapshots of a datastore delay the return by their retention.** sanoid's
+  `dailies` on `rpool/proxmox_backup_server` pin trimmed blocks for 30 days. Whether
+  that rollback is worth its space is open, for the user. PBS #2's disk is outside
+  sanoid on mini-nas, which covers only `rpool/foreign-backups/vulcanus/*`, and
+  should stay so.
+- **The primary's first trim returns about 1 TiB** to vulcanus — 1.61 TiB in the file
+  against 643 GiB live, more after Phase 3's prune — and the snapshots' 385 GiB a
+  month later. It counts against the ~14.8 TiB standing rule.
 
 ### Retiring `rpool/data` from replication — except the PBS appliance
 
@@ -648,7 +728,11 @@ What phases 0 to 2b asserted is in the evidence.
   becoming 100 GiB, is the larger win and has no matched night until something
   restarts a worker's QEMU process.
 - **Phase 4** — a verify job passing on the mini-nas datastore, and a test restore of
-  one guest **from the offsite copy**. `zfs-replication-freshness` stays green across
+  one guest **from the offsite copy**. The trim is asserted from the host, not the
+  config: after a GC and a trim, each datastore disk's footprint on its host pool sits
+  near PBS's own used figure plus filesystem overhead, closing the 1.61 TiB against
+  643 GiB measured on 10-16. `discard=on` in the config cannot fail for the reason
+  that matters, a guest that never trims; a standing rule on that gap is Phase 6's. `zfs-replication-freshness` stays green across
   the `rpool/data` retirement, which is what says the source-root trim and the replica
   destroy landed together rather than one without the other. Green is not enough on its
   own here, because the narrowed command must still be *doing* something: assert that
@@ -674,6 +758,13 @@ Inheriting mistaken reasoning is worse than inheriting none. The full list, with
 operational slips of each phase, is in the evidence; these are the ones the remaining
 phases could repeat.
 
+- **Phase 4 was gated for six weeks on a 93% peak projected 2026-09-01** and never
+  re-measured, though Phase 0 had already landed at 76% against a predicted 82%.
+  Measured on 10-16 it was 84%. Re-measure a gate set on a forecast before obeying it.
+- **Phase 3's check C read returned space from `pvesm status`**, PBS's view from
+  inside the guest. vulcanus's capacity is the host's view, which without discard
+  never moves, so C would have reported space the pool never got back. Read a
+  capacity figure from the pool it is meant to describe.
 - **proxmox-nixos was described as "shipping" a `proxmox-backup` module.** It does,
   but the project lists "Proxmox backup server" under its **Roadmap** and the module
   exposes only `enable` and `localIP`. Read the roadmap, not just the module list.
