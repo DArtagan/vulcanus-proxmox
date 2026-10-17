@@ -1073,6 +1073,133 @@ The 1.61T was already in the Phase 3 baseline above; what it means, a guest
 high-water mark the host never gets back, was not drawn from it until now. The user
 ruled the same day that Phase 4 builds discard and trim for both datastores.
 
+## Phase 4 — designed 2026-10-17
+
+A design session, all reads; nothing on either host was changed. The decisions are
+in the spec. This is what they rest on, and what was weighed and left.
+
+### Read from the hosts
+
+**vulcanus.** `pve-manager/9.2.20`, kernel `7.0.14-17-pve`. `atime=off`
+(`relatime=on`) on `rpool`, inherited by `rpool/proxmox_backup_server` and
+`rpool/backups/restic`. VM 107: 2 cores, 2048 MiB, `agent: 0`, guest agent not
+running. The `pbs` storage entry: `datastore primary`, `server 192.168.0.107`,
+`prune-backups keep-all=1`, **`username root@pam`**. The vzdump job carries
+`prune-backups keep-last=31`, `exclude 107`, `schedule 4:00`. `/dev/net/tun` exists on
+the host. LXC 108 is unprivileged with `nesting=1`. Guests: 103, 104, 105, 108 (LXC);
+107, 900, 910, 911 (VM). sanoid: `[rpool/backups]` is `template_backups`, recursive,
+with `[rpool/backups/restic]` overriding it to `dailies`. `zfs list`: `rpool` 11.8T
+used; `rpool/proxmox_backup_server` 1.99T, `rpool/data` 989G, `rpool/backups/restic`
+306G.
+
+PBS groups, from `pvesh get /nodes/vulcanus/storage/pbs/content`: `ct/103`, `ct/104`,
+`ct/105` 31 snapshots each, `ct/108` 26, `vm/900`, `vm/910`, `vm/911` 31 each, and
+`vm/100` 1, written 2026-09-18 23:24 UTC. **No `vm/200`**: the spec dated the first
+possible expiry from it, though Phase 1 had already forgotten it, along with `vm/101`
+and `vm/106`. 109 is unused as a VMID and has no group.
+
+**mini-nas.** `systemd-networkd` inactive, `dhcpcd` active, `NetworkManager` inactive.
+`networkctl` lists `eth0` as `unmanaged`; `/etc/systemd/network/` holds only
+`40-eth0.link`. So `proxmox.nix`'s `systemd.network` units have no effect at all, not
+just the `ens18` match. `eth0` holds `192.168.1.11/24` by DHCP (`proto dhcp`, metric
+1002) and several SLAAC IPv6 addresses. One global address is EUI-64, so it already
+carries the MAC to every IPv6 peer. `rpool` `atime=off`,
+`compression=lz4`; `zpool list` shows 19.1T raw, 78% capacity, and `zfs list` 9.90T
+used, 2.67T available. `free -g`: 15 total, 4 free, 7 available, 31 swap. Tailscale:
+`100.64.0.8`, `RouteAll: false` (no `--accept-routes`), offering an exit node. PVE
+`9.2.10` per `pvesh get /version`; `pveversion` is not on the PATH.
+
+### Read from the sources
+
+Against `git.proxmox.com`, `HEAD` on 2026-10-17, `proxmox-backup` at 4.2.8-1. The
+GitHub mirror `proxmox/proxmox-backup` was last pushed 2024-06-05 and is not a source.
+
+- **Pull sync does not carry the protected flag.** `src/server/pull.rs`'s snapshot
+  pull loads the manifest, indexes, chunks and client log; `.protected` appears only
+  where `remove-vanished` declines to delete a protected snapshot (l. 1394, 1523,
+  1824). It also strips `verify_state`, `key-fingerprint` and the sync signature from
+  the copied manifest's unprotected section (l. 865-871), so a copy's verification
+  state is its own store's.
+- **Pull skips snapshots older than the newest local one** (`SkipReason::AlreadySynced`).
+- **Prune skips protected snapshots and does not count them toward `keep-last`**:
+  `pbs-datastore/src/prune.rs` marks a protected snapshot `Protected` and `continue`s
+  before it reaches the keep count.
+- **Forgetting a group leaves its protected snapshots**: `backup_info.rs` counts them
+  as `unremoved_protected` and removes the rest; destroying a protected snapshot bails.
+- **A dirty bitmap is per disk, per QEMU process.** `pve-qemu`'s
+  `0027-PVE-Backup-Proxmox-backup-patches-for-QEMU.patch` finds
+  `pbs-incremental-dirty-bitmap` on the disk's own block node, so a newly attached
+  disk has none and is read in full (`created new`). An existing bitmap is used only
+  if `proxmox_backup_check_incremental` passes; otherwise the whole bitmap is marked
+  dirty (`invalid`). In `proxmox-backup-qemu`, that check
+  (`check_last_incremental_csum`, `src/commands.rs`) verifies that the group's
+  previous manifest holds the device's archive with the checksum this process last
+  uploaded (`PREVIOUS_CSUMS`, keyed by device name) and the same size. A replaced disk
+  at the same slot, a reused VMID or a pruned previous snapshot can therefore cost a
+  full read, never a mixed disk. Chunks are addressed by SHA-256, so two disks share
+  a chunk only where their bytes are identical.
+
+### What reuse means, worked through
+
+A snapshot names each disk by slot (`drive-virtio1.img.fidx`) and carries its own guest
+config, so restoring any one snapshot brings back that machine as it was. A disk added
+at a new slot is a new archive; a disk replaced at the same slot leaves the old one in
+older snapshots under the same name. `vm/105` and `ct/105` are different groups. What
+collides is retention: a reused VMID appends to the old group and `keep-last` evicts
+the earlier machine within 31 runs. Protecting the earlier machine's snapshots keeps
+them out of `keep-last`'s count and out of the expiry, which is why reuse detection
+has to skip protected snapshots, or it would alert for as long as they are kept.
+
+### Options weighed
+
+- **The sync's direction.** Push needs a credential on the primary that can modify
+  PBS #2 — `Remote.DatastoreModify` for removing vanished content — so a compromised
+  primary could wipe the offsite copy. Pull was chosen.
+- **The route between them.** The user first leaned towards routing a VM on mini-nas
+  through mini-nas's own Tailscale. Raised against it: masqueraded traffic reaches
+  vulcanus as mini-nas, a `will@` node, so the guest would inherit every `will@` grant
+  — the Kubernetes and Talos APIs, fileserver SSH, the Proxmox UI — unless an nftables
+  rule on mini-nas narrowed it. mini-nas also does not accept routes. Tagged nodes
+  with one grant were chosen once both hosts became containers.
+- **Configuration management.** No Terraform provider for PBS was fit for a backup
+  system: `yavasura/terraform-provider-pbs` was created 2026-03-16, has one release
+  (0.1.1) and no stars; `jkossis/terraform-provider-proxmox` was created 2026-05-29.
+  An API reconciler run from LXC 108 was described and not chosen: it would be a
+  program to write and own, doing what nixos-pbs's module does locally.
+- **nixos-pbs.** AWildLeon/nixos-pbs, 7 stars, last pushed 2026-10-14; packaged at
+  PBS 4.2.3 with a module declaring datastores and prune/verify/sync jobs and a VM test
+  covering backup, restore, verify and GC; nixpkgs PR #543254 open since 2026-07-18,
+  not a draft. proxmox-nixos still lists PBS under its Roadmap.
+- **The form.** Four were compared: PBS native on mini-nas's host; a stock PBS VM;
+  NixOS VMs on both hosts; and NixOS containers on both. Native on the host avoided
+  mini-nas's networking work, but put two Proxmox stacks' packaging on one host, and
+  left the primary a Debian VM. NixOS VMs put both under Nix but kept block-device
+  datastores and the trim problem with them. Containers on datasets take the Nix
+  configuration and remove the trim problem on both stores; their costs are running
+  PBS doubly off the supported path, the `buildFHSEnv`-under-an-unprivileged-container
+  question the spike answers, and the primary's migration.
+- **`remove-vanished`.** The spec had PBS #2 mirroring the primary with it. The user
+  asked in which cases a mistaken forget would remove redundancy: a wrong expiry, a
+  hand forget, a retention edit, a primary rebuilt empty, and a compromised vulcanus
+  holding `root@pam`'s password. All reach PBS #2 with it, none without, so PBS #2
+  keeps its own retention.
+- **Archiving.** A declared archive list in Nix was offered against the protected
+  flag. The user asked whether a service could mirror protection between the stores,
+  which the source showed sync does not do itself; that is the protection mirror.
+  Mirroring only additions was offered, so that nothing on the primary could remove
+  protection offsite; the user chose the full mirror.
+- **Discard on VM 107.** No longer built: VM 107 retires at 4b, and a restart for
+  `discard=on` buys nothing a destroy does not. The 10-16 ruling that freed space
+  returns to the host is met by the datasets.
+
+### Tailscale registration
+
+`docs/tailnet.md` and `~/dotfiles/modules/tailscale` record that nodes register
+interactively and that no reusable pre-auth key is kept, being a single point of
+failure for the whole tailnet; `ansible/proxmox-tailscale.yaml` records that the tag is
+applied server-side with `headscale nodes tag`, because advertising it forces
+re-authentication. The PBS hosts follow both.
+
 ## What phases 0 to 2b asserted
 
 - **Phase 0** — `Result=success` on all four mini-nas units; offsite snapshot count
