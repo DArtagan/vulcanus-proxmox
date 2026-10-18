@@ -1195,6 +1195,20 @@ has to skip protected snapshots, or it would alert for as long as they are kept.
   bridge. Letting the kernel copy the lowest port MAC (`MACAddress=none`) was ruled
   out, since a container's random veth MAC can be lower than `eth0`'s. The user chose
   a static address "for now"; the address is already in the repository in plaintext.
+- **The two-year expiry of retired guests, dropped 2026-10-18.** Working out how to
+  build it, `DELETE /admin/datastore/{store}/groups` was confirmed as the call
+  (`src/api2/admin/datastore.rs`; `Datastore.Modify`, or `Datastore.Prune` on an owned
+  group), with protected snapshots surviving it, and `proxmox-backup-client group
+  forget` ruled out for a timer because it always asks for confirmation. Building it
+  safely meant clock guards, since a clock jumped forward would select every group,
+  plus boundary tests, notices, timers on both stores and probably a lag between
+  them. Asked what it was for: it acts only on frozen groups, a frozen group is never
+  touched by anything else (`keep-last` counts snapshots, not age), and today there is
+  one, `vm/100`, a single snapshot that added 141 GiB, first eligible on 2028-09-18.
+  Retired guests have come about four in five years, mostly Talos nodes that dedup
+  against their siblings. It would have been the only automated deletion across both
+  stores. A two-year Pushover prompt was offered in its place, and the user chose to
+  build nothing: frozen groups are kept until forgotten by hand, on both stores.
 - **Discard on VM 107.** No longer built: VM 107 retires at 4b, and a restart for
   `discard=on` buys nothing a destroy does not. The 10-16 ruling that freed space
   returns to the host is met by the datasets.

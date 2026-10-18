@@ -114,9 +114,11 @@ performance.
 - **mini-nas moves to 4-disk raidz1 vdevs** — the only geometry under which a 2x
   disk upgrade on vulcanus is sustainable.
 - **Backup coverage is opt-out, not opt-in** (K8up's own default).
-- **A deleted guest's disks retain exactly as a live guest's would**, on both layers,
-  with nothing destroyed automatically — freeing that space is a deliberate act after
-  inspecting what is there.
+- **A deleted guest's backups outlive it**, on both PBS stores, until forgotten by
+  hand after inspecting what is there. Nothing expires them automatically
+  (2026-10-18). Verbatim: *"if we build nothing - nothing is lost. The data is
+  smoothly retained, and it's just on the user to delete the backups... eventually,
+  once/if needed."*
 - **A reused VMID is reported and pushed to Pushover, never failed** (2026-09-19).
   Failing `pbs-freshness` would hold it down for up to 31 runs, and healthchecks
   notifies only on transitions, so a genuine backup failure inside that window would
@@ -276,7 +278,6 @@ What runs today is under *Retention* in `docs/backups.md`. Still to come:
 | Store | Policy | Depth |
 |---|---|---|
 | **PBS #2** | its own `keep-last 31`, synced without `remove-vanished`; protection mirrored from the primary | 31 runs — 4a |
-| **Both PBS stores, retired guests** | forget a group whose newest backup is over two years old, sparing protected snapshots | 2 y — 4a and 4b |
 | **PBS primary** | `keep-last 31` moves from vzdump into a PBS prune job | 31 runs — 4b |
 | **External disk** | keep-monthly 12, keep-yearly 3 | 3 y |
 
@@ -295,7 +296,6 @@ about 35 minutes. The PBS jobs below clear it in both.
 |---|---|---|
 | 12:00 | sync, then protection mirror, then prune — one chain | PBS #2, from 4a |
 | 13:00 | prune, after PBS #2 has pulled | primary, from 4b |
-| 13:30 | two-year expiry | both PBS stores |
 | Sat 14:00 | GC | both PBS stores |
 | Sun 14:00 | PBS verify | both PBS stores; the primary's from 4b |
 | Sun 15:00 | `restic check --read-data-subset` | repository host |
@@ -576,8 +576,8 @@ Not gated on the mini-nas disks; see *Capacity, until the mini-nas disks arrive*
 3. The Headscale policy: tags and grants. Both PBS hosts register interactively.
 4. VM 107, through Ansible: Tailscale as `tag:pbs-primary`, and the sync user and
    token.
-5. PBS #2's datastore and jobs: the remote, the sync chain, prune, the expiry, GC,
-   verify, the webhook target and `pbs-offsite-freshness`.
+5. PBS #2's datastore and jobs: the remote, the sync chain, prune, GC, verify, the
+   webhook target and `pbs-offsite-freshness`.
 6. The first sync and the first verify. 643 GiB crosses the WAN, at a rate not yet
    measured.
 7. Both test restores, then `rpool/data` narrows to `vm-107-disk-0`.
@@ -697,7 +697,13 @@ namespace keeps vulcanus's groups apart from anything mini-nas's own PVE might b
 up there.
 
 Both stores run the same policy from the shared module: `keep-last 31` per group as a
-PBS prune job, the two-year expiry below, a weekly GC and a weekly verify.
+PBS prune job, a weekly GC and a weekly verify.
+
+**A retired guest's group is kept until forgotten by hand, on both stores.** Nothing
+expires it: `keep-last` counts snapshots rather than age, so prune leaves a group
+that has stopped receiving backups as it is. Freeing that space is a deliberate act
+after inspecting what is there, and a forget on the primary does not reach PBS #2,
+so it is done on both.
 
 **PBS #2's daily chain is sequenced, not merely scheduled in order:** sync, then the
 protection mirror, then prune. A snapshot newly protected on the primary but already
@@ -714,9 +720,10 @@ groups that user as owner, so nothing is re-owned by hand.
 
 **Archiving is PBS's protected flag.** Prune neither removes a protected snapshot nor
 counts it toward `keep-last`, and forgetting a group leaves its protected snapshots
-in place, so a protected snapshot outlives both the eviction and the expiry for as
-long as it stays protected. Archiving a retired guest, or the earlier machine of a
-reused VMID, is protecting its snapshots on the primary.
+in place. A retired guest needs none of this, since nothing prunes its group. What
+needs it is the earlier machine of a reused VMID, which `keep-last` would otherwise
+evict within 31 runs, and anything worth keeping through a hand forget. Archiving is
+protecting the snapshots on the primary.
 
 **Sync does not carry the flag:** a pull copies a snapshot's manifest, indexes and
 chunks, but not its `.protected` marker. So PBS #2 runs a **protection mirror**,
@@ -731,55 +738,21 @@ and its token. Ansible reaches it over SSH, which VM 107 refuses from the workst
 until the key is installed once through its console. Its verify job waits for 4b, and
 it gets no `discard`: it retires rather than trims.
 
-### Deleted guests expire at two years
-
-Decided 2026-09-18: a group whose newest backup is older than two years is forgotten
-entirely. No ladder, no thinning — user's call: *"keep it simple with just a two-year
-expiration of the whole group."* Thinning would not pay for itself anyway: PBS dedups
-at 37x, and a dead guest's 31 backups are one full plus thirty deltas of a machine
-that stopped changing. All of the space is in the cliff.
-
-**The predicate carries no liveness question:**
-
-> Forget any group whose newest backup is older than two years.
-
-A live, in-scope guest cannot have a two-year-old newest backup — if one does,
-`pbs-freshness` already reports it. So the job never asks whether a guest still
-exists: no source list, no SSH, and none of the false-positive path that sank the
-quarantine design (see the wrong turns). A live but *excluded* guest falls under the
-same rule deliberately; a two-year-old backup of a running machine is not one anyone
-restores. Protected snapshots stay, by PBS's own semantics.
-
-**It runs on both stores**, a local timer from the shared module — PBS #2's from 4a,
-the primary's from 4b. VM 107 needs none: the only frozen group, `vm/100`, last
-written 2026-09-18, is first eligible on 2028-09-18. It is the RancherOS guest, and
-its root disk carries the old `docker-vulcanus` tree; the one thing wanted from it,
-the Fallgrane Minecraft server, was extracted to `rpool/storage/media` during Phase 2b
-and replicates with it, so it expires with nothing wanted lost.
-
-**Why it lands in this phase.** Until `vulcanus-data` is retired from syncoid, mini-nas
-still holds guest zvols that no age rule expires: sanoid has no age term, and
-`replica-shallow` carries only dailies. A two-year PBS policy shipped before that
-would be fiction, because the effective retention would be the longer of the two,
-which is forever. If this phase slips past 2028-09, the fallback is the symmetric job
-on mini-nas: destroy a replica dataset whose newest snapshot is older than two years.
-
-**PBS has no native job for this** — prune jobs thin, they do not forget — so it is a
-timer and a script: list groups, compare the newest backup's timestamp, forget the
-group. The GUI forgets a group in one action, so the capability is certain; the CLI or
-API call that does it is not yet confirmed and should be before this is built.
-
 ### Reporting
 
 - **`pbs-offsite-freshness`**, a healthchecks check pinged from PBS #2. It passes only
-  when every group on the primary has a snapshot on PBS #2 under 26 h old, and when
-  neither store holds a snapshot past the verify interval that is unverified or
-  failed. Asserted from the stores rather than from the jobs, as `pbs-freshness` is,
-  and it dies with PBS #2, which the check's period catches. Verification state is
+  when each group's newest snapshot on the primary, once 26 h old, is on PBS #2 too,
+  and when neither store holds a snapshot past the verify interval that is unverified
+  or failed. Comparing newest snapshots rather than ages lets a frozen group pass,
+  having nothing new to copy, while a live group fails within a day of its sync
+  stopping. Asserted from the stores rather than from the jobs, as `pbs-freshness`
+  is, and it dies with PBS #2, which the check's period catches. A group on PBS #2
+  that the primary no longer holds is reported, not failed: it is what a hand forget
+  on the primary leaves offsite. Verification state is
   per store: a pull strips `verify_state` from the manifests it copies, so PBS #2's
   comes from its own verify, which is load-bearing for that reason.
 - **Job failures go to Pushover** through PBS's webhook notification target: sync,
-  prune, verify, GC, the mirror and the expiry. No check is spent. A GC that stops
+  prune, verify, GC and the mirror. No check is spent. A GC that stops
   running is not asserted; the space it would have freed reaches pool-health.
 - **`pbs-freshness` skips protected snapshots when detecting a reused VMID**, so
   archiving the earlier machine ends the alerts, and the alert tells the reader to
@@ -795,6 +768,11 @@ Both from PBS #2, restored unstarted with the network disconnected, then destroy
   `tag:vulcanus-subnet` to `tag:pbs-offsite:8007`, both removed once it passes. Day to
   day nothing on vulcanus reaches PBS #2; a restore onto a rebuilt vulcanus creates
   them first, which the Phase 6 runbook carries.
+
+  It is restored at a VMID added to vzdump's `exclude` for as long as it exists. The
+  job is `all 1`, so a scratch guest still present at the nightly run would be backed
+  up into a group of its own, which freezes the moment the guest is destroyed and is
+  then kept until someone forgets it.
 
 ### Retiring `rpool/data` from replication
 
@@ -840,7 +818,7 @@ Once 4a has run cleanly:
    userspace mode, and vzdump's exclusion.
 2. **A local pull from VM 107** into it, owned by the new vzdump user, then a verify.
 3. **The cutover, together:** PVE's `pbs` storage repointed — server, datastore,
-   credential and fingerprint — with vzdump at `keep-all`; the primary's prune, expiry,
+   credential and fingerprint — with vzdump at `keep-all`; the primary's prune,
    verify and webhook target enabled; `tag:pbs-primary` moved; PBS #2's remote
    repointed. A copy keeps each snapshot's time, so PBS #2's sync carries on where it
    was, a pull skipping whatever is older than its newest local snapshot. vzdump's
@@ -913,10 +891,8 @@ What phases 0 to 2b asserted is in the evidence.
   - **The protection mirror** sets a scratch snapshot's flag on PBS #2 after it is
     protected on the primary, clears it after it is cleared, and a protected snapshot
     past `keep-last` survives PBS #2's prune.
-  - **The two-year expiry** runs as a dry run with the threshold lowered until it
-    selects `vm/100` and nothing else, because at two years it correctly names nothing
-    and a job that has only ever matched nothing is untested. Not for real: `vm/100`
-    is the only frozen group, and is kept until 2028-09-18.
+  - **A frozen group passes `pbs-offsite-freshness`**: `vm/100` reads green, and a
+    group forgotten on the primary only is reported, not failed.
   - **Reuse detection** ignores a protected snapshot, in `test_pbs_freshness.py`.
   - **`rpool/data`'s narrowing at the end of 4a:** `zfs-replication-freshness` stays
     green across it, which is what says the source-root change and the replica
@@ -958,9 +934,10 @@ phases could repeat.
   matched `ens18` where the NIC is `eth0`, but `systemd-networkd` was not running at
   all, so the fix was never one line. Read what the running system uses, not only what
   its config declares.
-- **The spec named `vm/200` as the oldest frozen group** for the expiry's first date,
-  a group Phase 1 had already forgotten. Listing the groups on 10-17 left `vm/100` as
-  the only one. A date derived from an inventory goes stale with it.
+- **A two-year expiry of retired guests was designed, and dropped before it was
+  built.** Asked what it was for, it would have acted once, in 2028, on `vm/100`'s
+  141 GiB, while being the only automated deletion across both stores. Ask what
+  case a mechanism serves, and what not building it costs, before designing it.
 - **Phase 3's check C read returned space from `pvesm status`**, PBS's view from
   inside the guest. vulcanus's capacity is the host's view, which without discard
   never moves, so C would have reported space the pool never got back. Read a
