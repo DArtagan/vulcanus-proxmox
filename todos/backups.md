@@ -207,8 +207,8 @@ Decided 2026-10-17, in designing the phase:
   PBS's webhook target.
 - **Two test restores from PBS #2**: `vm/900` onto mini-nas, `ct/104` onto vulcanus,
   the latter's token and grant removed afterwards.
-- **mini-nas's bridge clones `eth0`'s MAC**, deployed with `nh os switch` and the
-  JetKVM as fallback.
+- **mini-nas's bridge takes a static `192.168.1.11`**, deployed with `nh os switch`
+  and the JetKVM as fallback.
 - **`rpool/data` leaves replication in two steps**: narrowed to `vm-107-disk-0` at the
   end of 4a, retired at 4b.
 - **VM 107 is destroyed after 31 nights on the new primary**, the user confirming.
@@ -646,10 +646,13 @@ Read 2026-10-17; see the evidence. PVE's services run, but no guest ever has.
 - **Networking.** `proxmox.nix` declares `vmbr0` over `systemd.network`, but
   `systemd-networkd` is inactive and `dhcpcd` owns `eth0`, so none of it applies —
   the `ens18` match is the lesser fault. The fix enables networkd, turns dhcpcd off,
-  enslaves `eth0` to `vmbr0` and runs DHCP on the bridge, with **`eth0`'s MAC address
-  set on `vmbr0`** so the router sees the same client and `192.168.1.11` holds: tofu,
-  deploy-rs and ssh all use that address. Deployed with `nh os switch`, the JetKVM
-  console the way back if it goes wrong.
+  enslaves `eth0` to `vmbr0` and gives the bridge **a static `192.168.1.11/24`**,
+  gateway `192.168.1.1`, with the resolvers DHCP supplies today set explicitly and
+  IPv6 still taken from router advertisements. The bridge's MAC differs from `eth0`'s,
+  so DHCP could hand it a new address, and tofu, deploy-rs and ssh all use this one.
+  The router must not lease `.11` to anything else: it is reserved there or outside
+  its pool, read before the switch. Deployed with `nh os switch`, the JetKVM console
+  the way back if it goes wrong.
 - **Guest storage.** `local`, a directory, is the only storage, and
   `/etc/pve/storage.cfg` does not exist. The container's rootfs needs a ZFS storage.
 - **The datastore**, `rpool/pbs`, created on the host and bind-mounted.

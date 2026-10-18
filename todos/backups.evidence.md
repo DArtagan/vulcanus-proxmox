@@ -1188,6 +1188,13 @@ has to skip protected snapshots, or it would alert for as long as they are kept.
   which the source showed sync does not do itself; that is the protection mirror.
   Mirroring only additions was offered, so that nothing on the primary could remove
   protection offsite; the user chose the full mirror.
+- **mini-nas's address on the bridge.** A bridge gets its own MAC, so DHCP on it may
+  lease a new address. Cloning `eth0`'s MAC was chosen first, then dropped: mini-nas's
+  repository is public, and keeping the MAC encrypted means sops-nix rendering a
+  networkd drop-in at activation, which networkd applies only when it creates the
+  bridge. Letting the kernel copy the lowest port MAC (`MACAddress=none`) was ruled
+  out, since a container's random veth MAC can be lower than `eth0`'s. The user chose
+  a static address "for now"; the address is already in the repository in plaintext.
 - **Discard on VM 107.** No longer built: VM 107 retires at 4b, and a restart for
   `discard=on` buys nothing a destroy does not. The 10-16 ruling that freed space
   returns to the host is met by the datasets.
