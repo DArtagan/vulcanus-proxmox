@@ -22,9 +22,8 @@ is there now.
 | step | repository | what | state |
 |---|---|---|---|
 | — | reelbarrow | design | **complete** 2026-10-05; now reelbarrow `docs/design.md` |
-| — | reelbarrow | repository, devenv, CI, release-please, image publishing | **scaffolded** 2026-10-18; CI green, release PR #1 for `0.1.0` open |
-| — | here | `kubernetes/apps/reelbarrow/`, dry run, share read-only | **written** on this branch; not listed in `kubernetes/apps/kustomization.yaml` |
-| 1 | both | first release running in the cluster: reelbarrow `release-pipeline` | not started |
+| — | reelbarrow | repository, devenv, CI, release-please, image publishing | **done** 2026-10-18; `0.1.0` published from tag `reelbarrow-v0.1.0`, pulls anonymously |
+| 1 | both | first release running in the cluster: reelbarrow `release-pipeline` | **deploying** 2026-10-18 |
 | A | here | ARM dispatcher and manifest hook | not started |
 | B | here | one-off manifest export for jobs 1–41 | not started; reelbarrow `fixtures` needs it |
 | 2–4 | reelbarrow | analysis, fixtures, dry-run planner | not started; the planner needs the TMDB key here |
@@ -77,12 +76,6 @@ under *Decisions already made*. These bind this half:
   resolves it.
 - A readiness probe on `/healthz`. No liveness probe, because analysis is long,
   synchronous work (see `docs/kubernetes.md`, *Probes*).
-
-**Not yet deployed.** The directory is not listed in
-`kubernetes/apps/kustomization.yaml`, because `0.1.0` has not been published, and
-listing it now would leave a pod in `ImagePullBackOff`. reelbarrow's
-`release-pipeline` lists it once the image exists. At the same deploy, add the
-row to the host table in `docs/network.md`.
 
 ### Secrets, as each step needs them
 
