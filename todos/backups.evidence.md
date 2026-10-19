@@ -1289,6 +1289,27 @@ and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
 - `MemoryPeak` 357,462,016 bytes (341 MiB), for a 44 KiB workload: an idle
   figure, not a sizing one.
 
+### On mini-nas
+
+- **nixos-facter turns DHCP on per detected NIC** (`networking.interfaces.eth0.useDHCP
+  = mkDefault true`) as well as globally, so `networking.useDHCP = false` alone left
+  dhcpcd running beside networkd. Both are set false.
+- **networkd brings resolved, and turns resolvconf off**, so `networking.nameservers`
+  would have been inert; the router is the bridge's `DNS=`, and Tailscale registers
+  MagicDNS on `tailscale0`.
+- Deployed with deploy-rs to `192.168.1.11`, magic rollback with a 60 s confirm,
+  rather than `nh os switch`, whose activation dies with a dropped session. Confirmed
+  first time. After: `eth0` enslaved, `vmbr0` routable with the static address and
+  a SLAAC address from the bridge's MAC, `dhcpcd` inactive, Tailscale up, no failed
+  units.
+- **mini-nas's `nixos-upgrade` has never worked**: it fails daily on "file
+  'nixos-config' was not found", `system.autoUpgrade` having no `flake`. So it
+  cannot revert a deploy. Outside this project.
+- The container: uid 0 at a picked base, DHCP `192.168.1.35`, `/rpool/pbs`'s chunk
+  store owned 350 on the host, `MemoryPeak` 167,739,392 bytes idle. The setup unit
+  creates the sync job though its remote is missing, so its success is not evidence
+  of the remote.
+
 ### Wrong turns
 
 - **The webhook body was built with `builtins.toJSON`**, wrapping `{{ message }}` in
@@ -1298,6 +1319,11 @@ and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
   Python's `repr`, which chose double quotes, so the host's shell expanded the
   fingerprint lookup to nothing and the client waited at its trust prompt. The
   helper now quotes with `shlex`, closes stdin and carries a timeout.
+
+- **Deploying `backups` to mini-nas undeployed `claude-warmup`**, which the host was
+  running and `main` does not carry: the switch stopped `claude-warmup.timer` and
+  removed its secret. mini-nas's CLAUDE.md warns of exactly this. Compare the running
+  system with `main` before deploying a branch.
 
 ## What phases 0 to 2b asserted
 
