@@ -22,7 +22,7 @@ is there now.
 | step | repository | what | state |
 |---|---|---|---|
 | — | reelbarrow | design | **complete** 2026-10-05; now reelbarrow `docs/design.md` |
-| — | reelbarrow | repository, devenv, CI, release-please, image publishing | **scaffolded** 2026-10-18 (`a39258c`), not yet pushed |
+| — | reelbarrow | repository, devenv, CI, release-please, image publishing | **scaffolded** 2026-10-18; CI green, release PR #1 for `0.1.0` open |
 | — | here | `kubernetes/apps/reelbarrow/`, dry run, share read-only | **written** on this branch; not listed in `kubernetes/apps/kustomization.yaml` |
 | 1 | both | first release running in the cluster: reelbarrow `release-pipeline` | not started |
 | A | here | ARM dispatcher and manifest hook | not started |
