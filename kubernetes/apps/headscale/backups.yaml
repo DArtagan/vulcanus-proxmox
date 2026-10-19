@@ -8,8 +8,7 @@ metadata:
     k8up-dump: "true"
 spec:
   backupCommand: >-
-    sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT;
-    sqlite3 "/data/db.sqlite" ".backup $f"; test -s "$f"; cat "$f"'
+    sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT; sqlite3 "/data/db.sqlite" ".backup $f"; test -s "$f"; cat "$f"'
   fileExtension: .headscale.sqlite
   pod:
     spec:
@@ -20,7 +19,7 @@ spec:
         runAsGroup: 0
       containers:
         - name: sqlite
-          image: keinos/sqlite3:3.53.4 # {"$imagepolicy": "apps:k8up-sqlite3"}
+          image: keinos/sqlite3:3.54.1 # {"$imagepolicy": "apps:k8up-sqlite3"}
           # Held open for K8up to exec into; tini passes on the stop signal.
           args: [tail, -f, /dev/null]
           volumeMounts:

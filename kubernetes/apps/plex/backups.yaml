@@ -9,8 +9,7 @@ metadata:
     k8up-dump: "true"
 spec:
   backupCommand: >-
-    sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT;
-    sqlite3 "/data/Library/Application Support/Plex Media Server/Plug-in Support/Databases/com.plexapp.plugins.library.db" ".backup $f"; test -s "$f"; cat "$f"'
+    sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT; sqlite3 "/data/Library/Application Support/Plex Media Server/Plug-in Support/Databases/com.plexapp.plugins.library.db" ".backup $f"; test -s "$f"; cat "$f"'
   fileExtension: .plex.sqlite
   pod:
     spec:
@@ -21,7 +20,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: sqlite
-          image: keinos/sqlite3:3.53.4 # {"$imagepolicy": "apps:k8up-sqlite3"}
+          image: keinos/sqlite3:3.54.1 # {"$imagepolicy": "apps:k8up-sqlite3"}
           # Held open for K8up to exec into; tini passes on the stop signal.
           args: [tail, -f, /dev/null]
           volumeMounts:
@@ -31,7 +30,6 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: plex-config-pvc
-
 ---
 apiVersion: k8up.io/v1
 kind: PreBackupPod
@@ -41,8 +39,7 @@ metadata:
     k8up-dump: "true"
 spec:
   backupCommand: >-
-    sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT;
-    sqlite3 "/data/Library/Application Support/Plex Media Server/Plug-in Support/Databases/com.plexapp.plugins.library.blobs.db" ".backup $f"; test -s "$f"; cat "$f"'
+    sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT; sqlite3 "/data/Library/Application Support/Plex Media Server/Plug-in Support/Databases/com.plexapp.plugins.library.blobs.db" ".backup $f"; test -s "$f"; cat "$f"'
   fileExtension: .plex-blobs.sqlite
   pod:
     spec:
@@ -51,7 +48,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: sqlite
-          image: keinos/sqlite3:3.53.4 # {"$imagepolicy": "apps:k8up-sqlite3"}
+          image: keinos/sqlite3:3.54.1 # {"$imagepolicy": "apps:k8up-sqlite3"}
           # Held open for K8up to exec into; tini passes on the stop signal.
           args: [tail, -f, /dev/null]
           volumeMounts:
