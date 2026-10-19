@@ -1,0 +1,71 @@
+# What PBS #2's pull needs of the primary while it is still VM 107: a tailnet
+# node, and a read-only user and token for the sync. Retired with VM 107, whose
+# successor is configured in nixos/. See docs/backups.md.
+#
+# Registration is by hand, once, as for every node -- see docs/tailnet.md:
+#   tailscale up --login-server https://headscale.immortalkeep.com --accept-dns=false
+# then on headscale `nodes register`, `nodes tag -t tag:pbs-primary`, and
+# `nodes rename pbs-primary`: PBS #2's remote reaches it by that name.
+- name: 'prepare the PBS primary for PBS #2 to pull from'
+  hosts: pbs_primary
+
+  vars:
+    sync_user: sync@pbs
+    sync_token: "{{ sync_user }}!pbs-offsite"
+
+  tasks:
+    - name: 'add the tailscale repository key'
+      get_url:
+        url: "https://pkgs.tailscale.com/stable/debian/{{ ansible_distribution_release }}.noarmor.gpg"
+        dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+        mode: '0644'
+
+    - name: 'add the tailscale repository'
+      apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/debian {{ ansible_distribution_release }} main"
+        filename: tailscale
+        state: present
+
+    - name: 'install tailscale'
+      apt:
+        name: tailscale
+        update_cache: yes
+
+    - name: 'run tailscaled'
+      systemd:
+        name: tailscaled
+        enabled: yes
+        state: started
+
+    - name: 'create the sync user'
+      # No password: it authenticates only by its token.
+      shell: >
+        proxmox-backup-manager user show {{ sync_user }} >/dev/null 2>&1 ||
+        { proxmox-backup-manager user create {{ sync_user }}
+        --comment 'PBS #2 pulls as this' && echo created; }
+      register: sync_user_result
+      changed_when: "'created' in sync_user_result.stdout"
+
+    - name: "grant the sync user and its token read on the datastore, and nothing else"
+      # A token's privileges are the intersection of its own ACL and its user's,
+      # so both need the grant.
+      command: >
+        proxmox-backup-manager acl update /datastore/primary DatastoreReader
+        --auth-id {{ item }}
+      loop:
+        - "{{ sync_user }}"
+        - "{{ sync_token }}"
+      changed_when: false
+
+    - name: 'generate the sync token, keeping its secret on this host only'
+      # PBS shows a token's secret once. It goes to a root-only file rather than
+      # into the play's output, to be copied into PBS #2's secrets from there.
+      shell: |
+        set -o pipefail
+        umask 077
+        proxmox-backup-manager user generate-token {{ sync_user }} pbs-offsite --output-format json |
+          python3 -c 'import json, sys; print(json.load(sys.stdin)["value"])' > /root/pbs-offsite-token-secret
+      args:
+        executable: /bin/bash
+        creates: /root/pbs-offsite-token-secret
+      no_log: true
