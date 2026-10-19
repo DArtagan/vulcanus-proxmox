@@ -1221,6 +1221,84 @@ failure for the whole tailnet; `ansible/proxmox-tailscale.yaml` records that the
 applied server-side with `headscale nodes tag`, because advertising it forces
 re-authentication. The PBS hosts follow both.
 
+## Phase 4a — 2026-10-18
+
+### mini-nas cannot run an LXC
+
+Asked to build PBS #2 as LXC 109, the first step found that it could not exist.
+`systemctl cat` on mini-nas finds no `pve-container@`, `pve-lxc-syscalld` or
+`pve-container-debug@` unit, and `lxc-start` is not on the PATH; `pct` is. In
+proxmox-nixos, at mini-nas's pin `fc773dcf` and at `HEAD` `b319f940`,
+`modules/proxmox-ve/default.nix` imports ceph, bridges, cluster, linstor, manager,
+qemu-server, rrdcached and vms; nothing imports `container.nix`. That file nests
+`pve-container@` inside `pve-container-debug@`'s attribute set, puts the debug unit's
+`serviceConfig` inside `unitConfig`, and points `pve-lxc-syscalld` at a Debian path
+no package provides. Upstream: issue #140 and PR #142 (open since 2025-05,
+conflicting; its author created a container but never started one), #192 and #244
+(`pct create` failing on `mkfs.ext4`, then on `tar`). The user chose a NixOS container
+in its place, and asked that the docs say it would move to an LXC should
+proxmox-nixos ever support one.
+
+### Read from the sources and the hosts
+
+- **`proxmox-backup-manager sync-job run` and `prune-job run` block, and fail on a
+  failed task**: `run_job` posts the run and `view_task_result` follows the task log
+  to the end, bailing unless the exit status is `OK` or `WARNINGS`. So the daily
+  chain is one oneshot.
+- **A job run by hand still notifies**: `send_sync_status` and `send_prune_status`
+  are called from the task itself, and a datastore's `notification-mode` defaults to
+  `notification-system`.
+- **`prune-job run` ignores `disable`**, which only the scheduler checks
+  (`proxmox-backup-proxy.rs`), and a prune job requires a schedule. PBS #2's is
+  declared disabled, with a placeholder schedule, and run by the chain.
+- **`proxmox-backup-debug api` calls the local API as root** through
+  `connect_to_localhost`, so the mirror sets flags here with no local credential.
+  `PUT /admin/datastore/{store}/protected` takes `ns`, the backup's type, id and
+  time, and `protected`.
+- **The snapshot listing carries `protected` and `verification.state`**
+  (`SnapshotListItem`, `pbs-api-types`).
+- **A pull creates its target namespace** when missing (`check_and_create_ns`).
+- **The webhook renders with Handlebars and a `json` helper**, which serialises a
+  value, quotes included; the body is base64 in the config, and secrets are
+  `{{ secrets.<name> }}`.
+- vulcanus's `pbs` storage: `server 192.168.0.107`, `datastore primary`,
+  `username root@pam`, fingerprint `f1:ef:ab:…:9f:9b`. mini-nas's DHCP lease hands it
+  router and resolver `192.168.1.1`.
+- **mini-nas's tofu has never been applied**: no state anywhere, and
+  `pveum user list` returns only `root@pam`.
+- **nixos-containers before nixpkgs `20b1ddd` (2026-09-19) fail to evaluate a
+  container given by `path`**: an assertion reads `cfg.config.nix.enable`
+  unguarded. mini-nas's pin (2026-10-05) carries the `opt.config.isDefined` guard.
+
+### The VM test
+
+A throwaway flake outside the repository: a NixOS VM on mini-nas's nixpkgs
+(`494ce7fd`), a ZFS pool with `atime=off` and `rpool/pbs` at `atime=on`, chowned
+350:350, and `containers.pbs-offsite` given `pbs-offsite`'s toplevel by `path`, with
+`privateUsers = "pick"`, `enableTun`, a bridge, `--bind=/rpool/pbs:/mnt/pbs:idmap`
+and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
+
+- The container boots; uid 0 maps to host 431161344. bubblewrap runs inside it.
+- `proxmox-backup-setup` creates the datastore: "Access time update check
+  successful". The chunk store appears on the host owned by 350, so `idmap` holds.
+- The remote, the sync job (`remove-vanished false`, `ns vulcanus`), the disabled
+  prune job, the verify job, the webhook and the matcher all reconcile.
+- A `proxmox-backup-client` backup into `vulcanus`, protection set through
+  `proxmox-backup-debug api`, a restore, a verify reading `ok`, the prune job run
+  (`keep protected vm/900/…`) and a GC all succeed.
+- `MemoryPeak` 357,462,016 bytes (341 MiB), for a 44 KiB workload: an idle
+  figure, not a sizing one.
+
+### Wrong turns
+
+- **The webhook body was built with `builtins.toJSON`**, wrapping `{{ message }}` in
+  quotes, so a message carrying a quote or newline would have rendered invalid JSON.
+  Read from the reconciled config in the test; the body now uses `{{ json … }}`.
+- **The VM test hung at its first client call**, because the helper quoted with
+  Python's `repr`, which chose double quotes, so the host's shell expanded the
+  fingerprint lookup to nothing and the client waited at its trust prompt. The
+  helper now quotes with `shlex`, closes stdin and carries a timeout.
+
 ## What phases 0 to 2b asserted
 
 - **Phase 0** — `Result=success` on all four mini-nas units; offsite snapshot count
