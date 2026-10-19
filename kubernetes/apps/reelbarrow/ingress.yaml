@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: reelbarrow
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: ingress-nginx-internal
+  tls:
+    - hosts:
+        - reelbarrow.immortalkeep.com
+      secretName: reelbarrow-ingress-tls
+  rules:
+    - host: reelbarrow.immortalkeep.com
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: reelbarrow
+                port:
+                  number: 8000
