@@ -13,6 +13,11 @@
       url = "github:Mic92/sops-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # Young, with one maintainer, so pinned to a revision and moved deliberately:
+    # `nix flake update` cannot move it. Its nixpkgs is left its own, so its
+    # packages are the builds its binary cache holds. See docs/nixos.md.
+    nixos-pbs.url = "github:AWildLeon/nixos-pbs/57c3aafe739be5540935ce4c1a129073a9f9f09d";
   };
 
   outputs =
@@ -55,6 +60,14 @@
           };
         }) hosts
       );
+
+      # NixOS containers that another host runs and deploys: PBS #2 is mini-nas's
+      # `containers.pbs-offsite`, built from here. See docs/nixos.md.
+      nixosConfigurations.pbs-offsite = lib.nixosSystem {
+        inherit system;
+        specialArgs = { inherit (self) inputs; };
+        modules = [ ./hosts/pbs-offsite ];
+      };
 
       # LXC templates, for creating a container; colmena owns it after that.
       packages.${system} = lib.mapAttrs (

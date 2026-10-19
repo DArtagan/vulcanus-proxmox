@@ -1,0 +1,153 @@
+# Proxmox Backup Server, as both PBS hosts run it: the primary and PBS #2 differ
+# only in their role's own module. See docs/backups.md.
+{
+  config,
+  inputs,
+  lib,
+  pkgs,
+  ...
+}:
+let
+  cfg = config.forge.pbs;
+  pbs = config.services.proxmox-backup-server.package;
+  secrets = config.sops.secrets;
+
+  # Pushover's JSON API, filled from the endpoint's own secrets at send time.
+  # Written out rather than built with toJSON: each value has to be the `json`
+  # helper's output, unquoted, or a message carrying a quote or a newline
+  # renders as invalid JSON.
+  pushoverBody = ''{"token":{{ json secrets.token }},"user":{{ json secrets.user }},"title":{{ json title }},"message":{{ json message }}}'';
+in
+{
+  imports = [
+    inputs.nixos-pbs.nixosModules.proxmox-backup-server
+    inputs.sops-nix.nixosModules.sops
+  ];
+
+  options.forge.pbs = {
+    datastore = lib.mkOption {
+      type = lib.types.str;
+      description = "The datastore's name, which PVE's storage entry and remotes refer to.";
+    };
+
+    pruneSchedule = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      description = ''
+        When the prune job runs, or null for a job that is run only by the role's
+        own sequence, as PBS #2's is after its sync.
+      '';
+    };
+  };
+
+  config = {
+    services.proxmox-backup-server = {
+      enable = true;
+      # Built against nixos-pbs's own nixpkgs, so it is the build its cache holds.
+      package = inputs.nixos-pbs.packages.${pkgs.stdenv.hostPlatform.system}.proxmox-backup-server-fhs;
+      openFirewall = true;
+
+      ensureDatastores.${cfg.datastore} = {
+        # The bind-mounted dataset. PBS refuses a non-empty directory at
+        # creation, and the path cannot change afterwards.
+        path = "/mnt/pbs";
+        gcSchedule = "sat 14:00";
+      };
+
+      # keep-last counts snapshots rather than age, so a retired guest's group
+      # is never pruned away; it is kept until forgotten by hand.
+      ensurePruneJobs.keep-last-31 = {
+        inherit (cfg) datastore;
+        # PBS requires a schedule even on a disabled job, and `prune-job run`
+        # ignores `disable`.
+        schedule = if cfg.pruneSchedule == null then "daily" else cfg.pruneSchedule;
+        disable = cfg.pruneSchedule == null;
+        settings.keep-last = 31;
+      };
+
+      ensureVerifyJobs.weekly = {
+        inherit (cfg) datastore;
+        schedule = "sun 14:00";
+        settings = {
+          ignore-verified = true;
+          outdated-after = 30;
+        };
+      };
+    };
+
+    # Pinned, because it owns the datastore on the host: the dataset is chowned
+    # to it there.
+    users.users.proxmox-backup-server.uid = 350;
+    users.groups.proxmox-backup-server.gid = 350;
+
+    sops = {
+      age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
+      secrets = {
+        "pushover/token".restartUnits = [ "pbs-notifications.service" ];
+        "pushover/user-key".restartUnits = [ "pbs-notifications.service" ];
+      };
+    };
+
+    # Every error PBS raises -- sync, prune, verify, GC -- goes to Pushover. The
+    # module manages datastores and jobs but not notification targets.
+    systemd.services.pbs-notifications = {
+      description = "Reconcile PBS's Pushover notification target";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "proxmox-backup.service" ];
+      requires = [ "proxmox-backup.service" ];
+      path = [
+        pbs
+        pkgs.coreutils
+      ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+      # The secrets pass through argv, which every process here could read. Only
+      # PBS's own daemons and Tailscale run in this container.
+      script = ''
+        b64() { base64 -w0; }
+        args=(
+          --url https://api.pushover.net/1/messages.json
+          --method post
+          --header "name=Content-Type,value=$(printf application/json | b64)"
+          --body "$(printf '%s' ${lib.escapeShellArg pushoverBody} | b64)"
+          --secret "name=token,value=$(b64 < ${secrets."pushover/token".path})"
+          --secret "name=user,value=$(b64 < ${secrets."pushover/user-key".path})"
+        )
+        if proxmox-backup-manager notification endpoint webhook show pushover >/dev/null 2>&1; then
+          proxmox-backup-manager notification endpoint webhook update pushover "''${args[@]}"
+        else
+          proxmox-backup-manager notification endpoint webhook create pushover "''${args[@]}"
+        fi
+
+        args=(--target pushover --match-severity error)
+        if proxmox-backup-manager notification matcher show errors >/dev/null 2>&1; then
+          proxmox-backup-manager notification matcher update errors "''${args[@]}"
+        else
+          proxmox-backup-manager notification matcher create errors "''${args[@]}"
+        fi
+      '';
+    };
+
+    # Registered by hand, once: `tailscale up --login-server …`, then tagged
+    # server-side. See docs/tailnet.md for why there is no pre-auth key.
+    services.tailscale.enable = true;
+
+    # Schedules are stated in UTC across the estate's four clocks, and PBS's
+    # calendar events are in local time. See docs/backups.md.
+    time.timeZone = "UTC";
+
+    # The same key `terraform/main.tf` hands every other container and VM.
+    users.users.root.openssh.authorizedKeys.keys = [
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIyPkfTI0io9dZsJstcf29tddyrsHr9bnM8UXKtaVJwm"
+    ];
+
+    services.openssh = {
+      enable = true;
+      settings = {
+        PasswordAuthentication = false;
+        KbdInteractiveAuthentication = false;
+      };
+    };
+  };
+}
