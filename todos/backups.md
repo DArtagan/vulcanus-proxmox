@@ -667,12 +667,25 @@ workstation — a host running the container as mini-nas will, on ZFS — and th
 - A backup, restore, verify and GC round trip completes against a scratch datastore.
 - The container's memory peak is read.
 
-**Where it stands, 2026-10-18.** The VM test passes all four, on mini-nas's nixpkgs;
-see the evidence. On mini-nas: `vmbr0` holds `192.168.1.11` under networkd
-(`ad40a2a`), `rpool/pbs` exists, and `containers.pbs-offsite` runs (`70967a6`), its
-datastore created, at 160 MiB idle, on DHCP `192.168.1.35`. Its `pbs-remote` and
-`pbs-notifications` fail until its secrets are re-encrypted to its host key, now in
-`.sops.yaml`, and the sync token and healthchecks URL replace their placeholders.
+**Where it stands, 2026-10-19.** The VM test passes all four of the above, on
+mini-nas's nixpkgs; see the evidence. Done: mini-nas's `vmbr0` holds
+`192.168.1.11` under networkd (`ad40a2a`), `rpool/pbs` exists, and
+`containers.pbs-offsite` runs (`70967a6`) with its datastore created, ~160 MiB
+idle, on DHCP `192.168.1.35`. VM 107 has Tailscale installed and `sync@pbs` with
+token `pbs-offsite`, holding Datastore.Audit, Read and Verify on
+`/datastore/primary` and nothing else, its secret in `/root/pbs-offsite-token-secret`
+(37 bytes, mode 600); `ansible/pbs-primary.yaml` re-runs clean. The Headscale policy
+carries both tags and the one grant each way it needs.
+
+Outstanding: PBS #2's `pbs-remote` and `pbs-notifications` fail until the sync token
+and healthchecks URL replace their placeholders in `secrets.sops.yaml`, which needs a
+human key. Then the branch reaches `main` so Flux applies the policy, with
+`kubectl rollout restart deployment/headscale -n apps` after it, since the ConfigMap
+is mounted un-hashed. Then both nodes register interactively and are tagged and
+renamed server-side — the remote names the primary `pbs-primary.forge.local`, so
+VM 107's node takes that name, and LXC 109 takes it at 4b. Then the first sync and
+verify, and the two test restores.
+
 mini-nas's lock pins vulcanus-proxmox's `main`, so until this branch reaches it,
 mini-nas builds with `--override-input vulcanus-proxmox
 path:<this checkout>/nixos`, deployed by deploy-rs for its magic rollback. That
@@ -680,11 +693,6 @@ pin sets the order in which the two branches land: this one to its `main` first,
 then mini-nas's lock, then mini-nas's own `main`. Until mini-nas's lands, the host
 runs an unmerged branch and a deploy from its `main` would take PBS #2 away — which
 is how `claude-warmup` came to be undeployed on 10-18.
-`ansible/pbs-primary.yaml` is written and not yet run: VM 107 refuses the key until
-it is installed through its console. Not started: the Headscale policy, both nodes'
-registration, the first sync. The remote names the primary
-`pbs-primary.forge.local`, so VM 107's node is renamed `pbs-primary` in Headscale
-when it registers, and LXC 109 takes the name at 4b.
 
 ### mini-nas's host side
 
