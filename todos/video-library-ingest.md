@@ -23,7 +23,7 @@ is there now.
 |---|---|---|---|
 | — | reelbarrow | design | **complete** 2026-10-05; now reelbarrow `docs/design.md` |
 | — | reelbarrow | repository, devenv, CI, release-please, image publishing | **done** 2026-10-18; `0.1.0` published from tag `reelbarrow-v0.1.0`, pulls anonymously |
-| 1 | both | first release running in the cluster: reelbarrow `release-pipeline` | **deploying** 2026-10-18 |
+| 1 | both | first release running in the cluster: reelbarrow `release-pipeline` | **running** 2026-10-18: `0.1.0` in dry run, share read-only; automatic roll to `0.1.1` not yet proven |
 | A | here | ARM dispatcher and manifest hook | not started |
 | B | here | one-off manifest export for jobs 1–41 | not started; reelbarrow `fixtures` needs it |
 | 2–4 | reelbarrow | analysis, fixtures, dry-run planner | not started; the planner needs the TMDB key here |
