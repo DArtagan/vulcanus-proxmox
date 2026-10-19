@@ -168,7 +168,7 @@ Separate track; these do not compete with the infrastructure ordering.
 | [book-import-spec.md](book-import-spec.md) | Design for a CLI tool to be the single entry point into the Stump library |
 | [podcast-archive-context.md](podcast-archive-context.md) | Follow-up context from replacing Podgrab with Pinepods, including the feed snapshot job |
 | [smb-charset-utf8.md](smb-charset-utf8.md) | Samba runs `unix charset = ISO-8859-1`, so any filename above U+00FF fails with EIO on every share. Blocks a TV rip today; latent for any title with a curly apostrophe |
-| [video-library-ingest.md](video-library-ingest.md) | Ripped films stop in `import/` and never reach the library. Nothing watches the video inbox and FileBot, the one tool that could file them, reports `Bad License` |
+| [video-library-ingest.md](video-library-ingest.md) | Ripped films stop in `import/` and never reach the library. The fix is [reelbarrow](https://github.com/DArtagan/reelbarrow), which holds the design and the application work; this spec is the deployment half: ARM's manifest hook, `kubernetes/apps/reelbarrow/`, secrets and alerts |
 | [acoustid-identification.md](acoustid-identification.md) | Identifying discs MusicBrainz has no disc ID for, by fingerprinting the audio rather than the table of contents |
 | [disc-ripping.md](disc-ripping.md) | Getting ARM to rip audio CD, DVD, Blu-ray and 4K reliably into the `import/` folders. CD, DVD and Blu-ray rip end to end; 4K is unproven, and the drive intermittently drops off its SATA link |
 

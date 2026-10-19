@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reelbarrow
+  labels:
+    app: reelbarrow
+spec:
+  # One worker owns the ledger; a second pod would plan and file the same jobs.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: reelbarrow
+  template:
+    metadata:
+      labels:
+        app: reelbarrow
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        # Makes the data volume writable by the uid above.
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: reelbarrow
+          image: ghcr.io/dartagan/reelbarrow:0.1.0 # {"$imagepolicy": "apps:reelbarrow"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            # Setting this to "false" and dropping readOnly from the video mount
+            # are one change. The read-only mount is what stands between a bug in
+            # the flag's handling and the library.
+            - name: REELBARROW_DRY_RUN
+              value: "true"
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            periodSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - mountPath: /video
+              name: video
+              readOnly: true
+            - mountPath: /data
+              name: data
+      volumes:
+        - name: video
+          persistentVolumeClaim:
+            claimName: video-pvc
+        - name: data
+          persistentVolumeClaim:
+            claimName: reelbarrow-pvc
