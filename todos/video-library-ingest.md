@@ -24,12 +24,11 @@ is there now.
 | — | reelbarrow | design | **complete** 2026-10-05; now reelbarrow `docs/design.md` |
 | — | reelbarrow | repository, devenv, CI, release-please, image publishing | **done** 2026-10-18; `0.1.0` published from tag `reelbarrow-v0.1.0`, pulls anonymously |
 | 1 | both | first release running in the cluster: reelbarrow `release-pipeline` | **running** 2026-10-18: `0.1.0` in dry run, share read-only; automatic roll to `0.1.1` not yet proven |
-| A | here | ARM dispatcher and manifest hook | not started |
-| B | here | one-off manifest export for jobs 1–41 | not started; reelbarrow `fixtures` needs it |
-| 2–4 | reelbarrow | analysis, fixtures, dry-run planner | not started; the planner needs the TMDB key here |
-| 5 | both | first real filing: reelbarrow `movie-filing`, and **the switch** below | not started |
-| 6 | both | metrics there, alert rules here | not started |
-| 7–11 | reelbarrow | review UI, editions, hard cases, episodes, case photo | not started; each adds a secret here |
+| 2 | both | ARM manifest hook: the writer in reelbarrow (`arm-manifest-hook`), the dispatcher and wiring here | not started |
+| 3–5 | reelbarrow | analysis, fixtures, dry-run planner | not started; the planner needs the TMDB key here |
+| 6 | both | first real filing: reelbarrow `movie-filing`, and **the switch** below | not started |
+| 7 | both | metrics there, alert rules here | not started |
+| 8–12 | reelbarrow | review UI, editions, hard cases, episodes, case photo | not started; each adds a secret here |
 
 The full order, and what each step needs, is in reelbarrow's `todos/README.md`.
 
@@ -101,24 +100,27 @@ share is unknown until tested.
 
 ## ARM's manifest hook
 
-The one interface between ARM and reelbarrow. What the manifest carries, and
-when it is written, are defined in reelbarrow's design, *The ARM manifest*. The
-evidence for how ARM's hook behaves is under *What ARM knows, and where*.
+The one interface between ARM and reelbarrow. **The script that writes the
+manifests ships in reelbarrow** (decided 2026-10-19), so every user runs the
+same one: reelbarrow's `todos/arm-manifest-hook.md` builds it, along with its
+export mode for jobs 1–41. What the manifest carries is in reelbarrow's design,
+*The ARM manifest*.
 
-To build here:
+What stays here is wiring it into this ARM:
 
 1. **A dispatcher as `BASH_SCRIPT`.** The setting is single-valued and holds
-   `arm-audio-handoff.sh` today. The dispatcher calls that script and a new
-   `arm-video-manifest.sh`, both with ARM's `$1` (title) and `$2` (body).
-2. **`arm-video-manifest.sh`** looks up the job by `$PPID` = `job.pid` in
-   `/root/db/arm.db`, and writes `/root/video/manifests/job-<id>.json`. On the
-   share that is `import/automatic-ripping-machine/manifests/`, which is where
-   reelbarrow looks by default. It writes on "Found disc" and again on completion
-   or failure, matching the message text the way the audio handoff does. The
-   `$PPID` link was **read from source, never exercised**: prove it on a real
-   insert before relying on it, and fail loudly if no row matches.
-3. **A one-off export** of manifests for jobs 1–41 from the same database,
-   read-only. Copy the database or open it with `-readonly`; ARM is live.
+   `arm-audio-handoff.sh` today. The dispatcher calls that and reelbarrow's
+   hook, both with ARM's `$1` (title) and `$2` (body). It runs them as children,
+   so it must pass its own `$PPID`, the ripper's pid, to reelbarrow's hook in the
+   environment variable that spec names. Otherwise the hook sees the dispatcher
+   as its parent and selects no job.
+2. **reelbarrow's script in ARM's container**, by whichever route that spec
+   chooses (a copy pinned to a release, a release asset, or an init container).
+   It writes to `/root/video/manifests/`, which is
+   `import/automatic-ripping-machine/manifests/` on the share, where reelbarrow
+   looks by default.
+3. **The export for jobs 1–41**, run with reelbarrow's script against a copy of
+   `/root/db/arm.db`, since ARM is live.
 
 `init-scripts` is a `subPath` mount, so a changed script reaches the container
 only after `kubectl rollout restart`, and must be checked in the container, not
