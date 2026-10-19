@@ -64,6 +64,7 @@ def group(  # noqa: PLR0913
     name: str,
     *,
     count: int = 30,
+    unprotected: int | None = None,
     newest: int | None = FRESH,
     oldest_identity: str | None = "uuid-a",
     newest_identity: str | None = "uuid-a",
@@ -72,6 +73,7 @@ def group(  # noqa: PLR0913
     return pbs_freshness.Group(
         name=name,
         count=count,
+        unprotected=count if unprotected is None else unprotected,
         newest=newest,
         oldest_identity=oldest_identity,
         newest_identity=newest_identity,
@@ -280,6 +282,63 @@ class VerdictTable(unittest.TestCase):
         )
         self.assertEqual(problems, [])
         self.assertEqual(reports, [])
+
+
+class ProtectedSnapshots(unittest.TestCase):
+    """Archiving is protecting, so reuse is read from what prune can still evict."""
+
+    def summarise(
+        self, protected: list[bool], identities: list[str]
+    ) -> tuple[pbs_freshness.Group, list[int]]:
+        times = [FRESH - 86400 * n for n in range(len(protected))][::-1]
+        by_time = dict(zip(times, identities, strict=True))
+        asked: list[int] = []
+
+        def identity_at(when: int) -> str:
+            asked.append(when)
+            return by_time[when]
+
+        snapshots = [
+            {"backup-time": when, "protected": flag}
+            for when, flag in zip(times, protected, strict=True)
+        ]
+        return pbs_freshness.summarise_group("vm/900", snapshots, identity_at), asked
+
+    def test_an_archived_earlier_machine_is_not_reuse(self) -> None:
+        summary, _ = self.summarise(
+            [True, True, False, False, False], ["old", "old", "new", "new", "new"]
+        )
+        self.assertFalse(pbs_freshness.reuse_detected(summary))
+        self.assertEqual((summary.count, summary.unprotected), (5, 3))
+
+    def test_protected_snapshots_are_never_read(self) -> None:
+        summary, asked = self.summarise([True, False, False], ["old", "new", "new"])
+        protected_time = FRESH - 2 * 86400
+        self.assertNotIn(protected_time, asked)
+        self.assertEqual(summary.oldest_identity, "new")
+
+    def test_a_partly_archived_earlier_machine_still_counts_down(self) -> None:
+        # Two of the earlier machine's four are protected; the other two are
+        # still evicted, and the ladder counts those.
+        summary, _ = self.summarise(
+            [True, True, False, False, False, False],
+            ["old", "old", "old", "old", "new", "new"],
+        )
+        self.assertTrue(pbs_freshness.reuse_detected(summary))
+        self.assertEqual(summary.prior_count, 2)
+        self.assertIn("2 of 4 unprotected", pbs_freshness.reuse_message(summary))
+
+    def test_a_group_of_only_protected_snapshots_is_still_held(self) -> None:
+        # Freshness counts every snapshot: an archived guest is backed up.
+        summary, asked = self.summarise([True, True], ["a", "b"])
+        self.assertEqual((summary.count, summary.unprotected), (2, 0))
+        self.assertEqual(asked, [])
+        problems, _ = classify({"900": guest("900")}, {"vm/900": summary})
+        self.assertEqual(problems, [])
+
+    def test_the_message_points_at_archiving(self) -> None:
+        summary, _ = self.summarise([False, False], ["old", "new"])
+        self.assertIn("Protect", pbs_freshness.reuse_message(summary))
 
 
 class ReuseLadder(unittest.TestCase):
