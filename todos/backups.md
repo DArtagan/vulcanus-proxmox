@@ -668,14 +668,19 @@ workstation — a host running the container as mini-nas will, on ZFS — and th
 - The container's memory peak is read.
 
 **Where it stands, 2026-10-18.** The VM test passes all four, on mini-nas's nixpkgs;
-see the evidence. Written and uncommitted on the branch: `nixos/modules/pbs.nix`,
-`nixos/hosts/pbs-offsite/` (the host, the mirror and freshness script, its tests),
-the flake's `nixos-pbs` input and `nixosConfigurations.pbs-offsite`, and
-`nixos-eval.sh` evaluating it. Waiting on PBS #2's `secrets.sops.yaml`, which needs
-the SOPS key. Not yet started: mini-nas's side, the policy, VM 107, the reuse change
-in `pbs_freshness.py`. The remote names the primary `pbs-primary.forge.local`, so
-VM 107's node is renamed to `pbs-primary` in Headscale when it registers, and LXC
-109 takes the name at 4b.
+see the evidence. On mini-nas: `vmbr0` holds `192.168.1.11` under networkd
+(`ad40a2a`), `rpool/pbs` exists, and `containers.pbs-offsite` runs (`70967a6`), its
+datastore created, at 160 MiB idle, on DHCP `192.168.1.35`. Its `pbs-remote` and
+`pbs-notifications` fail until its secrets are re-encrypted to its host key, now in
+`.sops.yaml`, and the sync token and healthchecks URL replace their placeholders.
+mini-nas's lock pins vulcanus-proxmox's `main`, so until this branch reaches it,
+mini-nas builds with `--override-input vulcanus-proxmox
+path:<this checkout>/nixos`, deployed by deploy-rs for its magic rollback.
+`ansible/pbs-primary.yaml` is written and not yet run: VM 107 refuses the key until
+it is installed through its console. Not started: the Headscale policy, both nodes'
+registration, the first sync. The remote names the primary
+`pbs-primary.forge.local`, so VM 107's node is renamed `pbs-primary` in Headscale
+when it registers, and LXC 109 takes the name at 4b.
 
 ### mini-nas's host side
 
