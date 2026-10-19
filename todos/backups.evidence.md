@@ -1321,9 +1321,19 @@ and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
   helper now quotes with `shlex`, closes stdin and carries a timeout.
 
 - **Deploying `backups` to mini-nas undeployed `claude-warmup`**, which the host was
-  running and `main` does not carry: the switch stopped `claude-warmup.timer` and
+  running and `main` did not carry: the switch stopped `claude-warmup.timer` and
   removed its secret. mini-nas's CLAUDE.md warns of exactly this. Compare the running
-  system with `main` before deploying a branch.
+  system with `main` before deploying a branch. Restored 2026-10-19 by merging
+  `main`, once `claude-warmup` had landed there, into mini-nas's `backups` and
+  redeploying; the timer and its secret are back. The hazard stands while the host
+  runs an unmerged branch, which is why 4a's branches want merging promptly.
+- **PR #4's diff was blamed on this session's work.** mini-nas's `claude-warmup` PR
+  listed fifteen commits already in `main`, read at first as damage from the new
+  worktree. It was a stale merge base: the PR opened 2026-10-16 14:45 UTC against
+  `main` at `c3b36f1`, and `main` fast-forwarded to `e2a681f` thirteen minutes
+  later, GitHub never recomputing. `c3b36f1..claude-warmup` is exactly the 18
+  commits it showed, against 3 from `main`'s tip. Read a PR's commit list against
+  its base's *current* tip before believing it.
 
 ## What phases 0 to 2b asserted
 

@@ -675,7 +675,11 @@ datastore created, at 160 MiB idle, on DHCP `192.168.1.35`. Its `pbs-remote` and
 `.sops.yaml`, and the sync token and healthchecks URL replace their placeholders.
 mini-nas's lock pins vulcanus-proxmox's `main`, so until this branch reaches it,
 mini-nas builds with `--override-input vulcanus-proxmox
-path:<this checkout>/nixos`, deployed by deploy-rs for its magic rollback.
+path:<this checkout>/nixos`, deployed by deploy-rs for its magic rollback. That
+pin sets the order in which the two branches land: this one to its `main` first,
+then mini-nas's lock, then mini-nas's own `main`. Until mini-nas's lands, the host
+runs an unmerged branch and a deploy from its `main` would take PBS #2 away — which
+is how `claude-warmup` came to be undeployed on 10-18.
 `ansible/pbs-primary.yaml` is written and not yet run: VM 107 refuses the key until
 it is installed through its console. Not started: the Headscale policy, both nodes'
 registration, the first sync. The remote names the primary
