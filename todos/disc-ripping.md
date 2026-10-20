@@ -27,19 +27,25 @@ review base `review/disc-ripping-base`.
 | 1 | Audio CD | done 2026-08-31; one loose end, below |
 | 2 | DVD — movie | done 2026-09-01 |
 | 2b | DVD — TV series | done 2026-09-04 |
+| 2c | DVD — a whole-disc raw copy, and each raw folder stamped with its job | designed 2026-10-20, not built |
 | 3 | Blu-ray | done 2026-09-17 |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
-| — | Drive drops off its SATA link | **open, watching** — no event in jobs 47–49 |
+| — | Drive drops off its SATA link | **open, watching** — no event in jobs 47–72 |
 
 CD, DVD and Blu-ray rip end to end, and the disc stays locked until its whole job
-is done. Each phase's working is in the evidence.
+is done. Each phase's working is in the evidence. A DVD's raw copy, though, is its
+long titles as MKVs, not the disc: phase 2c fixes that.
+
+`disc-rerip-list.txt`, untracked at the root of the main checkout, is the list
+handed to Will's brother: the seven Blu-rays D16 found missing part of their film,
+to re-rip now, and every DVD ARM has ripped, to re-rip once phase 2c is deployed.
 
 ---
 
 ## The drive's SATA link losses: start here
 
-Summary as of 2026-10-11. The evidence is the progress log's entries from
-2026-09-22 through 2026-10-10, and each point below names its entry.
+Summary as of 2026-10-20. The evidence is the progress log's entries from
+2026-09-22 through 2026-10-20, and each point below names its entry.
 
 **What the failure is.** The drive stops answering one command, LibreDrive's
 handshake read, `READ BUFFER` mode 2 buffer `0x77`. There are two forms: the
@@ -50,7 +56,11 @@ or detached, and needs a cold power cycle of the host (*Recovery* in
 `docs/automatic-ripping-machine.md`). Buffer `0x77` belongs to the extension
 MakeMKV uploads into the drive's RAM. On a freshly powered drive it doesn't exist,
 and the read is refused at once (2026-10-08 cold test). Every `ata4` event since
-April has one of the two signatures (2026-10-05, 2026-10-08 job 45).
+April has one of the two signatures (2026-10-05, 2026-10-08 job 45). **It isn't
+new:** in 2024 the drive sat on `ata6`, and 33 of the 35 exceptions logged there
+between 2024-01-14 and 2024-12-22 carry the same two signatures (2026-10-20). What
+2024 ran — ARM, MakeMKV and SDF versions, and whether through this VM — isn't
+known.
 
 **Why it's thought to be the drive and LibreDrive, not the cable.** Hundreds of
 GB of bulk reads have crossed the link with no CRC or handshake error. All four
@@ -67,8 +77,9 @@ downgraded.
 
 **The current lead.** The D15 `HOME` fix also let MakeMKV download and keep
 the latest LibreDrive definitions: SDF `0xA6`, against the built-in `0xA5`
-that every earlier job ran. Jobs 47, 48 and 49 have run on `0xA6` with no
-`ata4` event. Two of them were the discs with the worst record (*Around the
+that every earlier job ran. Jobs 47 through 72, 26 in a row, have run on `0xA6`
+with no `ata4` event, all on the host boot of 2026-10-08 22:25 (checked
+2026-10-20). Two of them were the discs with the worst record (*Around the
 World* disc 2, *Sherlock*). From the 2026-09-21 restart until the fix, 1 of 9
 jobs was clean. Against it: `0xA5` ran mostly clean in jobs 18–36; the drive's
 `sdftool --info` entry is identical in both versions; and the host's lone read
@@ -169,7 +180,8 @@ current ring buffer and nothing older. Capture it while a failure is fresh.
 - `kubernetes/infrastructure/devices.yaml` — how the drive is advertised
 - `ansible/proxmoxer.yaml` — the host's udev rule and `optical-drive-ata-monitor`
 - `terraform/modules/proxmox_talos_vm/` — the passthrough and `max_sectors`
-- `docs/automatic-ripping-machine.md` — the write-up, partly drifted (D11)
+- `docs/automatic-ripping-machine.md` — the write-up
+- reelbarrow's `todos/arm-manifest-hook.md` — the reader of D17's stamp
 
 ---
 
@@ -190,11 +202,13 @@ Numbered as first found; the evidence has each one's full write-up.
 | D8 | Disc ejected before the transcode | fixed — `eject-after-processing` patch |
 | D9 | A node reboot leaves a `Failed` pod | documented — delete it; see the docs |
 | D10 | Dead `RIPMETHOD_*` keys | removed here; ARM restores them — upstream |
-| D11 | The docs no longer describe the system | **open** |
+| D11 | The docs no longer describe the system | fixed 2026-10-20 |
 | D12 | An unlabelled disc is confidently misidentified | **open** |
 | D13 | An unreadable region wedges the drive | **open** |
 | D14 | Every DVD title transcoded twice | fixed — `d14-*` patches, verified jobs 48–49 |
 | D15 | Jobs ran MakeMKV unregistered | fixed — the wrapper exports `HOME=/root` |
+| D16 | A Blu-ray backup can be incomplete, and nothing notices | **open** — explored 2026-10-20 |
+| D17 | A raw folder records nothing of the job that made it | **open** — designed, phase 2c |
 
 **D2b.** ARM triggers only on a udev insert event, and the udev database the
 container reads is empty at start; `udevadm trigger` fails on the read-only `/sys`,
@@ -220,11 +234,6 @@ would cost. The happy path is done, so that look is next. whipper brings
 AccurateRip, a stronger claim than cdparanoia's, but it is a move off ARM: the CD
 path would run outside it, under a wrapper of our own, since whipper has no post-run
 hook and won't get one (whipper#394).
-
-**D11.** `docs/automatic-ripping-machine.md` still has `-n apps` in its commands
-(ARM's namespace is `automatic-ripping-machine`), `/root/media/` paths (the mount is
-`/root/video`), a one-year `MANUAL_WAIT_TIME` (it is 600), and "TrueHD and DTS-HD MA
-passthrough" (see *Audio* below). Fix it as part of whichever change touches it.
 
 **D12.** A Blu-ray with no `bdmt_eng.xml` falls back to its volume label, and
 `identify_bluray` returns true regardless, so a placeholder like `LOGICAL_VOLUME_ID`
@@ -256,12 +265,71 @@ the BBC series, and nobody corrected it in the wait.
 - The third, a failure restarting itself, was never observed; see the correction in
   the evidence.
 
+**D16.** An audit of all 51 Blu-ray backups in `raw/` on 2026-10-20 (evidence,
+2026-10-20) checked every clip in `CLIPINF/` against its `.m2ts`. 40 are complete.
+Four partial ones have a complete copy of the same disc beside them; *The Polar
+Express*'s is job 26, killed 1½ minutes into its backup, and the complete copy is
+job 25's, filed under `The-Adventures-of-Mary-Kate-and-Ashley--…`. **Seven have no
+complete copy anywhere, and each lacks part of the film**, all from February–April
+2024: *Alien3*, *Aliens*, *Despicable Me*, *Dune* (a UHD disc), *Edge of Tomorrow*,
+*Mummy: Tomb of the Dragon Emperor* and *Now You See Me*. They are on the re-rip
+list (Will, 2026-10-20).
+
+Why those seven lost clips isn't established. Not hash-check failures: MakeMKV
+keeps a file that fails its check. Not moved: no file of a missing clip's exact
+size exists anywhere under `/video`. Drive hangs fit at most two. For five,
+`STREAM/` changed between 25 seconds and 13 hours after the backup ended, which no
+complete backup shows, so those clips were written and then removed. ARM's 2024
+logs and database no longer exist. Two leads are untried: whether Will removed
+`.m2ts` files by hand in early 2024, and the borg `video` repository's 2024
+archives (see `backups.evidence.md`). If those cover `import/`, they could restore
+the clips without a re-rip.
+
+Whatever the 2024 cause, the gap today is that a partial backup looks like any
+other. **The fix:** when a backup ends, check every clip's size against its
+`.clpi` (the method is in the docs, *Stage 1*) and fail the job if any is missing
+or short, recording the result in D17's stamp. A DVD's ISO needs the equivalent:
+its size against the disc's volume size. Whether ARM fails a job on MakeMKV's own
+`Backup done but N files failed hash check` is unchecked.
+
+**D17.** ARM's database stores a job's completed path and never its raw one. The
+raw folder is named from the title when the rip starts, and a title corrected
+later renames only the completed folder. Only the job log, kept 90 days, holds the
+pairing. Left like that, reelbarrow has to pair raw with transcode by content
+fingerprint across partial copies, re-rips and misnamed folders.
+
+**The fix, agreed 2026-10-20:** the source patch writes `arm-job.json` into the raw
+folder when it creates it, where the path is known: job id, label, disc type,
+`crc_id`, `stage` and start time, with D16's completeness result added when the rip
+ends. The file travels with the folder through any rename, so reelbarrow joins on
+job id. Its reader is reelbarrow's `todos/arm-manifest-hook.md`. For a DVD it must
+stay out of HandBrake's input; see phase 2c.
+
+**Backfill for existing jobs** is possible, from what ARM still holds:
+
+- **A surviving job log** maps the job to its raw folder through its
+  `makemkv.makemkv: Processing files to:` line. On 2026-10-20 that covered 50 of
+  the 72 jobs, while 13 never reached a rip and 9 logs (jobs 1 and 3–10) are gone.
+  The export is `captures/raw-pairing/job-raw-map.tsv`, which doesn't outlive this
+  checkout. A logged path must be checked against the share: job 26 logged
+  `Unidentified 2007 Bluray 44069507`, and its files are in `The-Polar-Express`.
+- **A `_<stage>` suffix** on the folder name is the job's `stage` column, so it maps
+  without a log. 23 folders carry one.
+- **Neither** leaves the 2024 folders, which have no job at all, and unsuffixed
+  folders whose log is gone. Those get no stamp; reelbarrow's fingerprints are all
+  there is.
+
+Logs age out 90 days after their job, so job 15's goes around 2026-11-30, and the
+rest follow week by week. Run the backfill before then, or keep the mapping
+somewhere durable.
+
 ## Other open items
 
 - **Audio.** The preset's `AudioCopyMask` lists `copy:truehd` and `copy:dtshd`, but
   both `AudioList` entries use `AudioEncoder: opus`, so lossless audio is re-encoded
   to Opus. Nothing is lost — the raw backup keeps it — but the intent recorded was
-  passthrough. Will's call which is wanted; then the preset and the docs agree.
+  passthrough. Will's call which is wanted; the docs describe the re-encode, and
+  change with the preset if passthrough is chosen.
 - **Play-all titles are transcoded in full.** On a TV disc the compilation title
   passes `MINLENGTH` and costs hours of encoding for output that duplicates the
   episodes. It is recognisable: on both *Sylvester and Tweety* discs its length was
@@ -279,17 +347,84 @@ the BBC series, and nobody corrected it in the wait.
 - **Multi-disc movies are unproven.** Two discs holding halves of one film would each
   get a main feature picked, rather than being recognised as a pair.
 - **Job 19, *An American Tail: Fievel Goes West*, failed to open** (`code: 11`) on a
-  disc that mounted and identified. Undiagnosed: retry, clean, and compare against
-  another disc from the same studio.
+  disc that mounted and identified. Job 62 ripped the same disc (`crc_id`
+  `34518b467593a800`) cleanly on 2026-10-18, so the disc reads. Why job 19 failed
+  is undiagnosed.
 - **Job 39's `completed/` holds two titles** where seven passed `MINLENGTH`.
   Unexplained; its raw MKVs are intact.
 - **Housekeeping**, after the work rather than during it: 76 empty directories in
-  `/root/video/raw/`, three copies of *The Rescuers*' BDMV (129 GB), empty
+  `/root/video/raw/`, four surplus copies of *The Rescuers*' BDMV (185 GB), D16's
+  partial Blu-ray copies once their complete twins are confirmed, empty
   directories under `completed/` and `transcode/` that force the `_<stage>` suffix
   on later output, and *Sherlock* filed as `tv/Sherlock (2010-2017)/`.
 - **Downstream.** Nothing watches `video/import/automatic-ripping-machine/`; that is
   [`video-library-ingest.md`](video-library-ingest.md), which also holds what the
   rips showed about TV numbering and the duplicate Blu-ray feature.
+
+---
+
+## Phase 2c — DVD: the whole disc, decrypted, as the raw copy
+
+**The objective** (Will, 2026-10-20): a duplicate of the raw disc *"such that bonus
+scenes, DVD games, menus, etc. could always be gone back to and re-processed"*,
+preferably without the disc's DRM, *"making it more portable to work with"*.
+Blu-ray meets it already. DVD doesn't: ARM backs up the whole disc only for a
+Blu-ray (`makemkv.py:753` in 2.24.4, unchanged on upstream `main` on 2026-10-20),
+and no `RIPMETHOD` changes that. A DVD gets `makemkvcon mkv … all
+--minlength=420`, so its menus, DVD games, titles under seven minutes and the
+disc's structure are never kept.
+
+**Decided** (Will, 2026-10-20): *"decrypt ISO plus MakeMKV extraction"*, and
+*"Definitely apply this going forward."* Re-ripping earlier DVDs is optional, and
+they are on the re-rip list.
+
+1. **One `makemkvcon backup --decrypt` of the disc writes a decrypted ISO.** It is
+   the only read of the drive, so it adds no `makemkvcon` run against the drive
+   while the SATA hang is open.
+2. **MakeMKV extracts the per-title MKVs from the ISO** (`iso:` source), not the
+   disc. Structure protection — decoy titles, broken IFOs — is part of the
+   disc's layout, so it survives into the ISO. MakeMKV handles it there as it does on the disc; its 1.17.0 DVD engine was
+   rewritten for exactly that. HandBrake reading the ISO directly wouldn't.
+3. **HandBrake and everything after are unchanged.** The DVD path proven in phases
+   2 and 2b, D14's patches included, runs on the input it was verified on.
+
+The strict mirror of the Blu-ray path, HandBrake straight from the ISO, was
+rejected for changing that proven path and for meeting decoy titles unguarded. The
+cost of the chosen design is that the MKVs repeat what the ISO holds, about 4–8 GB
+a disc.
+
+**What the patch must handle**, read from the 2.24.4 source:
+
+- **HandBrake's input folder must hold only the MKVs.** `handbrake_all` scans the
+  folder it is given (`HandBrakeCLI -i <folder> -t 0 --scan`), and HandBrake's
+  folder scan numbers every regular file at its top level as a title while
+  skipping subfolders (`libhb/batch.c`, `S_ISREG`). The preferred layout puts the
+  MKVs in `raw/<Title>/titles/`, which `makemkv()` returns as the transcode input,
+  with the ISO and D17's `arm-job.json` at `raw/<Title>/`. That keeps the stamp in
+  the same place as on a Blu-ray, where a file beside `BDMV/` is harmless.
+- **`get_track_info()` reads the track table from the drive** (`job.drive.mdisc`).
+  Point it at the ISO, or D14's patches lose the MakeMKV rows they match on.
+- **The UI is otherwise untouched.** Identification, the manual wait and abandon
+  all happen before or around the rip. The progress page shows two MakeMKV runs,
+  backup then extraction, both through `progress_log(job)`. An abandon mid-backup
+  leaves a partial ISO, which D16's check has to catch.
+
+**Unverified, for the first test disc:**
+
+- That `makemkvcon backup` on a DVD writes an ISO rather than a folder, and how it
+  names it. Forum reports say ISO
+  ([t=29072](https://forum.makemkv.com/forum/viewtopic.php?t=29072),
+  [t=29877](https://forum.makemkv.com/forum/viewtopic.php?t=29877)), and that it
+  sets the region to all
+  ([t=33453](https://forum.makemkv.com/forum/viewtopic.php?t=33453)). 1.18.4's
+  help says only "backs up disc to a hard drive".
+- That the ISO is decrypted: decode its main VOB end to end with no libdvdcss, as
+  reelbarrow's E24 did for a 2009 ISO.
+- How the backup copes with deliberately unreadable sectors.
+- Drive time against today's `mkv` run of the same disc, from the job logs.
+- Whether pydvdid over the ISO reproduces the disc's `crc_id`. The 2009 ISO's
+  didn't, since the image re-stamped every file, which is one reason D17 stamps
+  the job rather than relying on the ISO to identify itself.
 
 ---
 
@@ -389,7 +524,19 @@ limits (D6) and the alert rules, both of which are facts about this cluster.
   container-local rather than mounting the whole audio share, because upstream ARM
   has a history of surprising permission and directory behaviour.
 - **Raw backups are never deleted** (`DELRAWFILES: false`). They are the archival
-  copy and the integrity anchor. Treat as invariant.
+  copy and the integrity anchor. Treat as invariant. For a DVD that anchor is
+  only the long titles until phase 2c lands, and for a Blu-ray only as good as
+  D16's check.
+- **The raw copy is the whole disc, decrypted** (Will, 2026-10-20): bonus scenes,
+  DVD games and menus must stay re-processable. For DVD, *"decrypt ISO plus
+  MakeMKV extraction"*, applied going forward; see phase 2c.
+- **Audio CDs are out of scope for the whole-disc copy** (Will, 2026-10-20).
+- **D16 starts from exploration** (Will, 2026-10-20): *"Given the circumstances,
+  I would have expected most of these (especially the Polar Express) to be
+  complete. So we really need to dig into the nature of these missing streams."*
+  The seven Blu-rays with no complete copy go on the re-rip list.
+- **Raw is paired with its job by a stamp ARM writes** (Will, 2026-10-20), D17's
+  `arm-job.json`, not by fingerprint alone.
 - **No automatic tray movement, ever** (Will, 2026-08-25). The drive is inside an
   enclosure whose door is open only when someone is actively feeding it discs.
   An eject issued while nobody is there hits the door. `AUTO_EJECT` is only safe
@@ -442,13 +589,22 @@ the remaining work could repeat.
 - **Positional episode mapping.** `title_N` is not episode N: the play-all sits among
   the episodes, and every disc of a set restarts at `title_0`. Only content matching
   can file TV.
+- **A DVD's raw copy was believed to be its whole `VIDEO_TS`**, from the setting's
+  name, in the docs and in this spec's phase 2 notes, through four phases. Nobody
+  listed a DVD's raw folder. Look at an artefact before calling it the archive.
+- **The wrong HandBrake function was read.** `handbrake.py:236`, which feeds every
+  file in a folder to HandBrake, is `handbrake_mkv`, reached only when `RIPMETHOD`
+  is exactly `mkv`. Our DVDs go through `handbrake_all`, which scans the folder
+  instead. Follow `start_transcode` to the branch actually taken.
 
 ---
 
 ## Prompt to open with
 
 > Read `todos/disc-ripping.md` in full. ARM rips CD, DVD and Blu-ray end to end;
-> what is left is the drive's intermittent SATA link loss, the open defects, and 4K.
+> what is left is phase 2c (a whole-disc raw copy for DVD, and D17's job stamp),
+> D16's backup completeness check, the drive's intermittent SATA link loss, the
+> other open defects, and 4K.
 > Work is on the `disc-ripping` branch in `.worktrees/disc-ripping`, with its review
 > at `review/disc-ripping-base`. If a new `ata4` event is why you are here, start at
 > **The drive's SATA link losses: start here** and gather its list before anything

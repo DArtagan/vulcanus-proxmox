@@ -775,6 +775,10 @@ All of this is written up for upstream in
 integrity anchor** — as long as it is intact, a bad transcode is recoverable.
 Protect that property in any change.
 
+*Corrected 2026-10-20: it never did. ARM backs up the whole disc only for a
+Blu-ray; a DVD's raw copy is its titles of seven minutes or more as MKVs. See the
+2026-10-20 entry.*
+
 Known-good reference: job 3 (Le Mans, 2026-04-18) ripped correctly and only the
 transcode was broken, so this phase starts from a working rip.
 
@@ -2945,3 +2949,110 @@ something else the `HOME` fix changed, but it doesn't establish it. `0xA5` ran
 mostly clean in jobs 18–36. The `--info` entries for this drive are identical
 in both versions. Job 49 never ran the init where jobs 45 and 46 hung. And the
 host's lone read hung after job 47.
+
+### 2026-10-20 — what `raw/` holds: DVDs, Blu-ray completeness, and the pairing
+
+Prompted by Will's objective of a DRM-free duplicate of each whole disc. All reads
+were from the running ARM pod, reelbarrow's read-only `/video` mount and the
+host journal. The scripts and their output are under `captures/bd-completeness/`,
+`captures/dvd-inventory/` and `captures/raw-pairing/`, which don't outlive the
+checkout; the figures below are what the conclusions rest on.
+
+#### DVD raw is per-title MKV
+
+`makemkv()` (`makemkv.py:753`, 2.24.4) calls `makemkv_backup` only when
+`disctype == "bluray"`, whichever of `backup` or `backup_dvd` is set; a DVD goes to
+`makemkv_mkv`, which runs `mkv dev:… all --minlength=420`. Upstream `main` has the
+same line, and the latest release is 2.24.4 (2026-10-03). Every one of the 72 raw
+folders holding MKVs is 720×480 by `ffprobe`, so all are DVDs, and none holds a
+`VIDEO_TS`.
+
+MakeMKV can back up a DVD: forum reports have `backup` writing a decrypted ISO,
+with the region set to all, and no option for a folder (t=29072, t=29877,
+t=33453). Not tried here.
+
+The transcode path for a DVD is `handbrake_all`, which runs `HandBrakeCLI -i
+<raw folder> -t 0 --scan` and numbers titles from the result. HandBrake's folder
+scan lists regular files only, skipping subfolders (`libhb/batch.c`, `S_ISREG`
+at line 108 on `master`).
+
+#### Blu-ray backups against their own clip info
+
+For each of the 51 folders with `BDMV/PLAYLIST`, every `CLIPINF/*.clpi` was read
+for its source-packet count (big-endian `uint32` at byte 56) and compared with its
+`STREAM/*.m2ts` at 192 bytes a packet. The disc identity is reelbarrow's nav hash
+(SHA-1 over `PLAYLIST/*`, `index.bdmv`, `MovieObject.bdmv`).
+
+| backup | clips present | GB present / expected | what is missing |
+|---|---|---|---|
+| Alien3 Ww | 109 / 116 | 39.2 / 46.3 | 4 clips of both cuts (145, 115 min), 3 small |
+| Aliens Ww | 118 / 119 | 40.3 / 49.6 | one 9.3 GB clip in both cuts (154, 137 min) |
+| Despicable Me | 879 / 887 | 42.0 / 45.3 | 8 clips, 3 in the 96-min feature |
+| Dune | 15 / 16 | 1.7 / 97.0 | the feature, one 95.4 GB clip (155 min) |
+| Edge Of Tomorrow | 47 / 49 | 5.1 / 39.8 | the feature (29.6 GB, 113.5 min), a 42.6-min extra |
+| Mummy 3Tode | 57 / 62 | 15.0 / 45.5 | the feature (29.7 GB, 111.8 min), 4 extras |
+| Now You See Me | 109 / 111 | 49.5 / 49.7 | 2 clips (265 MB) in all ~130 branching playlists |
+| Scott Vs World R_170830686107 | 28 / 157 | 1.0 / 49.3 | partial; complete copy `Scott Vs World R` |
+| X-Men - Days Of Future Past | 531 / 537 | 23.8 / 45.9 | partial; complete copy `…_170710742835` |
+| X-Men Days Of Future Past | 31 / 112 | 1.0 / 23.8 | partial, last file short; complete copy `…_170713795611` |
+| The-Polar-Express | 6 / 27 | 0.4 / 14.3 | partial; complete copy `The-Adventures-of-Mary-Kate-and-Ashley--…` |
+
+The other 40 are complete, the five *Rescuers* copies included.
+
+*The Polar Express.* Job 25 identified the disc as *The Adventures of Mary-Kate and
+Ashley* from its `LOGICAL_VOLUME_ID` label, backed it up whole to that name
+(07:43–08:03 UTC, 2026-09-04), and was given the title `The-Polar-Express` by hand,
+which renamed only its completed folder. Job 26 put the disc in again at 14:03,
+logged its destination as `raw/Unidentified 2007 Bluray 44069507`, and died on
+SIGTERM at 14:05:55. Its files, written 14:04:40–14:05:40, are in
+`raw/The-Polar-Express`; how that folder got its name isn't known.
+
+*The seven with no complete copy*, all written 2024-02-09 to 2024-04-11:
+
+- **Not hash-check failures.** MakeMKV keeps a file that fails its hash check and
+  reports `Backup done but N files failed hash check`
+  ([t=37286](https://forum.makemkv.com/forum/viewtopic.php?t=37286), whose log is
+  an ALIEN3_WW backup), and an admin describes the backup as the way to *get* a
+  damaged clip ([t=23552](https://forum.makemkv.com/forum/viewtopic.php?t=23552)).
+- **Not moved elsewhere on the share.** Every file under `/video` (50,888) was
+  sized; none matches a missing clip's exact expected size, apart from one
+  studio-logo clip that is identical on several discs.
+- **Not explained by the drive.** In 2024 the drive was on `ata6`. Its exceptions
+  near these backups are at 2024-02-04 11:02 and 17:17 MST, and 2024-04-10 22:30
+  and 22:52 MDT. The second fits the 18-hour *X-Men* partial, whose last write was 16:16 MST,
+  mid-file, after a five-hour gap. The April pair came 20–40 minutes before
+  *Dune*'s backup started. Nothing coincides with the other backups.
+- **Five were written and then removed.** In the four complete backups checked
+  (*Batman Begins*, *Alien Ww*, *Coraline*, *Fifth Element*), `STREAM/`'s mtime
+  equals its last `.m2ts` write. Measured from each backup's last file, it is
+  later for *Mummy 3* (25 s), *Aliens* (11 min), *Edge of Tomorrow* (24 min),
+  *Dune* (4 h 38 min) and the first *X-Men* (13 h 12 min). *Alien3*, *Despicable
+  Me* and *Now You See Me* show no later change. In all seven, no missing clip has
+  a `MAKEMKV/CMAP/*.cmap`, and every present one does.
+- **One coincidence, uninterpreted.** The first *X-Men*'s `STREAM/` changed at
+  11:03:18 MST on 2024-02-04, 43 s after the `dma 6144` exception at 11:02:35,
+  while the second *X-Men* disc's backup was running.
+- **ARM's 2024 record is gone.** The oldest job log is 2026-08-24, and the
+  database starts at 2026-04-17.
+
+#### The drive in 2024, and since 2026-10-10
+
+The host journal holds 35 `ata6.00: cmd a0/` exceptions between 2024-01-14 and
+2024-12-22: 21 `pio 16388`, 12 `dma 16416`, one `dma 6144` and one `pio 16392`.
+So 33 of 35 carry the two signatures every `ata4` event since April has.
+
+Since 2026-10-10 the journal holds no `ata4` exception. The boot is still
+2026-10-08 22:25, the SDF archive still holds `sdf_000000a6.bin`, and jobs 50–72
+ran in that time: with 47–49, 26 jobs in a row.
+
+#### DVD inventory and the job↔raw pairing
+
+The database holds 57 DVD jobs, 36 distinct `crc_id`s; job 58 (*Von Ryan's
+Express*) has none. The 2024 raw folders add 35 discs by label and content. Both
+lists, with the seven Blu-rays above, are `disc-rerip-list.txt`, untracked in the
+main checkout.
+
+The database holds no raw path. Each job log's `makemkv.makemkv: Processing files
+to:` line does: 50 of 72 jobs on 2026-10-20, with 13 never reaching a rip and the
+logs of jobs 1 and 3–10 gone. A folder's `_<12 digits>` suffix is the job's
+`stage` column, which matches 23 folders.
