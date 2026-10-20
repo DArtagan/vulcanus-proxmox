@@ -17,9 +17,9 @@ phases left. Only deleting this spec and adding the
 Slug `backups`. [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) closed
 at the 2b boundary on 2026-10-13, and
 [PR #19](https://github.com/DArtagan/vulcanus-proxmox/pull/19) at Phase 3's on
-2026-10-16. Phase 4 is on a fresh `backups` branch from `main`, in
-`.worktrees/backups`; its review opens with the first commit. mini-nas's side of it
-is on a `backups` branch of that repository, under a review of its own.
+2026-10-16. Phase 4 is on a `backups` branch in `.worktrees/backups`, under review in
+[PR #23](https://github.com/DArtagan/vulcanus-proxmox/pull/23). mini-nas's side is on
+a `backups` branch of that repository, pushed, with its own review still to open.
 
 ## Status
 
@@ -31,7 +31,7 @@ is on a `backups` branch of that repository, under a review of its own.
 | 2 | Application backups — K8up + restic | done 2026-10-12 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13) |
 | 2b | Delete the borg tree | done 2026-10-13 — [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) |
 | 3 | Performance — drop the OpenEBS disks from vzdump | applied 2026-10-16, review closed; checks B-E outstanding, carried by the user |
-| 4a | PBS #2 on mini-nas, NixOS container, pulling | in progress — form changed 2026-10-18; stack proven in a VM test, nothing deployed |
+| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — deployed and pulling 2026-10-20; the first sync is running, then verify, mirror, restores |
 | 4b | The primary into a NixOS container on vulcanus | designed 2026-10-17; after 4a |
 | 5 | The offline copy — external disk | not started; needs a ~$200 purchase |
 | 6 | Verification, notification, runbook | not started |
@@ -679,43 +679,96 @@ workstation — a host running the container as mini-nas will, on ZFS — and th
 - A backup, restore, verify and GC round trip completes against a scratch datastore.
 - The container's memory peak is read.
 
-**Where it stands, 2026-10-19.** The VM test passes all four of the above, on
-mini-nas's nixpkgs; see the evidence. Done: mini-nas's `vmbr0` holds
-`192.168.1.11` under networkd (`ad40a2a`), `rpool/pbs` exists, and
-`containers.pbs-offsite` runs (`70967a6`) with its datastore created, ~160 MiB
-idle, on DHCP `192.168.1.35`. VM 107 has Tailscale installed and `sync@pbs` with
-token `pbs-offsite`, holding Datastore.Audit, Read and Verify on
-`/datastore/primary` and nothing else, its secret in `/root/pbs-offsite-token-secret`
-(37 bytes, mode 600); `ansible/pbs-primary.yaml` re-runs clean. The Headscale policy
-carries both tags and the one grant each way it needs.
+**Where it stands, 2026-10-20.** The VM test passes all four of the above, on
+mini-nas's nixpkgs; see the evidence.
 
-Both nodes are registered and tagged: `pbs-primary` (VM 107, `100.64.0.9`) and
-`pbs-offsite` (`100.64.0.10`), named at `tailscale up --hostname` so the remote's
-`pbs-primary.forge.local` resolves, and tagged server-side. The policy is proven
-narrow from inside the container: 8007 open to the primary, 22 and 8006 blocked.
-mini-nas's lock pins vulcanus-proxmox's `main` (`7fe184d`), so the
-`--override-input` is gone and a deploy from that branch is reproducible.
+**Running.** mini-nas's `vmbr0` holds `192.168.1.11` under networkd (`ad40a2a`),
+`rpool/pbs` exists with `atime=on` owned by uid 350, and `containers.pbs-offsite`
+runs (`70967a6`) at ~160 MiB idle on DHCP `192.168.1.35`, with its datastore, prune,
+verify and sync jobs, the remote, the Pushover target and the `root@pbs` login all
+reconciled on activation. The GUI is `https://pbs-offsite.forge.local:8007`, user
+`root`, realm **Proxmox Backup authentication server**, its password in
+`gui/root-password`; 8007 also answers on mini-nas's LAN, deliberately. VM 107 has
+Tailscale and `sync@pbs!pbs-offsite`, holding Datastore.Audit, Read and Verify on
+`/datastore/primary` and nothing else, its secret in
+`/root/pbs-offsite-token-secret`; `ansible/pbs-primary.yaml` re-runs clean. Both
+nodes are tagged server-side: `pbs-primary` (VM 107, `100.64.0.9`) and `pbs-offsite`
+(`100.64.0.10`), named with `tailscale up --hostname` so the remote's
+`pbs-primary.forge.local` resolves. The policy is proven narrow from inside the
+container: 8007 reaches the primary, 22 and 8006 do not. The protection mirror has
+been run by hand against both stores and exits clean with nothing yet protected.
 
 **The first sync is running**, started 2026-10-20 00:40 UTC through
 `pbs-offsite-daily`. The path is **direct**, not DERP-relayed (`tailscale status`
 reads `direct`, 60-70 ms), and it moves **~3.3 MB/s ≈ 26 Mbit/s** — vulcanus's
 uplink, since the path is direct and `rx` matches what lands in the datastore. At
-that rate the primary's 643 GiB takes **~55 h**, a one-time cost; daily runs carry
-a delta. Nothing rate-limits it, so it saturates the vulcanus site's upload
+that rate the primary's 643 GiB takes **~55 h**, a one-time cost; daily runs carry a
+delta. Nothing rate-limits it, so it saturates the vulcanus site's upload
 throughout: PBS's `traffic-control` is where a cap would go if that matters.
 
-Outstanding after it: the first verify, `rpool/pbs`'s `used` read against PBS's own
-figure, the protection mirror exercised both ways, `pbs-offsite-freshness` shown red
-and green, the two test restores, then `rpool/data` narrows to `vm-107-disk-0`, and
-`docs/` for what 4a made true.
+### Picking 4a up again
 
-mini-nas's lock pins vulcanus-proxmox's `main`, so until this branch reaches it,
-mini-nas builds with `--override-input vulcanus-proxmox
-path:<this checkout>/nixos`, deployed by deploy-rs for its magic rollback. That
-pin sets the order in which the two branches land: this one to its `main` first,
-then mini-nas's lock, then mini-nas's own `main`. Until mini-nas's lands, the host
-runs an unmerged branch and a deploy from its `main` would take PBS #2 away — which
-is how `claude-warmup` came to be undeployed on 10-18.
+Everything on vulcanus-proxmox's branch is on `main` except **`255e699d`, which is
+not deployed**: it puts `pbs-offsite` on the host's PATH, and deploying restarts the
+container, so it waits for the sync. Until then, run the tool by its store path,
+which `systemctl cat pbs-offsite-freshness` carries. mini-nas's branch is pushed
+with no review open yet, and the host runs it, so a deploy from mini-nas's `main`
+would take PBS #2 away — the trap that undeployed `claude-warmup` on 10-18.
+
+Watch the sync from the workstation:
+
+```bash
+ssh root@192.168.1.11 'zfs list -H -o name,used rpool/pbs
+  nixos-container run pbs-offsite -- systemctl is-active pbs-offsite-daily
+  nixos-container run pbs-offsite -- journalctl -u pbs-offsite-daily -o cat \
+    --no-pager | grep "percentage done" | tail -1'
+```
+
+Its percentage counts snapshots rather than bytes, and the large guests sync last,
+so it runs ahead of the real figure. **A container restart costs little:** the chunk
+store keeps what has landed, and the next run re-syncs only the snapshot that was in
+flight. Start the chain again with `systemctl start --no-block pbs-offsite-daily`
+inside the container; the timer fires it at 12:00 UTC regardless.
+
+Deploy mini-nas with deploy-rs rather than `nh os switch`, for the magic rollback
+the bridge change wanted, and without `--override-input` now that `main` carries
+PBS #2's system:
+
+```bash
+cd ~/repositories/mini-nas/.worktrees/backups
+nix run --inputs-from . deploy-rs -- .#mini-nas --hostname 192.168.1.11 \
+  --confirm-timeout 60 --skip-checks
+```
+
+Drive PBS's own APIs locally with `proxmox-backup-debug api get|set|create <path>`,
+which connects to the local daemon as root; it is how the mirror reads and sets
+protection, and how a token is minted, `proxmox-backup-manager` having no
+`--output-format` on `user generate-token` and no working `--password` on
+`user update`.
+
+**What is not in code, after an audit on 2026-10-20.** Everything else is:
+mini-nas's networking and the container in that repository, PBS's package,
+datastore, jobs, remote, notification target and `root@pbs` login in this one's
+`nixos/`, VM 107's side in `ansible/pbs-primary.yaml`, the tags and grants in the
+Headscale policy, and the datastore dataset in `disk-config.nix` with its ownership
+as a tmpfiles rule. What remains outside it:
+
+- **Tailnet registration, naming and tagging**, which live in headscale's database.
+  Deliberate: there is no reusable pre-auth key to automate it with. The exact
+  commands are in `nixos/modules/pbs.nix` beside `services.tailscale.enable`,
+  because a host rebuilt and registered under the wrong name leaves the sync
+  pointing at nothing.
+- **VM 107's `authorized_keys`**, installed once through its console. Ansible cannot
+  bootstrap the access Ansible needs, and VM 107 retires at 4b.
+- **Creating a ZFS dataset on a live host**, since disko applies only on a fresh
+  install — mini-nas's standing convention, recorded in its CLAUDE.md.
+
+**Then, in order:** the first verify on PBS #2; `rpool/pbs`'s `used` read from the
+pool against PBS's own figure; the protection mirror exercised both ways, including
+a protected snapshot surviving prune past `keep-last`; `pbs-offsite-freshness` shown
+red and green; the two test restores, which touch both hypervisors; then
+`rpool/data` narrows to `vm-107-disk-0`; then `docs/backups.md`, `docs/nixos.md` and
+`docs/tailnet.md` for what 4a made true, and mini-nas's own review.
 
 ### mini-nas's host side
 
