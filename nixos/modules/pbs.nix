@@ -164,8 +164,16 @@ in
       '';
     };
 
-    # Registered by hand, once: `tailscale up --login-server …`, then tagged
-    # server-side. See docs/tailnet.md for why there is no pre-auth key.
+    # Registered by hand, once, there being no pre-auth key to automate it with
+    # (docs/tailnet.md says why). The node's name is load-bearing: PBS #2's remote
+    # reaches the primary by it, so it is set here rather than left to the
+    # container's hostname, and the tag is applied server-side because advertising
+    # one forces re-authentication.
+    #
+    #   tailscale up --login-server https://headscale.immortalkeep.com \
+    #     --hostname <pbs-primary|pbs-offsite>
+    #   headscale nodes register --user will --key <the key it prints>
+    #   headscale nodes tag -i <id> -t tag:<pbs-primary|pbs-offsite>
     services.tailscale.enable = true;
 
     # Schedules are stated in UTC across the estate's four clocks, and PBS's
