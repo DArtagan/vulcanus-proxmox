@@ -84,6 +84,7 @@ in
       secrets = {
         "pushover/token".restartUnits = [ "pbs-notifications.service" ];
         "pushover/user-key".restartUnits = [ "pbs-notifications.service" ];
+        "gui/root-password".restartUnits = [ "pbs-gui-user.service" ];
       };
     };
 
@@ -126,6 +127,37 @@ in
         else
           proxmox-backup-manager notification matcher create errors "''${args[@]}"
         fi
+      '';
+    };
+
+    # The GUI login, in PBS's own realm rather than PAM. `root@pam` cannot serve
+    # it: NixOS leaves root's password locked, so PAM has nothing to check, and
+    # giving the account one to satisfy a web form widens what a password reaches.
+    # The module manages datastores and jobs but not users.
+    systemd.services.pbs-gui-user = {
+      description = "Reconcile PBS's root@pbs login";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "proxmox-backup.service" ];
+      requires = [ "proxmox-backup.service" ];
+      path = [
+        pbs
+        pkgs.coreutils
+        pkgs.gnugrep
+      ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+      # The password passes through argv, as the notification secrets do: only
+      # PBS's own daemons and Tailscale run in this container.
+      script = ''
+        password=$(cat ${secrets."gui/root-password".path})
+        if proxmox-backup-manager user list --output-format json | grep -q '"root@pbs"'; then
+          proxmox-backup-manager user update root@pbs --password "$password"
+        else
+          proxmox-backup-manager user create root@pbs --password "$password"
+        fi
+        proxmox-backup-manager acl update / Admin --auth-id root@pbs
       '';
     };
 
