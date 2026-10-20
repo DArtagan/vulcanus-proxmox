@@ -27,6 +27,7 @@ resources:
   - photos-pvc.yaml
   - rclone
   - rancher-key.sops.yaml
+  - reelbarrow
   - rustdesk
   - salamander.yaml
   - soft-serve
