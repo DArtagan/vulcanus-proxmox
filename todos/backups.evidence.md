@@ -1221,6 +1221,120 @@ failure for the whole tailnet; `ansible/proxmox-tailscale.yaml` records that the
 applied server-side with `headscale nodes tag`, because advertising it forces
 re-authentication. The PBS hosts follow both.
 
+## Phase 4a — 2026-10-18
+
+### mini-nas cannot run an LXC
+
+Asked to build PBS #2 as LXC 109, the first step found that it could not exist.
+`systemctl cat` on mini-nas finds no `pve-container@`, `pve-lxc-syscalld` or
+`pve-container-debug@` unit, and `lxc-start` is not on the PATH; `pct` is. In
+proxmox-nixos, at mini-nas's pin `fc773dcf` and at `HEAD` `b319f940`,
+`modules/proxmox-ve/default.nix` imports ceph, bridges, cluster, linstor, manager,
+qemu-server, rrdcached and vms; nothing imports `container.nix`. That file nests
+`pve-container@` inside `pve-container-debug@`'s attribute set, puts the debug unit's
+`serviceConfig` inside `unitConfig`, and points `pve-lxc-syscalld` at a Debian path
+no package provides. Upstream: issue #140 and PR #142 (open since 2025-05,
+conflicting; its author created a container but never started one), #192 and #244
+(`pct create` failing on `mkfs.ext4`, then on `tar`). The user chose a NixOS container
+in its place, and asked that the docs say it would move to an LXC should
+proxmox-nixos ever support one.
+
+### Read from the sources and the hosts
+
+- **`proxmox-backup-manager sync-job run` and `prune-job run` block, and fail on a
+  failed task**: `run_job` posts the run and `view_task_result` follows the task log
+  to the end, bailing unless the exit status is `OK` or `WARNINGS`. So the daily
+  chain is one oneshot.
+- **A job run by hand still notifies**: `send_sync_status` and `send_prune_status`
+  are called from the task itself, and a datastore's `notification-mode` defaults to
+  `notification-system`.
+- **`prune-job run` ignores `disable`**, which only the scheduler checks
+  (`proxmox-backup-proxy.rs`), and a prune job requires a schedule. PBS #2's is
+  declared disabled, with a placeholder schedule, and run by the chain.
+- **`proxmox-backup-debug api` calls the local API as root** through
+  `connect_to_localhost`, so the mirror sets flags here with no local credential.
+  `PUT /admin/datastore/{store}/protected` takes `ns`, the backup's type, id and
+  time, and `protected`.
+- **The snapshot listing carries `protected` and `verification.state`**
+  (`SnapshotListItem`, `pbs-api-types`).
+- **A pull creates its target namespace** when missing (`check_and_create_ns`).
+- **The webhook renders with Handlebars and a `json` helper**, which serialises a
+  value, quotes included; the body is base64 in the config, and secrets are
+  `{{ secrets.<name> }}`.
+- vulcanus's `pbs` storage: `server 192.168.0.107`, `datastore primary`,
+  `username root@pam`, fingerprint `f1:ef:ab:…:9f:9b`. mini-nas's DHCP lease hands it
+  router and resolver `192.168.1.1`.
+- **mini-nas's tofu has never been applied**: no state anywhere, and
+  `pveum user list` returns only `root@pam`.
+- **nixos-containers before nixpkgs `20b1ddd` (2026-09-19) fail to evaluate a
+  container given by `path`**: an assertion reads `cfg.config.nix.enable`
+  unguarded. mini-nas's pin (2026-10-05) carries the `opt.config.isDefined` guard.
+
+### The VM test
+
+A throwaway flake outside the repository: a NixOS VM on mini-nas's nixpkgs
+(`494ce7fd`), a ZFS pool with `atime=off` and `rpool/pbs` at `atime=on`, chowned
+350:350, and `containers.pbs-offsite` given `pbs-offsite`'s toplevel by `path`, with
+`privateUsers = "pick"`, `enableTun`, a bridge, `--bind=/rpool/pbs:/mnt/pbs:idmap`
+and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
+
+- The container boots; uid 0 maps to host 431161344. bubblewrap runs inside it.
+- `proxmox-backup-setup` creates the datastore: "Access time update check
+  successful". The chunk store appears on the host owned by 350, so `idmap` holds.
+- The remote, the sync job (`remove-vanished false`, `ns vulcanus`), the disabled
+  prune job, the verify job, the webhook and the matcher all reconcile.
+- A `proxmox-backup-client` backup into `vulcanus`, protection set through
+  `proxmox-backup-debug api`, a restore, a verify reading `ok`, the prune job run
+  (`keep protected vm/900/…`) and a GC all succeed.
+- `MemoryPeak` 357,462,016 bytes (341 MiB), for a 44 KiB workload: an idle
+  figure, not a sizing one.
+
+### On mini-nas
+
+- **nixos-facter turns DHCP on per detected NIC** (`networking.interfaces.eth0.useDHCP
+  = mkDefault true`) as well as globally, so `networking.useDHCP = false` alone left
+  dhcpcd running beside networkd. Both are set false.
+- **networkd brings resolved, and turns resolvconf off**, so `networking.nameservers`
+  would have been inert; the router is the bridge's `DNS=`, and Tailscale registers
+  MagicDNS on `tailscale0`.
+- Deployed with deploy-rs to `192.168.1.11`, magic rollback with a 60 s confirm,
+  rather than `nh os switch`, whose activation dies with a dropped session. Confirmed
+  first time. After: `eth0` enslaved, `vmbr0` routable with the static address and
+  a SLAAC address from the bridge's MAC, `dhcpcd` inactive, Tailscale up, no failed
+  units.
+- **mini-nas's `nixos-upgrade` has never worked**: it fails daily on "file
+  'nixos-config' was not found", `system.autoUpgrade` having no `flake`. So it
+  cannot revert a deploy. Outside this project.
+- The container: uid 0 at a picked base, DHCP `192.168.1.35`, `/rpool/pbs`'s chunk
+  store owned 350 on the host, `MemoryPeak` 167,739,392 bytes idle. The setup unit
+  creates the sync job though its remote is missing, so its success is not evidence
+  of the remote.
+
+### Wrong turns
+
+- **The webhook body was built with `builtins.toJSON`**, wrapping `{{ message }}` in
+  quotes, so a message carrying a quote or newline would have rendered invalid JSON.
+  Read from the reconciled config in the test; the body now uses `{{ json … }}`.
+- **The VM test hung at its first client call**, because the helper quoted with
+  Python's `repr`, which chose double quotes, so the host's shell expanded the
+  fingerprint lookup to nothing and the client waited at its trust prompt. The
+  helper now quotes with `shlex`, closes stdin and carries a timeout.
+
+- **Deploying `backups` to mini-nas undeployed `claude-warmup`**, which the host was
+  running and `main` did not carry: the switch stopped `claude-warmup.timer` and
+  removed its secret. mini-nas's CLAUDE.md warns of exactly this. Compare the running
+  system with `main` before deploying a branch. Restored 2026-10-19 by merging
+  `main`, once `claude-warmup` had landed there, into mini-nas's `backups` and
+  redeploying; the timer and its secret are back. The hazard stands while the host
+  runs an unmerged branch, which is why 4a's branches want merging promptly.
+- **PR #4's diff was blamed on this session's work.** mini-nas's `claude-warmup` PR
+  listed fifteen commits already in `main`, read at first as damage from the new
+  worktree. It was a stale merge base: the PR opened 2026-10-16 14:45 UTC against
+  `main` at `c3b36f1`, and `main` fast-forwarded to `e2a681f` thirteen minutes
+  later, GitHub never recomputing. `c3b36f1..claude-warmup` is exactly the 18
+  commits it showed, against 3 from `main`'s tip. Read a PR's commit list against
+  its base's *current* tip before believing it.
+
 ## What phases 0 to 2b asserted
 
 - **Phase 0** — `Result=success` on all four mini-nas units; offsite snapshot count

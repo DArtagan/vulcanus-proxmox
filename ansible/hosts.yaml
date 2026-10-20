@@ -11,6 +11,14 @@ all:
         192.168.0.103:
           ansible_user: root
           ansible_python_interpreter: /usr/bin/python3
+    pbs_primary:
+      hosts:
+        192.168.0.107:
+          ansible_user: root
+          ansible_python_interpreter: /usr/bin/python3
+          # The tailnet grants this address 8007 alone, so SSH goes through the
+          # hypervisor.
+          ansible_ssh_common_args: '-J root@vulcanus.forge.local'
     fileserver:
       hosts:
         192.168.0.105:

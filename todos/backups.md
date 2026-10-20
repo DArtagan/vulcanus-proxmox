@@ -31,7 +31,7 @@ is on a `backups` branch of that repository, under a review of its own.
 | 2 | Application backups — K8up + restic | done 2026-10-12 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13) |
 | 2b | Delete the borg tree | done 2026-10-13 — [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) |
 | 3 | Performance — drop the OpenEBS disks from vzdump | applied 2026-10-16, review closed; checks B-E outstanding, carried by the user |
-| 4a | PBS #2 on mini-nas, NixOS container, pulling | designed 2026-10-17; not started |
+| 4a | PBS #2 on mini-nas, NixOS container, pulling | in progress — form changed 2026-10-18; stack proven in a VM test, nothing deployed |
 | 4b | The primary into a NixOS container on vulcanus | designed 2026-10-17; after 4a |
 | 5 | The offline copy — external disk | not started; needs a ~$200 purchase |
 | 6 | Verification, notification, runbook | not started |
@@ -189,9 +189,16 @@ performance.
 Decided 2026-10-17, in designing the phase:
 
 - **Both PBS hosts are unprivileged NixOS containers running nixos-pbs**, configured
-  in this repo's `nixos/` flake and deployed by colmena. Verbatim: *"I'd like to move
+  in this repo's `nixos/` flake and deployed by colmena — PBS #2 by mini-nas, as
+  amended below. Verbatim: *"I'd like to move
   away from using Ansible. I have no interest in doing hand-configuration."* VM 107
   stays on Ansible only for what 4a needs of it.
+- **PBS #2 is a NixOS container on mini-nas's host, not a PVE container** (2026-10-18),
+  because proxmox-nixos cannot run LXC; see *Why PBS #2 is not an LXC*. Its system is
+  built from this repo's `nixos/` flake; mini-nas declares the container and deploys
+  it with `nh os switch`. Verbatim: *"I guess it's just uncompleted work then. That's
+  too bad. Let's go with the NixOS container then."* The user would like it moved to
+  an LXC should proxmox-nixos ever support one, and `docs/` says so.
 - **PBS #2 first (4a), then the primary (4b).**
 - **PBS #2 pulls, and the primary holds no credential for it.** Both are tagged
   tailnet nodes, PBS #2 in kernel mode and the primary in userspace mode; VM 107
@@ -570,8 +577,8 @@ Not gated on the mini-nas disks; see *Capacity, until the mini-nas disks arrive*
 
 **4a**
 
-1. mini-nas's host side: networking, guest storage, the datastore dataset, the
-   container. See *mini-nas's host side*.
+1. mini-nas's host side: networking, the datastore dataset, the container. See
+   *mini-nas's host side*.
 2. **Prove the stack** in that container before building on it; see below.
 3. The Headscale policy: tags and grants. Both PBS hosts register interactively.
 4. VM 107, through Ansible: Tailscale as `tag:pbs-primary`, and the sync user and
@@ -598,17 +605,35 @@ Where the module has no option for something, a oneshot in the shared module
 reconciles it through `proxmox-backup-manager`; nothing is configured by hand.
 
 Both hosts live in this repo's `nixos/` flake beside `restic-repository`, sharing one
-PBS module and differing by role, and colmena deploys them. Terraform creates the
-vulcanus container and mini-nas's tofu (`bpg/proxmox`) the mini-nas one, each from a
-template the flake builds — LXC 108's pattern, in `docs/nixos.md`.
+PBS module and differing by role. The primary is a colmena host: Terraform creates
+its container from a template the flake builds, LXC 108's pattern in
+`docs/nixos.md`. PBS #2 is the flake's `nixosConfigurations.pbs-offsite`, which
+mini-nas's flake takes as an input and runs as `containers.pbs-offsite`, a NixOS
+(systemd-nspawn) container, deployed with mini-nas's own `nh os switch`.
 
 | | Primary (4b) | PBS #2 (4a) |
 |---|---|---|
-| Host | vulcanus, LXC 109 | mini-nas, LXC 109 |
-| Address | `192.168.0.109`, static in Nix: PVE reaches it on the LAN | DHCP: everything reaches it over the tailnet |
-| Datastore | `rpool/backups/pbs`, bind-mounted | `rpool/pbs`, bind-mounted |
+| Host | vulcanus, LXC 109 | mini-nas, NixOS container `pbs-offsite` |
+| Address | `192.168.0.109`, static in Nix: PVE reaches it on the LAN | DHCP on `vmbr0`: everything reaches it over the tailnet |
+| Datastore | `rpool/backups/pbs`, bind-mounted | `rpool/pbs`, bind-mounted with `idmap` |
 | Snapshots | sanoid `dailies` (30), an override beside `rpool/backups/restic`'s | none |
-| Tailscale | userspace networking, `tag:pbs-primary` | kernel, `/dev/net/tun` passed in, `tag:pbs-offsite` |
+| Tailscale | userspace networking, `tag:pbs-primary` | kernel, `enableTun`, `tag:pbs-offsite` |
+| User namespace | unprivileged LXC | `privateUsers = "pick"` |
+
+### Why PBS #2 is not an LXC
+
+Read 2026-10-18. proxmox-nixos cannot run a PVE container, at mini-nas's pin or at
+upstream `HEAD` (`b319f940`). `modules/proxmox-ve/container.nix`, which defines
+`pve-container@` and `pve-lxc-syscalld`, is imported by nothing, and is malformed —
+`pve-container@` is nested inside `pve-container-debug@` — and `pve-lxc-syscalld` is
+not packaged. mini-nas has neither unit and no `lxc-start` on the PATH; only `pct` is
+installed. Upstream: issue #140 "Make LXC works" and its PR #142, open since
+2025-05 and conflicting, whose author created a container but could not start one;
+issues #192 and #244 report the same. VMs are supported.
+
+A NixOS container keeps what the LXC was chosen for: a dataset datastore, a memory
+limit rather than an allocation, its own tagged tailnet node, and user namespacing.
+What it changes is the deploy path.
 
 Both are excluded from vzdump: their configuration is in git, and their datastores
 are what vzdump writes to. PBS #2's dataset stays outside mini-nas's sanoid, which
@@ -625,23 +650,54 @@ covers only `rpool/foreign-backups/vulcanus/*`, and carries no quota.
 - **The host sees the chunk store**, so the pool's own scrub covers it, the property
   that put the restic repository in a container.
 - **Memory is a cgroup limit, not an allocation,** which matters against mini-nas's
-  ~7 GiB available. Each starts at 2 GiB, VM 107's figure, and is measured.
+  ~7 GiB available. Each starts at 2 GiB, VM 107's figure, and is measured. On
+  mini-nas it is `MemoryMax` on `container@pbs-offsite.service`.
 
 **Each datastore dataset sets `atime=on`.** Both pools are `atime=off`, and PBS's GC
 marks chunks in use by their atime; its safety check refuses a datastore without it.
 `relatime` is fine.
 
-**Prove the stack before building on it**, in 4a's container on mini-nas:
+**Prove the stack before building on it**, first in a NixOS VM test on the
+workstation — a host running the container as mini-nas will, on ZFS — and then in
+4a's container on mini-nas:
 
-- nixos-pbs's `buildFHSEnv` wrapper runs in an unprivileged container with
-  `nesting`. It needs user namespaces.
+- nixos-pbs's `buildFHSEnv` wrapper (bubblewrap) runs inside a user-namespaced
+  nspawn container. It needs to create a nested user namespace.
 - The datastore is created, its atime check passing.
 - A backup, restore, verify and GC round trip completes against a scratch datastore.
 - The container's memory peak is read.
 
+**Where it stands, 2026-10-19.** The VM test passes all four of the above, on
+mini-nas's nixpkgs; see the evidence. Done: mini-nas's `vmbr0` holds
+`192.168.1.11` under networkd (`ad40a2a`), `rpool/pbs` exists, and
+`containers.pbs-offsite` runs (`70967a6`) with its datastore created, ~160 MiB
+idle, on DHCP `192.168.1.35`. VM 107 has Tailscale installed and `sync@pbs` with
+token `pbs-offsite`, holding Datastore.Audit, Read and Verify on
+`/datastore/primary` and nothing else, its secret in `/root/pbs-offsite-token-secret`
+(37 bytes, mode 600); `ansible/pbs-primary.yaml` re-runs clean. The Headscale policy
+carries both tags and the one grant each way it needs.
+
+Outstanding: PBS #2's `pbs-remote` and `pbs-notifications` fail until the sync token
+and healthchecks URL replace their placeholders in `secrets.sops.yaml`, which needs a
+human key. Then the branch reaches `main` so Flux applies the policy, with
+`kubectl rollout restart deployment/headscale -n apps` after it, since the ConfigMap
+is mounted un-hashed. Then both nodes register interactively and are tagged and
+renamed server-side — the remote names the primary `pbs-primary.forge.local`, so
+VM 107's node takes that name, and LXC 109 takes it at 4b. Then the first sync and
+verify, and the two test restores.
+
+mini-nas's lock pins vulcanus-proxmox's `main`, so until this branch reaches it,
+mini-nas builds with `--override-input vulcanus-proxmox
+path:<this checkout>/nixos`, deployed by deploy-rs for its magic rollback. That
+pin sets the order in which the two branches land: this one to its `main` first,
+then mini-nas's lock, then mini-nas's own `main`. Until mini-nas's lands, the host
+runs an unmerged branch and a deploy from its `main` would take PBS #2 away — which
+is how `claude-warmup` came to be undeployed on 10-18.
+
 ### mini-nas's host side
 
-Read 2026-10-17; see the evidence. PVE's services run, but no guest ever has.
+Read 2026-10-17; see the evidence. PVE's services run, but no guest ever has, and
+no container can (2026-10-18).
 
 - **Networking.** `proxmox.nix` declares `vmbr0` over `systemd.network`, but
   `systemd-networkd` is inactive and `dhcpcd` owns `eth0`, so none of it applies —
@@ -653,12 +709,16 @@ Read 2026-10-17; see the evidence. PVE's services run, but no guest ever has.
   The router must not lease `.11` to anything else: it is reserved there or outside
   its pool, read before the switch. Deployed with `nh os switch`, the JetKVM console
   the way back if it goes wrong.
-- **Guest storage.** `local`, a directory, is the only storage, and
-  `/etc/pve/storage.cfg` does not exist. The container's rootfs needs a ZFS storage.
-- **The datastore**, `rpool/pbs`, created on the host and bind-mounted.
-- **`/dev/net/tun` passed into the container.** bpg's provider sets device
-  passthrough only with root credentials, the same toggle `main.tf` records for
-  `args`.
+- **The datastore**, `rpool/pbs`, created on the host with `atime=on`, owned by the
+  container's pinned PBS uid, and bound into the container with `idmap`.
+- **The container**, `containers.pbs-offsite` in mini-nas's configuration, on
+  `vmbr0`, with `enableTun` for Tailscale.
+- **Guest storage** is only `local`, a directory, and `/etc/pve/storage.cfg` does not
+  exist. Nothing in 4a needs more until the `vm/900` test restore, which can restore
+  onto `local`.
+- **mini-nas's tofu has never been applied to this PVE** (2026-10-18): no state
+  exists, and PVE holds only `root@pam` — no `will@pam`, no `admin` group, no API
+  token. 4a needs no tofu now the container is NixOS's.
 - The commented-out `proxmox_backup_server` module in `main.tf` and
   `tofu_modules/proxmox_backup_server` are an earlier VM attempt, and go.
 
@@ -923,6 +983,10 @@ Inheriting mistaken reasoning is worse than inheriting none. The full list, with
 operational slips of each phase, is in the evidence; these are the ones the remaining
 phases could repeat.
 
+- **PBS #2 was designed as a PVE container on a PVE that had never run a guest.**
+  The design session read that no guest ever had, and went on to choose an LXC
+  without asking whether proxmox-nixos could start one; it cannot. When a design
+  rests on a capability nobody has exercised, check that it exists first.
 - **Phase 4 was gated for six weeks on a 93% peak projected 2026-09-01** and never
   re-measured, though Phase 0 had already landed at 76% against a predicted 82%.
   Measured on 10-16 it was 84%. Re-measure a gate set on a forecast before obeying it.

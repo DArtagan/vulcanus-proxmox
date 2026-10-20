@@ -1,0 +1,117 @@
+# What PBS #2's pull needs of the primary while it is still VM 107: a tailnet
+# node, and a read-only user and token for the sync. Retired with VM 107, whose
+# successor is configured in nixos/. See docs/backups.md.
+#
+# Registration is by hand, once, as for every node -- see docs/tailnet.md:
+#   tailscale up --login-server https://headscale.immortalkeep.com --accept-dns=false
+# then on headscale `nodes register`, `nodes tag -t tag:pbs-primary`, and
+# `nodes rename pbs-primary`: PBS #2's remote reaches it by that name.
+- name: 'prepare the PBS primary for PBS #2 to pull from'
+  hosts: pbs_primary
+
+  vars:
+    sync_user: sync@pbs
+    token_name: pbs-offsite
+    sync_token: "{{ sync_user }}!{{ token_name }}"
+    token_secret_file: /root/pbs-offsite-token-secret
+
+  tasks:
+    # Without a subscription it answers 401, which fails every apt update on the
+    # host, Tailscale's included. pbs-no-subscription is already enabled and is
+    # where PBS's packages actually come from, so nothing but the error goes.
+    - name: 'find the enterprise repository'
+      stat:
+        path: /etc/apt/sources.list.d/pbs-enterprise.sources
+      register: pbs_enterprise
+
+    - name: 'disable the enterprise repository'
+      lineinfile:
+        path: "{{ pbs_enterprise.stat.path }}"
+        regexp: '^Enabled:'
+        line: 'Enabled: false'
+        insertafter: EOF
+      when: pbs_enterprise.stat.exists
+
+    - name: 'add the tailscale repository key'
+      get_url:
+        url: "https://pkgs.tailscale.com/stable/debian/{{ ansible_distribution_release }}.noarmor.gpg"
+        dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+        mode: '0644'
+
+    - name: 'add the tailscale repository'
+      apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/debian {{ ansible_distribution_release }} main"
+        filename: tailscale
+        state: present
+
+    - name: 'install tailscale'
+      apt:
+        name: tailscale
+        update_cache: yes
+
+    - name: 'run tailscaled'
+      systemd:
+        name: tailscaled
+        enabled: yes
+        state: started
+
+    # There is no `user show`: existence is read from the listings, or every
+    # re-run tries to create what is already there.
+    - name: 'read the configured users'
+      command: proxmox-backup-manager user list --output-format json
+      register: pbs_users
+      changed_when: false
+
+    - name: 'create the sync user'
+      # No password: it authenticates only by its token.
+      command: >
+        proxmox-backup-manager user create {{ sync_user }}
+        --comment 'PBS #2 pulls as this'
+      when: sync_user not in (pbs_users.stdout | from_json | map(attribute='userid'))
+
+    - name: "read the sync user's tokens"
+      command: proxmox-backup-manager user list-tokens {{ sync_user }} --output-format json
+      register: pbs_tokens
+      changed_when: false
+
+    - name: 'generate the sync token, keeping its secret on this host only'
+      # PBS shows a token's secret once. It goes to a root-only file rather than
+      # into the play's output, to be copied into PBS #2's secrets from there.
+      # Through the API rather than `user generate-token`, which takes no
+      # --output-format and prints a table.
+      shell: |
+        set -o pipefail
+        umask 077
+        proxmox-backup-debug api create \
+          /access/users/{{ sync_user }}/token/{{ token_name }} --output-format json |
+          python3 -c 'import json, sys; print(json.load(sys.stdin)["value"])' > {{ token_secret_file }}
+      args:
+        executable: /bin/bash
+      when: sync_token not in (pbs_tokens.stdout | from_json | map(attribute='tokenid'))
+      no_log: true
+
+    - name: 'find the token secret'
+      stat:
+        path: "{{ token_secret_file }}"
+      register: token_secret
+
+    - name: 'refuse to continue with a token whose secret is lost'
+      # PBS shows it once, so a token without its file can only be replaced.
+      assert:
+        that: token_secret.stat.exists
+        fail_msg: >
+          {{ sync_token }} exists but {{ token_secret_file }} does not, and PBS
+          will not show the secret again. Remove the token with
+          `proxmox-backup-manager user delete-token {{ sync_user }} {{ token_name }}`
+          and run this again.
+
+    - name: "grant the sync user and its token read on the datastore, and nothing else"
+      # A token's privileges are the intersection of its own ACL and its user's,
+      # so both need the grant.
+      command: >
+        proxmox-backup-manager acl update /datastore/primary DatastoreReader
+        --auth-id {{ item }}
+      loop:
+        - "{{ sync_user }}"
+        - "{{ sync_token }}"
+      changed_when: false

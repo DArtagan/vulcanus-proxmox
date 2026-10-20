@@ -6,6 +6,8 @@ keys:
   # age form, from ssh-to-age, unlike the human keys above: the ssh form fails
   # with "0 successful groups". See docs/nixos.md.
   - &restic_repository age1e3qt0s2l4mn8nfv94s7yqf6hp5jxvmyxut8jxklrz727yscqjqzq4ypqyn
+  # PBS #2's, mini-nas's container pbs-offsite. The same form, for the same reason.
+  - &pbs_offsite age1uh9x8gsmtat7ptn3h3fdj35zvvc0trzgyum3hremcwsdzpvx0u4qzn5x58
 creation_rules:
   # NixOS hosts. First, because sops takes the first matching rule and the
   # Kubernetes rule below matches these paths too: its encrypted_regex would
@@ -17,6 +19,13 @@ creation_rules:
         - *steamdeck_willy
         - *thenixbeast_will
         - *restic_repository
+
+  - path_regex: "^nixos/hosts/pbs-offsite/.*\\.sops\\.yaml$"
+    key_groups:
+      - age:
+        - *steamdeck_willy
+        - *thenixbeast_will
+        - *pbs_offsite
 
   # Kubernetes Secrets, which Flux decrypts. Only data/stringData is encrypted,
   # so the rest stays readable.
