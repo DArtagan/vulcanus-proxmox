@@ -1221,7 +1221,7 @@ failure for the whole tailnet; `ansible/proxmox-tailscale.yaml` records that the
 applied server-side with `headscale nodes tag`, because advertising it forces
 re-authentication. The PBS hosts follow both.
 
-## Phase 4a — 2026-10-18
+## Phase 4a — 2026-10-18 to 10-20
 
 ### mini-nas cannot run an LXC
 
