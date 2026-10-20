@@ -224,6 +224,18 @@ Decided 2026-10-17, in designing the phase:
 - **LXC 109 on both hosts**, the primary at `192.168.0.109`; **the sync at 12:00
   UTC**.
 
+Decided 2026-10-19, during 4a:
+
+- **The GUI login is `root@pbs`, in PBS's own realm, with a separate password per
+  instance** (2026-10-19). Verbatim: *"I'd like to have seperate passwords for each
+  of the PBS instances."* The key `gui/root-password` is declared once in the shared
+  module and resolved against each host's own `secrets.sops.yaml`, so the two
+  passwords are different by construction; the primary gets its own at 4b. Not
+  `root@pam`: NixOS leaves root's password locked, so PAM has nothing to check, and
+  unlocking it would widen what a web password reaches.
+- **PBS #2's 8007 stays open on mini-nas's LAN**, not narrowed to `tailscale0`
+  (2026-10-19), so the UI is reachable when the tailnet or headscale is not.
+
 ---
 
 ## Architecture
@@ -677,14 +689,25 @@ token `pbs-offsite`, holding Datastore.Audit, Read and Verify on
 (37 bytes, mode 600); `ansible/pbs-primary.yaml` re-runs clean. The Headscale policy
 carries both tags and the one grant each way it needs.
 
-Outstanding: PBS #2's `pbs-remote` and `pbs-notifications` fail until the sync token
-and healthchecks URL replace their placeholders in `secrets.sops.yaml`, which needs a
-human key. Then the branch reaches `main` so Flux applies the policy, with
-`kubectl rollout restart deployment/headscale -n apps` after it, since the ConfigMap
-is mounted un-hashed. Then both nodes register interactively and are tagged and
-renamed server-side — the remote names the primary `pbs-primary.forge.local`, so
-VM 107's node takes that name, and LXC 109 takes it at 4b. Then the first sync and
-verify, and the two test restores.
+Both nodes are registered and tagged: `pbs-primary` (VM 107, `100.64.0.9`) and
+`pbs-offsite` (`100.64.0.10`), named at `tailscale up --hostname` so the remote's
+`pbs-primary.forge.local` resolves, and tagged server-side. The policy is proven
+narrow from inside the container: 8007 open to the primary, 22 and 8006 blocked.
+mini-nas's lock pins vulcanus-proxmox's `main` (`7fe184d`), so the
+`--override-input` is gone and a deploy from that branch is reproducible.
+
+**The first sync is running**, started 2026-10-20 00:40 UTC through
+`pbs-offsite-daily`. The path is **direct**, not DERP-relayed (`tailscale status`
+reads `direct`, 60-70 ms), and it moves **~3.3 MB/s ≈ 26 Mbit/s** — vulcanus's
+uplink, since the path is direct and `rx` matches what lands in the datastore. At
+that rate the primary's 643 GiB takes **~55 h**, a one-time cost; daily runs carry
+a delta. Nothing rate-limits it, so it saturates the vulcanus site's upload
+throughout: PBS's `traffic-control` is where a cap would go if that matters.
+
+Outstanding after it: the first verify, `rpool/pbs`'s `used` read against PBS's own
+figure, the protection mirror exercised both ways, `pbs-offsite-freshness` shown red
+and green, the two test restores, then `rpool/data` narrows to `vm-107-disk-0`, and
+`docs/` for what 4a made true.
 
 mini-nas's lock pins vulcanus-proxmox's `main`, so until this branch reaches it,
 mini-nas builds with `--override-input vulcanus-proxmox
