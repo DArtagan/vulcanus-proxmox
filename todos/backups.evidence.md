@@ -1327,6 +1327,24 @@ and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
   `main`, once `claude-warmup` had landed there, into mini-nas's `backups` and
   redeploying; the timer and its secret are back. The hazard stands while the host
   runs an unmerged branch, which is why 4a's branches want merging promptly.
+- **PBS #2 was built with no way to log into its web interface.** The tailnet policy
+  granted `will@` port 8007 to it, and both realms the login page offers were dead
+  ends: NixOS leaves root's password locked (`!` in shadow, `passwd -S` reads `L`), so
+  PAM had nothing to check, and PBS's own realm held no users at all. Serving a UI is
+  not the same as being able to use it; a grant to a port nobody can authenticate
+  through is a grant to nothing.
+- **`proxmox-backup-manager user update --password` is accepted and then
+  discarded.** The deploy reported success, the oneshot reported success, and the
+  login still returned 401 -- `update_user` in `src/api2/access/user.rs` drops the
+  field with a comment pointing at `PUT /access/password`. What gave it away was
+  `shadow.json`'s mtime never moving. The password now goes through that API, and
+  the fix was proved by setting a throwaway password, confirming 401, deploying, and
+  confirming 200.
+- **The GUI password was edited into the wrong checkout.** `sops edit` was run in the
+  repository root, which holds `main`, rather than the project's worktree, so the
+  branch never saw it and `secrets.sops.yaml` parsed with four keys where the module
+  declared five. Read the key paths out of the file before deploying a secret, and
+  check which checkout an edit landed in.
 - **PR #4's diff was blamed on this session's work.** mini-nas's `claude-warmup` PR
   listed fifteen commits already in `main`, read at first as damage from the new
   worktree. It was a stale merge base: the PR opened 2026-10-16 14:45 UTC against

@@ -224,6 +224,18 @@ Decided 2026-10-17, in designing the phase:
 - **LXC 109 on both hosts**, the primary at `192.168.0.109`; **the sync at 12:00
   UTC**.
 
+Decided 2026-10-19, during 4a:
+
+- **The GUI login is `root@pbs`, in PBS's own realm, with a separate password per
+  instance** (2026-10-19). Verbatim: *"I'd like to have seperate passwords for each
+  of the PBS instances."* The key `gui/root-password` is declared once in the shared
+  module and resolved against each host's own `secrets.sops.yaml`, so the two
+  passwords are different by construction; the primary gets its own at 4b. Not
+  `root@pam`: NixOS leaves root's password locked, so PAM has nothing to check, and
+  unlocking it would widen what a web password reaches.
+- **PBS #2's 8007 stays open on mini-nas's LAN**, not narrowed to `tailscale0`
+  (2026-10-19), so the UI is reachable when the tailnet or headscale is not.
+
 ---
 
 ## Architecture
