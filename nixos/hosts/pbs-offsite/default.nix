@@ -52,6 +52,10 @@ in
     };
   };
 
+  # For running the mirror or the freshness check by hand, which the units'
+  # own PATH does not reach.
+  environment.systemPackages = [ pbsOffsite ];
+
   forge.pbs = {
     datastore = "offsite";
     # Run by pbs-offsite-daily, after the sync and the mirror.
