@@ -151,12 +151,15 @@ in
       # The password passes through argv, as the notification secrets do: only
       # PBS's own daemons and Tailscale run in this container.
       script = ''
-        password=$(cat ${secrets."gui/root-password".path})
-        if proxmox-backup-manager user list --output-format json | grep -q '"root@pbs"'; then
-          proxmox-backup-manager user update root@pbs --password "$password"
-        else
-          proxmox-backup-manager user create root@pbs --password "$password"
+        if ! proxmox-backup-manager user list --output-format json | grep -q '"root@pbs"'; then
+          proxmox-backup-manager user create root@pbs
         fi
+        # `user update --password` is a no-op upstream -- update_user discards the
+        # field and says to come here -- so the password always goes through this
+        # API, which is what writes the shadow store.
+        password=$(cat ${secrets."gui/root-password".path})
+        proxmox-backup-debug api set /access/password \
+          --userid root@pbs --password "$password"
         proxmox-backup-manager acl update / Admin --auth-id root@pbs
       '';
     };
