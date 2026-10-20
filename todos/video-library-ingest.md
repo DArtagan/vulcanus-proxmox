@@ -24,8 +24,9 @@ is there now.
 | — | reelbarrow | design | **complete** 2026-10-05; now reelbarrow `docs/design.md` |
 | — | reelbarrow | repository, devenv, CI, release-please, image publishing | **done** 2026-10-18; `0.1.0` published from tag `reelbarrow-v0.1.0`, pulls anonymously |
 | 1 | both | first release running in the cluster | **done** 2026-10-19: dry run, share read-only; `0.1.1` rolled out with no hand edit (Flux Bot `1815ea86`) |
-| 2 | both | ARM manifest hook: the writer in reelbarrow (`arm-manifest-hook`), the dispatcher and wiring here | not started |
-| 3–5 | reelbarrow | analysis, fixtures, dry-run planner | not started; the planner needs the TMDB key here |
+| 2 | reelbarrow | analysis | **in progress** 2026-10-20 |
+| 3 | both | ARM manifest hook: the writer in reelbarrow (`arm-manifest-hook`), the dispatcher and wiring here | not started |
+| 4–5 | reelbarrow | fixtures, dry-run planner | not started; the planner needs the TMDB key here |
 | 6 | both | first real filing: reelbarrow `movie-filing`, and **the switch** below | not started |
 | 7 | both | metrics there, alert rules here | not started |
 | 8–12 | reelbarrow | review UI, editions, hard cases, episodes, case photo | not started; each adds a secret here |
