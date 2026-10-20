@@ -746,6 +746,23 @@ protection, and how a token is minted, `proxmox-backup-manager` having no
 `--output-format` on `user generate-token` and no working `--password` on
 `user update`.
 
+**What is not in code, after an audit on 2026-10-20.** Everything else is:
+mini-nas's networking and the container in that repository, PBS's package,
+datastore, jobs, remote, notification target and `root@pbs` login in this one's
+`nixos/`, VM 107's side in `ansible/pbs-primary.yaml`, the tags and grants in the
+Headscale policy, and the datastore dataset in `disk-config.nix` with its ownership
+as a tmpfiles rule. What remains outside it:
+
+- **Tailnet registration, naming and tagging**, which live in headscale's database.
+  Deliberate: there is no reusable pre-auth key to automate it with. The exact
+  commands are in `nixos/modules/pbs.nix` beside `services.tailscale.enable`,
+  because a host rebuilt and registered under the wrong name leaves the sync
+  pointing at nothing.
+- **VM 107's `authorized_keys`**, installed once through its console. Ansible cannot
+  bootstrap the access Ansible needs, and VM 107 retires at 4b.
+- **Creating a ZFS dataset on a live host**, since disko applies only on a fresh
+  install — mini-nas's standing convention, recorded in its CLAUDE.md.
+
 **Then, in order:** the first verify on PBS #2; `rpool/pbs`'s `used` read from the
 pool against PBS's own figure; the protection mirror exercised both ways, including
 a protected snapshot surviving prune past `keep-last`; `pbs-offsite-freshness` shown
