@@ -27,7 +27,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: reelbarrow
-          image: ghcr.io/dartagan/reelbarrow:0.1.1 # {"$imagepolicy": "apps:reelbarrow"}
+          image: ghcr.io/dartagan/reelbarrow:0.2.0 # {"$imagepolicy": "apps:reelbarrow"}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
