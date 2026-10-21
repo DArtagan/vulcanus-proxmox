@@ -76,8 +76,8 @@ in
   systemd.services.pbs-remote = {
     description = "Reconcile PBS's remote for the primary";
     wantedBy = [ "multi-user.target" ];
-    after = [ "proxmox-backup.service" ];
-    requires = [ "proxmox-backup.service" ];
+    after = [ "proxmox-backup-proxy.service" ];
+    requires = [ "proxmox-backup-proxy.service" ];
     before = [ "proxmox-backup-setup.service" ];
     path = [ pbs ];
     serviceConfig = {
