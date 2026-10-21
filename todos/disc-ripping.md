@@ -27,14 +27,15 @@ review base `review/disc-ripping-base`.
 | 1 | Audio CD | done 2026-08-31; one loose end, below |
 | 2 | DVD — movie | done 2026-09-01 |
 | 2b | DVD — TV series | done 2026-09-04 |
-| 2c | DVD — a whole-disc raw copy, each raw folder stamped with its job, every backup checked (D16) | built 2026-10-21, not deployed; unproven on a disc |
+| 2c | DVD — a whole-disc raw copy, each raw folder stamped with its job, every backup checked (D16) | deployed 2026-10-21; DVD ripped by job 76, Blu-ray untried |
 | 3 | Blu-ray | done 2026-09-17 |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
 | — | Drive drops off its SATA link | **open, watching** — no event in jobs 47–72 |
 
 CD, DVD and Blu-ray rip end to end, and the disc stays locked until its whole job
-is done. Each phase's working is in the evidence. A DVD's raw copy, though, is its
-long titles as MKVs, not the disc, until phase 2c is deployed.
+is done. Each phase's working is in the evidence. Since phase 2c, a DVD's raw copy
+is the whole disc as a decrypted ISO, and DVDs ripped before it hold only their
+long titles.
 
 `disc-rerip-list.txt`, untracked at the root of the main checkout, is the list
 handed to Will's brother: the seven Blu-rays D16 found missing part of their film,
@@ -140,8 +141,7 @@ every earlier run read `0x121000`.
   for instance `grep MANUAL_WAIT_TIME /etc/arm/config/arm.yaml`, and do not trust
   `flux get kustomizations`, which reports healthy either way.
 - **After an ARM image bump**, `arm.log` should show five `source-patches:
-  applied` lines once phase 2c is deployed, three before (see
-  `docs/automatic-ripping-machine.md`).
+  applied` lines (see `docs/automatic-ripping-machine.md`).
 - **`sops -d` cannot run unattended here**: the age recipient is a
   passphrase-protected SSH key and sops has no tty. Editing the ARM secret is
   always Will's to do.
@@ -435,29 +435,33 @@ locally, no devices, the month's beta key; scripts in
 - All five edits apply once to unmodified 2.24.4 source, and a second run applies
   nothing.
 
-**Unverified, for the first test disc.** The test backup of *Pinky and the
-Brain* D2 waits until job 75 is done (Will, 2026-10-21). When job 75 ends, the
-disc is ejected, and putting it back in starts a job, so a manual test means
-abandoning that job or deploying first and letting it run.
+**Proven on a disc** by job 76, *Pinky and the Brain* D2, the disc job 75 had
+just ripped the old way (evidence, 2026-10-21):
 
-- The backup names and writes the ISO where it is told, on this drive and the
-  SMB share.
-- That the ISO is decrypted: decode its main VOB end to end with no libdvdcss, as
-  reelbarrow's E24 did for a 2009 ISO.
-- The ISO's size against its own ISO 9660 volume size. The check fails a job
-  on a smaller image, so a size that legitimately differs would fail every DVD.
-  Also whether MakeMKV writes the image sequentially. One that preallocates
-  would pass a killed backup at full size, and the stamp's `null` is all that
-  would show it.
+- The ISO is written where it is told, growing as it goes rather than allocated
+  in full. Its size equals its descriptor's volume size and the drive's reported
+  capacity, 6,202,710,016 bytes. The stamp went from `null` to `true`.
+- The drive was held 10 min for the backup, against job 75's 72 min for `info`
+  and `mkv`. Neither ISO run logged `Using LibreDrive mode`.
+- The seven MKVs extracted from the ISO match job 75's, extracted from the disc,
+  in size. One pair checked hashes identically stream by stream; the files
+  differ only in container metadata.
+- No pack in any VOB of the ISO carries a PES scrambling flag (2,989,811
+  packs). The counter finds 100 of 100 in a control. **Whether the disc is
+  CSS-protected isn't established**, so this shows a clear image, not yet that
+  scrambled sectors were decrypted. The decisive test is a disc known to be
+  CSS, or the drive's copyright descriptor (`READ DVD STRUCTURE` format 1),
+  which means a command to the drive.
+
+**Still unverified:**
+
 - **A Blu-ray backup into a folder already holding `arm-job.json`.** ARM has only
   ever given MakeMKV a new, empty folder. If MakeMKV refuses one that isn't
   empty, the first Blu-ray after deploy fails at once. It would fail
   loudly, and the fix is to write the Blu-ray's stamp after its backup.
-- That `--noscan` keeps the ISO runs off the drive: no `Using LibreDrive mode` in
-  their output.
+- That job 76 finishes: HandBrake's transcode from `titles/`, the move to
+  `completed/`, and the eject.
 - How the backup copes with deliberately unreadable sectors.
-- Drive time against today's `mkv` run. Job 75's `info` and `mkv` together held
-  the drive 13:29:42–14:42:03 UTC.
 - Whether pydvdid over the ISO reproduces the disc's `crc_id`. The 2009 ISO's
   didn't, since the image re-stamped every file, which is one reason D17 stamps
   the job rather than relying on the ISO to identify itself.
