@@ -83,6 +83,11 @@ in
       requires = [ "proxmox-backup-proxy.service" ];
     };
 
+    # proxmox-daily-update checks a subscription, renews ACME certificates and
+    # runs apt: there is no subscription, no ACME domain and no apt, so all it
+    # does is leave a failed aptupdate task in the GUI every day.
+    systemd.timers.proxmox-backup-daily-update.enable = false;
+
     # Pinned, because it owns the datastore on the host: the dataset is chowned
     # to it there.
     users.users.proxmox-backup-server.uid = 350;
