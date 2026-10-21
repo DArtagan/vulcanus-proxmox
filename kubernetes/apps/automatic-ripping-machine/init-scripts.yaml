@@ -334,7 +334,7 @@ data:
         return _arm_charset_patch(_arm_charset_orig_fix_job_title(job))
 
   arm-source-patches.py: |
-    """Line-level edits to ARM's source, applied at container start.
+    """Edits to ARM's source, applied at container start.
 
     Each edit replaces text that must occur exactly once. ARM auto-updates, so
     an edit whose text has moved is skipped and logged rather than guessed at;
@@ -347,6 +347,12 @@ data:
 
     RIPPER = "/opt/arm/arm/ripper"
     ARMLOG = "/home/arm/logs/arm.log"
+
+    # Whole functions, appended so that they resolve the module's own globals as
+    # ARM's code does. Applied before EDITS, which call them.
+    APPENDS = [
+        ("whole-disc-code", f"{RIPPER}/makemkv.py", "/usr/local/bin/arm-whole-disc.py"),
+    ]
 
     EDITS = [
         (
@@ -391,6 +397,28 @@ data:
             '            tracks = tracks.filter_by(source="HandBrake")\n'
             '        for track in tracks:\n',
         ),
+        (
+            # ARM backs up the whole disc only for a Blu-ray, and a DVD's raw copy
+            # is otherwise its long titles alone. This stamps the raw folder with
+            # its job, backs a DVD up whole, and fails the job on a backup that is
+            # short. See todos/disc-ripping.md, phase 2c, D16 and D17.
+            "whole-disc-route",
+            f"{RIPPER}/makemkv.py",
+            '    logging.info(f"Processing files to: {rawpath}")\n'
+            '    # Rip BluRay\n'
+            '    if (job.config.RIPMETHOD in ("backup", "backup_dvd")) and job.disctype == "bluray":\n'
+            '        makemkv_backup(job, rawpath)\n'
+            '    # Rip BluRay or DVD\n',
+            '    logging.info(f"Processing files to: {rawpath}")\n'
+            '    # _arm_source_patch whole-disc-route: stamp the folder, back up a DVD whole, check the backup\n'
+            '    _arm_write_stamp(job, rawpath)\n'
+            '    # Rip BluRay\n'
+            '    if (job.config.RIPMETHOD in ("backup", "backup_dvd")) and job.disctype == "bluray":\n'
+            '        _arm_record_check(job, rawpath, _arm_backup(job, rawpath) + _arm_bluray_problems(rawpath))\n'
+            '    elif job.config.RIPMETHOD == "backup_dvd" and job.disctype == "dvd":\n'
+            '        rawpath = _arm_backup_dvd(job, rawpath)\n'
+            '    # Rip BluRay or DVD\n',
+        ),
     ]
 
 
@@ -400,6 +428,17 @@ data:
 
 
     failed = False
+    for name, path, code in APPENDS:
+        with open(path) as f:
+            source = f.read()
+        if f"_arm_source_patch {name}" in source:
+            continue
+        with open(code) as f:
+            addition = f.read()
+        with open(path, "a") as f:
+            f.write(f"\n\n{addition}")
+        log(f"applied {name} to {path}")
+
     for name, path, old, new in EDITS:
         with open(path) as f:
             source = f.read()
@@ -415,6 +454,159 @@ data:
         log(f"applied {name} to {path}")
 
     sys.exit(1 if failed else 0)
+
+  arm-whole-disc.py: |
+    # --- _arm_source_patch whole-disc-code, appended by arm-source-patches.py -----
+    # The raw copy of a disc is the whole disc, decrypted, in a folder stamped with
+    # the job that made it, and a backup that is short fails its job rather than
+    # passing for complete. Appended to makemkv.py, whose run(), progress_log(),
+    # OutputType, TrackInfoProcessor and utils it uses as module globals.
+    import datetime as _arm_datetime  # noqa: E402
+    import json as _arm_json  # noqa: E402
+    import struct as _arm_struct  # noqa: E402
+
+
+    def _arm_write_stamp(job, rawpath, problems=None):
+        # ARM's database records a job's completed path and never its raw one, and
+        # a title corrected later renames only the completed folder. The stamp
+        # travels with the raw folder through any rename. `complete` stays null
+        # until the backup has been checked, so a folder whose job died mid-backup
+        # never claims to be whole.
+        stamp = {
+            "schema": 1,
+            "job_id": job.job_id,
+            "label": job.label,
+            "disctype": job.disctype,
+            "crc_id": job.crc_id,
+            "stage": job.stage,
+            "start_time": job.start_time.astimezone(_arm_datetime.timezone.utc).isoformat()
+            if job.start_time else None,
+            "complete": None if problems is None else not problems,
+            "problems": problems or [],
+        }
+        path = os.path.join(rawpath, "arm-job.json")
+        with open(f"{path}.tmp", "w") as f:
+            _arm_json.dump(stamp, f, indent=2)
+            f.write("\n")
+        os.replace(f"{path}.tmp", path)
+
+
+    def _arm_record_check(job, rawpath, problems):
+        _arm_write_stamp(job, rawpath, problems)
+        if problems:
+            for problem in problems:
+                logging.critical(f"Backup incomplete: {problem}")
+            raise utils.RipperException(f"The backup in {rawpath} is incomplete: {'; '.join(problems)}")
+        logging.info(f"Backup in {rawpath} checked complete")
+
+
+    def _arm_backup(job, dest):
+        # makemkv_backup's command, run here because makemkv_backup discards every
+        # message, and with them MakeMKV's report of clips whose data failed the
+        # disc's own hashes. The files are kept at full size, so no size check
+        # sees them.
+        cmd = ["backup", "--decrypt"]
+        cmd += shlex.split(job.config.MKV_ARGS)
+        cmd += [
+            f"--minlength={job.config.MINLENGTH}",
+            f"--progress={progress_log(job)}",
+            f"disc:{job.drive.mdisc:d}",
+            dest,
+        ]
+        logging.info(f"Backing up disc to {dest}")
+        return [
+            message.message
+            for message in run(cmd, OutputType.MSG)
+            if message is not None and "failed hash check" in message.message
+        ]
+
+
+    def _arm_bluray_problems(rawpath):
+        # Every clip's .clpi gives its source-packet count, a big-endian uint32 at
+        # byte 56, and its .m2ts is 192 bytes a packet.
+        clipinf = os.path.join(rawpath, "BDMV", "CLIPINF")
+        stream = os.path.join(rawpath, "BDMV", "STREAM")
+        if not os.path.isdir(clipinf):
+            return ["BDMV/CLIPINF is missing"]
+        clips = sorted(name for name in os.listdir(clipinf) if name.endswith(".clpi"))
+        if not clips:
+            return ["BDMV/CLIPINF holds no clips"]
+        problems = []
+        for clip in clips:
+            with open(os.path.join(clipinf, clip), "rb") as f:
+                header = f.read(60)
+            m2ts = f"{clip[:-len('.clpi')]}.m2ts"
+            if len(header) < 60:
+                problems.append(f"CLIPINF/{clip} is too short to read")
+                continue
+            expected = 192 * _arm_struct.unpack_from(">I", header, 56)[0]
+            try:
+                size = os.path.getsize(os.path.join(stream, m2ts))
+            except FileNotFoundError:
+                problems.append(f"STREAM/{m2ts} is missing")
+                continue
+            if size < expected:
+                problems.append(f"STREAM/{m2ts} is {size} bytes of {expected}")
+        return problems
+
+
+    def _arm_iso_problems(iso):
+        # The image's own ISO 9660 volume descriptor, in sector 16, gives the
+        # volume's size. MakeMKV writes it first, so a partial image still declares
+        # the whole disc.
+        name = os.path.basename(iso)
+        if not os.path.isfile(iso):
+            return [f"{name} is missing"]
+        with open(iso, "rb") as f:
+            f.seek(16 * 2048)
+            descriptor = f.read(2048)
+        if len(descriptor) < 2048 or descriptor[:6] != b"\x01CD001":
+            return [f"{name} has no ISO 9660 volume descriptor"]
+        blocks = _arm_struct.unpack_from("<I", descriptor, 80)[0]
+        block_size = _arm_struct.unpack_from("<H", descriptor, 128)[0]
+        size = os.path.getsize(iso)
+        if size < blocks * block_size:
+            return [f"{name} is {size} bytes of {blocks * block_size}"]
+        return []
+
+
+    def _arm_backup_dvd(job, rawpath):
+        # The ISO is the drive's only read. Titles are extracted from it by MakeMKV
+        # rather than HandBrake, which would meet a structure-protected disc's
+        # decoy titles unguarded, and into titles/ because HandBrake's folder scan
+        # counts every file beside them as a title. --noscan keeps those two runs
+        # off the drive. For a DVD the destination is the image's file name: given
+        # a folder, MakeMKV refuses it as already holding a backup.
+        iso = os.path.join(rawpath, f"{os.path.basename(rawpath)}.iso")
+        _arm_record_check(job, rawpath, _arm_backup(job, iso) + _arm_iso_problems(iso))
+
+        titles = os.path.join(rawpath, "titles")
+        os.makedirs(titles)
+        # D14's patches match on MakeMKV's track rows, which ARM otherwise reads
+        # from the drive.
+        tracks = TrackInfoProcessor(job, None)
+        info = ["info", "--cache=1", "--noscan", f"iso:{iso}", f"--minlength={job.config.MINLENGTH}"]
+        for message in run(info, OutputType.CINFO | OutputType.SINFO | OutputType.TCOUNT | OutputType.TINFO):
+            tracks._process_message(message)
+        tracks._add_track()
+
+        cmd = ["mkv"]
+        cmd += shlex.split(job.config.MKV_ARGS)
+        cmd += [
+            "--noscan",
+            f"--progress={progress_log(job)}",
+            f"iso:{iso}",
+            "all",
+            titles,
+            f"--minlength={job.config.MINLENGTH}",
+        ]
+        logging.info(f"Extracting titles from {iso}")
+        collections.deque(run(cmd, OutputType.MSG), maxlen=0)
+        # ARM looks for no titles saved only in MSG 5004, which MakeMKV sends when a
+        # title failed. A run with no failures reports 5005.
+        if not any(name.endswith(".mkv") for name in os.listdir(titles)):
+            raise utils.RipperException(f"MakeMKV extracted no titles from {iso}")
+        return titles
 
   armui.sh: |
     #!/bin/bash

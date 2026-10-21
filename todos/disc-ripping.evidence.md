@@ -3056,3 +3056,63 @@ The database holds no raw path. Each job log's `makemkv.makemkv: Processing file
 to:` line does: 50 of 72 jobs on 2026-10-20, with 13 never reaching a rip and the
 logs of jobs 1 and 3–10 gone. A folder's `_<12 digits>` suffix is the job's
 `stage` column, which matches 23 folders.
+
+### 2026-10-21 — phase 2c built, with D16 and D17, and proven as far as no drive allows
+
+The previous review closed at PR #24 the same day, and this branch was cut fresh
+from `main`. Job 75 (*Pinky and the Brain* D2, a DVD) was transcoding
+throughout, so nothing was deployed and nothing touched the drive.
+
+**Scope** (Will): D16's check goes in with phase 2c; a `failed hash check`
+report fails the job; the manual test backup waits for job 75.
+
+**What ARM does with backup messages.** `makemkv_backup` runs
+`collections.deque(run(cmd, OutputType.MSG), maxlen=0)`, discarding every message.
+`MakeMKVOutputChecker` raises only on 5003 (a title failed) and on 5004 reporting
+none saved, and logs a handful of other codes. The hash-check message (`Backup
+done but %1 files failed hash check`, present in the 1.18.4 binary) is not among
+them. ARM's `RipperException` from inside
+`makemkv()` reaches the notification as `Error while running MakeMKV`, since
+`rip_visual_media` wraps it; the detail is in the job log and the stamp.
+
+**What a DVD backup is given.** t=29674: on 1.17.2, `backup disc:/dev/sr0 ./`
+into an empty folder fails with `Folder ./ already contains a backup`, whatever the
+folder or filesystem; on 1.17.4, `backup disc:0 /root/makemkv/backup.iso` on a
+DVD writes there (`MSG:5072 … "file:///root/makemkv/backup.iso"`, `MSG:5070
+Backup done`). t=29072 has a path without a trailing separator becoming the ISO's
+name. ARM's `setup_rawpath` creates the folder first, so the patch passes
+`<folder>/<folder name>.iso`.
+
+**The local harness.** `automaticrippingmachine/automatic-ripping-machine:2.24.4`
+under podman, no devices, `update_key.sh` writing the month's beta key once
+`/root/.MakeMKV` points at `/home/arm/.MakeMKV` (the script reads the latter;
+without it MakeMKV refuses with `MSG:5021 … too old`). `backup` with an `iso:`
+source fails, `Backup source must start with "disc:"`, so the backup itself can
+only be tried on the drive. A synthetic DVD built with ffmpeg, dvdauthor and
+genisoimage (`captures/makemkv-local/scripts/make-dvd.sh`; titles of 430, 450 and
+30 s, 92,104,704 bytes, its descriptor declaring 44,973 sectors of 2048, exactly
+the file):
+
+- `info --cache=1 --noscan iso:… --minlength=420`: `TCOUNT:2`, `B1_t00.mkv` 0:07:09
+  and `A2_t01.mkv` 0:07:29.
+- `mkv --noscan … iso:… all <dir> --minlength=420`: `MSG:3025` skips the 30 s
+  title, then `MSG:5014 Saving 2 titles`, `MSG:5005 2 titles saved`, `MSG:5036
+  Copy complete. 2 titles saved.` No 5004.
+- The patched `makemkv.py` (all five edits applied by the real
+  `arm-source-patches.py` to 2.24.4 source fetched from the tag, matching the
+  running copy but for `eject-after-processing`) imports in the image.
+  `_arm_backup_dvd` with `_arm_backup` stubbed to copy the synthetic ISO gave the
+  layout `Synth-whole.iso`, `arm-job.json`, `titles/{A2_t01,B1_t00}.mkv`, a stamp
+  with `"complete": true`, and track rows `('MakeMKV', '0', 429, 'B1_t00.mkv',
+  True)`, `('MakeMKV', '1', 449, 'A2_t01.mkv', True)`. Truncated to 40 MiB:
+  `RipperException: … Synth-short.iso is 41943040 bytes of 92104704`, stamp
+  `"complete": false`, no `titles/`, no track rows.
+
+**Tests.** 32 in `tools/arm-source-patches/test_patches.py`. Six mutations each
+failed at least one: the ISO and clip comparisons moved a byte, `--noscan`
+dropped, the hash-check match changed, the ISO path replaced by the folder, and a
+`.tmp` left behind.
+
+**Job 75 for comparison.** `info disc:0` 13:29:42–13:30:08 UTC and `mkv
+dev:/dev/sr0 all` 13:30:08–14:42:03, both with `Using LibreDrive mode (v02.1
+id=DFAA920B9011)`; 7 titles found.
