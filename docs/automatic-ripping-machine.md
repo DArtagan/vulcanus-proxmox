@@ -351,18 +351,20 @@ Once ARM detects a disc and identifies it (via the manual identification gate or
 
 The disc stays in the drive, locked, until the whole job is complete, transcode
 included, and is ejected once at the end. An open tray is therefore the signal
-that a disc is finished. That, and HandBrake encoding each title once, come from
-line edits to ARM's own source. `arm-source-patches.py`
+that a disc is finished. That, HandBrake encoding each title once, and the whole
+DVD as its raw copy come from edits to ARM's own source. `arm-source-patches.py`
 (`init-scripts.yaml`) applies them at container start. Each edit is skipped, and
 logged as `source-patches: cannot apply` in `arm.log`, if an ARM update moves the
-text it replaces. After an image bump, check that log for three `applied` lines.
+text it replaces. After an image bump, check that log for five `applied` lines.
 
 ### Data flow
 
 ```
 Disc inserted → udev event → ARM ripper
-  Blu-ray: MakeMKV backup → /root/video/raw/<Title>/BDMV/       (the whole disc, decrypted)
-  DVD:     MakeMKV mkv    → /root/video/raw/<Title>/*_tNN.mkv  (one file per title of 7 min or more)
+  Blu-ray: MakeMKV backup → /root/video/raw/<Title>/BDMV/              (the whole disc, decrypted)
+  DVD:     MakeMKV backup → /root/video/raw/<Title>/<Title>.iso        (the whole disc, decrypted)
+           MakeMKV mkv    → /root/video/raw/<Title>/titles/*_tNN.mkv  (from the ISO, one file per title of 7 min or more)
+  either:  arm-job.json   → /root/video/raw/<Title>/arm-job.json       (the job that made the folder)
   then:    HandBrake      → /root/video/completed/<movies|tv|unidentified>/<Title (Year)>/
 ```
 
@@ -374,11 +376,17 @@ Both directories live on the SMB share (`//192.168.0.105/media/video/import/auto
 
 ### Stage 1: Rip (MakeMKV)
 
-`RIPMETHOD: "backup_dvd"` reads as a disc backup, but ARM backs up the whole disc only for a Blu-ray. MakeMKV then writes the full `BDMV/` structure decrypted — every clip and playlist and the BD-J menus — with the AACS data moved aside into `MAKEMKV/`. A DVD is extracted title by title instead: each title of `MINLENGTH` (seven minutes) or more becomes a lossless MKV, and menus, DVD games and shorter titles are not kept. No ARM setting backs up a whole DVD.
+Every video disc is backed up whole and decrypted, so its menus, DVD games, bonus material and structure can always be gone back to and processed again. For a Blu-ray MakeMKV writes the full `BDMV/` structure — every clip and playlist and the BD-J menus — with the AACS data moved aside into `MAKEMKV/`. For a DVD it writes an ISO image, named after its folder. That backup is the only read of the drive. MakeMKV then extracts each title of `MINLENGTH` (seven minutes) or more from the image into `titles/` as a lossless MKV, and HandBrake works from those. Upstream ARM backs up the whole disc only for a Blu-ray, whatever `RIPMETHOD` says, so the DVD backup is one of the source edits. DVD raw folders from before it hold only the long titles' MKVs, at the top level.
 
-The raw folder is named from the job's title when the rip starts, with the job's `stage` timestamp appended if that name is taken. A title corrected afterwards renames the completed folder and not the raw one. Nothing on the share records which raw folder belongs to which job; ARM's job log does, for its 90-day life (`Processing files to:` from `makemkv.makemkv`).
+The raw folder is named from the job's title when the rip starts, with the job's `stage` timestamp appended if that name is taken. A title corrected afterwards renames the completed folder and not the raw one, and ARM's database never records the raw path. So each raw folder carries **`arm-job.json`**, written as the folder is created, which names the job that made it: `job_id` (ARM's job table and web UI), `label`, `disctype`, `crc_id` (a DVD's; null for a Blu-ray), `stage` and `start_time` (UTC), under `"schema": 1`. Join on `job_id`, never on the folder's name. Folders older than the stamp have none, and for those ARM's job log is the only record, for its 90-day life (`Processing files to:` from `makemkv.makemkv`).
 
-These raw copies are the **archival copy**. `DELRAWFILES: false` ensures they are never deleted after transcoding. Nothing verifies that a Blu-ray backup is complete: a job killed mid-backup leaves a partial `BDMV/` that looks like any other. To check one, every clip in `BDMV/CLIPINF/` must have its `.m2ts` in `BDMV/STREAM/`, sized 192 bytes × the source-packet count in its `.clpi` (a big-endian `uint32` at byte 56).
+These raw copies are the **archival copy**. `DELRAWFILES: false` ensures they are never deleted after transcoding. When a backup ends, it is checked against the disc's own record of its size, and the stamp's `complete` says the result:
+
+- **`true`**: every Blu-ray clip in `BDMV/CLIPINF/` has its `.m2ts` in `BDMV/STREAM/` at no less than 192 bytes × the source-packet count in its `.clpi` (a big-endian `uint32` at byte 56), or a DVD's ISO is no smaller than the volume size its own ISO 9660 descriptor declares; and MakeMKV reported no file failing the disc's hash check.
+- **`false`**: one of those failed. `problems` lists each failure, and the job fails before anything is transcoded, so the notification reports an error and the disc wants re-ripping.
+- **`null`**: the check never ran, because the job died or was abandoned during the backup. The backup is partial.
+
+The same check applies by hand to a backup older than the stamp.
 
 ### Stage 2: Transcode (HandBrake)
 

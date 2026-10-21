@@ -91,6 +91,9 @@ spec:
             - mountPath: /usr/local/bin/arm-source-patches.py
               name: init-scripts
               subPath: arm-source-patches.py
+            - mountPath: /usr/local/bin/arm-whole-disc.py
+              name: init-scripts
+              subPath: arm-whole-disc.py
             - mountPath: /etc/service/armui/run
               name: init-scripts
               subPath: armui.sh
@@ -137,6 +140,8 @@ spec:
                 path: arm-title-charset.py
               - key: arm-source-patches.py
                 path: arm-source-patches.py
+              - key: arm-whole-disc.py
+                path: arm-whole-disc.py
               - key: armui.sh
                 path: armui.sh
         - name: data

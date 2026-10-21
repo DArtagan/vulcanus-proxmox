@@ -27,14 +27,14 @@ review base `review/disc-ripping-base`.
 | 1 | Audio CD | done 2026-08-31; one loose end, below |
 | 2 | DVD — movie | done 2026-09-01 |
 | 2b | DVD — TV series | done 2026-09-04 |
-| 2c | DVD — a whole-disc raw copy, and each raw folder stamped with its job | designed 2026-10-20, not built |
+| 2c | DVD — a whole-disc raw copy, each raw folder stamped with its job, every backup checked (D16) | built 2026-10-21, not deployed; unproven on a disc |
 | 3 | Blu-ray | done 2026-09-17 |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
 | — | Drive drops off its SATA link | **open, watching** — no event in jobs 47–72 |
 
 CD, DVD and Blu-ray rip end to end, and the disc stays locked until its whole job
 is done. Each phase's working is in the evidence. A DVD's raw copy, though, is its
-long titles as MKVs, not the disc: phase 2c fixes that.
+long titles as MKVs, not the disc, until phase 2c is deployed.
 
 `disc-rerip-list.txt`, untracked at the root of the main checkout, is the list
 handed to Will's brother: the seven Blu-rays D16 found missing part of their film,
@@ -139,8 +139,9 @@ every earlier run read `0x121000`.
   within seconds but still leaves a fresh pod. Confirm in the running container,
   for instance `grep MANUAL_WAIT_TIME /etc/arm/config/arm.yaml`, and do not trust
   `flux get kustomizations`, which reports healthy either way.
-- **After an ARM image bump**, `arm.log` should show three `source-patches:
-  applied` lines (see `docs/automatic-ripping-machine.md`).
+- **After an ARM image bump**, `arm.log` should show five `source-patches:
+  applied` lines once phase 2c is deployed, three before (see
+  `docs/automatic-ripping-machine.md`).
 - **`sops -d` cannot run unattended here**: the age recipient is a
   passphrase-protected SSH key and sops has no tty. Editing the ARM secret is
   always Will's to do.
@@ -170,12 +171,13 @@ current ring buffer and nothing older. Capture it while a failure is fresh.
   `abcde.conf` and `vulcanus-handbrake-preset.json`
 - `kubernetes/apps/automatic-ripping-machine/deployment.yaml` — mounts, resources
 - `kubernetes/apps/automatic-ripping-machine/init-scripts.yaml` — the udev rule,
-  `arm-disc-wrapper.sh`, `arm-audio-handoff.sh`, `arm-title-charset.*` and
-  `arm-source-patches.py`
+  `arm-disc-wrapper.sh`, `arm-audio-handoff.sh`, `arm-title-charset.*`,
+  `arm-source-patches.py` and the `arm-whole-disc.py` it appends
 - `kubernetes/apps/automatic-ripping-machine/api-keys` — SOPS; MakeMKV, OMDb and
   Pushover
-- `tools/arm-disc-wrapper/`, `tools/arm-audio-handoff/`, `tools/arm-title-charset/`
-  — tests for those scripts, extracted from the ConfigMap
+- `tools/arm-disc-wrapper/`, `tools/arm-audio-handoff/`, `tools/arm-title-charset/`,
+  `tools/arm-source-patches/` — tests for those scripts, extracted from the
+  ConfigMap
 - `kubernetes/infrastructure/prometheus-rules.yaml` — the `disc-ripping` group
 - `kubernetes/infrastructure/devices.yaml` — how the drive is advertised
 - `ansible/proxmoxer.yaml` — the host's udev rule and `optical-drive-ata-monitor`
@@ -207,8 +209,8 @@ Numbered as first found; the evidence has each one's full write-up.
 | D13 | An unreadable region wedges the drive | **open** |
 | D14 | Every DVD title transcoded twice | fixed — `d14-*` patches, verified jobs 48–49 |
 | D15 | Jobs ran MakeMKV unregistered | fixed — the wrapper exports `HOME=/root` |
-| D16 | A Blu-ray backup can be incomplete, and nothing notices | **open** — explored 2026-10-20 |
-| D17 | A raw folder records nothing of the job that made it | **open** — designed, phase 2c |
+| D16 | A Blu-ray backup can be incomplete, and nothing notices | **built** with phase 2c; the 2024 cause unknown |
+| D17 | A raw folder records nothing of the job that made it | **built** with phase 2c; backfill open |
 
 **D2b.** ARM triggers only on a udev insert event, and the udev database the
 container reads is empty at start; `udevadm trigger` fails on the read-only `/sys`,
@@ -285,12 +287,14 @@ logs and database no longer exist. Two leads are untried: whether Will removed
 archives (see `backups.evidence.md`). If those cover `import/`, they could restore
 the clips without a re-rip.
 
-Whatever the 2024 cause, the gap today is that a partial backup looks like any
-other. **The fix:** when a backup ends, check every clip's size against its
-`.clpi` (the method is in the docs, *Stage 1*) and fail the job if any is missing
-or short, recording the result in D17's stamp. A DVD's ISO needs the equivalent:
-its size against the disc's volume size. Whether ARM fails a job on MakeMKV's own
-`Backup done but N files failed hash check` is unchecked.
+Whatever the 2024 cause, the gap was that a partial backup looks like any other.
+**The fix, built with phase 2c:** when a backup ends, every clip's size is
+checked against its `.clpi`, and a DVD's ISO against the volume size in its own
+ISO 9660 descriptor. A missing or short file fails the job, and the result goes
+into D17's stamp. ARM doesn't fail a job on MakeMKV's `Backup done but N files
+failed hash check`: `makemkv_backup` discards every message, and that one has no
+code ARM knows. The patch runs the backup itself to see it, and **a hash-check
+failure fails the job too** (Will, 2026-10-21).
 
 **D17.** ARM's database stores a job's completed path and never its raw one. The
 raw folder is named from the title when the rip starts, and a title corrected
@@ -298,12 +302,13 @@ later renames only the completed folder. Only the job log, kept 90 days, holds t
 pairing. Left like that, reelbarrow has to pair raw with transcode by content
 fingerprint across partial copies, re-rips and misnamed folders.
 
-**The fix, agreed 2026-10-20:** the source patch writes `arm-job.json` into the raw
-folder when it creates it, where the path is known: job id, label, disc type,
-`crc_id`, `stage` and start time, with D16's completeness result added when the rip
-ends. The file travels with the folder through any rename, so reelbarrow joins on
-job id. Its reader is reelbarrow's `todos/arm-manifest-hook.md`. For a DVD it must
-stay out of HandBrake's input; see phase 2c.
+**The fix, agreed 2026-10-20 and built with phase 2c:** the source patch writes
+`arm-job.json` into the raw folder when it creates it, where the path is known:
+job id, label, disc type, `crc_id`, `stage` and start time, with D16's
+completeness result added when the backup ends. The fields and the meaning of
+`complete` are in the docs, *Stage 1*. The file travels with the folder through
+any rename, so reelbarrow joins on job id. Its reader is reelbarrow's
+`todos/arm-manifest-hook.md`, which doesn't mention it yet.
 
 **Backfill for existing jobs** is possible, from what ARM still holds:
 
@@ -393,35 +398,66 @@ rejected for changing that proven path and for meeting decoy titles unguarded. T
 cost of the chosen design is that the MKVs repeat what the ISO holds, about 4–8 GB
 a disc.
 
-**What the patch must handle**, read from the 2.24.4 source:
+**How it is built** (2026-10-21). `arm-whole-disc.py`, a ConfigMap key, is
+appended to `makemkv.py` by `arm-source-patches.py`. One edit to `makemkv()`
+calls it: after `setup_rawpath` it writes the stamp, sends a Blu-ray through the
+checked backup and a DVD through `_arm_backup_dvd`. The DVD's layout is
+`raw/<Title>/<Title>.iso`, `raw/<Title>/arm-job.json` and
+`raw/<Title>/titles/*.mkv`, and `titles/` is what `makemkv()` returns as
+HandBrake's input. HandBrake's folder scan counts every regular file at its top
+level as a title and skips subfolders (`libhb/batch.c`, `S_ISREG`). MakeMKV's
+track rows come from `info iso:`, not the drive, because D14's patches match on
+them. Both ISO runs pass `--noscan`. The tests are
+`tools/arm-source-patches/test_patches.py`.
 
-- **HandBrake's input folder must hold only the MKVs.** `handbrake_all` scans the
-  folder it is given (`HandBrakeCLI -i <folder> -t 0 --scan`), and HandBrake's
-  folder scan numbers every regular file at its top level as a title while
-  skipping subfolders (`libhb/batch.c`, `S_ISREG`). The preferred layout puts the
-  MKVs in `raw/<Title>/titles/`, which `makemkv()` returns as the transcode input,
-  with the ISO and D17's `arm-job.json` at `raw/<Title>/`. That keeps the stamp in
-  the same place as on a Blu-ray, where a file beside `BDMV/` is harmless.
-- **`get_track_info()` reads the track table from the drive** (`job.drive.mdisc`).
-  Point it at the ISO, or D14's patches lose the MakeMKV rows they match on.
-- **The UI is otherwise untouched.** Identification, the manual wait and abandon
-  all happen before or around the rip. The progress page shows two MakeMKV runs,
-  backup then extraction, both through `progress_log(job)`. An abandon mid-backup
-  leaves a partial ISO, which D16's check has to catch.
+**Established without the drive** (2026-10-21, ARM's 2.24.4 image under podman
+locally, no devices, the month's beta key; scripts in
+`captures/makemkv-local/` and `captures/e2e/`):
 
-**Unverified, for the first test disc:**
+- **A DVD backup's destination is the image's file name.** On a folder, existing
+  or empty, makemkvcon 1.17.x refuses with `Folder … already contains a backup`.
+  Given `…/backup.iso` it writes there, reporting `Backing up disc into folder
+  "file:///…/backup.iso"` then `Backup done`
+  ([t=29674](https://forum.makemkv.com/forum/viewtopic.php?t=29674),
+  [t=29072](https://forum.makemkv.com/forum/viewtopic.php?t=29072)). `backup`
+  accepts only a `disc:` source (`Backup source must start with "disc:"`), so
+  this couldn't be tried locally.
+- **`info` and `mkv` work against an ISO with `--noscan`.** A synthetic DVD with
+  titles of 430, 450 and 30 s gave `TCOUNT:2` and two MKVs, the short title
+  skipped. A run that saves titles with none failing reports MSG 5005 (`2 titles
+  saved`). ARM's zero-titles check reads only 5004, so the patch checks
+  `titles/` itself.
+- **End to end in ARM's image:** the patched `makemkv.py` imports, and
+  `_arm_backup_dvd`, with the backup stubbed to copy the synthetic ISO, writes
+  the stamp, extracts both titles and registers two MakeMKV track rows with
+  `ripped=True`. With the copy truncated to 40 MiB it fails with `Synth-short.iso
+  is 41943040 bytes of 92104704` and extracts nothing.
+- All five edits apply once to unmodified 2.24.4 source, and a second run applies
+  nothing.
 
-- That `makemkvcon backup` on a DVD writes an ISO rather than a folder, and how it
-  names it. Forum reports say ISO
-  ([t=29072](https://forum.makemkv.com/forum/viewtopic.php?t=29072),
-  [t=29877](https://forum.makemkv.com/forum/viewtopic.php?t=29877)), and that it
-  sets the region to all
-  ([t=33453](https://forum.makemkv.com/forum/viewtopic.php?t=33453)). 1.18.4's
-  help says only "backs up disc to a hard drive".
+**Unverified, for the first test disc.** The test backup of *Pinky and the
+Brain* D2 waits until job 75 is done (Will, 2026-10-21). When job 75 ends, the
+disc is ejected, and putting it back in starts a job, so a manual test means
+abandoning that job or deploying first and letting it run.
+
+- The backup names and writes the ISO where it is told, on this drive and the
+  SMB share.
 - That the ISO is decrypted: decode its main VOB end to end with no libdvdcss, as
   reelbarrow's E24 did for a 2009 ISO.
+- The ISO's size against its own ISO 9660 volume size. The check fails a job
+  on a smaller image, so a size that legitimately differs would fail every DVD.
+  Also whether MakeMKV writes the image sequentially. One that preallocates
+  would pass a killed backup at full size, and the stamp's `null` is all that
+  would show it.
+- **A Blu-ray backup into a folder already holding `arm-job.json`.** ARM has only
+  ever given MakeMKV a new, empty folder. If MakeMKV refuses one that isn't
+  empty, the first Blu-ray after deploy fails at once. It would fail
+  loudly, and the fix is to write the Blu-ray's stamp after its backup.
+- That `--noscan` keeps the ISO runs off the drive: no `Using LibreDrive mode` in
+  their output.
 - How the backup copes with deliberately unreadable sectors.
-- Drive time against today's `mkv` run of the same disc, from the job logs.
+- Drive time against today's `mkv` run. Job 75's `info` and `mkv` together held
+  the drive 13:29:42–14:42:03 UTC.
 - Whether pydvdid over the ISO reproduces the disc's `crc_id`. The 2009 ISO's
   didn't, since the image re-stamped every file, which is one reason D17 stamps
   the job rather than relying on the ISO to identify itself.
@@ -531,6 +567,12 @@ limits (D6) and the alert rules, both of which are facts about this cluster.
   DVD games and menus must stay re-processable. For DVD, *"decrypt ISO plus
   MakeMKV extraction"*, applied going forward; see phase 2c.
 - **Audio CDs are out of scope for the whole-disc copy** (Will, 2026-10-20).
+- **D16's check is built with phase 2c** (Will, 2026-10-21), so the stamp's
+  `complete` is filled from the first job.
+- **A hash-check failure fails the job** like a missing or short clip (Will,
+  2026-10-21), though the clips are there at full size.
+- **The manual test backup waits until job 75 is done** (Will, 2026-10-21), so a
+  hang costs no transcode in progress.
 - **D16 starts from exploration** (Will, 2026-10-20): *"Given the circumstances,
   I would have expected most of these (especially the Polar Express) to be
   complete. So we really need to dig into the nature of these missing streams."*
@@ -602,9 +644,10 @@ the remaining work could repeat.
 ## Prompt to open with
 
 > Read `todos/disc-ripping.md` in full. ARM rips CD, DVD and Blu-ray end to end;
-> what is left is phase 2c (a whole-disc raw copy for DVD, and D17's job stamp),
-> D16's backup completeness check, the drive's intermittent SATA link loss, the
-> other open defects, and 4K.
+> what is left is proving phase 2c on a disc (a whole-disc raw copy for DVD, D17's
+> job stamp and D16's completeness check, all built, see its *Unverified* list),
+> D17's backfill, the drive's intermittent SATA link loss, the other open defects,
+> and 4K.
 > Work is on the `disc-ripping` branch in `.worktrees/disc-ripping`, with its review
 > at `review/disc-ripping-base`. If a new `ata4` event is why you are here, start at
 > **The drive's SATA link losses: start here** and gather its list before anything
