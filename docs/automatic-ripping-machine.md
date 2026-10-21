@@ -361,25 +361,28 @@ text it replaces. After an image bump, check that log for three `applied` lines.
 
 ```
 Disc inserted → udev event → ARM ripper
-  1. MakeMKV backup_dvd → /root/media/raw/<Title>/     (full decrypted disc structure)
-  2. HandBrake transcode → /root/media/completed/<Title>/*.mkv  (Plex-ready files)
+  Blu-ray: MakeMKV backup → /root/video/raw/<Title>/BDMV/       (the whole disc, decrypted)
+  DVD:     MakeMKV mkv    → /root/video/raw/<Title>/*_tNN.mkv  (one file per title of 7 min or more)
+  then:    HandBrake      → /root/video/completed/<movies|tv|unidentified>/<Title (Year)>/
 ```
 
 Both directories live on the SMB share (`//192.168.0.105/media/video/import/automatic-ripping-machine/`).
 
 ### Title identification gate
 
-`MANUAL_WAIT: true` with a long timeout (1 year) pauses the pipeline after ripping to allow manual title identification via the ARM web UI (`arm.immortalkeep.com`). Title metadata is resolved using OMDb (`METADATA_PROVIDER: "omdb"`) or alternatively via CRC64-based disc identification. The transcode step only proceeds after identification is confirmed.
+`MANUAL_WAIT: true` with `MANUAL_WAIT_TIME: 600` holds each job for ten minutes after identification, so a wrong title can be corrected in the ARM web UI (`arm.immortalkeep.com`). The job then proceeds with whatever title it has. A title set later, at any point before post-processing, still renames the output, so the real correction window runs to the end of the transcode. Titles come from OMDb (`METADATA_PROVIDER: "omdb"`); a DVD also has a CRC64-based disc identification.
 
 ### Stage 1: Rip (MakeMKV)
 
-`RIPMETHOD: "backup_dvd"` tells MakeMKV to create a full decrypted backup of the disc structure — `VIDEO_TS/` for DVDs, `BDMV/` for Blu-rays. This preserves all original tracks, menus, extras, and chapter structure. The output goes to `RAW_PATH` (`/root/media/raw/<Title>/`).
+`RIPMETHOD: "backup_dvd"` reads as a disc backup, but ARM backs up the whole disc only for a Blu-ray. MakeMKV then writes the full `BDMV/` structure decrypted — every clip and playlist and the BD-J menus — with the AACS data moved aside into `MAKEMKV/`. A DVD is extracted title by title instead: each title of `MINLENGTH` (seven minutes) or more becomes a lossless MKV, and menus, DVD games and shorter titles are not kept. No ARM setting backs up a whole DVD.
 
-These raw backups are the **archival copy**. `DELRAWFILES: false` ensures they are never deleted after transcoding.
+The raw folder is named from the job's title when the rip starts, with the job's `stage` timestamp appended if that name is taken. A title corrected afterwards renames the completed folder and not the raw one. Nothing on the share records which raw folder belongs to which job; ARM's job log does, for its 90-day life (`Processing files to:` from `makemkv.makemkv`).
+
+These raw copies are the **archival copy**. `DELRAWFILES: false` ensures they are never deleted after transcoding. Nothing verifies that a Blu-ray backup is complete: a job killed mid-backup leaves a partial `BDMV/` that looks like any other. To check one, every clip in `BDMV/CLIPINF/` must have its `.m2ts` in `BDMV/STREAM/`, sized 192 bytes × the source-packet count in its `.clpi` (a big-endian `uint32` at byte 56).
 
 ### Stage 2: Transcode (HandBrake)
 
-HandBrake processes the raw backup and transcodes all tracks longer than `MINLENGTH` (420 seconds / 7 minutes) into standalone MKV files in `COMPLETED_PATH` (`/root/media/completed/<Title>/`).
+HandBrake transcodes from the raw copy every title longer than `MINLENGTH` (420 seconds / 7 minutes) into standalone MKV files in `COMPLETED_PATH` (`/root/video/completed/<type>/<Title (Year)>/`).
 
 Key encoding settings (defined in the `vulcanus-handbrake-preset` custom preset):
 
@@ -388,7 +391,7 @@ Key encoding settings (defined in the `vulcanus-handbrake-preset` custom preset)
 | Video codec | SVT-AV1 10-bit | Royalty-free, ~30-50% smaller than H.264 at equivalent quality |
 | Quality | CRF 30 (constant quality) | Perceptually equivalent to x264 CRF 20 |
 | Encoder preset | 4 (SVT-AV1 scale: 0=slowest, 13=fastest) | Quality-focused; expect several hours per film on 6 CPU cores |
-| Audio | Opus stereo 192 kbps + Opus 5.1 320 kbps | TrueHD and DTS-HD MA passthrough when present on source |
+| Audio | Opus stereo 192 kbps + Opus 5.1 320 kbps | Lossless TrueHD and DTS-HD MA are re-encoded too; the raw copy keeps the originals |
 | Subtitles | All tracks (English + any) | Soft subs, not burned in |
 | Container | MKV | With chapter markers and metadata passthrough |
 | Deinterlace | Decomb (default) | Important for interlaced DVD content |
@@ -427,7 +430,7 @@ Additional precautions:
 - The devic.es/cdrom exclusive device resource enforces this at the Kubernetes level, but it does not prevent other QEMU VMs on the Proxmox host from also opening the sg device
 - **Before running any manual `makemkvcon` command inside the ARM pod, verify no rip is in progress:**
   ```bash
-  kubectl exec -n apps <arm-pod> -- pgrep -af makemkv
+  kubectl exec -n automatic-ripping-machine <arm-pod> -- pgrep -af makemkv
   ```
   If anything is returned, do not proceed until it finishes.
 
@@ -486,7 +489,7 @@ To replicate this setup:
 
 5. **Verify**: With a disc in the drive, run:
    ```bash
-   kubectl exec -n apps <arm-pod> -- makemkvcon --robot info disc:0
+   kubectl exec -n automatic-ripping-machine <arm-pod> -- makemkvcon --robot info disc:0
    ```
    You should see the drive identified as `BD-RE PIONEER BD-RW BDR-212U` with `Using LibreDrive mode` and a valid disc title.
 
@@ -501,28 +504,28 @@ To replicate this setup:
 
 ```bash
 # Find the running ARM pod
-kubectl get pods -n apps -l app=automatic-ripping-machine
+kubectl get pods -n automatic-ripping-machine -l app=automatic-ripping-machine
 
 # Pod logs (startup, udev events, ARM process output)
-kubectl logs -n apps <pod>
+kubectl logs -n automatic-ripping-machine <pod>
 
 # Check for active rip processes — do this before running any manual makemkvcon command
-kubectl exec -n apps <pod> -- pgrep -af makemkv
+kubectl exec -n automatic-ripping-machine <pod> -- pgrep -af makemkv
 
 # Query the ARM job database directly
-kubectl exec -n apps <pod> -- python3 -c "
+kubectl exec -n automatic-ripping-machine <pod> -- python3 -c "
 import sqlite3; conn = sqlite3.connect('/root/db/arm.db'); conn.row_factory = sqlite3.Row
 c = conn.cursor(); c.execute('SELECT job_id,title,disctype,status,errors,logfile FROM job ORDER BY job_id DESC LIMIT 10')
 [print(dict(r)) for r in c.fetchall()]"
 
 # Read a specific job log (logs live in /root/logs/ inside the pod)
-kubectl exec -n apps <pod> -- tail -100 /root/logs/<logfile>
+kubectl exec -n automatic-ripping-machine <pod> -- tail -100 /root/logs/<logfile>
 
 # Check disc/drive state
-kubectl exec -n apps <pod> -- makemkvcon --robot info disc:0
+kubectl exec -n automatic-ripping-machine <pod> -- makemkvcon --robot info disc:0
 
 # Watch rip progress
-kubectl exec -n apps <pod> -- ls -lh /root/media/raw/<job-dir>/
+kubectl exec -n automatic-ripping-machine <pod> -- ls -lh /root/video/raw/<job-dir>/
 ```
 
 ## Troubleshooting
