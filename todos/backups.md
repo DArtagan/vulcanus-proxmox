@@ -19,7 +19,9 @@ at the 2b boundary on 2026-10-13, and
 [PR #19](https://github.com/DArtagan/vulcanus-proxmox/pull/19) at Phase 3's on
 2026-10-16. Phase 4 is on a `backups` branch in `.worktrees/backups`, under review in
 [PR #23](https://github.com/DArtagan/vulcanus-proxmox/pull/23). mini-nas's side is on
-a `backups` branch of that repository, pushed, with its own review still to open.
+a `backups` branch of that repository, under review in
+[mini-nas PR #6](https://github.com/DArtagan/mini-nas/pull/6), to be merged without
+squashing.
 
 ## Status
 
@@ -689,9 +691,9 @@ workstation — a host running the container as mini-nas will, on ZFS — and th
 **Where it stands, 2026-10-20.** The VM test passes all four of the above, on
 mini-nas's nixpkgs; see the evidence.
 
-**Running.** mini-nas's `vmbr0` holds `192.168.1.11` under networkd (`ad40a2a`),
+**Running.** mini-nas's `vmbr0` holds `192.168.1.11` under networkd (`0d042fb`),
 `rpool/pbs` exists with `atime=on` owned by uid 350, and `containers.pbs-offsite`
-runs (`70967a6`) at ~160 MiB idle on DHCP `192.168.1.35`, with its datastore, prune,
+runs (`f61b29f`) at ~160 MiB idle on DHCP `192.168.1.35`, with its datastore, prune,
 verify and sync jobs, the remote, the Pushover target and the `root@pbs` login all
 reconciled on activation. The GUI is `https://pbs-offsite.forge.local:8007`, user
 `root`, realm **Proxmox Backup authentication server**, its password in
@@ -737,12 +739,13 @@ run by hand at 03:45 UTC, reporting nothing — `vm/100`, the frozen group, pass
 ### Picking 4a up again
 
 **Deployed state, 2026-10-22.** Everything on vulcanus-proxmox's branch is on `main`,
-and mini-nas runs its `backups` branch at `31c9bd5`, pinning that `main` at
-`2050080c`: the container on UTC, `pbs-offsite` on its PATH, the reconcilers ordered
-after the proxy and the daily update masked. The 04:00 UTC boot that deployed it
-failed no unit. mini-nas's `2a6e1d9` and `31c9bd5` are not yet pushed. Its branch
-has no review open yet, and the host runs it, so a deploy from mini-nas's `main`
-would take PBS #2 away — the trap that undeployed `claude-warmup` on 10-18. A
+and mini-nas runs its `backups` branch, pinning that `main` at `2050080c`: the
+container on UTC, `pbs-offsite` on its PATH, the reconcilers ordered after the proxy
+and the daily update masked. The 04:00 UTC boot that deployed it failed no unit. The
+branch was rebased onto mini-nas's `main` on 10-22 as four commits, so it also
+carries mini-nas #5, which the host does not run yet; the next deploy adds it. Until
+PR #6 merges, the host runs the branch, so a deploy from mini-nas's `main` would take
+PBS #2 away — the trap that undeployed `claude-warmup` on 10-18. A
 vulcanus-proxmox change to `nixos/` reaches PBS #2 by `wt deploy` (the user's), then
 `nix flake update vulcanus-proxmox` in mini-nas's worktree, a commit, and the deploy
 below.
@@ -817,7 +820,7 @@ prune on 10-22, so that day's vzdump and chain are the survival test.
 3. The two test restores, which touch both hypervisors.
 4. `rpool/data` narrows to `vm-107-disk-0`.
 5. `docs/backups.md`, `docs/nixos.md` and `docs/tailnet.md` for what 4a made true,
-   and mini-nas's own review.
+   and merging mini-nas PR #6.
 
 The GC's own figures, `disk-bytes` against `rpool/pbs`'s `used`, can be read any
 time after 10-24 14:00 UTC.
@@ -844,7 +847,7 @@ no container can (2026-10-18).
 - **Guest storage** is only `local`, a directory, and `/etc/pve/storage.cfg` does not
   exist. Nothing in 4a needs more until the `vm/900` test restore, which can restore
   onto `local`.
-- **mini-nas has no tofu** (removed 2026-10-22, mini-nas `0524fa5`). It managed only
+- **mini-nas has no tofu** (removed 2026-10-22, mini-nas `7432134`). It managed only
   a `will@pam` user and an `admin` group, neither used; PVE holds only `root@pam`,
   which is how it is used, with no tokens and no groups. The earlier
   PBS-as-a-VM module went with it.

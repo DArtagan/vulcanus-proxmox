@@ -1333,7 +1333,7 @@ and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
   over NixOS's `/etc/localtime -> /etc/zoneinfo/UTC`: systemd-nspawn's default
   `--timezone=auto`. So the chain fired at 16:00 UTC, freshness at 22:00 UTC, and
   GC and verify would have run at 18:00 UTC, all moving an hour on 11-01. After
-  `--timezone=off` (mini-nas `2a6e1d9`): `date` UTC, nothing mounted over
+  `--timezone=off` (now in mini-nas `f61b29f`): `date` UTC, nothing mounted over
   `/etc/localtime`, the chain next at 10-22 12:00 UTC, GC's `next-run` Sat 14:00
   UTC. Freshness ran at boot, its persistent timer having missed 18:00 UTC.
 - **Two reconcilers failed on that boot**, `proxmox-backup-setup` and
@@ -1378,12 +1378,12 @@ age key, `age1g4nm9uph…`, which matched none of `.sops.yaml`'s SSH keys under
 any local checkout or on the user's GitHub. carlpett/sops 1.1.1 builds against sops
 3.9.0, without SSH-key decryption; 1.4.1 against 3.12.2, with it, prompting for a
 passphrase through age's terminal UI. The file was given a fresh token and moved to
-the SSH recipients (mini-nas `d74038f`), the user decrypted it with their key, and
+the SSH recipients, the user decrypted it with their key, and
 the age key was deleted. `tofu plan` then proposed only creating `admin` and
 `will@pam`. Neither had a use: mini-nas has no Unix user `will`, so a PAM-realm user
 could not log in, and pvedaemon's journal since 2025-12-08 shows only `root@pam`
 logins (latest 2026-04-29), root's password being set (`passwd -S`: `P`). So tofu
-went entirely (`0524fa5`), the token was removed from PVE, and the state and its
+went entirely (mini-nas `7432134`), the token was removed from PVE, and the state and its
 backup were deleted.
 
 ### Wrong turns
