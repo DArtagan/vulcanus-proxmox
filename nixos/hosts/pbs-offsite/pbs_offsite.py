@@ -45,6 +45,10 @@ SYNC_LIMIT_HOURS = 26
 # waits six days and two hours for it; a day's slack covers a long verify.
 VERIFY_LIMIT_HOURS = 8 * 24
 
+# A snapshot's manifest, which PBS rewrites whenever the snapshot arrives here
+# and whenever a verify records its result.
+MANIFEST = "index.json.blob"
+
 
 class Snapshot(NamedTuple):
     """One snapshot, reduced to what the comparisons read."""
@@ -53,6 +57,9 @@ class Snapshot(NamedTuple):
     time: int
     protected: bool
     verified: str | None
+    # When this store last received the snapshot, from its manifest's mtime.
+    # Read for this store's snapshots only.
+    arrived: int | None = None
 
 
 class Endpoints(NamedTuple):
@@ -65,6 +72,7 @@ class Endpoints(NamedTuple):
     remote_store: str
     store: str
     ns: str
+    path: str
 
 
 def parse_snapshots(items: Iterable[Mapping[str, Any]]) -> list[Snapshot]:
@@ -128,7 +136,10 @@ def assess(
 
     Verification is this store's own: a pull strips the primary's verify state
     from what it copies. A failed verify fails at once; an unverified snapshot
-    fails once the weekly verify should have reached it.
+    fails once the weekly verify should have reached it since it arrived. That
+    is measured from its arrival, not from when it was taken, because every
+    pull re-syncs each group's newest snapshot, which strips its verify state
+    again: a frozen group's one old snapshot arrives anew every day.
     """
     primary = list(primary)
     local = list(local)
@@ -157,9 +168,11 @@ def assess(
     for snapshot in sorted(local, key=lambda s: (s.group, s.time)):
         if snapshot.verified == "failed":
             problems.append(f"{_name(snapshot)}: verification failed")
-        elif snapshot.verified is None and snapshot.time <= verify_cutoff:
+        elif snapshot.verified is None and snapshot.arrived <= verify_cutoff:
+            age = (now - snapshot.arrived) // 3600
             problems.append(
-                f"{_name(snapshot)}: unverified after {verify_limit_hours}h"
+                f"{_name(snapshot)}: unverified {age}h after arriving here "
+                f"(limit {verify_limit_hours}h)"
             )
 
     for group in sorted({s.group for s in local} - by_group.keys()):
@@ -193,6 +206,7 @@ def read_endpoints() -> Endpoints:
         remote_store=job["remote-store"],
         store=job["store"],
         ns=job.get("ns", ""),
+        path=_manager_json("datastore", "show", job["store"])["path"],
     )
 
 
@@ -252,8 +266,14 @@ def _debug_api(method: str, path: str, *args: str) -> str:
     return result.stdout
 
 
+def manifest_path(datastore: str, ns: str, snapshot: Snapshot) -> Path:
+    """Locate a snapshot's manifest in the datastore's own on-disk layout."""
+    namespace = [part for name in ns.split("/") if name for part in ("ns", name)]
+    return Path(datastore, *namespace, snapshot.group, _iso(snapshot.time), MANIFEST)
+
+
 def local_snapshots(endpoints: Endpoints) -> list[Snapshot]:
-    """List this store's copies of the primary's snapshots."""
+    """List this store's copies of the primary's snapshots, with their arrival."""
     store = endpoints.store
     out = _debug_api(
         "get",
@@ -263,7 +283,14 @@ def local_snapshots(endpoints: Endpoints) -> list[Snapshot]:
         "--output-format",
         "json",
     )
-    return parse_snapshots(json.loads(out))
+    return [
+        snapshot._replace(
+            arrived=int(
+                manifest_path(endpoints.path, endpoints.ns, snapshot).stat().st_mtime
+            )
+        )
+        for snapshot in parse_snapshots(json.loads(out))
+    ]
 
 
 def set_protected(endpoints: Endpoints, snapshot: Snapshot, protected: bool) -> None:  # noqa: FBT001 -- the flag is the value being set

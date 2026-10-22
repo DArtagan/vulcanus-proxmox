@@ -34,9 +34,14 @@ def snap(
     *,
     protected: bool = False,
     verified: str | None = "ok",
+    arrived: int | None = None,
 ) -> pbs_offsite.Snapshot:
     return pbs_offsite.Snapshot(
-        group=group, time=time, protected=protected, verified=verified
+        group=group,
+        time=time,
+        protected=protected,
+        verified=verified,
+        arrived=arrived,
     )
 
 
@@ -181,20 +186,52 @@ class AssessVerifyTest(unittest.TestCase):
         self.assertIn("failed", problems[0])
 
     def test_unverified_inside_the_limit_passes(self) -> None:
-        local = [snap("vm/900", VERIFY_CUTOFF + 1, verified=None)]
+        local = [snap("vm/900", TODAY, verified=None, arrived=VERIFY_CUTOFF + 1)]
         self.assertEqual(pbs_offsite.assess([], local, now=NOW)[0], [])
 
     def test_unverified_at_the_limit_fails(self) -> None:
-        local = [snap("vm/900", VERIFY_CUTOFF, verified=None)]
+        local = [snap("vm/900", TODAY, verified=None, arrived=VERIFY_CUTOFF)]
         self.assertEqual(len(pbs_offsite.assess([], local, now=NOW)[0]), 1)
 
-    def test_monday_snapshot_passes_through_sundays_verify(self) -> None:
-        # Taken Monday 10:00, verified the next Sunday at 14:00: 6 d 4 h old
-        # when the check at 18:00 the day before still found it unverified.
-        saturday_check = NOW
-        monday = saturday_check - (5 * 24 + 8) * HOUR
-        local = [snap("vm/900", monday, verified=None)]
-        self.assertEqual(pbs_offsite.assess([], local, now=saturday_check)[0], [])
+    def test_a_frozen_groups_snapshot_resynced_today_passes(self) -> None:
+        # vm/100's one snapshot, taken 34 days ago, arrives again with every
+        # day's pull at 12:00 and loses its verify state each time.
+        frozen = snap(
+            "vm/100", NOW - 34 * 24 * HOUR, verified=None, arrived=NOW - 6 * HOUR
+        )
+        self.assertEqual(pbs_offsite.assess([], [frozen], now=NOW)[0], [])
+
+    def test_a_monday_resync_passes_through_sundays_verify(self) -> None:
+        # Sunday's snapshot, verified that afternoon, arrives again with
+        # Monday's 12:00 pull. The next verify starts Sunday at 14:00; one still
+        # running at that evening's 18:00 check leaves it 6 d 6 h unverified.
+        sunday_check = NOW
+        monday_pull = sunday_check - (6 * 24 + 6) * HOUR
+        local = [
+            snap("vm/900", monday_pull - 26 * HOUR, verified=None, arrived=monday_pull)
+        ]
+        self.assertEqual(pbs_offsite.assess([], local, now=sunday_check)[0], [])
+
+
+class ManifestPathTest(unittest.TestCase):
+    def test_a_namespace_nests_under_ns(self) -> None:
+        path = pbs_offsite.manifest_path(
+            "/mnt/pbs", "vulcanus", snap("vm/100", 1_789_773_863)
+        )
+        self.assertEqual(
+            path,
+            Path("/mnt/pbs/ns/vulcanus/vm/100/2026-09-18T23:24:23Z/index.json.blob"),
+        )
+
+    def test_nested_namespaces_and_the_root(self) -> None:
+        snapshot = snap("ct/104", 1_789_773_863)
+        self.assertEqual(
+            pbs_offsite.manifest_path("/d", "a/b", snapshot).parents[3],
+            Path("/d/ns/a/ns/b"),
+        )
+        self.assertEqual(
+            pbs_offsite.manifest_path("/d", "", snapshot).parents[3], Path("/d")
+        )
 
 
 class MainTest(unittest.TestCase):
