@@ -310,6 +310,14 @@ completeness result added when the backup ends. The fields and the meaning of
 any rename, so reelbarrow joins on job id. Its reader is reelbarrow's
 `todos/arm-manifest-hook.md`, which doesn't mention it yet.
 
+**A DVD's stamp also maps its titles** (Will, 2026-10-22): for each title, the
+DVD's own title number (MakeMKV's TINFO 24), its MKV, its length and HandBrake's
+number for it, which names its transcode. Nothing else keeps that chain once
+`titles/` is deleted: the database's MakeMKV and HandBrake rows aren't linked,
+the transcode's tags name only the disc, and the job log goes after 90 days.
+Job 76 shows why `_tNN` isn't the disc's number: `t01` is DVD title 4. Built and
+tested, not yet deployed; job 76's stamp predates it.
+
 **Backfill for existing jobs** is possible, from what ARM still holds:
 
 - **A surviving job log** maps the job to its raw folder through its

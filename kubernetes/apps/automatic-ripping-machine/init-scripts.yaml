@@ -460,13 +460,18 @@ data:
     # The raw copy of a disc is the whole disc, decrypted, in a folder stamped with
     # the job that made it, and a backup that is short fails its job rather than
     # passing for complete. Appended to makemkv.py, whose run(), progress_log(),
-    # OutputType, TrackInfoProcessor and utils it uses as module globals.
+    # convert_to_seconds(), OutputType, TInfo, TrackID, TrackInfoProcessor and
+    # utils it uses as module globals.
     import datetime as _arm_datetime  # noqa: E402
     import json as _arm_json  # noqa: E402
     import struct as _arm_struct  # noqa: E402
 
 
-    def _arm_write_stamp(job, rawpath, problems=None):
+    # MakeMKV's TINFO attribute for the disc's own title number, ap_iaOriginalTitleId.
+    _ARM_DISC_TITLE = 24
+
+
+    def _arm_write_stamp(job, rawpath, problems=None, titles=None):
         # ARM's database records a job's completed path and never its raw one, and
         # a title corrected later renames only the completed folder. The stamp
         # travels with the raw folder through any rename. `complete` stays null
@@ -483,6 +488,7 @@ data:
             if job.start_time else None,
             "complete": None if problems is None else not problems,
             "problems": problems or [],
+            "titles": titles,
         }
         path = os.path.join(rawpath, "arm-job.json")
         with open(f"{path}.tmp", "w") as f:
@@ -585,9 +591,12 @@ data:
         # D14's patches match on MakeMKV's track rows, which ARM otherwise reads
         # from the drive.
         tracks = TrackInfoProcessor(job, None)
+        found = {}
         info = ["info", "--cache=1", "--noscan", f"iso:{iso}", f"--minlength={job.config.MINLENGTH}"]
         for message in run(info, OutputType.CINFO | OutputType.SINFO | OutputType.TCOUNT | OutputType.TINFO):
             tracks._process_message(message)
+            if isinstance(message, TInfo):
+                found.setdefault(message.tid, {})[message.id] = message.value
         tracks._add_track()
 
         cmd = ["mkv"]
@@ -606,7 +615,29 @@ data:
         # title failed. A run with no failures reports 5005.
         if not any(name.endswith(".mkv") for name in os.listdir(titles)):
             raise utils.RipperException(f"MakeMKV extracted no titles from {iso}")
+        _arm_write_stamp(job, rawpath, [], _arm_title_map(found, titles))
         return titles
+
+
+    def _arm_title_map(found, titles):
+        # Each MKV against the disc's own title number, which is what finds it again
+        # in the ISO once titles/ is gone: MakeMKV's _tNN counts only the titles it
+        # kept. HandBrake numbers a folder's files from 1 in byte order of their
+        # names (qsort in libhb/batch.c), and that number is ARM's title_N. It is
+        # null for a title MakeMKV listed but did not save.
+        saved = sorted(name for name in os.listdir(titles) if os.path.isfile(os.path.join(titles, name)))
+        entries = []
+        for _, attributes in sorted(found.items()):
+            mkv = attributes.get(TrackID.FILENAME)
+            disc_title = attributes.get(_ARM_DISC_TITLE)
+            duration = attributes.get(TrackID.DURATION)
+            entries.append({
+                "disc_title": int(disc_title) if disc_title else None,
+                "mkv": mkv,
+                "length": convert_to_seconds(duration) if duration else None,
+                "handbrake_title": saved.index(mkv) + 1 if mkv in saved else None,
+            })
+        return entries
 
   armui.sh: |
     #!/bin/bash

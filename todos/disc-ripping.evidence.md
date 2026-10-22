@@ -3156,3 +3156,27 @@ with `eject -t /dev/sr0` on vulcanus at Will's direction. Host boot still
   script on the synthetic ISO with the bits set on 100 packs counts 100. Neither
   log shows whether the disc is CSS-protected (its `CINFO` says only `DVD disc`),
   so this establishes a clear image, not decryption.
+
+### 2026-10-22 — the title map in the stamp
+
+Asked by Will while assessing what reelbarrow keeps: the ISO, `titles/`, or the
+transcodes. reelbarrow's design pairs transcode with raw by fingerprint
+(`docs/design.md` step 3) and records it in its own `disc.json`, so it doesn't
+depend on ARM for this. But once `titles/` is gone, nothing left links a
+transcode to a title in the ISO:
+
+- **Database:** job 76's HandBrake rows (1–7, 7671 s, 1299 s, …) and MakeMKV rows
+  (0–6, 7649 s, 1295 s, …) have no link, and their lengths differ by 4–22 s.
+- **The transcode:** `ffprobe` of `title_2.mkv` shows only `title=PINKY AND THE
+  BRAIN VOL 3 DISC 2` and a creation time.
+- **The job log** has it exactly (`batch: scanning …/titles/…-C1_t01.mkv` before
+  `+ title 2:`), for 90 days.
+- **MakeMKV's `info`** gives each title's DVD title number as TINFO 24: job 76's
+  `t00`–`t06` are DVD titles 01, 04, 05, 06, 07, 08, 09.
+- **HandBrake** numbers a folder by `qsort(files, …, compare_str)` over the full
+  paths (`libhb/batch.c`, `hb_batch_init`, on `master`), so by file name.
+
+Built into `_arm_backup_dvd`. In ARM's image with the synthetic DVD, MakeMKV named
+the titles `B1_t00.mkv` (DVD title 1) and `A2_t01.mkv` (title 2). The stamp gave
+them `handbrake_title` 2 and 1, and HandBrake's own scan of `titles/` listed
+`+ title 1: …/A2_t01.mkv`, `+ title 2: …/B1_t00.mkv`.
