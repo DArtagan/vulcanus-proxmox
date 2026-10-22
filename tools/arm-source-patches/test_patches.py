@@ -13,6 +13,7 @@ tree whose size the test chooses. Sizes sit at the boundary that matters, a
 file of exactly the declared size against one a byte short.
 """
 
+import dataclasses
 import datetime
 import json
 import logging
@@ -185,6 +186,12 @@ class FakeMakeMKV:
         self.commands: list[list[str]] = []
         self.backup = lambda _dest: None
         self.backup_messages: list[str] = ["Backup done"]
+        # (title id, disc title, file, duration) as `info` lists them. MakeMKV's
+        # file names sort differently from its title ids, as real ones can.
+        self.listed = [
+            (0, "01", "B1_t00.mkv", "0:07:09"),
+            (1, "04", "A2_t01.mkv", "0:07:29"),
+        ]
         self.titles_saved = ["B1_t00.mkv", "A2_t01.mkv"]
 
     def run(self, cmd: list[str], _select: object):  # noqa: ANN201 - a generator, as ARM's is
@@ -196,13 +203,34 @@ class FakeMakeMKV:
             yield None
             yield from (Message(text) for text in self.backup_messages)
         elif verb == "info":
-            yield ("TINFO", 0)
-            yield ("TINFO", 1)
+            yield CInfo(1, 6206, "DVD disc")
+            for tid, disc_title, mkv, duration in self.listed:
+                yield TInfo(2, 0, "PINKY AND THE BRAIN VOL 3 DISC 2", tid)
+                yield TInfo(9, 0, duration, tid)
+                yield TInfo(24, 0, disc_title, tid)
+                yield TInfo(27, 0, mkv, tid)
         elif verb == "mkv":
             dest = cmd[cmd.index("all") + 1]
             for name in self.titles_saved:
                 Path(dest, name).write_bytes(b"mkv")
             yield Message(f"{len(self.titles_saved)} titles saved")
+
+
+@dataclasses.dataclass
+class CInfo:
+    id: int
+    code: int
+    value: str
+
+
+@dataclasses.dataclass
+class TInfo(CInfo):
+    tid: int
+
+
+def convert_to_seconds(hms: str) -> int:
+    hours, minutes, seconds = hms.split(":")
+    return int(hours) * 3600 + int(minutes) * 60 + int(seconds)
 
 
 class TrackInfoProcessor:
@@ -223,10 +251,25 @@ class RipperError(Exception):
     pass
 
 
+class UnorderedOs:
+    """os, but listing directories in reverse order.
+
+    The share promises no order, and a local filesystem that happens to list in
+    sorted order would hide code that forgets to sort.
+    """
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(os, name)
+
+    @staticmethod
+    def listdir(path: str) -> list[str]:
+        return sorted(os.listdir(path), reverse=True)  # noqa: PTH208 - stands in for it
+
+
 def whole_disc(fake: FakeMakeMKV) -> dict:
     """Load the appended code into a namespace standing in for makemkv.py's."""
     ns = {
-        "os": os,
+        "os": UnorderedOs(),
         "logging": logging,
         "shlex": shlex,
         "collections": __import__("collections"),
@@ -236,6 +279,9 @@ def whole_disc(fake: FakeMakeMKV) -> dict:
             CINFO=1, SINFO=2, TCOUNT=4, TINFO=8, MSG=16
         ),
         "TrackInfoProcessor": TrackInfoProcessor,
+        "TInfo": TInfo,
+        "TrackID": types.SimpleNamespace(DURATION=9, FILENAME=27),
+        "convert_to_seconds": convert_to_seconds,
         "utils": types.SimpleNamespace(RipperException=RipperError),
     }
     exec(compile(load_configmap("arm-whole-disc.py"), "arm-whole-disc.py", "exec"), ns)  # noqa: S102
@@ -323,6 +369,7 @@ class Stamp(Base):
                 "start_time": "2026-10-21T13:19:30+00:00",
                 "complete": None,
                 "problems": [],
+                "titles": None,
             },
         )
 
@@ -501,7 +548,9 @@ class Dvd(Base):
 
     def test_makemkvs_track_rows_come_from_the_image(self) -> None:
         self.backup_dvd()
-        self.assertEqual(TrackInfoProcessor.seen, [("TINFO", 0), ("TINFO", 1), "added"])
+        # ARM's processor sees every message, as it would from the drive.
+        self.assertEqual(len(TrackInfoProcessor.seen), 1 + 4 * 2 + 1)
+        self.assertEqual(TrackInfoProcessor.seen[-1], "added")
         self.assertIn("--minlength=420", self.fake.commands[1])
 
     def test_a_complete_image_is_stamped_complete(self) -> None:
@@ -533,6 +582,54 @@ class Dvd(Base):
         with self.assertRaises(RipperError):
             self.backup_dvd()
         self.assertEqual(self.complete(), "true")
+
+    def test_each_title_is_mapped_from_the_disc_to_handbrake(self) -> None:
+        # HandBrake numbers by file name, so A2_t01 is its title 1 and B1_t00
+        # its title 2, whatever MakeMKV's own numbering.
+        self.backup_dvd()
+        self.assertEqual(
+            self.stamp()["titles"],
+            [
+                {
+                    "disc_title": 1,
+                    "mkv": "B1_t00.mkv",
+                    "length": 429,
+                    "handbrake_title": 2,
+                },
+                {
+                    "disc_title": 4,
+                    "mkv": "A2_t01.mkv",
+                    "length": 449,
+                    "handbrake_title": 1,
+                },
+            ],
+        )
+
+    def test_handbrake_numbers_in_byte_order_not_alphabetical(self) -> None:
+        # strcmp, as libhb's qsort uses: upper case sorts before lower.
+        self.fake.listed = [
+            (0, "02", "b_t00.mkv", "0:08:00"),
+            (1, "03", "C_t01.mkv", "0:08:00"),
+        ]
+        self.fake.titles_saved = ["b_t00.mkv", "C_t01.mkv"]
+        self.backup_dvd()
+        numbers = {t["mkv"]: t["handbrake_title"] for t in self.stamp()["titles"]}
+        self.assertEqual(numbers, {"C_t01.mkv": 1, "b_t00.mkv": 2})
+
+    def test_a_title_listed_but_not_saved_has_no_handbrake_number(self) -> None:
+        # The ones after it move up, because HandBrake counts what is there.
+        self.fake.titles_saved = ["B1_t00.mkv"]
+        self.backup_dvd()
+        numbers = {t["mkv"]: t["handbrake_title"] for t in self.stamp()["titles"]}
+        self.assertEqual(numbers, {"B1_t00.mkv": 1, "A2_t01.mkv": None})
+
+    def test_the_stamp_has_no_titles_until_they_are_extracted(self) -> None:
+        self.fake.backup = lambda dest: write_iso(
+            dest, self.BLOCKS, size=self.BLOCKS * SECTOR - 1
+        )
+        with self.assertRaises(RipperError):
+            self.backup_dvd()
+        self.assertIsNone(self.stamp()["titles"])
 
 
 if __name__ == "__main__":

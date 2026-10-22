@@ -3116,3 +3116,67 @@ dropped, the hash-check match changed, the ISO path replaced by the folder, and 
 **Job 75 for comparison.** `info disc:0` 13:29:42–13:30:08 UTC and `mkv
 dev:/dev/sr0 all` 13:30:08–14:42:03, both with `Using LibreDrive mode (v02.1
 id=DFAA920B9011)`; 7 titles found.
+
+### 2026-10-21 — job 76: phase 2c's first DVD
+
+Deployed as `2f7e7724`; the new pod logged all five `source-patches: applied`
+lines at 19:48:35 UTC. *Pinky and the Brain* D2, ejected by job 75, was closed in
+with `eject -t /dev/sr0` on vulcanus at Will's direction. Host boot still
+2026-10-08 22:25, no `ata4` exception since 2026-10-20, SDF `0xA6` (re-downloaded,
+`MSG:3338`, since the pod restart emptied `/root/.MakeMKV`).
+
+| UTC | |
+|---|---|
+| 19:49:48 | job 76 starts; `crc_id` `7969bce42a920b30`, as job 75 |
+| 19:59:57 | `info disc:9999`, ARM's drive lookup after a restart: `MSG:5010 Failed to open disc` |
+| 20:00:03 | stamp written, `"complete": null`; `backup --decrypt … disc:0 …/Pinky-and-the-Brain_179261218992.iso` |
+| 20:00:45 | `Using LibreDrive mode (v02.1 id=DFAA920B9011)`; `MSG:5072 Backing up disc into folder "file:///…/Pinky-and-the-Brain_179261218992.iso"` |
+| 20:10:12 | `MSG:5070 Backup done`, `MSG:5081 Backup done.` |
+| 20:10:13 | `Backup … checked complete`; stamp `"complete": true` |
+| 20:10:13–20 | `info --noscan iso:…`: `Found 7 titles` |
+| 20:10:21–11:49 | `mkv --noscan … iso:… all …/titles`: `MSG:5005 7 titles saved`; many `MSG:2008` (reads faster than the share writes) |
+| 20:11:50 | HandBrake: `-i …/titles -t 0 --scan` |
+
+- **The image.** At 2 min it was 671,088,640 bytes and growing, so MakeMKV writes
+  it sequentially. Its ISO 9660 descriptor declared 3,028,667 sectors of 2048 =
+  6,202,710,016 bytes, the size it finished at, and exactly the guest's
+  `/sys/block/sr0/size` (12,114,668 × 512).
+- **Drive time:** 10 min 10 s, from the backup's start to `Backup done`. Job 75's
+  `info` and `mkv` of the same disc: 72 min 21 s. Neither ISO run logged
+  `Using LibreDrive mode`; the drive's only `makemkvcon` runs were the lookup and
+  the backup.
+- **The titles** have job 75's names (`PINKY AND THE BRAIN VOL 3 DISC 2-B1_t00.mkv`
+  …) and byte sizes, all seven. `D4_t06.mkv`'s file MD5s differ (`474a216e…`,
+  `b7c06293…`); `ffmpeg -c copy -f streamhash -hash md5` gives the same four
+  stream hashes for both, so only container metadata differs.
+- **Scrambling.** `captures/phase2c-job76/css_check.py` reads the image's ISO 9660
+  directory, walks every VOB extent and counts packs whose first video, audio or
+  private-stream PES header has `PES_scrambling_control` set. Job 76's image:
+  0 of 2,989,811 packs across `VTS_01_0`–`VTS_01_6` and `VTS_02_1`. The same
+  script on the synthetic ISO with the bits set on 100 packs counts 100. Neither
+  log shows whether the disc is CSS-protected (its `CINFO` says only `DVD disc`),
+  so this establishes a clear image, not decryption.
+
+### 2026-10-22 — the title map in the stamp
+
+Asked by Will while assessing what reelbarrow keeps: the ISO, `titles/`, or the
+transcodes. reelbarrow's design pairs transcode with raw by fingerprint
+(`docs/design.md` step 3) and records it in its own `disc.json`, so it doesn't
+depend on ARM for this. But once `titles/` is gone, nothing left links a
+transcode to a title in the ISO:
+
+- **Database:** job 76's HandBrake rows (1–7, 7671 s, 1299 s, …) and MakeMKV rows
+  (0–6, 7649 s, 1295 s, …) have no link, and their lengths differ by 4–22 s.
+- **The transcode:** `ffprobe` of `title_2.mkv` shows only `title=PINKY AND THE
+  BRAIN VOL 3 DISC 2` and a creation time.
+- **The job log** has it exactly (`batch: scanning …/titles/…-C1_t01.mkv` before
+  `+ title 2:`), for 90 days.
+- **MakeMKV's `info`** gives each title's DVD title number as TINFO 24: job 76's
+  `t00`–`t06` are DVD titles 01, 04, 05, 06, 07, 08, 09.
+- **HandBrake** numbers a folder by `qsort(files, …, compare_str)` over the full
+  paths (`libhb/batch.c`, `hb_batch_init`, on `master`), so by file name.
+
+Built into `_arm_backup_dvd`. In ARM's image with the synthetic DVD, MakeMKV named
+the titles `B1_t00.mkv` (DVD title 1) and `A2_t01.mkv` (title 2). The stamp gave
+them `handbrake_title` 2 and 1, and HandBrake's own scan of `titles/` listed
+`+ title 1: …/A2_t01.mkv`, `+ title 2: …/B1_t00.mkv`.
