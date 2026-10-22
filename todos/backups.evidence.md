@@ -1366,6 +1366,32 @@ and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
 - **`pbs-offsite-freshness` green**: started by hand at 03:45 UTC, `Result=success`,
   exit 0, no report lines.
 
+### The mirror both ways, and freshness's verify rule — 2026-10-22
+
+- **Survival.** The 12:00 UTC chain, 12:00:02-12:10:03, pulled 3.66 GiB in 2,667
+  chunks at 6.5 MiB/s and logged `keep protected vm/900/2026-09-21T10:17:05Z`. At
+  20:02 both stores' `vm/900` read 31 unprotected snapshots, 09-22 to 10-22, plus the
+  protected 09-21: PBS #2 from its own listing, the primary from `pvesh get
+  …/storage/pbs/content --vmid 900`.
+- **Clearing.** `--protected 0` on the primary read back `"protected":false`; the
+  mirror printed `vm/900/2026-09-21T10:17:05Z: unprotected`, exit 0; PBS #2 then held
+  32 `vm/900` snapshots, none protected.
+- **Freshness failed at 18:00:03**: `vm/100/2026-09-18T23:24:23Z: unverified after
+  192h`, though it passed at 03:44 and the verify had read all 218 `ok`. The chain's
+  pull logged `re-sync snapshot` for each group's newest, `vm/100`'s one among them,
+  and PBS #2 then listed 204 `ok` and 15 unverified: each live group's 10-21 and 10-22
+  snapshots, and `vm/100`'s. On disk, `index.json.blob` read 12:00 for `vm/100` and
+  for `vm/900/2026-10-21`, and 10-21 21:18, the verify's time, for
+  `vm/900/2026-10-20`. The old `assess`, fed `vm/100`'s case, returns the failure;
+  the new one, measuring from the manifest's mtime, returns nothing, and run inside
+  the container against both live stores without pinging, found no problem, with
+  `vm/100` arrived 12:00:50 and unverified.
+- **mini-nas deployed from `main`** after PR #6 merged, 20:03 UTC. The first attempt
+  was cancelled, most likely by the user's `nh os switch` of the same system running
+  alongside it (profile 70 is theirs, 16:03:36 EDT); the retry confirmed, profile
+  71. The container's conf was unchanged, so it was not
+  restarted.
+
 ### mini-nas's tofu, removed — 2026-10-22
 
 The user recovered mini-nas's state from an old machine: serial 35, tofu 1.8.6,

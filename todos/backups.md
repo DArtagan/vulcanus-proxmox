@@ -33,7 +33,7 @@ squashing.
 | 2 | Application backups — K8up + restic | done 2026-10-12 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13) |
 | 2b | Delete the borg tree | done 2026-10-13 — [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) |
 | 3 | Performance — drop the OpenEBS disks from vzdump | applied 2026-10-16, review closed; checks B-E outstanding, carried by the user |
-| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — first sync done 2026-10-21, first verify passed 10-22; then the mirror's remaining checks, freshness red, restores |
+| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — first sync done 2026-10-21, first verify and the protection mirror passed 10-22; then the freshness fix deployed, freshness red, restores |
 | 4b | The primary into a NixOS container on vulcanus | designed 2026-10-17; after 4a |
 | 5 | The offline copy — external disk | not started; needs a ~$200 purchase |
 | 6 | Verification, notification, runbook | not started |
@@ -734,33 +734,26 @@ the workers' pre-10-17 snapshots, whose OpenEBS-disk chunks nothing newer shares
 `vm/910`'s group alone took 3 h 17 min. It stats every chunk of an index to read them
 in inode order before reading any, so each large image opens with minutes of ~70 IOPS
 and almost no bandwidth: not a stall. **`pbs-offsite-freshness` then went green**,
-run by hand at 03:45 UTC, reporting nothing — `vm/100`, the frozen group, passing.
+run by hand at 03:45 UTC — but only because the verify had just run. At 18:00 it
+failed on `vm/100`: each pull re-syncs every group's newest snapshot, stripping its
+verify state, so the frozen group's one snapshot arrived unverified again at 12:00,
+and the check measured the limit from 09-18, when it was taken. `cba654b5` measures
+it from the snapshot's last arrival, its manifest's mtime; against the live stores
+that finds no problem.
 
 ### Picking 4a up again
 
-**Deployed state, 2026-10-22.** Everything on vulcanus-proxmox's branch is on `main`,
-and mini-nas runs its `backups` branch, pinning that `main` at `2050080c`: the
-container on UTC, `pbs-offsite` on its PATH, the reconcilers ordered after the proxy
-and the daily update masked. The 04:00 UTC boot that deployed it failed no unit. The
-branch was rebased onto mini-nas's `main` on 10-22 as four commits, so it also
-carries mini-nas #5, which the host does not run yet; the next deploy adds it. Until
-PR #6 merges, the host runs the branch, so a deploy from mini-nas's `main` would take
-PBS #2 away — the trap that undeployed `claude-warmup` on 10-18. A
-vulcanus-proxmox change to `nixos/` reaches PBS #2 by `wt deploy` (the user's), then
-`nix flake update vulcanus-proxmox` in mini-nas's worktree, a commit, and the deploy
-below.
+**Deployed state, 2026-10-22.** mini-nas PR #6 merged (`d317ea2`), and mini-nas runs
+its `main`, deployed 20:03 UTC, pinning vulcanus-proxmox's `main` at `2050080c`.
+**`cba654b5`, the freshness fix, is on neither `main` nor the host**: until it is,
+`pbs-offsite-freshness` fails at 18:00 every day but Sunday. A vulcanus-proxmox
+change to `nixos/` reaches PBS #2 by `wt deploy` (the user's), then
+`nix flake update vulcanus-proxmox` in mini-nas, committed through mini-nas's own
+workflow, and the deploy below from that checkout.
 
-Watch the verify from the workstation:
-
-```bash
-ssh root@192.168.1.11 'nixos-container run pbs-offsite -- sh -c \
-  "grep -E \"percentage done|errors\)\" /var/log/proxmox-backup/tasks/95/*6AD91B22* \
-   | grep -v \"(0 errors)\" | tail -2"'
-```
-
-Its percentage counts snapshots rather than bytes. Grep for `errors)` and drop
-`(0 errors)`: every index logs an error count, so a bare `error` matches all of
-them. **A container restart costs little, for a sync or a verify.** A sync's chunk
+A verify's percentage counts snapshots rather than bytes. To read its log for
+errors, grep for `errors)` and drop `(0 errors)`: every index logs an error count,
+so a bare `error` matches all of them. **A container restart costs little, for a sync or a verify.** A sync's chunk
 store keeps what has landed and the next run re-syncs only the snapshot in flight;
 the verify job skips snapshots already verified (`ignore-verified`), so a re-run
 loses only the one it was in. Start the chain with
@@ -773,7 +766,7 @@ the bridge change wanted, and without `--override-input` now that `main` carries
 PBS #2's system:
 
 ```bash
-cd ~/repositories/mini-nas/.worktrees/backups
+cd ~/repositories/mini-nas
 nix run --inputs-from . deploy-rs -- .#mini-nas --hostname 192.168.1.11 \
   --confirm-timeout 60 --skip-checks
 ```
@@ -801,26 +794,23 @@ as a tmpfiles rule. What remains outside it:
 - **Creating a ZFS dataset on a live host**, since disko applies only on a fresh
   install — mini-nas's standing convention, recorded in its CLAUDE.md.
 
-**The protection mirror's first direction passed** 2026-10-21. `vm/900`'s oldest
-snapshot, `2026-09-21T10:17:05Z`, was protected on the primary
+**The protection mirror passed both ways.** On 10-21 `vm/900`'s oldest snapshot,
+`2026-09-21T10:17:05Z`, was protected on the primary
 (`pvesh set /nodes/<node>/storage/pbs/content/pbs:backup/vm/900/2026-09-21T10:17:05Z
---protected 1`), and a hand-run `pbs-offsite mirror` set it on PBS #2, read back from
-PBS #2's own snapshot listing. It is the snapshot both stores' `keep-last 31` would
-prune on 10-22, so that day's vzdump and chain are the survival test.
+--protected 1`), and a hand-run `pbs-offsite mirror` set it on PBS #2. On 10-22 both
+stores' prunes kept it past `keep-last 31` (`keep protected …` in PBS #2's chain),
+each holding 31 unprotected `vm/900` snapshots beside it. Cleared on the primary, a
+hand-run mirror cleared it on PBS #2; the 10-23 prunes remove it and 09-22 from both.
 
 **Then, in order:**
 
-1. **After 12:00 UTC on 10-22**, `vm/900/2026-09-21T10:17:05Z` is still on both
-   stores beside 31 unprotected snapshots. Then clear it on the primary
-   (`--protected 0`), run the mirror, and read it cleared on PBS #2; the next nights'
-   prunes remove it from both.
+1. **Deploy `cba654b5`**, as above, and see the 18:00 UTC `pbs-offsite-freshness`
+   pass on a weekday, `vm/100` unverified but arrived that day.
 2. **`pbs-offsite-freshness` red with a sync held back**, the direction still to
-   show; green is shown. Its red so far was only for snapshots in flight or
-   unverified.
+   show.
 3. The two test restores, which touch both hypervisors.
 4. `rpool/data` narrows to `vm-107-disk-0`.
-5. `docs/backups.md`, `docs/nixos.md` and `docs/tailnet.md` for what 4a made true,
-   and merging mini-nas PR #6.
+5. `docs/backups.md`, `docs/nixos.md` and `docs/tailnet.md` for what 4a made true.
 
 The GC's own figures, `disk-bytes` against `rpool/pbs`'s `used`, can be read any
 time after 10-24 14:00 UTC.
@@ -932,8 +922,11 @@ it gets no `discard`: it retires rather than trims.
 
 - **`pbs-offsite-freshness`**, a healthchecks check pinged from PBS #2. It passes only
   when each group's newest snapshot on the primary, once 26 h old, is on PBS #2 too,
-  and when neither store holds a snapshot past the verify interval that is unverified
-  or failed. Comparing newest snapshots rather than ages lets a frozen group pass,
+  and when PBS #2 holds no snapshot whose verify failed, or that is still unverified
+  8 days after it last arrived — the primary's own verification waits for its verify
+  job at 4b. Arrival, not backup time, because each pull re-syncs every group's
+  newest snapshot and strips its verify state, so a frozen group's one snapshot
+  arrives anew every day. Comparing newest snapshots rather than ages lets a frozen group pass,
   having nothing new to copy, while a live group fails within a day of its sync
   stopping. Asserted from the stores rather than from the jobs, as `pbs-freshness`
   is, and it dies with PBS #2, which the check's period catches. A group on PBS #2
@@ -1117,6 +1110,10 @@ Inheriting mistaken reasoning is worse than inheriting none. The full list, with
 operational slips of each phase, is in the evidence; these are the ones the remaining
 phases could repeat.
 
+- **`pbs-offsite-freshness` was called green from one run made hours after a
+  verify**, the one window in the week its verify rule could pass a frozen group.
+  The next scheduled run failed. A check shown green straight after the event that
+  clears it has not been shown green; read it again at its ordinary time.
 - **PBS #2 ran on Eastern time for its first three days** though its configuration
   sets `time.timeZone = "UTC"`: systemd-nspawn's default `--timezone=auto` mounts the
   host's zone over the container's `/etc/localtime`. The setting was trusted, and the
