@@ -1221,7 +1221,7 @@ failure for the whole tailnet; `ansible/proxmox-tailscale.yaml` records that the
 applied server-side with `headscale nodes tag`, because advertising it forces
 re-authentication. The PBS hosts follow both.
 
-## Phase 4a — 2026-10-18 to 10-20
+## Phase 4a — 2026-10-18 to 10-21
 
 ### mini-nas cannot run an LXC
 
@@ -1310,6 +1310,62 @@ and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
   creates the sync job though its remote is missing, so its success is not evidence
   of the remote.
 
+### The first sync, and the restart after it — 2026-10-21
+
+- **The sync's runs**, from `journalctl -u pbs-offsite-daily` and PBS's task list:
+  10-19 16:00 UTC failed, `no such remote 'primary'`, before the remote existed;
+  10-20 00:09 killed by a deploy (`Failed with result 'signal'`); 10-20 00:41 to
+  10-21 16:42, `TASK OK`, "pulled 576.995 GiB in 272357 chunks (average rate:
+  4.106 MiB/s)". The timer fired twice meanwhile, and its start job ran once the
+  first finished: 3.027 GiB in 2,358 chunks, 12 min. Both prunes `TASK OK`, the
+  second removing `vm/900/2026-09-20T10:08:44Z`, the 32nd.
+- **Space.** `rpool/pbs` `used` 633,976,609,904 bytes (590.4 GiB), `logicalused`
+  647,337,717,760, `compressratio` 1.02. PBS's
+  `/admin/datastore/offsite/status` `used` 633,976,651,776: the dataset's `statfs`,
+  so equal by construction. The primary's `pvesm status`: 660,293,136 KiB used
+  (629.7 GiB). PBS #2's GC status is all zeros, no GC having run; next
+  1792850400, Sat 10-24 14:00 UTC. mini-nas's `rpool` read 83% (`zpool list`
+  `cap`) against the 84% peak predicted on 10-16.
+- **Memory.** `MemoryPeak` on `container@pbs-offsite` 443,461,632 bytes (423 MiB)
+  across the boot that ran the whole sync, `MemoryCurrent` 319 MiB at its end.
+- **The container ran on Eastern time.** Inside it, `date` read EDT and
+  `findmnt /etc/localtime` showed `America/New_York` from the host's tzdata mounted
+  over NixOS's `/etc/localtime -> /etc/zoneinfo/UTC`: systemd-nspawn's default
+  `--timezone=auto`. So the chain fired at 16:00 UTC, freshness at 22:00 UTC, and
+  GC and verify would have run at 18:00 UTC, all moving an hour on 11-01. After
+  `--timezone=off` (mini-nas `2a6e1d9`): `date` UTC, nothing mounted over
+  `/etc/localtime`, the chain next at 10-22 12:00 UTC, GC's `next-run` Sat 14:00
+  UTC. Freshness ran at boot, its persistent timer having missed 18:00 UTC.
+- **Two reconcilers failed on that boot**, `proxmox-backup-setup` and
+  `pbs-gui-user`, both "client error (Connect)" at 20:02:18-19, the proxy reporting
+  ready at 20:02:19; every earlier boot's had succeeded. `connect_to_localhost`
+  (`src/client_helpers.rs`, PBS 4.2.4) dials `localhost:8007`, the proxy, while
+  both were ordered only after `proxmox-backup.service`, the API daemon, as nixos-pbs
+  orders its own. Restarted by hand with the proxy up, both went active. Fixed in
+  `49c5176c`. `pbs-notifications` and `pbs-remote` survived the race, their
+  subcommands writing config in-process, and are ordered the same way regardless.
+- **`aptupdate` failed daily** at ~02:20 since 10-19, `failed to execute "apt-get"
+  "update"`, from nixos-pbs's `proxmox-backup-daily-update` timer.
+  `proxmox-daily-update` checks a subscription, triggers the apt update and renews
+  ACME certificates; only a list of available updates notifies. Stopped in
+  `6051f90b`.
+- **The mirror, setting.** `vm/900/2026-09-21T10:17:05Z` protected on the primary
+  through `pvesh set … --protected 1` (read back `"protected":true`); `pbs-offsite
+  mirror` printed `vm/900/2026-09-21T10:17:05Z: protected` and exited 0; PBS #2's
+  listing for `vm/900` held 31 snapshots, that one alone protected.
+- **The verify** started 20:05:54 UTC, "found 9 groups", "using 1 read and 4 verify
+  thread(s)". Small guests verified at 10-100 MiB/s, then `vm/100`'s `drive-scsi0`
+  ran minutes at ~72 IOPS and ~0.3 MB/s with the proxy near idle:
+  `get_chunks_in_order` (`pbs-datastore/src/datastore.rs`) stats every chunk of an
+  index to sort by inode before reading.
+- **The verify passed** at 10-22 01:19:16 UTC, `TASK OK`, 0 index summaries with a
+  nonzero error count. Groups began: ct/103 20:05:54, ct/104 20:06:26, ct/105
+  20:07:29, ct/108 20:07:56, vm/100 20:09:04, vm/107 (empty) and vm/900 21:17:41,
+  vm/910 21:27:35, vm/911 00:44:47. PBS #2's listing for `vulcanus`: 218 snapshots,
+  `verification.state` `ok` on all 218.
+- **`pbs-offsite-freshness` green**: started by hand at 03:45 UTC, `Result=success`,
+  exit 0, no report lines.
+
 ### Wrong turns
 
 - **The webhook body was built with `builtins.toJSON`**, wrapping `{{ message }}` in
@@ -1345,6 +1401,12 @@ and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
   branch never saw it and `secrets.sops.yaml` parsed with four keys where the module
   declared five. Read the key paths out of the file before deploying a secret, and
   check which checkout an edit landed in.
+- **The verify log was first read as 249 errors**, from a grep for `error` that
+  matched every index's `(0 errors)` summary. Count `errors)` lines that are not
+  `(0 errors)`.
+- **The verify was taken for stalled**, its log four minutes quiet with the pool
+  idle, from a misreading of when it had started; it was in the inode-sort stat
+  pass. Read the process's age before calling a task stuck.
 - **PR #4's diff was blamed on this session's work.** mini-nas's `claude-warmup` PR
   listed fifteen commits already in `main`, read at first as damage from the new
   worktree. It was a stale merge base: the PR opened 2026-10-16 14:45 UTC against

@@ -31,7 +31,7 @@ a `backups` branch of that repository, pushed, with its own review still to open
 | 2 | Application backups — K8up + restic | done 2026-10-12 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13) |
 | 2b | Delete the borg tree | done 2026-10-13 — [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) |
 | 3 | Performance — drop the OpenEBS disks from vzdump | applied 2026-10-16, review closed; checks B-E outstanding, carried by the user |
-| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — deployed and pulling 2026-10-20; the first sync is running, then verify, mirror, restores |
+| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — first sync done 2026-10-21, first verify passed 10-22; then the mirror's remaining checks, freshness red, restores |
 | 4b | The primary into a NixOS container on vulcanus | designed 2026-10-17; after 4a |
 | 5 | The offline copy — external disk | not started; needs a ~$200 purchase |
 | 6 | Verification, notification, runbook | not started |
@@ -235,6 +235,13 @@ Decided 2026-10-19, during 4a:
   unlocking it would widen what a web password reaches.
 - **PBS #2's 8007 stays open on mini-nas's LAN**, not narrowed to `tailscale0`
   (2026-10-19), so the UI is reachable when the tailnet or headscale is not.
+- **PBS #2 stays on UTC**, though mini-nas is in the Boston area (2026-10-21).
+  Verbatim: *"Keeping UTC is fine with me."* Taken knowing Eastern would track
+  vzdump better, Boston and Denver changing for DST together, where UTC leaves the
+  12:00 chain 25 minutes after vzdump's winter finish. UTC wins on one clock for
+  both PBS hosts, which share a module, and for 4b's cross-host ordering: the
+  primary's 13:00 prune after PBS #2's pull. A sync overlapping vzdump skips the
+  unfinished snapshot and takes it the next day.
 
 ---
 
@@ -698,37 +705,65 @@ nodes are tagged server-side: `pbs-primary` (VM 107, `100.64.0.9`) and `pbs-offs
 container: 8007 reaches the primary, 22 and 8006 do not. The protection mirror has
 been run by hand against both stores and exits clean with nothing yet protected.
 
-**The first sync is running**, started 2026-10-20 00:40 UTC through
-`pbs-offsite-daily`. The path is **direct**, not DERP-relayed (`tailscale status`
-reads `direct`, 60-70 ms), and it moves **~3.3 MB/s ≈ 26 Mbit/s** — vulcanus's
-uplink, since the path is direct and `rx` matches what lands in the datastore. At
-that rate the primary's 643 GiB takes **~55 h**, a one-time cost; daily runs carry a
-delta. Nothing rate-limits it, so it saturates the vulcanus site's upload
-throughout: PBS's `traffic-control` is where a cap would go if that matters.
+**The first sync finished** 2026-10-21 16:42 UTC, `TASK OK`: **576.995 GiB in
+272,357 chunks over 40 h, at 4.1 MiB/s** on average, over a **direct** path, not
+DERP-relayed (`tailscale status` reads `direct`, 60-70 ms) — vulcanus's uplink.
+The timer had fired while it ran, so a second run followed at once and pulled the
+day's delta, **3.0 GiB in 12 min**: an ordinary day's size. Both prunes ran clean.
+Nothing rate-limits a sync, so a large one saturates the vulcanus site's upload:
+PBS's `traffic-control` is where a cap would go if that matters.
+
+**Space, read 2026-10-21:** `rpool/pbs` uses **590.4 GiB** for the 580.0 GiB of
+chunks the two syncs pulled; the rest is indexes and ZFS overhead, and
+`compressratio` is 1.02, the chunks arriving compressed. PBS's own `used` is no
+second opinion here: on a dataset it is that dataset's `statfs`, and matched ZFS's
+to 42 KB. The primary counts 629.7 GiB (`pvesm status`), the difference being
+chunks no snapshot references, awaiting its GC. PBS #2's independent figure,
+`disk-bytes`, arrives with its first GC, Saturday 10-24 14:00 UTC.
+
+**Memory:** the container peaked at **423 MiB** across the whole sync, against its
+2 GiB `MemoryMax`. Verify and GC are still to be read before the limit is resized.
+
+**The first verify passed**, through the declared `weekly` job
+(`proxmox-backup-debug api create /admin/verify/weekly/run`): 2026-10-21 20:05:54 to
+10-22 01:19:16 UTC, **5 h 13 min**, `TASK OK`, no index with a nonzero error count,
+and all **218 snapshots** reading `ok` in PBS #2's listing. Most of the time went on
+the workers' pre-10-17 snapshots, whose OpenEBS-disk chunks nothing newer shares:
+`vm/910`'s group alone took 3 h 17 min. It stats every chunk of an index to read them
+in inode order before reading any, so each large image opens with minutes of ~70 IOPS
+and almost no bandwidth: not a stall. **`pbs-offsite-freshness` then went green**,
+run by hand at 03:45 UTC, reporting nothing — `vm/100`, the frozen group, passing.
 
 ### Picking 4a up again
 
-Everything on vulcanus-proxmox's branch is on `main` except **`255e699d`, which is
-not deployed**: it puts `pbs-offsite` on the host's PATH, and deploying restarts the
-container, so it waits for the sync. Until then, run the tool by its store path,
-which `systemctl cat pbs-offsite-freshness` carries. mini-nas's branch is pushed
-with no review open yet, and the host runs it, so a deploy from mini-nas's `main`
-would take PBS #2 away — the trap that undeployed `claude-warmup` on 10-18.
+**Deployed state, 2026-10-21.** mini-nas runs its `backups` branch at `2a6e1d9`,
+which keeps the container on UTC and pins vulcanus-proxmox's `main` at `2f7e7724`,
+carrying `255e699d`: `pbs-offsite` is on the container's PATH. That commit is not yet
+pushed. **Two vulcanus-proxmox commits are on neither `main` nor the host**:
+`49c5176c` orders PBS's reconcilers after the proxy, and `6051f90b` stops the daily
+update. Deploying them restarts the container, so they wait for the verify; then
+`wt deploy` (the user's), `nix flake update vulcanus-proxmox` in mini-nas's
+worktree, a commit, and the deploy below. mini-nas's branch has no review open yet,
+and the host runs it, so a deploy from mini-nas's `main` would take PBS #2 away —
+the trap that undeployed `claude-warmup` on 10-18.
 
-Watch the sync from the workstation:
+Watch the verify from the workstation:
 
 ```bash
-ssh root@192.168.1.11 'zfs list -H -o name,used rpool/pbs
-  nixos-container run pbs-offsite -- systemctl is-active pbs-offsite-daily
-  nixos-container run pbs-offsite -- journalctl -u pbs-offsite-daily -o cat \
-    --no-pager | grep "percentage done" | tail -1'
+ssh root@192.168.1.11 'nixos-container run pbs-offsite -- sh -c \
+  "grep -E \"percentage done|errors\)\" /var/log/proxmox-backup/tasks/95/*6AD91B22* \
+   | grep -v \"(0 errors)\" | tail -2"'
 ```
 
-Its percentage counts snapshots rather than bytes, and the large guests sync last,
-so it runs ahead of the real figure. **A container restart costs little:** the chunk
-store keeps what has landed, and the next run re-syncs only the snapshot that was in
-flight. Start the chain again with `systemctl start --no-block pbs-offsite-daily`
-inside the container; the timer fires it at 12:00 UTC regardless.
+Its percentage counts snapshots rather than bytes. Grep for `errors)` and drop
+`(0 errors)`: every index logs an error count, so a bare `error` matches all of
+them. **A container restart costs little, for a sync or a verify.** A sync's chunk
+store keeps what has landed and the next run re-syncs only the snapshot in flight;
+the verify job skips snapshots already verified (`ignore-verified`), so a re-run
+loses only the one it was in. Start the chain with
+`systemctl start --no-block pbs-offsite-daily` inside the container, and the verify
+with the API call above; don't interrupt `proxmox-backup-debug` while it follows a
+task, since PBS's log viewer aborts the task on SIGINT.
 
 Deploy mini-nas with deploy-rs rather than `nh os switch`, for the magic rollback
 the bridge change wanted, and without `--override-input` now that `main` carries
@@ -763,12 +798,31 @@ as a tmpfiles rule. What remains outside it:
 - **Creating a ZFS dataset on a live host**, since disko applies only on a fresh
   install — mini-nas's standing convention, recorded in its CLAUDE.md.
 
-**Then, in order:** the first verify on PBS #2; `rpool/pbs`'s `used` read from the
-pool against PBS's own figure; the protection mirror exercised both ways, including
-a protected snapshot surviving prune past `keep-last`; `pbs-offsite-freshness` shown
-red and green; the two test restores, which touch both hypervisors; then
-`rpool/data` narrows to `vm-107-disk-0`; then `docs/backups.md`, `docs/nixos.md` and
-`docs/tailnet.md` for what 4a made true, and mini-nas's own review.
+**The protection mirror's first direction passed** 2026-10-21. `vm/900`'s oldest
+snapshot, `2026-09-21T10:17:05Z`, was protected on the primary
+(`pvesh set /nodes/<node>/storage/pbs/content/pbs:backup/vm/900/2026-09-21T10:17:05Z
+--protected 1`), and a hand-run `pbs-offsite mirror` set it on PBS #2, read back from
+PBS #2's own snapshot listing. It is the snapshot both stores' `keep-last 31` would
+prune on 10-22, so that day's vzdump and chain are the survival test.
+
+**Then, in order:**
+
+1. **Deploy `49c5176c` and `6051f90b`** as above, and check that no unit in the
+   container failed on the boot.
+2. **After 12:00 UTC on 10-22**, `vm/900/2026-09-21T10:17:05Z` is still on both
+   stores beside 31 unprotected snapshots. Then clear it on the primary
+   (`--protected 0`), run the mirror, and read it cleared on PBS #2; the next nights'
+   prunes remove it from both.
+3. **`pbs-offsite-freshness` red with a sync held back**, the direction still to
+   show; green is shown. Its red so far was only for snapshots in flight or
+   unverified.
+4. The two test restores, which touch both hypervisors.
+5. `rpool/data` narrows to `vm-107-disk-0`.
+6. `docs/backups.md`, `docs/nixos.md` and `docs/tailnet.md` for what 4a made true,
+   and mini-nas's own review.
+
+The GC's own figures, `disk-bytes` against `rpool/pbs`'s `used`, can be read any
+time after 10-24 14:00 UTC.
 
 ### mini-nas's host side
 
@@ -951,7 +1005,9 @@ check, the retained replica and its parent, and mini-nas's sanoid entry for it.
 Once 4a has run cleanly:
 
 1. **LXC 109 on vulcanus**: `rpool/backups/pbs` with its sanoid override, Tailscale in
-   userspace mode, and vzdump's exclusion.
+   userspace mode, and vzdump's exclusion. Read `date` inside it: PBS #2's
+   `time.timeZone` was silently overridden by its container runtime, and PVE's `pct`
+   has a `timezone` option of its own.
 2. **A local pull from VM 107** into it, owned by the new vzdump user, then a verify.
 3. **The cutover, together:** PVE's `pbs` storage repointed — server, datastore,
    credential and fingerprint — with vzdump at `keep-all`; the primary's prune,
@@ -1022,8 +1078,10 @@ What phases 0 to 2b asserted is in the evidence.
     from it. `pbs-offsite-freshness` goes red when a group's sync is held back and
     green when it catches up, both directions shown, because a new check that has
     only ever been green is untested.
-  - **Space is read from the pools**, not from PBS: `rpool/pbs`'s `used` sits near PBS
-    #2's own figure after the first sync, and falls after a GC that followed a prune.
+  - **Space is read from the pools**, not from PBS: `rpool/pbs`'s `used` sits near the
+    chunk bytes the syncs pulled and the GC's `disk-bytes`, and falls after a GC that
+    followed a prune. PBS's own `used` is not a comparison: on a dataset it is the
+    dataset's `statfs`, identical to ZFS's by construction.
   - **The protection mirror** sets a scratch snapshot's flag on PBS #2 after it is
     protected on the primary, clears it after it is cleared, and a protected snapshot
     past `keep-last` survives PBS #2's prune.
@@ -1058,6 +1116,12 @@ What phases 0 to 2b asserted is in the evidence.
 Inheriting mistaken reasoning is worse than inheriting none. The full list, with the
 operational slips of each phase, is in the evidence; these are the ones the remaining
 phases could repeat.
+
+- **PBS #2 ran on Eastern time for its first three days** though its configuration
+  sets `time.timeZone = "UTC"`: systemd-nspawn's default `--timezone=auto` mounts the
+  host's zone over the container's `/etc/localtime`. The setting was trusted, and the
+  schedules built on it, without anyone reading the clock in the container. Read the
+  running value of a setting a design depends on, not only the declaration.
 
 - **PBS #2 was designed as a PVE container on a PVE that had never run a guest.**
   The design session read that no guest ever had, and went on to choose an LXC

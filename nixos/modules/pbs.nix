@@ -74,6 +74,20 @@ in
       };
     };
 
+    # Anything reconciling through PBS's CLI waits for the proxy, not only the
+    # API daemon nixos-pbs orders it after: `connect_to_localhost` dials 8007,
+    # which the proxy serves, so a boot that starts the proxy a second late
+    # fails the reconcile with `client error (Connect)`.
+    systemd.services.proxmox-backup-setup = {
+      after = [ "proxmox-backup-proxy.service" ];
+      requires = [ "proxmox-backup-proxy.service" ];
+    };
+
+    # proxmox-daily-update checks a subscription, renews ACME certificates and
+    # runs apt: there is no subscription, no ACME domain and no apt, so all it
+    # does is leave a failed aptupdate task in the GUI every day.
+    systemd.timers.proxmox-backup-daily-update.enable = false;
+
     # Pinned, because it owns the datastore on the host: the dataset is chowned
     # to it there.
     users.users.proxmox-backup-server.uid = 350;
@@ -93,8 +107,8 @@ in
     systemd.services.pbs-notifications = {
       description = "Reconcile PBS's Pushover notification target";
       wantedBy = [ "multi-user.target" ];
-      after = [ "proxmox-backup.service" ];
-      requires = [ "proxmox-backup.service" ];
+      after = [ "proxmox-backup-proxy.service" ];
+      requires = [ "proxmox-backup-proxy.service" ];
       path = [
         pbs
         pkgs.coreutils
@@ -137,8 +151,8 @@ in
     systemd.services.pbs-gui-user = {
       description = "Reconcile PBS's root@pbs login";
       wantedBy = [ "multi-user.target" ];
-      after = [ "proxmox-backup.service" ];
-      requires = [ "proxmox-backup.service" ];
+      after = [ "proxmox-backup-proxy.service" ];
+      requires = [ "proxmox-backup-proxy.service" ];
       path = [
         pbs
         pkgs.coreutils
