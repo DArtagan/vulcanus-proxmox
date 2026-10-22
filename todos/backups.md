@@ -31,7 +31,7 @@ a `backups` branch of that repository, pushed, with its own review still to open
 | 2 | Application backups — K8up + restic | done 2026-10-12 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13) |
 | 2b | Delete the borg tree | done 2026-10-13 — [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) |
 | 3 | Performance — drop the OpenEBS disks from vzdump | applied 2026-10-16, review closed; checks B-E outstanding, carried by the user |
-| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — first sync done 2026-10-21; the first verify is running, then the mirror's remaining checks, freshness, restores |
+| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — first sync done 2026-10-21, first verify passed 10-22; then the mirror's remaining checks, freshness red, restores |
 | 4b | The primary into a NixOS container on vulcanus | designed 2026-10-17; after 4a |
 | 5 | The offline copy — external disk | not started; needs a ~$200 purchase |
 | 6 | Verification, notification, runbook | not started |
@@ -724,10 +724,15 @@ chunks no snapshot references, awaiting its GC. PBS #2's independent figure,
 **Memory:** the container peaked at **423 MiB** across the whole sync, against its
 2 GiB `MemoryMax`. Verify and GC are still to be read before the limit is resized.
 
-**The first verify is running**, started 2026-10-21 20:05:54 UTC through the declared
-`weekly` job (`proxmox-backup-debug api create /admin/verify/weekly/run`). It stats
-every chunk of an index to read them in inode order before reading any, so each large
-image opens with minutes of ~70 IOPS and almost no bandwidth: not a stall.
+**The first verify passed**, through the declared `weekly` job
+(`proxmox-backup-debug api create /admin/verify/weekly/run`): 2026-10-21 20:05:54 to
+10-22 01:19:16 UTC, **5 h 13 min**, `TASK OK`, no index with a nonzero error count,
+and all **218 snapshots** reading `ok` in PBS #2's listing. Most of the time went on
+the workers' pre-10-17 snapshots, whose OpenEBS-disk chunks nothing newer shares:
+`vm/910`'s group alone took 3 h 17 min. It stats every chunk of an index to read them
+in inode order before reading any, so each large image opens with minutes of ~70 IOPS
+and almost no bandwidth: not a stall. **`pbs-offsite-freshness` then went green**,
+run by hand at 03:45 UTC, reporting nothing — `vm/100`, the frozen group, passing.
 
 ### Picking 4a up again
 
@@ -802,16 +807,15 @@ prune on 10-22, so that day's vzdump and chain are the survival test.
 
 **Then, in order:**
 
-1. **The verify finishes**, with no `(N errors)` but `(0 errors)`; then deploy
-   `49c5176c` and `6051f90b` as above, and check that no unit in the container failed
-   on the boot.
+1. **Deploy `49c5176c` and `6051f90b`** as above, and check that no unit in the
+   container failed on the boot.
 2. **After 12:00 UTC on 10-22**, `vm/900/2026-09-21T10:17:05Z` is still on both
    stores beside 31 unprotected snapshots. Then clear it on the primary
    (`--protected 0`), run the mirror, and read it cleared on PBS #2; the next nights'
    prunes remove it from both.
-3. **`pbs-offsite-freshness` green** at its 18:00 UTC run once the verify has
-   passed, then **red** with a sync held back, the second direction. Its red so far
-   was only for snapshots in flight or unverified.
+3. **`pbs-offsite-freshness` red with a sync held back**, the direction still to
+   show; green is shown. Its red so far was only for snapshots in flight or
+   unverified.
 4. The two test restores, which touch both hypervisors.
 5. `rpool/data` narrows to `vm-107-disk-0`.
 6. `docs/backups.md`, `docs/nixos.md` and `docs/tailnet.md` for what 4a made true,

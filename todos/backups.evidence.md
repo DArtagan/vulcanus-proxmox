@@ -1358,6 +1358,13 @@ and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
   ran minutes at ~72 IOPS and ~0.3 MB/s with the proxy near idle:
   `get_chunks_in_order` (`pbs-datastore/src/datastore.rs`) stats every chunk of an
   index to sort by inode before reading.
+- **The verify passed** at 10-22 01:19:16 UTC, `TASK OK`, 0 index summaries with a
+  nonzero error count. Groups began: ct/103 20:05:54, ct/104 20:06:26, ct/105
+  20:07:29, ct/108 20:07:56, vm/100 20:09:04, vm/107 (empty) and vm/900 21:17:41,
+  vm/910 21:27:35, vm/911 00:44:47. PBS #2's listing for `vulcanus`: 218 snapshots,
+  `verification.state` `ok` on all 218.
+- **`pbs-offsite-freshness` green**: started by hand at 03:45 UTC, `Result=success`,
+  exit 0, no report lines.
 
 ### Wrong turns
 
