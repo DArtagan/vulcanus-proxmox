@@ -736,16 +736,16 @@ run by hand at 03:45 UTC, reporting nothing — `vm/100`, the frozen group, pass
 
 ### Picking 4a up again
 
-**Deployed state, 2026-10-21.** mini-nas runs its `backups` branch at `2a6e1d9`,
-which keeps the container on UTC and pins vulcanus-proxmox's `main` at `2f7e7724`,
-carrying `255e699d`: `pbs-offsite` is on the container's PATH. That commit is not yet
-pushed. **Two vulcanus-proxmox commits are on neither `main` nor the host**:
-`49c5176c` orders PBS's reconcilers after the proxy, and `6051f90b` stops the daily
-update. Deploying them restarts the container, so they wait for the verify; then
-`wt deploy` (the user's), `nix flake update vulcanus-proxmox` in mini-nas's
-worktree, a commit, and the deploy below. mini-nas's branch has no review open yet,
-and the host runs it, so a deploy from mini-nas's `main` would take PBS #2 away —
-the trap that undeployed `claude-warmup` on 10-18.
+**Deployed state, 2026-10-22.** Everything on vulcanus-proxmox's branch is on `main`,
+and mini-nas runs its `backups` branch at `31c9bd5`, pinning that `main` at
+`2050080c`: the container on UTC, `pbs-offsite` on its PATH, the reconcilers ordered
+after the proxy and the daily update masked. The 04:00 UTC boot that deployed it
+failed no unit. mini-nas's `2a6e1d9` and `31c9bd5` are not yet pushed. Its branch
+has no review open yet, and the host runs it, so a deploy from mini-nas's `main`
+would take PBS #2 away — the trap that undeployed `claude-warmup` on 10-18. A
+vulcanus-proxmox change to `nixos/` reaches PBS #2 by `wt deploy` (the user's), then
+`nix flake update vulcanus-proxmox` in mini-nas's worktree, a commit, and the deploy
+below.
 
 Watch the verify from the workstation:
 
@@ -807,18 +807,16 @@ prune on 10-22, so that day's vzdump and chain are the survival test.
 
 **Then, in order:**
 
-1. **Deploy `49c5176c` and `6051f90b`** as above, and check that no unit in the
-   container failed on the boot.
-2. **After 12:00 UTC on 10-22**, `vm/900/2026-09-21T10:17:05Z` is still on both
+1. **After 12:00 UTC on 10-22**, `vm/900/2026-09-21T10:17:05Z` is still on both
    stores beside 31 unprotected snapshots. Then clear it on the primary
    (`--protected 0`), run the mirror, and read it cleared on PBS #2; the next nights'
    prunes remove it from both.
-3. **`pbs-offsite-freshness` red with a sync held back**, the direction still to
+2. **`pbs-offsite-freshness` red with a sync held back**, the direction still to
    show; green is shown. Its red so far was only for snapshots in flight or
    unverified.
-4. The two test restores, which touch both hypervisors.
-5. `rpool/data` narrows to `vm-107-disk-0`.
-6. `docs/backups.md`, `docs/nixos.md` and `docs/tailnet.md` for what 4a made true,
+3. The two test restores, which touch both hypervisors.
+4. `rpool/data` narrows to `vm-107-disk-0`.
+5. `docs/backups.md`, `docs/nixos.md` and `docs/tailnet.md` for what 4a made true,
    and mini-nas's own review.
 
 The GC's own figures, `disk-bytes` against `rpool/pbs`'s `used`, can be read any
