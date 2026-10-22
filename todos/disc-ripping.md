@@ -315,8 +315,9 @@ DVD's own title number (MakeMKV's TINFO 24), its MKV, its length and HandBrake's
 number for it, which names its transcode. Nothing else keeps that chain once
 `titles/` is deleted: the database's MakeMKV and HandBrake rows aren't linked,
 the transcode's tags name only the disc, and the job log goes after 90 days.
-Job 76 shows why `_tNN` isn't the disc's number: `t01` is DVD title 4. Built and
-tested, not yet deployed; job 76's stamp predates it.
+Job 76 shows why `_tNN` isn't the disc's number: `t01` is DVD title 4. Deployed
+2026-10-22 (`35dfcd4e`); job 76's stamp predates it, and no DVD has run with it
+yet.
 
 **Backfill for existing jobs** is possible, from what ARM still holds:
 
