@@ -1333,7 +1333,7 @@ and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
   over NixOS's `/etc/localtime -> /etc/zoneinfo/UTC`: systemd-nspawn's default
   `--timezone=auto`. So the chain fired at 16:00 UTC, freshness at 22:00 UTC, and
   GC and verify would have run at 18:00 UTC, all moving an hour on 11-01. After
-  `--timezone=off` (mini-nas `2a6e1d9`): `date` UTC, nothing mounted over
+  `--timezone=off` (now in mini-nas `f61b29f`): `date` UTC, nothing mounted over
   `/etc/localtime`, the chain next at 10-22 12:00 UTC, GC's `next-run` Sat 14:00
   UTC. Freshness ran at boot, its persistent timer having missed 18:00 UTC.
 - **Two reconcilers failed on that boot**, `proxmox-backup-setup` and
@@ -1365,6 +1365,52 @@ and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
   `verification.state` `ok` on all 218.
 - **`pbs-offsite-freshness` green**: started by hand at 03:45 UTC, `Result=success`,
   exit 0, no report lines.
+
+### The mirror both ways, and freshness's verify rule — 2026-10-22
+
+- **Survival.** The 12:00 UTC chain, 12:00:02-12:10:03, pulled 3.66 GiB in 2,667
+  chunks at 6.5 MiB/s and logged `keep protected vm/900/2026-09-21T10:17:05Z`. At
+  20:02 both stores' `vm/900` read 31 unprotected snapshots, 09-22 to 10-22, plus the
+  protected 09-21: PBS #2 from its own listing, the primary from `pvesh get
+  …/storage/pbs/content --vmid 900`.
+- **Clearing.** `--protected 0` on the primary read back `"protected":false`; the
+  mirror printed `vm/900/2026-09-21T10:17:05Z: unprotected`, exit 0; PBS #2 then held
+  32 `vm/900` snapshots, none protected.
+- **Freshness failed at 18:00:03**: `vm/100/2026-09-18T23:24:23Z: unverified after
+  192h`, though it passed at 03:44 and the verify had read all 218 `ok`. The chain's
+  pull logged `re-sync snapshot` for each group's newest, `vm/100`'s one among them,
+  and PBS #2 then listed 204 `ok` and 15 unverified: each live group's 10-21 and 10-22
+  snapshots, and `vm/100`'s. On disk, `index.json.blob` read 12:00 for `vm/100` and
+  for `vm/900/2026-10-21`, and 10-21 21:18, the verify's time, for
+  `vm/900/2026-10-20`. The old `assess`, fed `vm/100`'s case, returns the failure;
+  the new one, measuring from the manifest's mtime, returns nothing, and run inside
+  the container against both live stores without pinging, found no problem, with
+  `vm/100` arrived 12:00:50 and unverified.
+- **mini-nas deployed from `main`** after PR #6 merged, 20:03 UTC. The first attempt
+  was cancelled, most likely by the user's `nh os switch` of the same system running
+  alongside it (profile 70 is theirs, 16:03:36 EDT); the retry confirmed, profile
+  71. The container's conf was unchanged, so it was not
+  restarted.
+
+### mini-nas's tofu, removed — 2026-10-22
+
+The user recovered mini-nas's state from an old machine: serial 35, tofu 1.8.6,
+holding the `admin` group, the sops data source and four `module.deploy` entries
+from the original nixos-anywhere install, which `main.tf` no longer declared. It
+predated the 2025-12-08 reinstall (`stat` of `/`): PVE held no `admin` group and no
+`root@pam!terraform` token. `tofu_secrets.sops.yaml` was encrypted to one standalone
+age key, `age1g4nm9uph…`, which matched none of `.sops.yaml`'s SSH keys under
+`ssh-to-age`; the user recovered it too. It decrypted the file and no other file in
+any local checkout or on the user's GitHub. carlpett/sops 1.1.1 builds against sops
+3.9.0, without SSH-key decryption; 1.4.1 against 3.12.2, with it, prompting for a
+passphrase through age's terminal UI. The file was given a fresh token and moved to
+the SSH recipients, the user decrypted it with their key, and
+the age key was deleted. `tofu plan` then proposed only creating `admin` and
+`will@pam`. Neither had a use: mini-nas has no Unix user `will`, so a PAM-realm user
+could not log in, and pvedaemon's journal since 2025-12-08 shows only `root@pam`
+logins (latest 2026-04-29), root's password being set (`passwd -S`: `P`). So tofu
+went entirely (mini-nas `7432134`), the token was removed from PVE, and the state and its
+backup were deleted.
 
 ### Wrong turns
 
