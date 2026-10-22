@@ -3180,3 +3180,14 @@ Built into `_arm_backup_dvd`. In ARM's image with the synthetic DVD, MakeMKV nam
 the titles `B1_t00.mkv` (DVD title 1) and `A2_t01.mkv` (title 2). The stamp gave
 them `handbrake_title` 2 and 1, and HandBrake's own scan of `titles/` listed
 `+ title 1: …/A2_t01.mkv`, `+ title 2: …/B1_t00.mkv`.
+
+### Job 76 stamp backfill (2026-10-22)
+
+Job 76's stamp was written before `titles` existed in the schema. The title map
+was computed from job 76's own log (TINFO lines from the ISO scan, code 24 for
+disc title numbers, code 9 for duration, code 27 for filename), and the
+`handbrake_title` numbers were confirmed against HandBrake's actual `-t N`
+commands in the same log. The seven titles are disc titles 1, 4–9; MakeMKV
+skipped titles 2 and 3 (below `MINLENGTH`). HandBrake titles 1–7 happen to
+match MakeMKV's sequential `_tNN` order because the filenames share a prefix.
+Written atomically via `tempfile` + `rename`.
