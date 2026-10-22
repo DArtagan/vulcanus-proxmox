@@ -109,6 +109,13 @@ A degraded process sits at its 20Mi limit, thrashing its own code through
 page cache. The limit is raised to 64Mi with nothing else changed, and the spec
 says which readouts decide the question. Runs two weeks.
 
+**[ingress-error-alerting.md](ingress-error-alerting.md) — alert on failed requests at the ingress**
+No ingress metric had ever reached Prometheus. Both controllers are scraped
+from 2026-10-22, and alerts are to be designed against a week of that data,
+from 2026-10-29. 30 days of logs show what complicates it: crawler 501s, a
+daily trickle of podbook 500s, and nginx retries that record stalled backends
+as 200. Keep it small, since the ingress-nginx migration will rewrite it.
+
 ## Waiting on a decision
 
 **[generic-device-plugin-upstream.md](generic-device-plugin-upstream.md) — file the issue upstream**
