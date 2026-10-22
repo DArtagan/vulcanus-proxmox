@@ -3191,3 +3191,57 @@ commands in the same log. The seven titles are disc titles 1, 4–9; MakeMKV
 skipped titles 2 and 3 (below `MINLENGTH`). HandBrake titles 1–7 happen to
 match MakeMKV's sequential `_tNN` order because the filenames share a prefix.
 Written atomically via `tempfile` + `rename`.
+
+### CSS verification: Pinky and the Brain D2 (2026-10-22, job 77's disc)
+
+During job 77's manual-override wait, with the disc locked in the drive:
+
+- `READ DVD STRUCTURE` format 1 (copyright info) returned `EINVAL` from both the
+  kernel's `DVD_READ_STRUCT` ioctl and from libdvdcss. libdvdcss logged
+  `could not check whether the disc was scrambled`. The drive (Pioneer BDR-212U)
+  or the disc firmware refuses the copyright structure query.
+- Direct sector reads tell the real story. 100 packs sampled across the physical
+  disc at 27,500-sector intervals: **25 of 98 PES packs carry a non-zero
+  scramble-control field** (CSS scrambled). The same 100 points in job 76's ISO:
+  **0 of 100 scrambled**.
+- The disc IS CSS-protected. MakeMKV's `backup` decrypted it. The copyright
+  query's failure is not evidence of an unprotected disc; the PES headers are.
+
+This closes the CSS verification item from phase 2c. The positive control (disc)
+and negative control (ISO) both give the expected result.
+
+### Job 77: first DVD with title map deployed (2026-10-22)
+
+Pinky and the Brain D2 again (crc_id 7969bce42a920b30), same disc as jobs 75
+and 76. This is the first job where `_arm_title_map` ran live rather than being
+backfilled.
+
+**Stamp written correctly at each stage:**
+1. Before backup: `complete: null, titles: null`
+2. After backup check: `complete: true, titles: null`
+3. After title extraction: `complete: true, titles: [7 entries]`
+
+**Title map matches job 76's backfill exactly** — same disc titles (1, 4–9),
+same MKV filenames, same lengths in seconds, same HandBrake title numbers (1–7).
+This confirms the backfill was correct.
+
+**ISO identical in size** to job 76: 6,202,710,016 bytes. MKV sizes also match
+byte-for-byte (B1_t00: 5,882,134,873; C1_t01: 996,370,850; etc.).
+
+**CSS decryption confirmed:**
+- Physical disc: 25 of 98 PES packs scrambled (sampled across the disc)
+- Job 76 ISO: 0 of 100 scrambled
+- Job 77 ISO: 0 of 100 scrambled
+- `READ DVD STRUCTURE` format 1 returns EINVAL from both the kernel ioctl and
+  libdvdcss; the drive/disc refuses the copyright query, but the PES scramble
+  flags prove CSS protection.
+
+**LibreDrive mode logged** (`MSG:1011`) on job 77's backup command. Job 76's
+backup used `--noscan` and did not log it. The `--noscan` flag on the ISO runs
+(info and mkv) keeps the drive out of the picture, as designed.
+
+**MakeMKV license** works for real jobs — my earlier ad-hoc `makemkvcon info`
+outside ARM's runtime failed with `MSG:5021` because it didn't load the
+settings file ARM configures.
+
+HandBrake is now transcoding title 1 of 7.
