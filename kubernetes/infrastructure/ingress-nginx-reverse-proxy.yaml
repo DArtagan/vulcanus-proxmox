@@ -62,6 +62,14 @@ spec:
         controllerValue: "k8s.io/ingress-nginx-internal"
         default: true
       ingressClass: ingress-nginx-internal
+      config:
+        # beets-flask's inbox page asks for every top-level inbox folder's
+        # status in one GET, about 100 bytes of query string per folder. A
+        # request line must fit in a single buffer; the 8k default is
+        # outgrown at ~80 folders, and over HTTP/2 nginx then resets the
+        # stream instead of answering 414, which the browser reports only
+        # as "NetworkError when attempting to fetch resource".
+        large-client-header-buffers: "4 64k"
       metrics:
         enabled: true
         serviceMonitor:
