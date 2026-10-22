@@ -449,9 +449,14 @@ just ripped the old way (evidence, 2026-10-21):
 - No pack in any VOB of the ISO carries a PES scrambling flag (2,989,811
   packs). The counter finds 100 of 100 in a control. **Whether the disc is
   CSS-protected isn't established**, so this shows a clear image, not yet that
-  scrambled sectors were decrypted. The decisive test is a disc known to be
-  CSS, or the drive's copyright descriptor (`READ DVD STRUCTURE` format 1),
-  which means a command to the drive.
+  scrambled sectors were decrypted. Will has approved reading the drive's
+  copyright descriptor (`READ DVD STRUCTURE` format 1, 2026-10-22). Do it while
+  the next DVD job holds its disc, since the tray is open between jobs and
+  closing it starts one: the `DVD_READ_STRUCT` ioctl (`0x5390`, type 1) on
+  `/dev/sr0` opened `O_NONBLOCK`, `cpst` at byte 2 (1 is CSS). Then run
+  `css_check.py` (evidence, 2026-10-21) on that job's ISO.
+- Job 76 finished `success` at 23:34:50 UTC: seven transcodes in `completed/`,
+  the disc ejected at the end, and an empty `transcode/` folder left as before.
 
 **Still unverified:**
 
@@ -459,8 +464,6 @@ just ripped the old way (evidence, 2026-10-21):
   ever given MakeMKV a new, empty folder. If MakeMKV refuses one that isn't
   empty, the first Blu-ray after deploy fails at once. It would fail
   loudly, and the fix is to write the Blu-ray's stamp after its backup.
-- That job 76 finishes: HandBrake's transcode from `titles/`, the move to
-  `completed/`, and the eject.
 - How the backup copes with deliberately unreadable sectors.
 - Whether pydvdid over the ISO reproduces the disc's `crc_id`. The 2009 ISO's
   didn't, since the image re-stamped every file, which is one reason D17 stamps
