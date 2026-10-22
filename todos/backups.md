@@ -235,6 +235,13 @@ Decided 2026-10-19, during 4a:
   unlocking it would widen what a web password reaches.
 - **PBS #2's 8007 stays open on mini-nas's LAN**, not narrowed to `tailscale0`
   (2026-10-19), so the UI is reachable when the tailnet or headscale is not.
+- **PBS #2 stays on UTC**, though mini-nas is in the Boston area (2026-10-21).
+  Verbatim: *"Keeping UTC is fine with me."* Taken knowing Eastern would track
+  vzdump better, Boston and Denver changing for DST together, where UTC leaves the
+  12:00 chain 25 minutes after vzdump's winter finish. UTC wins on one clock for
+  both PBS hosts, which share a module, and for 4b's cross-host ordering: the
+  primary's 13:00 prune after PBS #2's pull. A sync overlapping vzdump skips the
+  unfinished snapshot and takes it the next day.
 
 ---
 
