@@ -150,6 +150,16 @@ alternative it does offer inverts the safety property so a new guest would be
 silently unbacked-up. Everything else about the approach was proven to work.
 Waiting on a bpg release, and nothing to do until one appears.
 
+## Waiting on a release
+
+**[headscale-0-30.md](headscale-0-30.md) — OAuth clients, node TLS, the operator and the Talos extension**
+Headscale 0.30 adds OAuth clients, `tailscale cert` through a DNS-01 provider,
+and enough of the v2 API for the Tailscale Kubernetes operator. `docs/tailnet.md`
+rules out the operator and `siderolabs/tailscale` for reasons that this release
+partly removes. Unreleased as of 2026-10-22, and the ImagePolicy will take it
+unattended. Node TLS needs the MagicDNS domain moved off `forge.local`, and it
+publishes node names in CT logs.
+
 ## Waiting on a site visit
 
 **[vulcanus-onsite-checks.md](vulcanus-onsite-checks.md) — cables, power and ports, in person**
