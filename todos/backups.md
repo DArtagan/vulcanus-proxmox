@@ -844,11 +844,10 @@ no container can (2026-10-18).
 - **Guest storage** is only `local`, a directory, and `/etc/pve/storage.cfg` does not
   exist. Nothing in 4a needs more until the `vm/900` test restore, which can restore
   onto `local`.
-- **mini-nas's tofu has never been applied to this PVE** (2026-10-18): no state
-  exists, and PVE holds only `root@pam` — no `will@pam`, no `admin` group, no API
-  token. 4a needs no tofu now the container is NixOS's.
-- The commented-out `proxmox_backup_server` module in `main.tf` and
-  `tofu_modules/proxmox_backup_server` are an earlier VM attempt, and go.
+- **mini-nas has no tofu** (removed 2026-10-22, mini-nas `0524fa5`). It managed only
+  a `will@pam` user and an `admin` group, neither used; PVE holds only `root@pam`,
+  which is how it is used, with no tokens and no groups. The earlier
+  PBS-as-a-VM module went with it.
 
 ### The tailnet
 

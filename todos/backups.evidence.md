@@ -1366,6 +1366,26 @@ and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
 - **`pbs-offsite-freshness` green**: started by hand at 03:45 UTC, `Result=success`,
   exit 0, no report lines.
 
+### mini-nas's tofu, removed — 2026-10-22
+
+The user recovered mini-nas's state from an old machine: serial 35, tofu 1.8.6,
+holding the `admin` group, the sops data source and four `module.deploy` entries
+from the original nixos-anywhere install, which `main.tf` no longer declared. It
+predated the 2025-12-08 reinstall (`stat` of `/`): PVE held no `admin` group and no
+`root@pam!terraform` token. `tofu_secrets.sops.yaml` was encrypted to one standalone
+age key, `age1g4nm9uph…`, which matched none of `.sops.yaml`'s SSH keys under
+`ssh-to-age`; the user recovered it too. It decrypted the file and no other file in
+any local checkout or on the user's GitHub. carlpett/sops 1.1.1 builds against sops
+3.9.0, without SSH-key decryption; 1.4.1 against 3.12.2, with it, prompting for a
+passphrase through age's terminal UI. The file was given a fresh token and moved to
+the SSH recipients (mini-nas `d74038f`), the user decrypted it with their key, and
+the age key was deleted. `tofu plan` then proposed only creating `admin` and
+`will@pam`. Neither had a use: mini-nas has no Unix user `will`, so a PAM-realm user
+could not log in, and pvedaemon's journal since 2025-12-08 shows only `root@pam`
+logins (latest 2026-04-29), root's password being set (`passwd -S`: `P`). So tofu
+went entirely (`0524fa5`), the token was removed from PVE, and the state and its
+backup were deleted.
+
 ### Wrong turns
 
 - **The webhook body was built with `builtins.toJSON`**, wrapping `{{ message }}` in
