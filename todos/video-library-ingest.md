@@ -8,8 +8,8 @@
 > at `~/repositories/reelbarrow`). Its `docs/design.md` is the design, and its
 > `todos/` holds the application work, one spec per step. This spec is the
 > vulcanus-proxmox half: ARM's manifest hook, reelbarrow's deployment, its
-> secrets and its alerts. Read `todos/video-library-ingest.md`, starting with
-> **Status**, then the reelbarrow spec that the next row names.
+> secrets and its alerts. Read `todos/video-library-ingest.md`, then
+> reelbarrow's `todos/README.md`, whose first spec is the next step.
 
 The design was verified 2026-10-03 to 10-08 and moved to reelbarrow on
 2026-10-18. The evidence behind every decision, including the experiments table,
@@ -17,21 +17,18 @@ is there now.
 
 ---
 
-## Status
+## The steps
 
-| step | repository | what | state |
-|---|---|---|---|
-| — | reelbarrow | design | **complete** 2026-10-05; now reelbarrow `docs/design.md` |
-| — | reelbarrow | repository, devenv, CI, release-please, image publishing | **done** 2026-10-18; `0.1.0` published from tag `reelbarrow-v0.1.0`, pulls anonymously |
-| 1 | both | first release running in the cluster | **done** 2026-10-19: dry run, share read-only; `0.1.1` rolled out with no hand edit (Flux Bot `1815ea86`) |
-| 2 | reelbarrow | analysis | **in progress** 2026-10-20 |
-| 3 | both | ARM manifest hook: the writer in reelbarrow (`arm-manifest-hook`), the dispatcher and wiring here | not started |
-| 4–5 | reelbarrow | fixtures, dry-run planner | not started; the planner needs the TMDB key here |
-| 6 | both | first real filing: reelbarrow `movie-filing`, and **the switch** below | not started |
-| 7 | both | metrics there, alert rules here | not started |
-| 8–12 | reelbarrow | review UI, editions, hard cases, episodes, case photo | not started; each adds a secret here |
+reelbarrow's `todos/README.md` orders the work, and a spec still in its
+`todos/` is not done. Most steps are application work there alone. These also
+need work here:
 
-The full order, and what each step needs, is in reelbarrow's `todos/README.md`.
+- **arm-manifest-hook**: the dispatcher and its wiring, under *ARM's manifest
+  hook*.
+- **movie-filing**: the switch, under *The switch to live filing*.
+- **metrics**: the alert rules, under *Alerting*.
+- **Each step that calls an outside service** adds its key to reelbarrow's
+  secret; *Secrets, as each step needs them* says which.
 
 ---
 
