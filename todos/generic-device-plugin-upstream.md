@@ -1,5 +1,12 @@
 # Report generic-device-plugin's CPU and GOMAXPROCS behaviour upstream
 
+**Blocked on [generic-device-plugin-memory](generic-device-plugin-memory.md).**
+The plugin degraded again from 2026-10-06 with GOMAXPROCS still pinned. The
+evidence now points at the 20Mi memory limit, with GOMAXPROCS mattering only
+through its memory cost. Do not hand this draft over until that experiment
+closes. Its summary, Evidence 2–3 and suggested change 1 will need rewriting
+around the result.
+
 ## Opening prompt
 
 > Read `todos/generic-device-plugin-upstream.md`. It holds a finished draft of an

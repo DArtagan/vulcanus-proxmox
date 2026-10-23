@@ -75,14 +75,18 @@ spec:
             # process for most of every period, and a slow /metrics never
             # recovered: a limit is what turns a degraded plugin into a dead one.
             #
-            # Memory sits at ~12Mi against this limit, most of it page cache.  An
-            # OOM kill is a restart, which is what clears a degraded plugin, so
-            # the limit doubles as a backstop behind the liveness probe.
+            # The memory limit has to hold the plugin's own code as well as its
+            # heap: the binary maps 14Mi, charged to this cgroup as page cache,
+            # and the Go runtime adds ~9Mi of anonymous memory.  Below that sum
+            # the kernel evicts the code and faults it back from disk 60-150
+            # times a second, which surfaces as millisecond GC pauses and a slow
+            # /metrics.  Judge headroom by the cgroup's memory.current; the
+            # working set excludes the very page cache that thrashes.
             requests:
               cpu: 50m
-              memory: 10Mi
+              memory: 32Mi
             limits:
-              memory: 20Mi
+              memory: 64Mi
           # docs/kubernetes.md says default to readiness and be wary of liveness.
           # This is the carve-out.  A restart clears a degraded plugin outright;
           # a healthy /metrics answers in ~2ms, so there is no long synchronous
