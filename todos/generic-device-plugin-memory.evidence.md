@@ -74,3 +74,63 @@ open fds 10–12. Heap in use 3.5–5.7MB throughout.
 `lastState.terminated` on 2026-10-15: two OOMKilled (exit 137) and one
 Completed (exit 0). The Completed one's log ends `caught interrupt; gracefully
 cleaning up`, which is a liveness reap.
+
+## 2026-10-23: one week after the change
+
+The new pods (`cdt6h` w1, `pp7p8` w0, `r9bp2` cp) started at 16:39:31–39 UTC on
+2026-10-15 with request 32Mi and limit 64Mi. At 00:21 UTC on 10-23 they had
+0 restarts.
+
+### Hour one
+
+| | cp / w0 / w1 |
+|---|---|
+| max median GC pause, to 17:40 | 116 / 151 / 127µs |
+| max pgmajfault/s, new pods | 0.005 / 0.022 / 0.005 |
+| memory.current at 17:40, MiB | 12.1 / 16.6 / 10.5 |
+
+The outgoing pods were still faulting at 62 / 16 / 13 per second in their last
+ten minutes.
+
+### The week
+
+- `DevicePluginDegraded`: no pending or firing sample since 16:39:41 on 10-15,
+  the scrape at which the old pods disappeared.
+- Median GC pause: max 111 / 97 / 149µs, typical 94 / 81 / 91µs.
+- pgmajfault: max rate 0.015 / 0.010 / 0.023/s, 21 / 11 / 17 faults in total.
+- I/O full-stall PSI (5m rate) went over 25% on all three nodes during the week,
+  and on worker-1 in most hours of most nights. The plugins showed nothing.
+
+Daily maxima (cp / w0 / w1), from cAdvisor and `/metrics`:
+
+| day to 00:00 UTC | memory.current MiB | RSS MiB | goroutines |
+|---|---|---|---|
+| 10-16 (from 16:40) | 20.4 / 18.8 / 11.9 | 8.9 / 8.8 / 8.9 | 21 / 21 / 21 |
+| 10-17 | 20.7 / 21.3 / 20.8 | 9.1 / 8.9 / 9.1 | 22 / 22 / 21 |
+| 10-18 | 22.9 / 21.5 / 21.0 | 9.2 / 9.1 / 9.1 | 21 / 21 / 22 |
+| 10-19 | 20.8 / 21.3 / 21.0 | 9.2 / 8.9 / 9.1 | 22 / 21 / 21 |
+| 10-20 | 21.1 / 21.4 / 21.2 | 9.1 / 9.0 / 9.2 | 22 / 22 / 22 |
+| 10-21 | 21.0 / 22.9 / 21.1 | 9.4 / 9.0 / 9.1 | 22 / 21 / 22 |
+| 10-22 | 21.2 / 23.2 / 21.3 | 9.2 / 9.0 / 9.0 | 21 / 22 / 24 |
+| 10-23 (to 00:21) | 21.1 / 22.7 / 21.1 | 9.2 / 9.1 / 9.4 | 21 / 22 / 21 |
+
+memory.current settles at 21–23MiB, which is just above the old 20MiB limit and
+at the low end of the predicted 23–30Mi. After the first day it stays flat.
+
+### Live process, worker-0, pid 63421, started 16:39 UTC on 10-15
+
+Read on the node at about 00:25 UTC on 10-23, compared with pid 125271 on
+10-15:
+
+| | 10-15, 20Mi limit, 6.5h old | 10-23, 64Mi limit, 7.3 days old |
+|---|---|---|
+| memory.current | 20,623,360 | 22,048,768 |
+| memory.events `max` | 104,203 | 0 |
+| `pgmajfault` (cgroup) | 1,855,870 | 24 |
+| file_mapped | 2.2MB | 8.6MB |
+| anon | — | 8.0MB |
+| utime / stime, ticks | 2,315 / 246,789 | 13,758 / 13,063 |
+
+file_mapped has nearly quadrupled at the same memory.current. With room, the
+binary's pages stay resident. stime is 5% of what the degraded process
+accumulated, over 27 times the lifetime.
