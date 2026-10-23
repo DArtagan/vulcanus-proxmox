@@ -744,12 +744,13 @@ that finds no problem.
 ### Picking 4a up again
 
 **Deployed state, 2026-10-22.** mini-nas PR #6 merged (`d317ea2`), and mini-nas runs
-its `main`, deployed 20:03 UTC, pinning vulcanus-proxmox's `main` at `2050080c`.
-**`cba654b5`, the freshness fix, is on neither `main` nor the host**: until it is,
-`pbs-offsite-freshness` fails at 18:00 every day but Sunday. A vulcanus-proxmox
-change to `nixos/` reaches PBS #2 by `wt deploy` (the user's), then
-`nix flake update vulcanus-proxmox` in mini-nas, committed through mini-nas's own
-workflow, and the deploy below from that checkout.
+its `main` at `7108ea8`, deployed 20:17 UTC, pinning vulcanus-proxmox's `main` at
+`05354bd1`, which carries the freshness fix. Run by hand at 20:18 with `vm/100`
+unverified, re-synced at 12:00, the check passed; no unit failed on the host or in
+the container. A vulcanus-proxmox change to `nixos/` reaches PBS #2 by `wt deploy`
+(the user's), then `nix flake update vulcanus-proxmox` committed straight to
+mini-nas's `main`, as the user chose for a re-pin, and the deploy below from that
+checkout.
 
 A verify's percentage counts snapshots rather than bytes. To read its log for
 errors, grep for `errors)` and drop `(0 errors)`: every index logs an error count,
@@ -804,8 +805,9 @@ hand-run mirror cleared it on PBS #2; the 10-23 prunes remove it and 09-22 from 
 
 **Then, in order:**
 
-1. **Deploy `cba654b5`**, as above, and see the 18:00 UTC `pbs-offsite-freshness`
-   pass on a weekday, `vm/100` unverified but arrived that day.
+1. **See the scheduled 18:00 UTC `pbs-offsite-freshness` pass on 10-23**, a weekday,
+   `vm/100` unverified but arrived that day: `systemctl show -p Result
+   pbs-offsite-freshness` in the container, and the check green on healthchecks.
 2. **`pbs-offsite-freshness` red with a sync held back**, the direction still to
    show.
 3. The two test restores, which touch both hypervisors.
