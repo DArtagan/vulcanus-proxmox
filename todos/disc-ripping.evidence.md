@@ -3282,3 +3282,131 @@ This completes the three-disc-type validation of phase 2c:
 - Job 76: DVD, stamp + ISO + title map (backfilled)
 - Job 77: DVD, stamp + ISO + title map (live)
 - Job 78: Blu-ray, stamp + BDMV folder
+
+### 2026-10-24 — titles that repeat other titles: surveyed, decided, built
+
+Asked by Will: whether play-all titles only occur on TV discs, whether they
+always duplicate the other titles, and how to recognise one. Job 80 (Downton
+Abbey D1, the first Blu-ray series disc) was transcoding as this ran, and has
+since started on its 207-minute play-all. Scripts and full outputs are in
+`captures/play-all/`.
+
+**Sources.** All 54 Blu-ray backups in `raw/` (playlists parsed from
+`BDMV/PLAYLIST/*.mpls`: each play item's clip and in/out times, chapter marks);
+the two phase-2c ISOs of *Pinky* D2 (`lsdvd`'s cell sector ranges); the
+MakeMKV title tables in the ~45 job logs that still hold them, for the older
+DVDs whose raw copy is only their long titles; durations of the older TV DVDs'
+MKVs.
+
+**Not TV alone.** TV discs with a play-all: *Sylvester and Tweety* D1/D2,
+*Pinky* D1/D2, the animated *Mummy*, Downton D1. TV discs without: *Firefly*
+D1–3, *Witch Hunter Robin* V1–6, *Sherlock Holmes in the 22nd Century*. Movie
+discs carry them too: *Alien* Bonus D5 (four featurette play-alls), *Scott
+Pilgrim* (two), the *Downton Abbey* film (a 16.9-min featurette play-all),
+*Robin Hood*'s bonus disc, *X-Men: First Class*.
+
+**Usually but not always a strict duplicate.** On *Pinky* D2, DVD title 1's 30
+cells are exactly the six episodes' five content cells each; every episode
+also plays one shared 73-sector closing cell the play-all omits, which is the
+0.1 min the 2026-09-04 entry measured. *Scott Pilgrim* `00448` and *Alien*
+`00246` hold pieces (a 175 s clip, ~7 min) that no title of 7 min or more
+plays, so for those the play-all is the only transcoded copy.
+
+**How to tell.** Length against the sum of the others works only on a simple
+TV disc; it fails once a disc has extras or several play-alls. Position, chapter
+counts and MakeMKV's segment map (TINFO 26, which restarts at 1 for every
+title) don't work. libbluray's duplicate filters, which HandBrake uses, drop
+only identical and clip-looping playlists. What works is containment of what
+is played: a title that two or more others, each inside it and disjoint from
+each other, cover.
+
+**Near misses that shaped the rule.** *Dredd*'s film is four clips, three of
+them long titles of their own, covering 93.5% of it: not a play-all. Alternate
+cuts (*Cabin in the Woods*, *Howl's*, *Cowboy Bebop*) contain each other but
+are one component, never two parts. Hence a 99% coverage threshold and the
+two-disjoint-parts requirement.
+
+**What the play-alls are**, checked rather than assumed:
+
+- *Robin Hood*'s bonus disc (job 36, `crc_id` `d3c5ce89aef40f61`; job 35 was
+  the film's disc): its 62.7-min title is `t01`+`t02`+`t03` back to back,
+  90,696 of 90,698 video packets identical (`ffmpeg -f framemd5`), with chapters
+  at the joins. Frames show interviews and an edit suite, a making-of in three
+  parts. ARM filed it as `completed/movies/Robin-Hood (2010)_178999705941/Robin-Hood (2010).mkv`.
+- *X-Men: First Class* `00500` is the film's 14 clips (`00800`, 131.7 min, the
+  released 2h11m) in order with eight featurette clips from `00432` cut
+  between them. It is the disc's "X Marks the Spot" mode, which "seamlessly
+  branches away to behind-the-scenes videos… at appropriate moments"
+  ([BigPictureBigSound](https://www.bigpicturebigsound.com/X-Men-First-Class-Blu-ray.shtml));
+  frames of the inserts show a captioned interview, crew on set, a
+  pre-visualisation split screen and a title-sequence motion test. The MPLS
+  connection flags (5, seamless, on every join) can't tell this from an
+  extended cut's branching.
+- In our AV1 transcode of *Robin Hood*'s documentary, keyframes sit every
+  ~6.7 s plus one exactly at each chapter (1086.185 s, 2854.390 s), so a kept
+  whole can be cut into its parts without re-encoding.
+
+**Decided** (Will, 2026-10-24), after asking whether TV alone would be safer:
+every disc, since movie discs fare worse today (a play-all named as the film)
+and the series label is OMDb's guess (job 63, the animated *Mummy*, came back
+`movie`; job 69, *True Crime*, `series`). The in-film extras mode is not the
+film: *"if it's like an interactive mode (e.g. not what the director would
+have considered part of the movie), then preferable to leave it out"*, where an
+extended edition would be the film. For a work in parts, *"very tempting to
+keep the whole and skip the parts"*, without contradicting TV, where the
+episodes are wanted. Hence: a series keeps the parts; a movie disc keeps a
+whole whose parts are sequential with a chapter at each join; interleaved
+parts are kept apart and the whole skipped, with a notification on a movie
+disc. Plex documents no multi-part extras or sequential play
+([Plex](https://support.plex.tv/articles/local-files-for-trailers-and-extras)),
+so one file with chapters is the dependable way to play a work in parts
+through.
+
+**Built** as `arm-duplicate-titles.py`, appended to `handbrake.py`, with two
+edits in `handbrake_all`. Run over every raw folder with a structure
+(`captures/play-all/harness.py`, read-only, ARM's track list from a full
+HandBrake scan as `get_track_info` makes it), the outcome:
+
+| disc | type | skipped |
+|---|---|---|
+| Downton Abbey D1 | series | the 207-min play-all; main feature moved to an episode |
+| *Pinky* D2, both ISOs | series | DVD title 1, 127.8 min |
+| *Alien* Bonus D5 | movie | 32 featurettes, kept as three documentary wholes; `00246` and its parts transcoded |
+| *Downton Abbey* film | movie | six intro variants, kept as the 16.9-min whole |
+| *Scott Pilgrim* | movie | `00370`'s two halves, the whole kept; `00448` transcoded |
+| *X-Men: First Class* | movie | `00500`, notified; main feature moved to `00800` |
+| 47 others | | nothing |
+
+*Pinky* D2 run as a movie keeps the 127.8-min whole and skips the six
+episodes, with each episode's start recorded, which is the misfiled-series
+case.
+
+**Wrong turns in the session.**
+
+- *X-Men*'s `00500` was first described as "the film with featurettes cut in",
+  then grouped with *Robin Hood* as "extras filed as the film". Only *Robin
+  Hood*'s is bonus-only.
+- The first build placed each part by everything it plays. The *Downton Abbey*
+  film's featurette variants share an intro clip, so both started at 0, read
+  as interleaved, and sent a spurious "extended cut?" notification. Parts are
+  now placed by what only they play.
+- `lsdvd -c -d` was used to read a DVD's cells; it prints no title-set number
+  (`vts`), only with `-v`, and the survey had used `-x`. The DVD path fell back
+  to transcoding everything on both ISOs. The unit-test fixture had invented
+  the key; the fake lsdvd now prints `vts` only with `-v`.
+- The first edit's anchor spanned `d14-encode`'s line, marker included, so the
+  patcher would have read D14 as applied wherever that text stood. Split into
+  two edits that avoid it.
+
+**Measured costs.** The comparison needs its own HandBrake scan of the
+Blu-ray. A full scan of *Alien* (180 playlists) took 315 s; with
+`--min-duration 420`, 22 s, the title numbering identical on all 52 Blu-rays
+whose scan found titles (only HandBrake's own main-feature guess differs, on
+*Alien* Bonus D5, which the code doesn't read). *Now You See Me*'s 213 long
+playlists took 430 s even so, beside a transcode, and the decision 8.5 s. *Dune*
+and *The Polar Express* yield no titles at all ("scan thread found 0 valid
+title(s)"); both are D16's partial backups.
+
+**Seen, not acted on.** *Now You See Me*'s 212 near-identical playlists are
+alternate cuts to the rule and all transcoded; it is on the re-rip list. A
+bonus disc's longest kept title is still named as the film.

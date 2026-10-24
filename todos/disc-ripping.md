@@ -140,7 +140,7 @@ every earlier run read `0x121000`.
   within seconds but still leaves a fresh pod. Confirm in the running container,
   for instance `grep MANUAL_WAIT_TIME /etc/arm/config/arm.yaml`, and do not trust
   `flux get kustomizations`, which reports healthy either way.
-- **After an ARM image bump**, `arm.log` should show five `source-patches:
+- **After an ARM image bump**, `arm.log` should show eight `source-patches:
   applied` lines (see `docs/automatic-ripping-machine.md`).
 - **`sops -d` cannot run unattended here**: the age recipient is a
   passphrase-protected SSH key and sops has no tty. Editing the ARM secret is
@@ -172,7 +172,8 @@ current ring buffer and nothing older. Capture it while a failure is fresh.
 - `kubernetes/apps/automatic-ripping-machine/deployment.yaml` — mounts, resources
 - `kubernetes/apps/automatic-ripping-machine/init-scripts.yaml` — the udev rule,
   `arm-disc-wrapper.sh`, `arm-audio-handoff.sh`, `arm-title-charset.*`,
-  `arm-source-patches.py` and the `arm-whole-disc.py` it appends
+  `arm-source-patches.py` and the `arm-whole-disc.py` and
+  `arm-duplicate-titles.py` it appends
 - `kubernetes/apps/automatic-ripping-machine/api-keys` — SOPS; MakeMKV, OMDb and
   Pushover
 - `tools/arm-disc-wrapper/`, `tools/arm-audio-handoff/`, `tools/arm-title-charset/`,
@@ -344,11 +345,18 @@ somewhere durable.
   to Opus. Nothing is lost — the raw backup keeps it — but the intent recorded was
   passthrough. Will's call which is wanted; the docs describe the re-encode, and
   change with the preset if passthrough is chosen.
-- **Play-all titles are transcoded in full.** On a TV disc the compilation title
-  passes `MINLENGTH` and costs hours of encoding for output that duplicates the
-  episodes. It is recognisable: on both *Sylvester and Tweety* discs its length was
-  within 0.1 min of the sum of the other titles. Needs a guard for one-episode discs
-  and mixed discs before filtering on it. Not decided.
+- **Titles that repeat other titles: built 2026-10-24, not yet deployed.** The
+  rule and its outcomes are in the docs (*Titles that repeat other titles*), the
+  survey behind it in the evidence (2026-10-24). Decided (Will, 2026-10-24):
+  apply it to every disc, not TV alone, since the series/movie label is OMDb's
+  guess and movie discs fare worse today; a series keeps its parts, a movie
+  disc keeps a sequential whole; an in-film extras mode like *X-Men: First
+  Class*'s is not the film and is left out, where an extended edition would be
+  the film. To verify on a disc: re-rip Downton Abbey D1 (job 80, which
+  transcoded its 207-minute play-all) and expect `00006.mpls` skipped, four
+  episodes, and the stamp's `duplicates`. Open: on a movie disc, a title playing
+  the film and then a featurette, with a chapter at the join, would be kept
+  whole and named as the film. No disc ripped here has that shape.
 - **The transcode preset has never been reviewed** against a finished file: SVT-AV1
   10-bit, CRF 30, preset 4, Opus audio. Finished files now exist.
 - **`LOGLEVEL: DEBUG`** was kept through phase 3 for detail when a rip failed, to be
