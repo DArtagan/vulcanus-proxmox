@@ -27,7 +27,7 @@ review base `review/disc-ripping-base`.
 | 1 | Audio CD | done 2026-08-31; one loose end, below |
 | 2 | DVD — movie | done 2026-09-01 |
 | 2b | DVD — TV series | done 2026-09-04 |
-| 2c | DVD — a whole-disc raw copy, each raw folder stamped with its job, every backup checked (D16) | deployed 2026-10-21; DVD ripped by job 76, Blu-ray untried |
+| 2c | DVD — a whole-disc raw copy, each raw folder stamped with its job, every backup checked (D16) | done 2026-10-23; jobs 76–78 (two DVDs, one Blu-ray) |
 | 3 | Blu-ray | done 2026-09-17 |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
 | — | Drive drops off its SATA link | **open, watching** — no event in jobs 47–72 |

@@ -3245,3 +3245,40 @@ outside ARM's runtime failed with `MSG:5021` because it didn't load the
 settings file ARM configures.
 
 HandBrake is now transcoding title 1 of 7.
+
+### Job 78: first Blu-ray with phase 2c (2026-10-23)
+
+Downton Abbey: A New Era. Job 78, disctype bluray, status success.
+
+**Blu-ray stamp coexistence confirmed.** MakeMKV wrote `BDMV/`, `CERTIFICATE/`
+and `MAKEMKV/` into a folder already containing `arm-job.json`. No error, no
+complaint. The risk that MakeMKV would refuse a non-empty output folder is
+cleared.
+
+**Final stamp:**
+```json
+{
+  "schema": 1,
+  "job_id": 78,
+  "label": "DOWNTON_ABBEY_A_NEW_ERA",
+  "disctype": "bluray",
+  "crc_id": null,
+  "stage": "179271627780",
+  "start_time": "2026-10-23T00:44:37.859782+00:00",
+  "complete": true,
+  "problems": [],
+  "titles": null
+}
+```
+
+`crc_id: null` (Blu-rays have no pydvdid CRC), `titles: null` (title map is
+DVD-only). `complete: true` with no problems — the `.clpi` completeness check
+passed.
+
+**Full pipeline:** backup → completeness check → MKV extraction → HandBrake
+transcode (main feature + 2 extras) → move to `completed/movies/` → eject.
+
+This completes the three-disc-type validation of phase 2c:
+- Job 76: DVD, stamp + ISO + title map (backfilled)
+- Job 77: DVD, stamp + ISO + title map (live)
+- Job 78: Blu-ray, stamp + BDMV folder
