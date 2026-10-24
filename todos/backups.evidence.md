@@ -1392,6 +1392,26 @@ and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
   71. The container's conf was unchanged, so it was not
   restarted.
 
+### Two days on the fix, and the first GC — 2026-10-24
+
+- **Freshness** succeeded at 10-23 18:00:11 and 10-24 18:00:07. `vm/100`'s
+  `verification` read `None` on 10-24 at 22:02, its `index.json.blob` dated
+  10-22 12:00:50.
+- **The re-sync rewrites a manifest only when it differs.** `pull.rs` (PBS 4.2.4,
+  lines 735-739) compares the local manifest's raw bytes with the primary's and, if
+  equal, fetches the client log and logs "no data changes". A verify writes its
+  result into the local manifest, so only the first pull after a verify strips the
+  newest snapshot's state, which is why the 10-23 and 10-24 pulls left `vm/100`'s
+  manifest alone.
+- **Chains.** 10-23: 4.389 GiB, 3,172 chunks, 3.7 MiB/s; prune removed
+  `vm/900/2026-09-21T10:17:05Z` and `09-22`. 10-24: 3.934 GiB, 2,754 chunks. The
+  primary's `vm/900` read 31, 09-24 to 10-24, none protected.
+- **GC**, Sat 10-24 14:00, `OK` in 739 s: `disk-bytes` 615,170,260,290 in 270,282
+  chunks; removed 25,672,847,917 bytes in 16,004 chunks; 420 index files;
+  `still-bad` 0. `rpool/pbs` `used` 621,022,685,536 at 22:02.
+- **Memory.** `MemoryPeak` 259,457,024 bytes (247 MiB) on `container@pbs-offsite`
+  for the boot from 10-22 20:17, which ran two chains and the GC.
+
 ### mini-nas's tofu, removed — 2026-10-22
 
 The user recovered mini-nas's state from an old machine: serial 35, tofu 1.8.6,
@@ -1447,6 +1467,12 @@ backup were deleted.
   branch never saw it and `secrets.sops.yaml` parsed with four keys where the module
   declared five. Read the key paths out of the file before deploying a secret, and
   check which checkout an edit landed in.
+- **The freshness fix was explained as "every pull re-syncs the newest snapshot"**,
+  from one day's log showing `re-sync snapshot` for every group. That day's pull was
+  the first after a verify; `pull.rs` replaces a manifest only when it differs. The
+  fix stood, the explanation did not, and it went into the commit message, the
+  code and the spec before the next two days' manifests showed it. Read the code
+  path a one-off observation stands for before generalising from it.
 - **The verify log was first read as 249 errors**, from a grep for `error` that
   matched every index's `(0 errors)` summary. Count `errors)` lines that are not
   `(0 errors)`.
