@@ -194,8 +194,8 @@ class AssessVerifyTest(unittest.TestCase):
         self.assertEqual(len(pbs_offsite.assess([], local, now=NOW)[0]), 1)
 
     def test_a_frozen_groups_snapshot_resynced_today_passes(self) -> None:
-        # vm/100's one snapshot, taken 34 days ago, arrives again with every
-        # day's pull at 12:00 and loses its verify state each time.
+        # vm/100's one snapshot, taken 34 days ago, arrives again with the
+        # first pull after each verify, at 12:00, and loses its verify state.
         frozen = snap(
             "vm/100", NOW - 34 * 24 * HOUR, verified=None, arrived=NOW - 6 * HOUR
         )
