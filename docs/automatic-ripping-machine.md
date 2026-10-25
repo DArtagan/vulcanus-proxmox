@@ -351,11 +351,12 @@ Once ARM detects a disc and identifies it (via the manual identification gate or
 
 The disc stays in the drive, locked, until the whole job is complete, transcode
 included, and is ejected once at the end. An open tray is therefore the signal
-that a disc is finished. That, HandBrake encoding each title once, and the whole
-DVD as its raw copy come from edits to ARM's own source. `arm-source-patches.py`
-(`init-scripts.yaml`) applies them at container start. Each edit is skipped, and
-logged as `source-patches: cannot apply` in `arm.log`, if an ARM update moves the
-text it replaces. After an image bump, check that log for five `applied` lines.
+that a disc is finished. That, HandBrake encoding each title once and skipping
+the titles others already play, and the whole DVD as its raw copy come from edits
+to ARM's own source. `arm-source-patches.py` (`init-scripts.yaml`) applies them at
+container start. Each edit is skipped, and logged as `source-patches: cannot
+apply` in `arm.log`, if an ARM update moves the text it replaces. After an image
+bump, check that log for eight `applied` lines.
 
 ### Data flow
 
@@ -409,6 +410,21 @@ Key encoding settings (defined in the `vulcanus-handbrake-preset` custom preset)
 `MAX_CONCURRENT_TRANSCODES: 1` limits to one transcode at a time — AV1 at preset 4 saturates whatever it is given, and this runs on `piraeus-worker-1`, the smaller of the two workers, alongside everything else scheduled there.
 
 `MAINFEATURE: false` means all tracks above the minimum length are transcoded, not just the longest. This is necessary for TV show discs where multiple episodes need to be extracted.
+
+### Titles that repeat other titles
+
+A disc often offers the same material twice: a TV disc's "play all" title is every episode end to end, a bonus disc plays its featurettes in turn or as one documentary, and a film can be offered again with featurettes cut into it. Encoding both copies costs hours, and a movie disc's longest title, named as the film, is then often the play-all. So before encoding, the titles are compared by what they play from the disc — a Blu-ray playlist's clips and times, a DVD title's cells in the ISO — and a title is not transcoded when the titles kept play at least 99% of it. Length alone decides nothing.
+
+A **whole** is a title played by two or more others, its **parts**, each inside it and none overlapping another. Which of the two is kept:
+
+- **A series keeps the parts**: each episode is an item of its own in the library, and the play-all is skipped.
+- **A movie disc keeps the whole** when its parts follow one another with a chapter at each join, and skips the parts. A documentary in parts stays one uninterrupted file, and its encode has a keyframe at each chapter, so a part can be cut from it later without re-encoding.
+- **Parts that interleave are kept apart**, and the whole is skipped. That is the shape of a film with featurettes cut in, such as *X-Men: First Class*'s "X Marks the Spot" mode, which is not the film. On a movie disc the notification names the title skipped, because an extended cut whose added scenes the disc also offers as a deleted-scenes title has the same shape and would be transcoded by hand from the raw copy.
+- **Anything else is transcoded**: a whole holding pieces too short to be titles of their own (a featurette play-all with an unlisted interstitial), a film assembled from clips the disc also offers singly, alternate cuts that overlap.
+
+If a skipped title was the main feature, the longest title kept becomes it. A disc whose structure can't be read has every title transcoded, with a warning in the job log. Nothing is skipped from the raw copy, only from the transcodes.
+
+The stamp's `duplicates` records the outcome, once HandBrake's scan has run: `skipped` lists each title not transcoded (`title`, HandBrake's number; `playlist` for a Blu-ray or `disc_title` for a DVD; and `reason`), and `wholes` each whole found, with `kept` (`parts`, `whole` or `both`), `interleaved`, and its `parts`, each with `start`, the second of the whole at which it begins. That is what cuts a kept whole into its parts, or rejoins a series disc's episodes, when a disc turns out misidentified — a series filed as a movie keeps one long file and the joins to split it at. Both lists are empty when nothing repeats. A stamp without `duplicates` comes from a job before it, or one whose structure couldn't be read.
 
 ## ATA Link Stability
 

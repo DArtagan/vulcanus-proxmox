@@ -36,10 +36,11 @@ INIT_SCRIPTS = (
 RIPPER = "/opt/arm/arm/ripper"
 ARM_LOG = "/home/arm/logs/arm.log"
 WHOLE_DISC_PY = "/usr/local/bin/arm-whole-disc.py"
+DUPLICATE_TITLES_PY = "/usr/local/bin/arm-duplicate-titles.py"
 
 SECTOR = 2048
 PACKET = 192
-APPLIED_EDITS = 5
+APPLIED_EDITS = 8
 
 
 def load_configmap(key: str) -> str:
@@ -73,6 +74,8 @@ class Patcher:
         self.log = self.root / "arm.log"
         self.whole_disc = self.root / "arm-whole-disc.py"
         self.whole_disc.write_text(load_configmap("arm-whole-disc.py"))
+        self.duplicate_titles = self.root / "arm-duplicate-titles.py"
+        self.duplicate_titles.write_text(load_configmap("arm-duplicate-titles.py"))
         ns = patcher_namespace()
         self.edits = [
             (name, Path(path.replace(RIPPER, str(self.ripper))), old)
@@ -87,6 +90,7 @@ class Patcher:
             (RIPPER, self.ripper),
             (ARM_LOG, self.log),
             (WHOLE_DISC_PY, self.whole_disc),
+            (DUPLICATE_TITLES_PY, self.duplicate_titles),
         ):
             if original not in script:
                 message = (
@@ -133,8 +137,13 @@ class Patching(unittest.TestCase):
         self.p.run()
         order = [line.split("applied ", 1)[1].split()[0] for line in self.p.log_lines()]
         self.assertLess(order.index("whole-disc-code"), order.index("whole-disc-route"))
+        self.assertLess(
+            order.index("duplicate-titles-code"), order.index("duplicate-titles-scan")
+        )
         makemkv = (self.p.ripper / "makemkv.py").read_text()
         self.assertIn("def _arm_backup_dvd(job, rawpath):", makemkv)
+        handbrake = (self.p.ripper / "handbrake.py").read_text()
+        self.assertIn("def _arm_duplicate_titles(srcpath, job):", handbrake)
 
     def test_a_restart_applies_nothing_again(self) -> None:
         # The container keeps its patched files across a restart.
