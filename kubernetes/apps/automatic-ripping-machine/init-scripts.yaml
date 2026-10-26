@@ -438,6 +438,22 @@ data:
             '    logging.debug(f"Total number of tracks is {job.no_of_titles}")\n',
         ),
         (
+            # A movie's main feature keeps its title_N name instead of taking the
+            # film's. The rename erased the one title number that ties the film's
+            # transcode to the disc, and it named whatever ARM guessed: a bonus
+            # disc's longest featurette, a film's in-film extras mode. Where it
+            # lands, above extras/, still records the guess. Both routes that
+            # pick a main feature, HandBrake's flag and skip_transcode_movie's
+            # largest file, come through here.
+            "keep-main-feature-name",
+            f"{RIPPER}/utils.py",
+            '    if is_main_feature:\n'
+            '        movie_file = os.path.join(movie_path, video_title + "." + job.config.DEST_EXT)\n',
+            '    if is_main_feature:\n'
+            '        # _arm_source_patch keep-main-feature-name: the film is identified downstream\n'
+            '        movie_file = os.path.join(movie_path, filename)\n',
+        ),
+        (
             "duplicate-titles-skip",
             f"{RIPPER}/handbrake.py",
             '            continue\n'

@@ -352,11 +352,11 @@ Once ARM detects a disc and identifies it (via the manual identification gate or
 The disc stays in the drive, locked, until the whole job is complete, transcode
 included, and is ejected once at the end. An open tray is therefore the signal
 that a disc is finished. That, HandBrake encoding each title once and skipping
-the titles others already play, and the whole DVD as its raw copy come from edits
-to ARM's own source. `arm-source-patches.py` (`init-scripts.yaml`) applies them at
+the titles others already play, a movie's main feature keeping its `title_N`
+name, and the whole DVD as its raw copy come from edits to ARM's own source. `arm-source-patches.py` (`init-scripts.yaml`) applies them at
 container start. Each edit is skipped, and logged as `source-patches: cannot
 apply` in `arm.log`, if an ARM update moves the text it replaces. After an image
-bump, check that log for eight `applied` lines.
+bump, check that log for nine `applied` lines.
 
 ### Data flow
 
@@ -381,7 +381,9 @@ Every video disc is backed up whole and decrypted, so its menus, DVD games, bonu
 
 The raw folder is named from the job's title when the rip starts, with the job's `stage` timestamp appended if that name is taken. A title corrected afterwards renames the completed folder and not the raw one, and ARM's database never records the raw path. So each raw folder carries **`arm-job.json`**, written as the folder is created, which names the job that made it: `job_id` (ARM's job table and web UI), `label`, `disctype`, `crc_id` (a DVD's; null for a Blu-ray), `stage` and `start_time` (UTC), under `"schema": 1`. Join on `job_id`, never on the folder's name.
 
-For a DVD the stamp's `titles` also maps each extracted title through its three numberings, written once extraction ends: `disc_title`, the DVD's own title number, which finds the title in the ISO (`HandBrakeCLI -i <iso> -t <disc_title>`); `mkv`, its file in `titles/`; `length` in seconds; and `handbrake_title`, the number HandBrake gives it and so its transcode's `title_N.mkv`, null if MakeMKV listed the title but didn't save it. The `_tNN` in an MKV's name is neither of the others: MakeMKV counts only the titles it kept, and HandBrake numbers the files in byte order of their names. In `completed/` a series keeps `title_N.mkv`; a movie's main feature becomes `<Title (Year)>.mkv`, and its other titles keep `title_N.mkv` under `extras/`. `titles` is null for a Blu-ray, whose transcodes are made from `BDMV/` directly, and until a DVD's extraction has finished. Folders older than the stamp have none, and for those ARM's job log is the only record, for its 90-day life (`Processing files to:` from `makemkv.makemkv`).
+For a DVD the stamp's `titles` also maps each extracted title through its three numberings, written once extraction ends: `disc_title`, the DVD's own title number, which finds the title in the ISO (`HandBrakeCLI -i <iso> -t <disc_title>`); `mkv`, its file in `titles/`; `length` in seconds; and `handbrake_title`, the number HandBrake gives it and so its transcode's `title_N.mkv`, null if MakeMKV listed the title but didn't save it. The `_tNN` in an MKV's name is neither of the others: MakeMKV counts only the titles it kept, and HandBrake numbers the files in byte order of their names. `titles` is null for a Blu-ray, whose transcodes are made from `BDMV/` directly, and until a DVD's extraction has finished. Folders older than the stamp have none, and for those ARM's job log is the only record, for its 90-day life (`Processing files to:` from `makemkv.makemkv`).
+
+In `completed/` every transcode keeps its `title_N.mkv`, flat for a series; for a movie the title ARM takes for the main feature sits in `<Title (Year)>/`, the rest under `extras/`. That placement is ARM's guess, from HandBrake's main-feature flag or the largest file, and is often wrong on a bonus disc; what the film is gets decided downstream. Upstream ARM renames the main feature `<Title (Year)>.mkv`, which loses its title number; folders from jobs up to 83 have that shape.
 
 These raw copies are the **archival copy**. `DELRAWFILES: false` ensures they are never deleted after transcoding. When a backup ends, it is checked against the disc's own record of its size, and the stamp's `complete` says the result:
 
@@ -413,7 +415,7 @@ Key encoding settings (defined in the `vulcanus-handbrake-preset` custom preset)
 
 ### Titles that repeat other titles
 
-A disc often offers the same material twice: a TV disc's "play all" title is every episode end to end, a bonus disc plays its featurettes in turn or as one documentary, and a film can be offered again with featurettes cut into it. Encoding both copies costs hours, and a movie disc's longest title, named as the film, is then often the play-all. So before encoding, the titles are compared by what they play from the disc — a Blu-ray playlist's clips and times, a DVD title's cells in the ISO — and a title is not transcoded when the titles kept play at least 99% of it. Length alone decides nothing.
+A disc often offers the same material twice: a TV disc's "play all" title is every episode end to end, a bonus disc plays its featurettes in turn or as one documentary, and a film can be offered again with featurettes cut into it. Encoding both copies costs hours, and on a movie disc the play-all is often the longest title, so the one ARM takes for the film. So before encoding, the titles are compared by what they play from the disc — a Blu-ray playlist's clips and times, a DVD title's cells in the ISO — and a title is not transcoded when the titles kept play at least 99% of it. Length alone decides nothing.
 
 A **whole** is a title played by two or more others, its **parts**, each inside it and none overlapping another. Which of the two is kept:
 
@@ -422,7 +424,7 @@ A **whole** is a title played by two or more others, its **parts**, each inside 
 - **Parts that interleave are kept apart**, and the whole is skipped. That is the shape of a film with featurettes cut in, such as *X-Men: First Class*'s "X Marks the Spot" mode, which is not the film. On a movie disc the notification names the title skipped, because an extended cut whose added scenes the disc also offers as a deleted-scenes title has the same shape and would be transcoded by hand from the raw copy.
 - **Anything else is transcoded**: a whole holding pieces too short to be titles of their own (a featurette play-all with an unlisted interstitial), a film assembled from clips the disc also offers singly, alternate cuts that overlap.
 
-If a skipped title was the main feature, the longest title kept becomes it. A disc whose structure can't be read has every title transcoded, with a warning in the job log. Nothing is skipped from the raw copy, only from the transcodes.
+If a skipped title was the main feature, the longest title kept becomes it, which decides only which transcode sits outside `extras/`. A disc whose structure can't be read has every title transcoded, with a warning in the job log. Nothing is skipped from the raw copy, only from the transcodes.
 
 The stamp's `duplicates` records the outcome, once HandBrake's scan has run: `skipped` lists each title not transcoded (`title`, HandBrake's number; `playlist` for a Blu-ray or `disc_title` for a DVD; and `reason`), and `wholes` each whole found, with `kept` (`parts`, `whole` or `both`), `interleaved`, and its `parts`, each with `start`, the second of the whole at which it begins. That is what cuts a kept whole into its parts, or rejoins a series disc's episodes, when a disc turns out misidentified — a series filed as a movie keeps one long file and the joins to split it at. Both lists are empty when nothing repeats. A stamp without `duplicates` comes from a job before it, or one whose structure couldn't be read.
 

@@ -3443,3 +3443,38 @@ with every title, the 157-minute play-all (title 7) included.
 The fixed code, run read-only on job 82's backup with ARM's own `cfg`, skips
 title 7 (`00006.mpls`) as the play-all of titles 2, 3 and 4, at 0, 2859.8 and
 5658.6 s, and keeps the two extras (titles 5 and 6, 13 and 10 min).
+
+**Job 83, the fix on the disc.** `c78322b0` deployed as `b05a4488`. Job 82 was
+on its third title. The pod was deleted at 03:15 UTC rather than restarted,
+which killed job 82 (`Received SIGTERM`, D2 ejected), and the new pod logged
+eight `applied` lines. The tray was closed from vulcanus. Job 83: backup
+03:26–06:58 UTC, checked complete, then
+
+```
+handbrake._arm_duplicate_titles: Title 7 is not transcoded: it plays titles 2, 3, 4 in turn
+```
+
+The stamp's `duplicates` holds `00006.mpls` as skipped, `kept: parts`, and
+the parts starting at 0, 2859.79 and 5658.62 s, as the read-only run on job
+82's backup predicted. The main feature moved from title 7 to title 4 (3761
+s). Job 82's two partial transcodes are left in
+`transcode/tv/Downton-Abbey (2010-2015)_179295226579/`.
+
+### 2026-10-26 — the main feature keeps its title_N name
+
+Asked by Will whether to stop ARM relabelling the longest title. `utils.move_files`
+moves the track flagged as main feature to `<Title (Year)>/<Title (Year)>.mkv`,
+others keeping `title_N.mkv` under `extras/`. Both routes to a main feature,
+HandBrake's flag and `skip_transcode_movie`'s largest file, pass through it.
+The rename leaves no record of which HandBrake title the film was outside
+ARM's database: a Blu-ray stamp has no title map, the transcode's tags name
+only the disc, and the job log goes after 90 days. Nothing reads the name:
+Plex never sees `completed/`, and reelbarrow decides the film from TMDB's
+runtime and fingerprints. Its examples (*Robin Hood*'s bonus disc) are the
+rename being wrong.
+
+**Decided** (Will, 2026-10-26): disable the rename, keep the folder naming, and
+update reelbarrow's specs. Built as the `keep-main-feature-name` edit. Applied
+to a copy of the running image's `utils.py` and called on scratch files, the
+main feature lands as `Robin-Hood (2010)/title_1.mkv` and the other title as
+`Robin-Hood (2010)/extras/title_2.mkv`.
