@@ -345,16 +345,15 @@ somewhere durable.
   to Opus. Nothing is lost — the raw backup keeps it — but the intent recorded was
   passthrough. Will's call which is wanted; the docs describe the re-encode, and
   change with the preset if passthrough is chosen.
-- **Titles that repeat other titles: built 2026-10-24, not yet deployed.** The
+- **Titles that repeat other titles: verified 2026-10-26, job 83.** The
   rule and its outcomes are in the docs (*Titles that repeat other titles*), the
   survey behind it in the evidence (2026-10-24). Decided (Will, 2026-10-24):
   apply it to every disc, not TV alone, since the series/movie label is OMDb's
   guess and movie discs fare worse today; a series keeps its parts, a movie
   disc keeps a sequential whole; an in-film extras mode like *X-Men: First
   Class*'s is not the film and is left out, where an extended edition would be
-  the film. To verify on a disc: re-rip Downton Abbey D1 (job 80, which
-  transcoded its 207-minute play-all) and expect `00006.mpls` skipped, four
-  episodes, and the stamp's `duplicates`. Open: on a movie disc, a title playing
+  the film. Job 83, Downton Abbey D2, skipped its 157-minute play-all and
+  recorded it in the stamp. Still unrun on a DVD or a movie disc. Open: on a movie disc, a title playing
   the film and then a featurette, with a chapter at the join, would be kept
   whole and named as the film. No disc ripped here has that shape.
 - **The transcode preset has never been reviewed** against a finished file: SVT-AV1
