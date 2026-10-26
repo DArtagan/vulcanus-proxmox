@@ -357,11 +357,21 @@ somewhere durable.
   movie disc, a title playing the film and then a featurette, with a chapter at
   the join, would be kept whole and taken for the film. No disc ripped here has
   that shape.
-- **The main feature keeps its `title_N` name: built 2026-10-26, not yet
-  deployed.** Decided (Will, 2026-10-26): ARM's rename to `<Title (Year)>.mkv`
+- **The main feature keeps its `title_N` name: deployed 2026-10-26, no job
+  has run with it yet.** Decided (Will, 2026-10-26): ARM's rename to `<Title (Year)>.mkv`
   is disabled, the folder naming kept. The rename erased the film's title
   number, and reelbarrow identifies the film itself. To verify: the *Robin
   Hood* bonus DVD should leave `title_N.mkv` at the top of its folder.
+- **A skipped title's track row reads `ripped`.** ARM sets `ripped` at
+  registration for any title over `MINLENGTH`, so job 83's skipped play-all
+  has `ripped = 1` and no `filename`, and a manifest exports that. Documented
+  as is on both sides (Will, 2026-10-26: note it, don't fix it yet); readers
+  take a transcode as `filename` set. Potential fix: `_arm_duplicate_titles`
+  sets `ripped = False` on each title it skips. Nothing in ARM's move reads
+  it otherwise: an empty `filename` is already passed over.
+- **The stamp is a contract with reelbarrow.** Its evolution rule is in the
+  docs (*Stage 1*). reelbarrow keeps real stamps as test fixtures (jobs 76, 77,
+  78, 80, 82, 83), so a change to the stamp should come with a fixture there.
 - **The transcode preset has never been reviewed** against a finished file: SVT-AV1
   10-bit, CRF 30, preset 4, Opus audio. Finished files now exist.
 - **`LOGLEVEL: DEBUG`** was kept through phase 3 for detail when a rip failed, to be
