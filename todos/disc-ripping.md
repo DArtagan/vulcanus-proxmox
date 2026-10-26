@@ -374,8 +374,8 @@ somewhere durable.
   82, 83), so a change to the stamp should come with a fixture there. Fields
   renamed 2026-10-26 (Will), schema left at 1 because nothing had read it:
   `titles` became `extracted`, and every HandBrake number `handbrake_title`.
-  The seven stamps on the share are rewritten once the code that writes the
-  new names is running.
+  The seven stamps on the share were rewritten once that code ran, and match
+  reelbarrow's fixtures byte for byte.
 - **The transcode preset has never been reviewed** against a finished file: SVT-AV1
   10-bit, CRF 30, preset 4, Opus audio. Finished files now exist.
 - **`LOGLEVEL: DEBUG`** was kept through phase 3 for detail when a rip failed, to be
