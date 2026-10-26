@@ -3478,3 +3478,9 @@ update reelbarrow's specs. Built as the `keep-main-feature-name` edit. Applied
 to a copy of the running image's `utils.py` and called on scratch files, the
 main feature lands as `Robin-Hood (2010)/title_1.mkv` and the other title as
 `Robin-Hood (2010)/extras/title_2.mkv`.
+
+Job 83 ended `success` at 16:51 UTC: three episodes (47.7, 46.6 and 62.7 min)
+and two extras (13.2, 9.7 min) in `completed/`, no play-all. `30e0245f`
+deployed as `4d4aa9ed`, and the pod was deleted once job 83 had ended with no
+other job active. The new pod logged nine `applied` lines and none `cannot
+apply`, and `utils.py` carries `keep-main-feature-name`.
