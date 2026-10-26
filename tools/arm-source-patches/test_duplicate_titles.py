@@ -392,7 +392,7 @@ class Reading(unittest.TestCase):
         (self.raw / "arm-job.json").write_text(
             json.dumps(
                 {
-                    "titles": [
+                    "extracted": [
                         {"disc_title": 1, "handbrake_title": 1},
                         {"disc_title": 4, "handbrake_title": 2},
                         {"disc_title": 5, "handbrake_title": None},
@@ -440,7 +440,7 @@ class Reading(unittest.TestCase):
 
     def test_a_dvd_without_a_title_map_is_refused(self) -> None:
         (self.raw / "disc.iso").write_bytes(b"")
-        (self.raw / "arm-job.json").write_text(json.dumps({"titles": None}))
+        (self.raw / "arm-job.json").write_text(json.dumps({"extracted": None}))
         with self.assertRaises(ValueError):
             self.ns["_arm_dvd_titles"](str(self.raw), {1: None})
 
@@ -463,7 +463,7 @@ class EndToEnd(unittest.TestCase):
         ]
         (folder / "00006.mpls").write_bytes(mpls(clips, [(1, i, 0) for i in range(4)]))
         (self.raw / "arm-job.json").write_text(
-            json.dumps({"job_id": 80, "titles": None}) + "\n"
+            json.dumps({"job_id": 80, "extracted": None}) + "\n"
         )
         self.fake = FakeSubprocess()
         self.fake.outputs["HandBrakeCLI"] = handbrake_scan(
@@ -501,7 +501,7 @@ class EndToEnd(unittest.TestCase):
         skip = self.ns["_arm_duplicate_titles"](str(self.raw), self.job())
         self.assertEqual(list(skip), [6])
         duplicates = self.stamp()["duplicates"]
-        self.assertEqual(duplicates["skipped"][0]["title"], 6)
+        self.assertEqual(duplicates["skipped"][0]["handbrake_title"], 6)
         self.assertEqual(duplicates["skipped"][0]["playlist"], "00006.mpls")
         whole = duplicates["wholes"][0]
         self.assertEqual((whole["kept"], whole["interleaved"]), ("parts", False))
@@ -516,7 +516,8 @@ class EndToEnd(unittest.TestCase):
         self.ns["_arm_duplicate_titles"](str(self.raw), self.job())
         self.assertNotIn("00007", "".join(map(str, self.fake.commands)))
         compared = {
-            t["title"] for t in self.stamp()["duplicates"]["wholes"][0]["parts"]
+            t["handbrake_title"]
+            for t in self.stamp()["duplicates"]["wholes"][0]["parts"]
         }
         self.assertNotIn(7, compared)
 

@@ -370,8 +370,12 @@ somewhere durable.
   sets `ripped = False` on each title it skips. Nothing in ARM's move reads
   it otherwise: an empty `filename` is already passed over.
 - **The stamp is a contract with reelbarrow.** Its evolution rule is in the
-  docs (*Stage 1*). reelbarrow keeps real stamps as test fixtures (jobs 76, 77,
-  78, 80, 82, 83), so a change to the stamp should come with a fixture there.
+  docs (*Stage 1*). reelbarrow keeps real stamps as test fixtures (jobs 76–80,
+  82, 83), so a change to the stamp should come with a fixture there. Fields
+  renamed 2026-10-26 (Will), schema left at 1 because nothing had read it:
+  `titles` became `extracted`, and every HandBrake number `handbrake_title`.
+  The seven stamps on the share are rewritten once the code that writes the
+  new names is running.
 - **The transcode preset has never been reviewed** against a finished file: SVT-AV1
   10-bit, CRF 30, preset 4, Opus audio. Finished files now exist.
 - **`LOGLEVEL: DEBUG`** was kept through phase 3 for detail when a rip failed, to be

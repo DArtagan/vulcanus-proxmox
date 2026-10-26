@@ -378,7 +378,7 @@ class Stamp(Base):
                 "start_time": "2026-10-21T13:19:30+00:00",
                 "complete": None,
                 "problems": [],
-                "titles": None,
+                "extracted": None,
             },
         )
 
@@ -597,7 +597,7 @@ class Dvd(Base):
         # its title 2, whatever MakeMKV's own numbering.
         self.backup_dvd()
         self.assertEqual(
-            self.stamp()["titles"],
+            self.stamp()["extracted"],
             [
                 {
                     "disc_title": 1,
@@ -622,14 +622,14 @@ class Dvd(Base):
         ]
         self.fake.titles_saved = ["b_t00.mkv", "C_t01.mkv"]
         self.backup_dvd()
-        numbers = {t["mkv"]: t["handbrake_title"] for t in self.stamp()["titles"]}
+        numbers = {t["mkv"]: t["handbrake_title"] for t in self.stamp()["extracted"]}
         self.assertEqual(numbers, {"C_t01.mkv": 1, "b_t00.mkv": 2})
 
     def test_a_title_listed_but_not_saved_has_no_handbrake_number(self) -> None:
         # The ones after it move up, because HandBrake counts what is there.
         self.fake.titles_saved = ["B1_t00.mkv"]
         self.backup_dvd()
-        numbers = {t["mkv"]: t["handbrake_title"] for t in self.stamp()["titles"]}
+        numbers = {t["mkv"]: t["handbrake_title"] for t in self.stamp()["extracted"]}
         self.assertEqual(numbers, {"B1_t00.mkv": 1, "A2_t01.mkv": None})
 
     def test_the_stamp_has_no_titles_until_they_are_extracted(self) -> None:
@@ -638,7 +638,7 @@ class Dvd(Base):
         )
         with self.assertRaises(RipperError):
             self.backup_dvd()
-        self.assertIsNone(self.stamp()["titles"])
+        self.assertIsNone(self.stamp()["extracted"])
 
 
 if __name__ == "__main__":
