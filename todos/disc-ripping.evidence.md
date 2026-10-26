@@ -3410,3 +3410,36 @@ title(s)"); both are D16's partial backups.
 **Seen, not acted on.** *Now You See Me*'s 212 near-identical playlists are
 alternate cuts to the rule and all transcoded; it is on the re-rip list. A
 bonus disc's longest kept title is still named as the film.
+
+### 2026-10-25 — job 82, Downton Abbey D2: the first real run, and a type bug
+
+Deployed as `89dface9`. The pod logged eight `source-patches: applied` lines.
+
+**Job 81 was killed by the deploy, not the disc.** A `kubectl rollout restart`
+at 18:01 UTC, made on top of Flux's own rollout, left a `restartedAt`
+annotation on the Deployment. Flux's next reconcile, 10 minutes later, removed
+it, which rolled the pod again and sent SIGTERM to job 81 in its manual wait.
+To pick up a change to `init-scripts.yaml` without that, delete the pod
+(`kubectl delete pod`): the ReplicaSet recreates it from the same template, and
+Flux has nothing to revert.
+
+Job 82, the same disc with the tray closed from vulcanus at Will's direction:
+backup 18:28–21:59 UTC, checked complete, nine HandBrake titles. Then:
+
+```
+WARNING: handbrake._arm_duplicate_titles: Transcoding every title, as the disc's
+structure cannot be read: TypeError('expected str, bytes or os.PathLike object, not int')
+```
+
+`cfg.arm_config["MINLENGTH"]` is the int `420` in ARM's loaded config, and was
+passed into HandBrake's argument list as it stood. The tests' fake config and
+the corpus harness both held the string `"420"`, so neither could see it, and
+the fake `subprocess` accepted any argument. Both now match the real ones: the
+config is typed as ARM loads it, and the fake raises the real `TypeError`. Six
+tests failed on that before the fix, the end-to-end Downton tests among them,
+in the same way the job did. The fallback behaved as designed: the job went on
+with every title, the 157-minute play-all (title 7) included.
+
+The fixed code, run read-only on job 82's backup with ARM's own `cfg`, skips
+title 7 (`00006.mpls`) as the play-all of titles 2, 3 and 4, at 0, 2859.8 and
+5658.6 s, and keeps the two extras (titles 5 and 6, 13 and 10 min).

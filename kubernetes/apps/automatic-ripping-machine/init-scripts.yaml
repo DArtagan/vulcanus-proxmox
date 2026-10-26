@@ -906,7 +906,7 @@ data:
         scan = subprocess.run(
             [
                 cfg.arm_config["HANDBRAKE_LOCAL"], "--json", "-i", srcpath, "-t", "0", "--scan",
-                "--min-duration", cfg.arm_config["MINLENGTH"],
+                "--min-duration", str(cfg.arm_config["MINLENGTH"]),
             ],
             capture_output=True,
             text=True,

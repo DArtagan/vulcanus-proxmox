@@ -14,6 +14,7 @@ it.
 
 import json
 import logging
+import os
 import struct
 import subprocess
 import tempfile
@@ -49,6 +50,12 @@ class FakeSubprocess:
         self.lsdvd_tracks: list[dict] = []
 
     def run(self, cmd: list[str], **_: object) -> types.SimpleNamespace:
+        # As the real one does, before running anything.
+        for arg in cmd:
+            if not isinstance(arg, str | bytes | os.PathLike):
+                kind = type(arg).__name__
+                message = f"expected str, bytes or os.PathLike object, not {kind}"
+                raise TypeError(message)
         self.commands.append(list(cmd))
         if cmd[0] == "lsdvd":
             tracks = [
@@ -67,9 +74,10 @@ def load(fake: FakeSubprocess | None = None) -> dict:
         "logging": logging,
         "subprocess": fake or FakeSubprocess(),
         "cfg": types.SimpleNamespace(
+            # Typed as ARM's own config loads them from arm.yaml.
             arm_config={
-                "MINLENGTH": "420",
-                "MAXLENGTH": "99999",
+                "MINLENGTH": 420,
+                "MAXLENGTH": 99999,
                 "HANDBRAKE_LOCAL": "HandBrakeCLI",
             }
         ),
