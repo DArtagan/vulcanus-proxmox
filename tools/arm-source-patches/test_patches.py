@@ -40,7 +40,7 @@ DUPLICATE_TITLES_PY = "/usr/local/bin/arm-duplicate-titles.py"
 
 SECTOR = 2048
 PACKET = 192
-APPLIED_EDITS = 8
+APPLIED_EDITS = 9
 
 
 def load_configmap(key: str) -> str:

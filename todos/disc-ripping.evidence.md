@@ -3459,3 +3459,22 @@ the parts starting at 0, 2859.79 and 5658.62 s, as the read-only run on job
 82's backup predicted. The main feature moved from title 7 to title 4 (3761
 s). Job 82's two partial transcodes are left in
 `transcode/tv/Downton-Abbey (2010-2015)_179295226579/`.
+
+### 2026-10-26 — the main feature keeps its title_N name
+
+Asked by Will whether to stop ARM relabelling the longest title. `utils.move_files`
+moves the track flagged as main feature to `<Title (Year)>/<Title (Year)>.mkv`,
+others keeping `title_N.mkv` under `extras/`. Both routes to a main feature,
+HandBrake's flag and `skip_transcode_movie`'s largest file, pass through it.
+The rename leaves no record of which HandBrake title the film was outside
+ARM's database: a Blu-ray stamp has no title map, the transcode's tags name
+only the disc, and the job log goes after 90 days. Nothing reads the name:
+Plex never sees `completed/`, and reelbarrow decides the film from TMDB's
+runtime and fingerprints. Its examples (*Robin Hood*'s bonus disc) are the
+rename being wrong.
+
+**Decided** (Will, 2026-10-26): disable the rename, keep the folder naming, and
+update reelbarrow's specs. Built as the `keep-main-feature-name` edit. Applied
+to a copy of the running image's `utils.py` and called on scratch files, the
+main feature lands as `Robin-Hood (2010)/title_1.mkv` and the other title as
+`Robin-Hood (2010)/extras/title_2.mkv`.
