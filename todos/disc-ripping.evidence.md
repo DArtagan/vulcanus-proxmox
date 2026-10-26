@@ -3484,3 +3484,16 @@ and two extras (13.2, 9.7 min) in `completed/`, no play-all. `30e0245f`
 deployed as `4d4aa9ed`, and the pod was deleted once job 83 had ended with no
 other job active. The new pod logged nine `applied` lines and none `cannot
 apply`, and `utils.py` carries `keep-main-feature-name`.
+
+### 2026-10-26 — the stamp's fields renamed, schema left at 1
+
+`titles` became `extracted` (it lists the titles MakeMKV extracted, not the
+disc's), and every HandBrake number `handbrake_title`, where `duplicates` had
+a bare `title`. Will: since nothing had consumed the stamp and every copy is
+rewritten, keep `schema` at 1. `1a8b04ac` deployed as `76367fdd`; the pod was
+deleted with no job active and logged nine `applied` lines. Then
+`captures/stamps/rename-fields.py` rewrote all seven stamps on the share (jobs
+76–80, 82, 83; job 79's had been missed when listing them by folder name),
+and a second pass changed nothing. Each is byte-identical to reelbarrow's
+fixture. Originals are in `captures/stamps/original/`. ZFS snapshots from
+before the rewrite still hold the earlier shape.
