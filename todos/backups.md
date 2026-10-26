@@ -33,7 +33,7 @@ squashing.
 | 2 | Application backups — K8up + restic | done 2026-10-12 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13) |
 | 2b | Delete the borg tree | done 2026-10-13 — [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) |
 | 3 | Performance — drop the OpenEBS disks from vzdump | applied 2026-10-16, review closed; checks B-E outstanding, carried by the user |
-| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — first sync done 2026-10-21, first verify and the protection mirror passed 10-22; then the freshness fix deployed, freshness red, restores |
+| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — sync, verify, GC, mirror and freshness green proven by 10-25; freshness red under way to 10-27, then restores |
 | 4b | The primary into a NixOS container on vulcanus | designed 2026-10-17; after 4a |
 | 5 | The offline copy — external disk | not started; needs a ~$200 purchase |
 | 6 | Verification, notification, runbook | not started |
@@ -728,9 +728,9 @@ the first sync. The pool agrees: 590.4 GiB on 10-21, plus the 12.0 GiB the three
 daily syncs since pulled, less the 23.9 GiB, is 578.5.
 
 **Memory:** the container peaked at **423 MiB** across the whole sync, and at
-**247 MiB** across the boot that ran the GC, against its 2 GiB `MemoryMax`. The
-verify's peak is still to be read, from that boot after Sunday's 14:00 verify,
-before the limit is resized.
+**247 MiB** across a boot that ran two chains, the first GC and Sunday's 3 h 30 min
+verify. Its `MemoryMax` is **1 GiB** (mini-nas `3df478a`, 10-26), the user's choice
+of about 2.4× the larger, as the restic repository's container has over its own peak.
 
 **The first verify passed**, through the declared `weekly` job
 (`proxmox-backup-debug api create /admin/verify/weekly/run`): 2026-10-21 20:05:54 to
@@ -750,11 +750,11 @@ that finds no problem.
 
 ### Picking 4a up again
 
-**Deployed state, 2026-10-22.** mini-nas PR #6 merged (`d317ea2`), and mini-nas runs
-its `main` at `7108ea8`, deployed 20:17 UTC, pinning vulcanus-proxmox's `main` at
-`05354bd1`, which carries the freshness fix. Run by hand at 20:18 with `vm/100`
-unverified, re-synced at 12:00, the check passed; no unit failed on the host or in
-the container. A vulcanus-proxmox change to `nixos/` reaches PBS #2 by `wt deploy`
+**Deployed state, 2026-10-26.** mini-nas runs its `main` at `3df478a`, deployed
+03:17 UTC, pinning vulcanus-proxmox's `main` at `05354bd1`, which carries the
+freshness fix. vulcanus-proxmox's `6a77ea2d`, comments only, waits for the red test
+below: re-pinning restarts the container, which would restart the stopped timer.
+No unit failed on the host or in the container. A vulcanus-proxmox change to `nixos/` reaches PBS #2 by `wt deploy`
 (the user's), then `nix flake update vulcanus-proxmox` committed straight to
 mini-nas's `main`, as the user chose for a re-pin, and the deploy below from that
 checkout.
@@ -817,12 +817,17 @@ with `vm/100` unverified throughout, its manifest last written 10-22 12:00:50.
 
 **Then, in order:**
 
-1. **`pbs-offsite-freshness` red with a sync held back**, the direction still to
-   show. Stop `pbs-offsite-daily.timer` in the container — a runtime stop, which a
-   restart undoes — so Sunday's and Monday's 12:00 pulls are skipped. Monday's
-   scheduled 18:00 run then finds Sunday's 10:00 snapshots past 26 h and not copied,
-   and should fail through healthchecks to Pushover. Then start the timer and the
-   chain, and run the check by hand: green. The offsite copy lags ~2½ days meanwhile.
+1. **`pbs-offsite-freshness` red with a sync held back — under way.**
+   `pbs-offsite-daily.timer` was stopped in the container at 10-26 03:18 UTC, the
+   user choosing a real hold-back over a simulated one. It is a runtime stop: **any
+   container restart before the test ends, a deploy included, re-arms the timer and
+   spoils it.** Monday's and Tuesday's 12:00 pulls are skipped. Monday 18:00 should
+   still pass, Sunday's snapshots having been copied; **Tuesday 10-27 18:00 should
+   fail**, finding Monday's 10:00 snapshots past 26 h and not copied, and reach
+   Pushover through healthchecks. Then, in the container,
+   `systemctl start pbs-offsite-daily.timer`,
+   `systemctl start --no-block pbs-offsite-daily`, and once it has finished
+   `systemctl start pbs-offsite-freshness`: green. Then re-pin for `6a77ea2d`.
 2. The two test restores, which touch both hypervisors.
 3. `rpool/data` narrows to `vm-107-disk-0`.
 4. `docs/backups.md`, `docs/nixos.md` and `docs/tailnet.md` for what 4a made true.
