@@ -519,7 +519,7 @@ data:
     _ARM_DISC_TITLE = 24
 
 
-    def _arm_write_stamp(job, rawpath, problems=None, titles=None):
+    def _arm_write_stamp(job, rawpath, problems=None, extracted=None):
         # ARM's database records a job's completed path and never its raw one, and
         # a title corrected later renames only the completed folder. The stamp
         # travels with the raw folder through any rename. `complete` stays null
@@ -536,7 +536,7 @@ data:
             if job.start_time else None,
             "complete": None if problems is None else not problems,
             "problems": problems or [],
-            "titles": titles,
+            "extracted": extracted,
         }
         path = os.path.join(rawpath, "arm-job.json")
         with open(f"{path}.tmp", "w") as f:
@@ -974,7 +974,7 @@ data:
         # of those titles' cells and chapters from the ISO. A cell's sectors count
         # within its title set, whose number only -v prints.
         with open(os.path.join(raw, "arm-job.json")) as f:
-            mapped = _arm_json.load(f).get("titles") or []
+            mapped = _arm_json.load(f).get("extracted") or []
         images = [name for name in os.listdir(raw) if name.endswith(".iso")]
         if not mapped or len(images) != 1:
             raise ValueError(f"{raw} has no title map, or not exactly one ISO")
@@ -1027,7 +1027,7 @@ data:
             return
 
         def entry(number):
-            return {"title": number, **titles[number]["source"]}
+            return {"handbrake_title": number, **titles[number]["source"]}
 
         stamp["duplicates"] = {
             "skipped": [{**entry(number), "reason": reason} for number, reason in sorted(skip.items())],
