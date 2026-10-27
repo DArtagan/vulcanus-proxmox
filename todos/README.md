@@ -101,6 +101,13 @@ This is a speed-up, not a defect. It waits on
 [smb-charset-utf8.md](smb-charset-utf8.md), because NFS shows the Latin-1 filenames
 Samba translates.
 
+**13. [mini-nas-access.md](mini-nas-access.md) — narrow what mini-nas can do on vulcanus**
+syncoid's key gives mini-nas a login shell with TCP forwarding, so it can reach
+all of `192.168.0.0/24` around the Headscale policy. It also has `hold,send` on
+all of `rpool`, a second, unused key sits beside it, and as a `will@` node it gets
+every `will@` grant. syncoid needs SSH and four trees. Placed last only because
+it is new; it is small, and mini-nas is about to start running AI agents.
+
 ## Waiting on evidence
 
 **[generic-device-plugin-memory.md](generic-device-plugin-memory.md) — is the plugin's degradation its memory limit?**
