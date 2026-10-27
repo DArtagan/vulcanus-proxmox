@@ -77,7 +77,7 @@ spec:
                   mountPath: /tools
           containers:
             - name: coverage
-              image: python:3.15.1-alpine # {"$imagepolicy": "infrastructure:backup-coverage-python"}
+              image: python:3.15.2-alpine # {"$imagepolicy": "infrastructure:backup-coverage-python"}
               command: [python3, /script/backup_coverage.py]
               env:
                 - name: PATH
