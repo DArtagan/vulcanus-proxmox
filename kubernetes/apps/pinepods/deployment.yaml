@@ -19,9 +19,7 @@ spec:
         k8up-dump: "true"
       annotations:
         k8up.io/backupcommand: >-
-          sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT;
-          pg_dump -U postgres -d "$POSTGRES_DB" -f "$f";
-          test -s "$f"; cat "$f"'
+          sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT; pg_dump -U postgres -d "$POSTGRES_DB" -f "$f"; test -s "$f"; cat "$f"'
         k8up.io/backupcommand-container: database
         # Every database container is called `database`, so the application's
         # name keeps the dumps' restic paths apart. See docs/backups.md.
@@ -105,7 +103,7 @@ spec:
             - mountPath: /var/lib/pgdata
               name: database
         - name: valkey
-          image: valkey/valkey:8.1.10-alpine # {"$imagepolicy": "apps:pinepods-valkey"}
+          image: valkey/valkey:8.1.11-alpine # {"$imagepolicy": "apps:pinepods-valkey"}
           ports:
             - containerPort: 6379
           resources:
