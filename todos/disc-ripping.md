@@ -324,7 +324,7 @@ number for it, which names its transcode. Nothing else keeps that chain once
 the transcode's tags name only the disc, and the job log goes after 90 days.
 Job 76 shows why `_tNN` isn't the disc's number: `t01` is DVD title 4. Deployed
 2026-10-22 (`35dfcd4e`): job 77 wrote its own, and job 76's was filled in from its
-log and matches it. The field is `extracted`.
+log and matches it. The field is `title_map`, without lengths (below).
 
 **Backfill for existing jobs** is possible, from what ARM still holds:
 
@@ -343,6 +343,18 @@ log and matches it. The field is `extracted`.
 Logs age out 90 days after their job, so job 15's goes around 2026-11-30, and the
 rest follow week by week. Run the backfill before then, or keep the mapping
 somewhere durable.
+
+**The backfill is limited to folders holding the whole disc** (Will, 2026-10-28):
+a `BDMV/` or an image, which no DVD job before the stamp left, so Blu-ray jobs
+alone. `tools/arm-stamps/stamps.py` does it and the rewrite of every stamp to the
+current form in one pass. Its dry run on 2026-10-28: ten rewrites (jobs 76–80,
+82–86) and five backfills, jobs 23, 25 and 27 by their own logs and 7 and 8 by
+their `_<stage>` suffixes. Every copy passed the size check. `complete` is left
+out unless that check fails, because the backup's hash check can't be rerun, and
+a stamp carries no mark of being backfilled (both Will, 2026-10-28). Job 2's row
+names job 61's log, which the tool rejects by its first line's time. **To do:**
+run it with `--write` once the code below is deployed, and again after any job
+that ran on the old code in between.
 
 ## Other open items
 
@@ -386,14 +398,22 @@ somewhere durable.
   renamed 2026-10-26 (Will), schema left at 1 because nothing had read it:
   `titles` became `extracted`, and every HandBrake number `handbrake_title`.
   The seven stamps on the share were rewritten once that code ran, and match
-  reelbarrow's fixtures byte for byte.
-- **A Blu-ray stamp has no title map: parked (Will, 2026-10-26).** A Blu-ray's
-  `title_N` ↔ playlist link is unrecorded but not lost: re-scanning `BDMV/`
-  reproduces it while HandBrake's version holds, reelbarrow pairs by fingerprint
-  regardless, and `duplicates` already names the playlists that matter most.
-  The playlist name itself never changes. Build it when reelbarrow's planner
-  finds fingerprint pairing ambiguous on a Blu-ray: the duplicate check already
-  reads every long title's playlist, so it is a few lines and a new field.
+  reelbarrow's fixtures byte for byte. Changed again 2026-10-28, still at schema
+  1 because reelbarrow's reader isn't deployed yet (Will: *"We've been
+  essentially in prolonged iterative feature development, before release"*):
+  `extracted` and a Blu-ray's `playlists` became one `title_map`, each entry's
+  identifiers in the order the title passes through them, and `length` went,
+  since nothing reads it.
+- **A Blu-ray stamp's title map: built (Will, 2026-10-28).** Parked until
+  reelbarrow found fingerprint pairing ambiguous on a Blu-ray, and job 79 did:
+  four of its featurettes come in variants 1–3 s apart that share 99–100% of
+  their clips, so their audio can't tell them apart, and nearest length paired
+  `title_76` with `01235.mpls` where the job log shows `01227.mpls`. A
+  Blu-ray's `title_map` now records each playlist against its `handbrake_title`,
+  from the scan the duplicate check runs, on every Blu-ray, and older jobs' maps
+  come from their own logs (the backfill above). **To verify:** the next Blu-ray
+  job's `title_map` matches the `+ playlist:` line beside each `Transcoding title
+  N` in its job log.
 - **The transcode preset has never been reviewed** against a finished file: SVT-AV1
   10-bit, CRF 30, preset 4, Opus audio. Finished files now exist.
 - **`LOGLEVEL: DEBUG`** was kept through phase 3 for detail when a rip failed, to be

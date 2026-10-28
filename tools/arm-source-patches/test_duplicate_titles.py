@@ -393,7 +393,7 @@ class Reading(unittest.TestCase):
         (self.raw / "arm-job.json").write_text(
             json.dumps(
                 {
-                    "extracted": [
+                    "title_map": [
                         {"disc_title": 1, "handbrake_title": 1},
                         {"disc_title": 4, "handbrake_title": 2},
                         {"disc_title": 5, "handbrake_title": None},
@@ -461,7 +461,7 @@ class Reading(unittest.TestCase):
 
     def test_a_dvd_without_a_title_map_is_refused(self) -> None:
         (self.raw / "disc.iso").write_bytes(b"")
-        (self.raw / "arm-job.json").write_text(json.dumps({"extracted": None}))
+        (self.raw / "arm-job.json").write_text(json.dumps({"title_map": None}))
         with self.assertRaises(ValueError):
             self.ns["_arm_dvd_titles"](str(self.raw), {1: None})
 
@@ -484,7 +484,7 @@ class EndToEnd(unittest.TestCase):
         ]
         (folder / "00006.mpls").write_bytes(mpls(clips, [(1, i, 0) for i in range(4)]))
         (self.raw / "arm-job.json").write_text(
-            json.dumps({"job_id": 80, "extracted": None}) + "\n"
+            json.dumps({"job_id": 80, "title_map": None}) + "\n"
         )
         self.fake = FakeSubprocess()
         self.fake.outputs["HandBrakeCLI"] = handbrake_scan(
@@ -529,6 +529,17 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual([p["start"] for p in whole["parts"]], [0, 3944, 6802, 9656])
         self.assertEqual(self.stamp()["job_id"], 80)
 
+    def test_a_blu_rays_title_map_is_recorded(self) -> None:
+        # Every title HandBrake was given, skipped or not; title 7 is too short.
+        self.ns["_arm_duplicate_titles"](str(self.raw), self.job())
+        self.assertEqual(
+            self.stamp()["title_map"],
+            [
+                {"playlist": f"0000{p}.mpls", "handbrake_title": n}
+                for n, p in ((2, 1), (3, 2), (4, 3), (5, 4), (PLAY_ALL, 6))
+            ],
+        )
+
     def test_the_main_feature_moves_to_the_longest_title_kept(self) -> None:
         self.ns["_arm_duplicate_titles"](str(self.raw), self.job())
         self.assertEqual([t.track_number for t in self.tracks if t.main_feature], ["2"])
@@ -551,12 +562,16 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual([t.track_number for t in self.tracks if t.main_feature], ["6"])
 
     def test_too_few_titles_records_that_none_were_skipped(self) -> None:
+        # Nothing to compare, but a Blu-ray is still scanned for its title map.
         self.tracks[:] = self.tracks[:2]
         self.assertEqual(
             self.ns["_arm_duplicate_titles"](str(self.raw), self.job()), {}
         )
-        self.assertEqual(self.fake.commands, [])
+        self.assertEqual([c[0] for c in self.fake.commands], ["HandBrakeCLI"])
         self.assertEqual(self.stamp()["duplicates"], {"skipped": [], "wholes": []})
+        self.assertEqual(
+            [t["handbrake_title"] for t in self.stamp()["title_map"]], [2, 3]
+        )
 
     def interleave(self) -> None:
         # Title 6 now plays title 3 cut into title 2.

@@ -237,11 +237,6 @@ class TInfo(CInfo):
     tid: int
 
 
-def convert_to_seconds(hms: str) -> int:
-    hours, minutes, seconds = hms.split(":")
-    return int(hours) * 3600 + int(minutes) * 60 + int(seconds)
-
-
 class TrackInfoProcessor:
     seen: list = []  # noqa: RUF012 - reset per test
 
@@ -289,8 +284,7 @@ def whole_disc(fake: FakeMakeMKV) -> dict:
         ),
         "TrackInfoProcessor": TrackInfoProcessor,
         "TInfo": TInfo,
-        "TrackID": types.SimpleNamespace(DURATION=9, FILENAME=27),
-        "convert_to_seconds": convert_to_seconds,
+        "TrackID": types.SimpleNamespace(FILENAME=27),
         "utils": types.SimpleNamespace(RipperException=RipperError),
     }
     exec(compile(load_configmap("arm-whole-disc.py"), "arm-whole-disc.py", "exec"), ns)  # noqa: S102
@@ -378,7 +372,7 @@ class Stamp(Base):
                 "start_time": "2026-10-21T13:19:30+00:00",
                 "complete": None,
                 "problems": [],
-                "extracted": None,
+                "title_map": None,
             },
         )
 
@@ -597,20 +591,10 @@ class Dvd(Base):
         # its title 2, whatever MakeMKV's own numbering.
         self.backup_dvd()
         self.assertEqual(
-            self.stamp()["extracted"],
+            self.stamp()["title_map"],
             [
-                {
-                    "disc_title": 1,
-                    "mkv": "B1_t00.mkv",
-                    "length": 429,
-                    "handbrake_title": 2,
-                },
-                {
-                    "disc_title": 4,
-                    "mkv": "A2_t01.mkv",
-                    "length": 449,
-                    "handbrake_title": 1,
-                },
+                {"disc_title": 1, "mkv": "B1_t00.mkv", "handbrake_title": 2},
+                {"disc_title": 4, "mkv": "A2_t01.mkv", "handbrake_title": 1},
             ],
         )
 
@@ -622,14 +606,14 @@ class Dvd(Base):
         ]
         self.fake.titles_saved = ["b_t00.mkv", "C_t01.mkv"]
         self.backup_dvd()
-        numbers = {t["mkv"]: t["handbrake_title"] for t in self.stamp()["extracted"]}
+        numbers = {t["mkv"]: t["handbrake_title"] for t in self.stamp()["title_map"]}
         self.assertEqual(numbers, {"C_t01.mkv": 1, "b_t00.mkv": 2})
 
     def test_a_title_listed_but_not_saved_has_no_handbrake_number(self) -> None:
         # The ones after it move up, because HandBrake counts what is there.
         self.fake.titles_saved = ["B1_t00.mkv"]
         self.backup_dvd()
-        numbers = {t["mkv"]: t["handbrake_title"] for t in self.stamp()["extracted"]}
+        numbers = {t["mkv"]: t["handbrake_title"] for t in self.stamp()["title_map"]}
         self.assertEqual(numbers, {"B1_t00.mkv": 1, "A2_t01.mkv": None})
 
     def test_the_stamp_has_no_titles_until_they_are_extracted(self) -> None:
@@ -638,7 +622,7 @@ class Dvd(Base):
         )
         with self.assertRaises(RipperError):
             self.backup_dvd()
-        self.assertIsNone(self.stamp()["extracted"])
+        self.assertIsNone(self.stamp()["title_map"])
 
 
 if __name__ == "__main__":
