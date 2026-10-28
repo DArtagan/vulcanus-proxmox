@@ -508,8 +508,8 @@ data:
     # The raw copy of a disc is the whole disc, decrypted, in a folder stamped with
     # the job that made it, and a backup that is short fails its job rather than
     # passing for complete. Appended to makemkv.py, whose run(), progress_log(),
-    # convert_to_seconds(), OutputType, TInfo, TrackID, TrackInfoProcessor and
-    # utils it uses as module globals.
+    # OutputType, TInfo, TrackID, TrackInfoProcessor and utils it uses as module
+    # globals.
     import datetime as _arm_datetime  # noqa: E402
     import json as _arm_json  # noqa: E402
     import struct as _arm_struct  # noqa: E402
@@ -519,7 +519,7 @@ data:
     _ARM_DISC_TITLE = 24
 
 
-    def _arm_write_stamp(job, rawpath, problems=None, extracted=None):
+    def _arm_write_stamp(job, rawpath, problems=None, title_map=None):
         # ARM's database records a job's completed path and never its raw one, and
         # a title corrected later renames only the completed folder. The stamp
         # travels with the raw folder through any rename. `complete` stays null
@@ -536,7 +536,7 @@ data:
             if job.start_time else None,
             "complete": None if problems is None else not problems,
             "problems": problems or [],
-            "extracted": extracted,
+            "title_map": title_map,
         }
         path = os.path.join(rawpath, "arm-job.json")
         with open(f"{path}.tmp", "w") as f:
@@ -678,11 +678,9 @@ data:
         for _, attributes in sorted(found.items()):
             mkv = attributes.get(TrackID.FILENAME)
             disc_title = attributes.get(_ARM_DISC_TITLE)
-            duration = attributes.get(TrackID.DURATION)
             entries.append({
                 "disc_title": int(disc_title) if disc_title else None,
                 "mkv": mkv,
-                "length": convert_to_seconds(duration) if duration else None,
                 "handbrake_title": saved.index(mkv) + 1 if mkv in saved else None,
             })
         return entries
@@ -980,7 +978,7 @@ data:
         # of those titles' cells and chapters from the ISO. A cell's sectors count
         # within its title set, whose number, like the frame rate, only -v prints.
         with open(os.path.join(raw, "arm-job.json")) as f:
-            mapped = _arm_json.load(f).get("extracted") or []
+            mapped = _arm_json.load(f).get("title_map") or []
         images = [name for name in os.listdir(raw) if name.endswith(".iso")]
         if not mapped or len(images) != 1:
             raise ValueError(f"{raw} has no title map, or not exactly one ISO")
@@ -1049,10 +1047,12 @@ data:
             ],
         }
         if any("playlist" in title["source"] for title in titles.values()):
-            # A Blu-ray's title_N against its playlist, as a DVD's `extracted` maps
-            # them to the disc's titles. Length can't stand in for it: featurette
-            # variants a second apart share all but a clip, and pair wrongly by it.
-            stamp["playlists"] = [entry(number) for number in sorted(titles)]
+            # A Blu-ray's title map, each playlist against its title_N, as a DVD's
+            # maps the disc's titles through their MKVs. Length can't stand in for
+            # it: featurette variants a second apart share all but a clip.
+            stamp["title_map"] = [
+                {**titles[number]["source"], "handbrake_title": number} for number in sorted(titles)
+            ]
         with open(f"{path}.tmp", "w") as f:
             _arm_json.dump(stamp, f, indent=2)
             f.write("\n")
