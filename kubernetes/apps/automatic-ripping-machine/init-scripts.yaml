@@ -712,6 +712,11 @@ data:
     _ARM_COVERED = 0.99
     # Seconds between a part's start and the chapter marking the join.
     _ARM_JOIN = 1.0
+    # What a second of a DVD's IFO plays for, by its frame rate. NTSC timecode
+    # counts 30 frames to its second while the video runs at 30000/1001, so
+    # lsdvd's lengths are 0.1% short, and unscaled a part's start lands seconds
+    # early against the transcode's chapters, which keep playback time.
+    _ARM_DVD_SECOND = {25.0: 1.0, 29.97: 1001 / 1000}
 
 
     def _arm_duplicate_titles(srcpath, job):
@@ -972,7 +977,7 @@ data:
     def _arm_dvd_titles(raw, tracks):
         # The stamp maps HandBrake's numbers to the DVD's own, and lsdvd reads each
         # of those titles' cells and chapters from the ISO. A cell's sectors count
-        # within its title set, whose number only -v prints.
+        # within its title set, whose number, like the frame rate, only -v prints.
         with open(os.path.join(raw, "arm-job.json")) as f:
             mapped = _arm_json.load(f).get("extracted") or []
         images = [name for name in os.listdir(raw) if name.endswith(".iso")]
@@ -991,10 +996,11 @@ data:
             if number not in tracks or disc_title not in disc:
                 continue
             title = disc[disc_title]
-            lengths = [chapter["length"] for chapter in title["chapter"]]
+            second = _ARM_DVD_SECOND[title["fps"]]
+            lengths = [chapter["length"] * second for chapter in title["chapter"]]
             titles[number] = {
                 "segments": [
-                    (title["vts"], cell["first_sector"], cell["last_sector"] + 1, cell["length"])
+                    (title["vts"], cell["first_sector"], cell["last_sector"] + 1, cell["length"] * second)
                     for cell in title["cell"]
                 ],
                 "chapters": [sum(lengths[:index]) for index in range(len(lengths))],
