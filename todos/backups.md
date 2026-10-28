@@ -33,7 +33,7 @@ squashing.
 | 2 | Application backups — K8up + restic | done 2026-10-12 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13) |
 | 2b | Delete the borg tree | done 2026-10-13 — [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) |
 | 3 | Performance — drop the OpenEBS disks from vzdump | applied 2026-10-16, review closed; checks B-E outstanding, carried by the user |
-| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — sync, verify, GC, mirror, and freshness both ways proven by 10-28; restores next |
+| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — sync, verify, GC, mirror, freshness both ways and both restores proven by 10-28; grant removal, `rpool/data`, docs left |
 | 4b | The primary into a NixOS container on vulcanus | designed 2026-10-17; after 4a |
 | 5 | The offline copy — external disk | not started; needs a ~$200 purchase |
 | 6 | Verification, notification, runbook | not started |
@@ -831,7 +831,9 @@ aborts any PBS #2 sync or verify in flight.
 
 **Then, in order:**
 
-1. The two test restores, which touch both hypervisors.
+1. **Remove the ct/104 grant** from the Headscale policy, deploy, restart headscale,
+   and see `100.64.0.4` leave PBS #2's `PacketFilter`. Everything else the restores
+   created is already gone.
 2. `rpool/data` narrows to `vm-107-disk-0`.
 3. `docs/backups.md`, `docs/nixos.md` and `docs/tailnet.md` for what 4a made true.
 
@@ -976,6 +978,38 @@ Both from PBS #2, restored unstarted with the network disconnected, then destroy
   job is `all 1`, so a scratch guest still present at the nightly run would be backed
   up into a group of its own, which freezes the moment the guest is destroyed and is
   then kept until someone forgets it.
+
+**Both passed, 2026-10-28.** One token, `root@pbs!restore-test` with
+`DatastoreReader` on `/datastore/offsite/vulcanus`, served both and is deleted.
+
+- **`vm/900` onto mini-nas** as VM 9900 on `local`, over the LAN to the container's
+  `192.168.1.35`: 10 GiB in 34 s, 299 MB/s. The restored disk's GPT matched the
+  live `vm-900-disk-0` exactly, disk and all six partition UUIDs, and its STATE and
+  EPHEMERAL partitions carried XFS superblocks.
+- **`ct/104` onto vulcanus** as CT 9104 on `local-zfs`, over the tailnet to
+  `100.64.0.10`: 1.06 GiB in 1 min 40 s, 10.8 MiB/s. Compared with the live
+  rootfs by checksum, 28 of ~27,250 entries differed, every one churn: pihole's FTL
+  database, four logs, `/tmp` and `/var/tmp` contents vzdump excludes,
+  `.pxarexclude-cli`, and mtimes. None differed in mode, owner, ACL or xattr, the
+  unprivileged uid shift included.
+
+**What a real restore meets, for the Phase 6 runbook:**
+
+- **The restored guest keeps `onboot: 1` and its live addresses.** 9104 came back
+  with pihole's `192.168.0.104` and would have started beside pihole at vulcanus's
+  next boot. Set `onboot 0` and `link_down=1` straight after the restore, before
+  anything else, whenever the original may still be running.
+- **A VM's config names what only vulcanus has**: `ide2` an ISO on `local`, and an
+  `efidisk0` on `local-zfs` that vzdump does not back up under SeaBIOS. On another
+  host the ISO stops the VM starting until removed; the dangling `efidisk0` only
+  makes `qm destroy` warn.
+- **A Headscale policy edit made on a branch need not merge into `main`.** The
+  grant's first deploy conflicted: `main` held `cb794923`, an edit the branch never
+  received, and an encrypted file cannot be merged by line. It was resolved on
+  `main` by taking `main`'s copy and re-applying the grant with `sops`, then the
+  branch took `main`'s file (`14be033a`) so the removal would merge.
+- **A PBS fingerprint read with a greedy `sed`** stops at its last colon; the
+  token's one-time secret was lost with that first attempt and regenerated.
 
 ### Retiring `rpool/data` from replication
 

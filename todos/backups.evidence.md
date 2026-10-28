@@ -1392,6 +1392,39 @@ and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
   71. The container's conf was unchanged, so it was not
   restarted.
 
+### Two test restores from PBS #2 — 2026-10-28
+
+- **Token.** `root@pbs!restore-test`, minted with `proxmox-backup-debug api create
+  /access/users/root@pbs/token/restore-test`, granted `DatastoreReader` on
+  `/datastore/offsite/vulcanus`; secret regenerated per use with `api set …
+  --regenerate true`, piped host to host, never printed. Deleted after: `acl list`
+  then held only `root@pbs` `Admin` on `/`.
+- **`vm/900/2026-10-28T10:20:23Z` → mini-nas VM 9900**, storage `pbs-offsite` at
+  `192.168.1.35`: "restore image complete (bytes=10737418240, duration=34.28s,
+  speed=298.68MB/s)", zeroes 38%. `sfdisk -d` of the image and of vulcanus's
+  `/dev/zvol/rpool/data/vm-900-disk-0` identical in label-id and every partition's
+  start, size, type, uuid and name (EFI, BIOS, BOOT, META, STATE, EPHEMERAL);
+  `blkid -p` at STATE and EPHEMERAL's offsets: `TYPE=xfs`. Config came back with
+  `onboot: 1`, `ide2: local:iso/talos_1.12.1.iso`, `efidisk0: local-zfs:vm-900-disk-1`.
+  `qm destroy 9900 --purge`: "WARN: failed to get path and owner of volume
+  'local-zfs:vm-900-disk-1': storage 'local-zfs' does not exist".
+- **Grant.** First `wt deploy` of `fbc868b5` conflicted on
+  `policy-config-map.sops.yaml` against `main`'s `cb794923`; resolved on `main`
+  (`9236786f`), carried to the branch as `14be033a`. After `rollout restart`, the
+  pod Ready 2/2, and PBS #2's `PacketFilter` held `100.64.0.4/32` →
+  `100.64.0.10/32:8007`. From vulcanus, `curl` to `https://100.64.0.10:8007/`: 200.
+- **`ct/104/2026-10-28T10:04:56Z` → vulcanus CT 9104**, `exclude 107,9104` meanwhile:
+  "restore complete (1.061 GiB processed in 1m 40.5s, average 10.814 MiB/s)".
+  Config came back `onboot: 1`, `ip=192.168.0.104/24`. Files: live 27,256, restored
+  27,248. `rsync -anciHAX --delete` live→restored: 28 entries; content or presence:
+  `.pxarexclude-cli`, `etc/pihole/pihole-FTL.db`, `tmp/` and `var/tmp/` entries,
+  `var/log/{auth,daemon,pihole-FTL,syslog}.log`; the rest mtime only. 0 entries
+  flagged in perms, owner, group, ACL or xattr. `/etc/shadow` `100000:100042 640` on
+  both. `etc/hostname`, `etc/os-release`, `etc/pihole/setupVars.conf` same sha256.
+- **Cleanup.** `pct destroy 9104 --purge`; `exclude 107`; `pvesm remove pbs-offsite`
+  on both hosts, `/etc/pve/priv/storage/` holding no offsite entry; no dataset
+  matching 9104; CT 104 `running`, untouched.
+
 ### Freshness red with a sync held back — 2026-10-26 to 10-28
 
 - `pbs-offsite-daily.timer` stopped at 10-26 03:18 UTC; `container@pbs-offsite`
