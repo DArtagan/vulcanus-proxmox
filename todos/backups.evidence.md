@@ -1392,6 +1392,25 @@ and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
   71. The container's conf was unchanged, so it was not
   restarted.
 
+### Freshness red with a sync held back — 2026-10-26 to 10-28
+
+- `pbs-offsite-daily.timer` stopped at 10-26 03:18 UTC; `container@pbs-offsite`
+  `ActiveEnterTimestamp` 10-26 03:17:52 UTC when read at 10-28 16:29, so no restart
+  re-armed it. No `pbs-offsite-daily` journal entries 10-26 to 10-28 16:29.
+- Freshness 10-26 18:00:30: success. 10-27 18:00:14: `status=1/FAILURE`, logging
+  only these, all "not copied here (limit 26h)": `ct/103/2026-10-26T10:00:04Z` 32h;
+  `ct/104/…10:05:17Z`, `ct/105/…10:07:28Z`, `ct/108/…10:09:26Z`,
+  `vm/900/…10:20:32Z`, `vm/910/…10:22:26Z`, `vm/911/…10:27:22Z` 31h.
+- 10-28 16:29:28 `systemctl start pbs-offsite-daily.timer` triggered the service
+  immediately (`Persistent`). Sync to 17:12:55: 11.171 GiB, 8,252 chunks,
+  4.441 MiB/s, `TASK OK`. Prune: removed 09-25, 09-26 and 09-27 from each of the
+  seven groups, `TASK OK`. Timer next 10-29 12:00.
+- Freshness by hand 17:13:19: `Result=success`, `ExecMainStatus=0`.
+- Host `nixos-upgrade.service` failed at 04:40 local daily 10-23 to 10-28:
+  `error: file 'nixos-config' was not found in the Nix search path`, from
+  `nix-build '<nixpkgs/nixos>'`. mini-nas `configuration.nix` sets
+  `system.autoUpgrade = { enable = true; allowReboot = true; }` with no `flake`.
+
 ### Two days on the fix, and the first GC — 2026-10-24
 
 - **Freshness** succeeded at 10-23 18:00:11 and 10-24 18:00:07. `vm/100`'s
