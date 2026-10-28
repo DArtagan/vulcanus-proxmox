@@ -38,7 +38,7 @@ class FakeSubprocess:
     """subprocess, answering HandBrake's and lsdvd's commands with fixed output.
 
     lsdvd's tracks are printed as lsdvd prints them: the title set's number,
-    `vts`, only with -v.
+    `vts`, and the frame rate, `fps`, only with -v.
     """
 
     SubprocessError = subprocess.SubprocessError
@@ -59,7 +59,7 @@ class FakeSubprocess:
         self.commands.append(list(cmd))
         if cmd[0] == "lsdvd":
             tracks = [
-                {k: v for k, v in t.items() if k != "vts" or "-v" in cmd}
+                {k: v for k, v in t.items() if k not in ("vts", "fps") or "-v" in cmd}
                 for t in self.lsdvd_tracks
             ]
             stdout = "lsdvd = " + repr({"track": tracks})
@@ -387,7 +387,8 @@ class Reading(unittest.TestCase):
         cmd = self.fake.commands[0]
         self.assertEqual(cmd[cmd.index("--min-duration") + 1], "420")
 
-    def test_a_dvds_titles_are_found_through_the_stamp(self) -> None:
+    def dvd(self, fps: float) -> dict:
+        """Read a play-all and its first episode, shaped after Pinky's D2."""
         (self.raw / "disc.iso").write_bytes(b"")
         (self.raw / "arm-job.json").write_text(
             json.dumps(
@@ -406,6 +407,7 @@ class Reading(unittest.TestCase):
                     {
                         "ix": 1,
                         "vts": 1,
+                        "fps": fps,
                         "chapter": [{"length": 66.4}, {"length": 454.3}],
                         "cell": [
                             {
@@ -423,6 +425,7 @@ class Reading(unittest.TestCase):
                     {
                         "ix": 4,
                         "vts": 1,
+                        "fps": fps,
                         "chapter": [{"length": 66.4}],
                         "cell": [
                             {"first_sector": 8483, "last_sector": 36722, "length": 66.4}
@@ -431,12 +434,30 @@ class Reading(unittest.TestCase):
                 ]
             }
         )["track"]
-        titles = self.ns["_arm_dvd_titles"](str(self.raw), {1: None, 2: None})
+        return self.ns["_arm_dvd_titles"](str(self.raw), {1: None, 2: None})
+
+    def test_a_dvds_titles_are_found_through_the_stamp(self) -> None:
+        titles = self.dvd(25.0)
         self.assertEqual(
             titles[1]["segments"], [(1, 8483, 36723, 66.4), (1, 36723, 205855, 454.3)]
         )
         self.assertEqual(titles[1]["chapters"], [0, 66.4])
         self.assertEqual(titles[2]["source"], {"disc_title": 4})
+
+    def test_an_ntsc_dvds_lengths_are_scaled_to_playback_time(self) -> None:
+        # Its IFO counts 30 frames to the second of video running at 30000/1001.
+        # Job 76's MKVs and transcodes put chapters where the scaled lengths do,
+        # within 0.2 s, and 7.7 s from the unscaled ones by the last.
+        titles = self.dvd(29.97)
+        cells = [seconds for *_, seconds in titles[1]["segments"]]
+        for got, ifo in zip(cells, [66.4, 454.3], strict=True):
+            self.assertAlmostEqual(got, ifo * 1001 / 1000)
+        self.assertEqual(titles[1]["chapters"][0], 0)
+        self.assertAlmostEqual(titles[1]["chapters"][1], 66.4 * 1001 / 1000)
+
+    def test_a_dvd_of_another_frame_rate_is_refused(self) -> None:
+        with self.assertRaises(KeyError):
+            self.dvd(-1.0)
 
     def test_a_dvd_without_a_title_map_is_refused(self) -> None:
         (self.raw / "disc.iso").write_bytes(b"")

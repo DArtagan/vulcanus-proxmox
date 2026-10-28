@@ -3497,3 +3497,12 @@ deleted with no job active and logged nine `applied` lines. Then
 and a second pass changed nothing. Each is byte-identical to reelbarrow's
 fixture. Originals are in `captures/stamps/original/`. ZFS snapshots from
 before the rewrite still hold the earlier shape.
+
+### 2026-10-26 — the SATA streak re-counted, and job 73
+
+`journalctl _TRANSPORT=kernel` on vulcanus has no `ata4` line after the boot of
+2026-10-08 22:25, so jobs 47–83 are clean, 37 in a row (job 81 was killed in
+its manual wait and never reached the drive). Job 73, *Pinky* D1 on
+2026-10-21, failed `Error while running MakeMKV`: `MSG:5010 Failed to open
+disc`, then `Call to MakeMKV failed with code: 11`, the signature of job 19.
+Job 74 ripped the same disc two hours later.
