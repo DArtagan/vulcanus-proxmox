@@ -137,9 +137,11 @@ def assess(
     Verification is this store's own: a pull strips the primary's verify state
     from what it copies. A failed verify fails at once; an unverified snapshot
     fails once the weekly verify should have reached it since it arrived. That
-    is measured from its arrival, not from when it was taken, because every
-    pull re-syncs each group's newest snapshot, which strips its verify state
-    again: a frozen group's one old snapshot arrives anew every day.
+    is measured from its arrival, not from when it was taken, because a pull
+    re-syncs each group's newest snapshot whenever its manifest differs from the
+    primary's, which a verify's recorded result makes it: so the first pull
+    after each verify strips that snapshot's verify state, and a frozen group's
+    one old snapshot arrives anew every week.
     """
     primary = list(primary)
     local = list(local)

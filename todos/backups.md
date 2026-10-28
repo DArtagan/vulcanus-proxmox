@@ -33,7 +33,7 @@ squashing.
 | 2 | Application backups — K8up + restic | done 2026-10-12 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13) |
 | 2b | Delete the borg tree | done 2026-10-13 — [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) |
 | 3 | Performance — drop the OpenEBS disks from vzdump | applied 2026-10-16, review closed; checks B-E outstanding, carried by the user |
-| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — first sync done 2026-10-21, first verify and the protection mirror passed 10-22; then the freshness fix deployed, freshness red, restores |
+| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — sync, verify, GC, mirror, and freshness both ways proven by 10-28; restores next |
 | 4b | The primary into a NixOS container on vulcanus | designed 2026-10-17; after 4a |
 | 5 | The offline copy — external disk | not started; needs a ~$200 purchase |
 | 6 | Verification, notification, runbook | not started |
@@ -721,10 +721,16 @@ chunks the two syncs pulled; the rest is indexes and ZFS overhead, and
 second opinion here: on a dataset it is that dataset's `statfs`, and matched ZFS's
 to 42 KB. The primary counts 629.7 GiB (`pvesm status`), the difference being
 chunks no snapshot references, awaiting its GC. PBS #2's independent figure,
-`disk-bytes`, arrives with its first GC, Saturday 10-24 14:00 UTC.
+`disk-bytes`, arrived with its first GC on 10-24: **572.9 GiB in 270,282 chunks**,
+against `rpool/pbs`'s **578.4 GiB**, the 5.5 GiB between them indexes and metadata.
+The GC ran 12 min and removed 23.9 GiB in 16,004 chunks, the snapshots pruned since
+the first sync. The pool agrees: 590.4 GiB on 10-21, plus the 12.0 GiB the three
+daily syncs since pulled, less the 23.9 GiB, is 578.5.
 
-**Memory:** the container peaked at **423 MiB** across the whole sync, against its
-2 GiB `MemoryMax`. Verify and GC are still to be read before the limit is resized.
+**Memory:** the container peaked at **423 MiB** across the whole sync, and at
+**247 MiB** across a boot that ran two chains, the first GC and Sunday's 3 h 30 min
+verify. Its `MemoryMax` is **1 GiB** (mini-nas `3df478a`, 10-26), the user's choice
+of about 2.4× the larger, as the restic repository's container has over its own peak.
 
 **The first verify passed**, through the declared `weekly` job
 (`proxmox-backup-debug api create /admin/verify/weekly/run`): 2026-10-21 20:05:54 to
@@ -735,19 +741,20 @@ the workers' pre-10-17 snapshots, whose OpenEBS-disk chunks nothing newer shares
 in inode order before reading any, so each large image opens with minutes of ~70 IOPS
 and almost no bandwidth: not a stall. **`pbs-offsite-freshness` then went green**,
 run by hand at 03:45 UTC — but only because the verify had just run. At 18:00 it
-failed on `vm/100`: each pull re-syncs every group's newest snapshot, stripping its
-verify state, so the frozen group's one snapshot arrived unverified again at 12:00,
-and the check measured the limit from 09-18, when it was taken. `cba654b5` measures
+failed on `vm/100`: the first pull after a verify re-syncs each group's newest
+snapshot, its manifest now differing from the primary's by the verify's result, and
+strips its verify state. So the frozen group's one snapshot arrived unverified again
+at 12:00, and the check measured the limit from 09-18, when it was taken. `cba654b5` measures
 it from the snapshot's last arrival, its manifest's mtime; against the live stores
 that finds no problem.
 
 ### Picking 4a up again
 
-**Deployed state, 2026-10-22.** mini-nas PR #6 merged (`d317ea2`), and mini-nas runs
-its `main` at `7108ea8`, deployed 20:17 UTC, pinning vulcanus-proxmox's `main` at
-`05354bd1`, which carries the freshness fix. Run by hand at 20:18 with `vm/100`
-unverified, re-synced at 12:00, the check passed; no unit failed on the host or in
-the container. A vulcanus-proxmox change to `nixos/` reaches PBS #2 by `wt deploy`
+**Deployed state, 2026-10-26.** mini-nas runs its `main` at `3df478a`, deployed
+03:17 UTC, pinning vulcanus-proxmox's `main` at `05354bd1`, which carries the
+freshness fix. vulcanus-proxmox's `6a77ea2d`, comments only, is still to be re-pinned.
+No unit failed in the container; the host's `nixos-upgrade.service` fails daily, a
+standing mini-nas fault outside this project (below). A vulcanus-proxmox change to `nixos/` reaches PBS #2 by `wt deploy`
 (the user's), then `nix flake update vulcanus-proxmox` committed straight to
 mini-nas's `main`, as the user chose for a re-pin, and the deploy below from that
 checkout.
@@ -801,21 +808,34 @@ as a tmpfiles rule. What remains outside it:
 --protected 1`), and a hand-run `pbs-offsite mirror` set it on PBS #2. On 10-22 both
 stores' prunes kept it past `keep-last 31` (`keep protected …` in PBS #2's chain),
 each holding 31 unprotected `vm/900` snapshots beside it. Cleared on the primary, a
-hand-run mirror cleared it on PBS #2; the 10-23 prunes remove it and 09-22 from both.
+hand-run mirror cleared it on PBS #2, and the 10-23 prunes removed it from both.
+
+**The scheduled freshness runs pass.** 10-23 and 10-24 at 18:00 UTC both succeeded,
+with `vm/100` unverified throughout, its manifest last written 10-22 12:00:50.
+
+**Freshness went red with a sync held back, and green again.** The user chose a
+real hold-back over a simulated one. `pbs-offsite-daily.timer` was stopped in the
+container at 10-26 03:18 UTC, and the container ran unrestarted until it was
+started again. Monday 18:00 passed, Sunday's snapshots having been copied. Tuesday
+10-27 18:00:14 failed on exactly the seven live groups' 10-26 snapshots, "on the
+primary 31h, not copied here (limit 26h)" (`ct/103` 32h), and on nothing else.
+The frozen `vm/100` was not among them. Starting the timer at 10-28 16:29 fired the
+missed run at once, the timer being `Persistent`: 11.171 GiB in 43 min, and a prune
+of three snapshots per group back to `keep-last 31`. The check, run by hand at
+17:13, passed. Whether Tuesday's alert reached Pushover is the user's to confirm.
+
+**mini-nas's `nixos-upgrade.service` fails every day**, outside this project:
+`system.autoUpgrade` has no `flake`, so its 04:40 run looks for `nixos-config` on
+the channel path and stops at evaluation. It has never switched the system. Whoever
+fixes it should know `allowReboot = true`: a working upgrade reboots mini-nas, which
+aborts any PBS #2 sync or verify in flight.
 
 **Then, in order:**
 
-1. **See the scheduled 18:00 UTC `pbs-offsite-freshness` pass on 10-23**, a weekday,
-   `vm/100` unverified but arrived that day: `systemctl show -p Result
-   pbs-offsite-freshness` in the container, and the check green on healthchecks.
-2. **`pbs-offsite-freshness` red with a sync held back**, the direction still to
-   show.
-3. The two test restores, which touch both hypervisors.
-4. `rpool/data` narrows to `vm-107-disk-0`.
-5. `docs/backups.md`, `docs/nixos.md` and `docs/tailnet.md` for what 4a made true.
-
-The GC's own figures, `disk-bytes` against `rpool/pbs`'s `used`, can be read any
-time after 10-24 14:00 UTC.
+1. **Re-pin for `6a77ea2d`**, once the user's `wt deploy` has it on `main`.
+2. The two test restores, which touch both hypervisors.
+3. `rpool/data` narrows to `vm-107-disk-0`.
+4. `docs/backups.md`, `docs/nixos.md` and `docs/tailnet.md` for what 4a made true.
 
 ### mini-nas's host side
 
@@ -926,9 +946,9 @@ it gets no `discard`: it retires rather than trims.
   when each group's newest snapshot on the primary, once 26 h old, is on PBS #2 too,
   and when PBS #2 holds no snapshot whose verify failed, or that is still unverified
   8 days after it last arrived — the primary's own verification waits for its verify
-  job at 4b. Arrival, not backup time, because each pull re-syncs every group's
-  newest snapshot and strips its verify state, so a frozen group's one snapshot
-  arrives anew every day. Comparing newest snapshots rather than ages lets a frozen group pass,
+  job at 4b. Arrival, not backup time, because the first pull after each verify
+  re-syncs every group's newest snapshot and strips its verify state, so a frozen
+  group's one snapshot arrives anew every week. Comparing newest snapshots rather than ages lets a frozen group pass,
   having nothing new to copy, while a live group fails within a day of its sync
   stopping. Asserted from the stores rather than from the jobs, as `pbs-freshness`
   is, and it dies with PBS #2, which the check's period catches. A group on PBS #2
