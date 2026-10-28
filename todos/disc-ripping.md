@@ -342,7 +342,9 @@ log and matches it. The field is `title_map`, without lengths (below).
 
 Logs age out 90 days after their job, so job 15's goes around 2026-11-30, and the
 rest follow week by week. Run the backfill before then, or keep the mapping
-somewhere durable.
+somewhere durable. The DVD jobs it leaves without a stamp aren't kept: those
+discs are to be re-ripped, for their images (Will, 2026-10-28), and each re-rip
+writes its own stamp.
 
 **The backfill is limited to folders holding the whole disc** (Will, 2026-10-28):
 a `BDMV/` or an image, which no DVD job before the stamp left, so Blu-ray jobs
@@ -352,9 +354,10 @@ current form in one pass. Its dry run on 2026-10-28: ten rewrites (jobs 76–80,
 their `_<stage>` suffixes. Every copy passed the size check. `complete` is left
 out unless that check fails, because the backup's hash check can't be rerun, and
 a stamp carries no mark of being backfilled (both Will, 2026-10-28). Job 2's row
-names job 61's log, which the tool rejects by its first line's time. **To do:**
-run it with `--write` once the code below is deployed, and again after any job
-that ran on the old code in between.
+names job 61's log, which the tool rejects by its first line's time. Written
+with `--write` on 2026-10-28, the share's ten stamps copied out first, and every
+stamp read back in the current form. After the deploy and ARM's restart, a dry
+run found nothing left to change.
 
 ## Other open items
 
@@ -414,6 +417,15 @@ that ran on the old code in between.
   come from their own logs (the backfill above). **To verify:** the next Blu-ray
   job's `title_map` matches the `+ playlist:` line beside each `Transcoding title
   N` in its job log.
+- **Two ways the DVD duplicate check can fail to read a disc, neither seen on
+  one yet.** `_arm_dvd_titles` takes lsdvd's `-Oy` output after its first `=`,
+  and libdvdread writes its warnings to stdout ahead of it, `CHECK_VALUE failed
+  … == 0` among them: lsdvd printed those for an image built from IFOs alone,
+  though not for job 76's ISO. And lsdvd copies the device path, so a raw
+  folder's name, into that output unescaped, and a name with an apostrophe ends
+  its string early. Either raises, and every title is transcoded, which costs
+  encoding time and nothing else. reelbarrow's reader starts at `lsdvd = {` and
+  lifts the free-text lines out before parsing; the same would do here.
 - **The transcode preset has never been reviewed** against a finished file: SVT-AV1
   10-bit, CRF 30, preset 4, Opus audio. Finished files now exist.
 - **`LOGLEVEL: DEBUG`** was kept through phase 3 for detail when a rip failed, to be
