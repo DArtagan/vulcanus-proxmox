@@ -734,13 +734,14 @@ data:
         }
         series = job.video_type == "series"
         try:
-            # A whole and two parts, or nothing to compare.
             titles, skip, wholes = {}, {}, []
+            # A Blu-ray is scanned whatever its count, as the scan is its title map.
+            if job.disctype == "bluray":
+                titles = _arm_bluray_titles(srcpath, tracks)
+            elif len(tracks) >= 3:
+                titles = _arm_dvd_titles(raw, tracks)
+            # A whole and two parts, or nothing to compare.
             if len(tracks) >= 3:
-                if job.disctype == "bluray":
-                    titles = _arm_bluray_titles(srcpath, tracks)
-                else:
-                    titles = _arm_dvd_titles(raw, tracks)
                 skip, wholes = _arm_duplicates(titles, series)
         except Exception as error:  # noqa: BLE001
             # Skipping is an economy. Whatever it trips on costs encoding time,
@@ -751,7 +752,7 @@ data:
         for number, reason in sorted(skip.items()):
             logging.info(f"Title {number} is not transcoded: it {reason}")
         _arm_move_main_feature(tracks, skip)
-        _arm_record_duplicates(raw, titles, skip, wholes)
+        _arm_record_scan(raw, titles, skip, wholes)
         for whole in wholes:
             # A series' play-all can open on a recap its episodes share, which
             # reads as interleaved and is no film.
@@ -1021,7 +1022,7 @@ data:
         db.session.commit()
 
 
-    def _arm_record_duplicates(raw, titles, skip, wholes):
+    def _arm_record_scan(raw, titles, skip, wholes):
         # The map from each whole to its parts, with where each part starts, is what
         # cuts a kept whole into its parts later.
         path = os.path.join(raw, "arm-job.json")
@@ -1047,6 +1048,11 @@ data:
                 for whole in wholes
             ],
         }
+        if any("playlist" in title["source"] for title in titles.values()):
+            # A Blu-ray's title_N against its playlist, as a DVD's `extracted` maps
+            # them to the disc's titles. Length can't stand in for it: featurette
+            # variants a second apart share all but a clip, and pair wrongly by it.
+            stamp["playlists"] = [entry(number) for number in sorted(titles)]
         with open(f"{path}.tmp", "w") as f:
             _arm_json.dump(stamp, f, indent=2)
             f.write("\n")

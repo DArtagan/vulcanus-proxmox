@@ -387,13 +387,16 @@ somewhere durable.
   `titles` became `extracted`, and every HandBrake number `handbrake_title`.
   The seven stamps on the share were rewritten once that code ran, and match
   reelbarrow's fixtures byte for byte.
-- **A Blu-ray stamp has no title map: parked (Will, 2026-10-26).** A Blu-ray's
-  `title_N` ↔ playlist link is unrecorded but not lost: re-scanning `BDMV/`
-  reproduces it while HandBrake's version holds, reelbarrow pairs by fingerprint
-  regardless, and `duplicates` already names the playlists that matter most.
-  The playlist name itself never changes. Build it when reelbarrow's planner
-  finds fingerprint pairing ambiguous on a Blu-ray: the duplicate check already
-  reads every long title's playlist, so it is a few lines and a new field.
+- **A Blu-ray stamp's title map: built (Will, 2026-10-28).** Parked until
+  reelbarrow found fingerprint pairing ambiguous on a Blu-ray, and job 79 did:
+  four of its featurettes come in variants 1–3 s apart that share 99–100% of
+  their clips, so their audio can't tell them apart, and nearest length paired
+  `title_76` with `01235.mpls` where the job log shows `01227.mpls`. The stamp's
+  `playlists` now records each `handbrake_title` against its playlist, from the
+  scan the duplicate check runs, on every Blu-ray. **To verify:** the next
+  Blu-ray job's `playlists` matches the `+ playlist:` line beside each
+  `Transcoding title N` in its job log. reelbarrow harvests the same pairs from
+  the logs of older jobs while they last.
 - **The transcode preset has never been reviewed** against a finished file: SVT-AV1
   10-bit, CRF 30, preset 4, Opus audio. Finished files now exist.
 - **`LOGLEVEL: DEBUG`** was kept through phase 3 for detail when a rip failed, to be
