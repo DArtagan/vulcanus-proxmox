@@ -750,10 +750,9 @@ that finds no problem.
 
 ### Picking 4a up again
 
-**Deployed state, 2026-10-26.** mini-nas runs its `main` at `3df478a`, deployed
-03:17 UTC, pinning vulcanus-proxmox's `main` at `05354bd1`, which carries the
-freshness fix. vulcanus-proxmox's `6a77ea2d`, comments only, is still to be re-pinned.
-No unit failed in the container; the host's `nixos-upgrade.service` fails daily, a
+**Deployed state, 2026-10-28.** mini-nas runs its `main` at `19c32fb`, deployed
+17:19 UTC, pinning vulcanus-proxmox's `main` at `f4df242e`, which carries
+everything of this project's under `nixos/`. No unit failed in the container; the host's `nixos-upgrade.service` fails daily, a
 standing mini-nas fault outside this project (below). A vulcanus-proxmox change to `nixos/` reaches PBS #2 by `wt deploy`
 (the user's), then `nix flake update vulcanus-proxmox` committed straight to
 mini-nas's `main`, as the user chose for a re-pin, and the deploy below from that
@@ -822,7 +821,7 @@ primary 31h, not copied here (limit 26h)" (`ct/103` 32h), and on nothing else.
 The frozen `vm/100` was not among them. Starting the timer at 10-28 16:29 fired the
 missed run at once, the timer being `Persistent`: 11.171 GiB in 43 min, and a prune
 of three snapshots per group back to `keep-last 31`. The check, run by hand at
-17:13, passed. Whether Tuesday's alert reached Pushover is the user's to confirm.
+17:13, passed. The user confirmed both reached Pushover, the red and the green.
 
 **mini-nas's `nixos-upgrade.service` fails every day**, outside this project:
 `system.autoUpgrade` has no `flake`, so its 04:40 run looks for `nixos-config` on
@@ -832,10 +831,9 @@ aborts any PBS #2 sync or verify in flight.
 
 **Then, in order:**
 
-1. **Re-pin for `6a77ea2d`**, once the user's `wt deploy` has it on `main`.
-2. The two test restores, which touch both hypervisors.
-3. `rpool/data` narrows to `vm-107-disk-0`.
-4. `docs/backups.md`, `docs/nixos.md` and `docs/tailnet.md` for what 4a made true.
+1. The two test restores, which touch both hypervisors.
+2. `rpool/data` narrows to `vm-107-disk-0`.
+3. `docs/backups.md`, `docs/nixos.md` and `docs/tailnet.md` for what 4a made true.
 
 ### mini-nas's host side
 
