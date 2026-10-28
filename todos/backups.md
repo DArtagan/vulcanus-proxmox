@@ -33,7 +33,7 @@ squashing.
 | 2 | Application backups — K8up + restic | done 2026-10-12 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13) |
 | 2b | Delete the borg tree | done 2026-10-13 — [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) |
 | 3 | Performance — drop the OpenEBS disks from vzdump | applied 2026-10-16, review closed; checks B-E outstanding, carried by the user |
-| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — sync, verify, GC, mirror, freshness both ways and both restores proven by 10-28; grant removal, `rpool/data`, docs left |
+| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — sync, verify, GC, mirror, freshness both ways and both restores proven by 10-28; `rpool/data` and docs left |
 | 4b | The primary into a NixOS container on vulcanus | designed 2026-10-17; after 4a |
 | 5 | The offline copy — external disk | not started; needs a ~$200 purchase |
 | 6 | Verification, notification, runbook | not started |
@@ -831,11 +831,8 @@ aborts any PBS #2 sync or verify in flight.
 
 **Then, in order:**
 
-1. **Remove the ct/104 grant** from the Headscale policy, deploy, restart headscale,
-   and see `100.64.0.4` leave PBS #2's `PacketFilter`. Everything else the restores
-   created is already gone.
-2. `rpool/data` narrows to `vm-107-disk-0`.
-3. `docs/backups.md`, `docs/nixos.md` and `docs/tailnet.md` for what 4a made true.
+1. `rpool/data` narrows to `vm-107-disk-0`.
+2. `docs/backups.md`, `docs/nixos.md` and `docs/tailnet.md` for what 4a made true.
 
 ### mini-nas's host side
 
@@ -979,8 +976,11 @@ Both from PBS #2, restored unstarted with the network disconnected, then destroy
   up into a group of its own, which freezes the moment the guest is destroyed and is
   then kept until someone forgets it.
 
-**Both passed, 2026-10-28.** One token, `root@pbs!restore-test` with
-`DatastoreReader` on `/datastore/offsite/vulcanus`, served both and is deleted.
+**Both passed, 2026-10-28,** and nothing they created remains. One token,
+`root@pbs!restore-test` with `DatastoreReader` on `/datastore/offsite/vulcanus`,
+served both and is deleted. The grant left in `250f9b12`: after headscale's
+restart, `100.64.0.4` was gone from PBS #2's `PacketFilter`, and the `curl` from
+vulcanus that had returned 200 timed out.
 
 - **`vm/900` onto mini-nas** as VM 9900 on `local`, over the LAN to the container's
   `192.168.1.35`: 10 GiB in 34 s, 299 MB/s. The restored disk's GPT matched the
