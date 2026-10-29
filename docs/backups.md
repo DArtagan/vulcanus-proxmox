@@ -9,14 +9,16 @@ Work still outstanding lives in [`todos/backups.md`](../todos/backups.md), not h
 | Layer | Covers | Where it lands |
 |---|---|---|
 | ZFS snapshots (sanoid) | everything on `rpool` | vulcanus, in place |
-| ZFS replication (syncoid) | `rpool/storage`, `rpool/ROOT`, `rpool/data`, `rpool/backups/restic` | mini-nas, offsite |
+| ZFS replication (syncoid) | `rpool/storage`, `rpool/ROOT`, `rpool/data/vm-107-disk-0`, `rpool/backups/restic` | mini-nas, offsite |
 | vzdump → PBS | every guest except `107`, less the workers' OpenEBS disks | PBS VM 107, on `rpool` |
+| PBS sync, pulled | every group in VM 107's datastore | PBS #2, a NixOS container on mini-nas, offsite |
 | restic, via K8up | every Kubernetes volume in scope, and the database dumps | the restic repository, LXC 108 |
 | restic, from the repository host | `rpool/storage/{photos,books,filesync}` | the same repository |
 
 Snapshots are the instant-rollback layer, exposed to SMB clients as VSS shadow copies
-on every share. Replication is the offsite copy. PBS is the per-guest image backup,
-and the only one that restores a whole guest with a single command. restic is the
+on every share. Replication is the offsite copy of the data, and PBS #2 of the guest
+images. PBS is the per-guest image backup, and the only one that restores a whole
+guest with a single command. restic is the
 granular layer: one volume, file or database, as of any night retention still holds.
 
 **mini-nas pulls the restic repository too**, giving Kubernetes state a second
@@ -43,11 +45,14 @@ decides how a rebuild goes:
 
 | Disk | Holds | Protection |
 |---|---|---|
-| `virtio0`, 20 G, on `rpool/data` | the OS, and `/etc/proxmox-backup` | sanoid, **and replicated to mini-nas** with the rest of `rpool/data` |
-| `virtio1`, 2 T, on `rpool/proxmox_backup_server` | the chunk store | sanoid dailies on `rpool` only |
+| `virtio0`, 20 G, on `rpool/data` | the OS, and `/etc/proxmox-backup` | sanoid, **and replicated to mini-nas**, the one dataset under `rpool/data` that is |
+| `virtio1`, 2 T, on `rpool/proxmox_backup_server` | the chunk store | sanoid dailies on `rpool`; its contents pulled by PBS #2 |
 
-**PBS's own datastore is not replicated.** `rpool/proxmox_backup_server` is excluded
-from syncoid, so losing `rpool` loses the guest images and their backups together.
+**PBS's datastore is not ZFS-replicated.** PBS #2 copies what it holds instead, a
+snapshot at a time, so losing `rpool` leaves every guest image offsite.
+
+VM 107 runs no verify job and no prune job of its own: the vzdump job prunes it, and
+PBS #2's weekly verify is the only one.
 
 `/etc/proxmox-backup` is the part a reinstall cannot reconstruct: datastore
 definitions, users, ACLs, prune/GC/verify schedules, and the TLS certificate whose
@@ -83,6 +88,66 @@ before the attach in the same command.
 
 If the disk itself is lost, the volumes come back from restic; see *Restoring from
 restic*.
+
+### PBS #2, the offsite copy
+
+`pbs-offsite`, a NixOS container on mini-nas running PBS natively through
+[nixos-pbs](https://github.com/AWildLeon/nixos-pbs). Its whole system is
+`nixosConfigurations.pbs-offsite` in this repository's `nixos/` flake, which mini-nas
+runs and deploys; see [`nixos.md`](nixos.md). Its datastore, `offsite`, is the
+`rpool/pbs` dataset on mini-nas, bind-mounted, with no quota and no snapshots: GC
+deleting a chunk file gives the pool the space back directly. The GUI is
+`https://pbs-offsite.forge.local:8007`, user `root`, realm *Proxmox Backup
+authentication server*, its password `gui/root-password` in
+`nixos/hosts/pbs-offsite/secrets.sops.yaml`.
+
+**It pulls; nothing is pushed to it.** It reaches VM 107 over the tailnet as the
+remote `primary`, with a token holding `DatastoreReader` on the primary's datastore
+and nothing else. The primary holds no credential for PBS #2, so nothing on vulcanus
+can write to it or delete from it, a compromised vulcanus included. A push sync would
+need exactly such a credential.
+
+**No deletion on the primary reaches it.** The sync runs without `remove-vanished`,
+into a `vulcanus` namespace, so a mistaken forget, a retention edit or a primary
+rebuilt with an empty datastore leaves PBS #2 as it was. It keeps its own retention,
+the same `keep-last 31` per group. The namespace keeps vulcanus's groups apart from
+anything mini-nas's own PVE might write there.
+
+**Its day is one sequence, not three schedules:** at 12:00 UTC the sync, then the
+protection mirror, then prune. A failure stops it, so nothing is pruned on a day the
+primary's flags could not be read. GC runs Saturday at 14:00 UTC, and verify Sunday
+at 14:00 UTC, taking each snapshot not verified in the last 30 days.
+
+**Sync does not carry the protected flag**, only a snapshot's manifest, indexes and
+chunks. The mirror reads the primary's snapshot list over the same read-only token and
+sets and clears each flag on PBS #2 to match, for every snapshot both hold. A snapshot
+protected on PBS #2 that the primary no longer holds is reported, not changed: there is
+nothing left to mirror it from. Run before prune, it keeps a snapshot newly protected
+on the primary from being pruned here first.
+
+**Verification is per store.** A pull strips the verify state from what it copies, so
+PBS #2's comes from its own weekly verify. The first pull after a verify re-syncs each
+group's newest snapshot, whose manifest now differs from the primary's by the verify's
+result, so in the GUI that snapshot reads unverified until the next Sunday. That is
+expected.
+
+**Nothing rate-limits a sync.** An ordinary day's is 3.5-4.5 GiB, in 10-35 minutes.
+A full one saturates the vulcanus site's upload: the first, 577 GiB, took 40 hours at
+4.1 MiB/s, and re-seeding after either store is rebuilt costs the same. PBS's
+`traffic-control` is where a cap would go.
+
+**PBS #2 runs on UTC**, as does any host of the shared PBS module. PBS reads its
+calendar events in local time, so on UTC they mean what they say, do not move with
+daylight saving, and line up with the cluster's schedules.
+
+On mini-nas, `nixos-container run pbs-offsite -- <command>` runs a command inside it:
+`systemctl start --no-block pbs-offsite-daily` for the chain, and
+`proxmox-backup-debug api get|set|create <path>` for PBS's API as root. **Never
+interrupt `proxmox-backup-debug` while it follows a task**: its log viewer aborts the
+task on SIGINT. **A container restart aborts a running sync or verify**, so a mini-nas
+deploy that restarts it waits until `/var/log/proxmox-backup/tasks/active` inside is
+empty. The loss is small when it happens: a sync keeps the chunks it has and re-sends
+only the snapshot in flight, and the verify skips what it has already verified.
 
 ### The restic repository
 
@@ -143,8 +208,9 @@ which Helm recreates it; its claim and pod carry on.
 ### Schedules
 
 Every backup Job runs as root, since K8up's default uid cannot read much of what is
-backed up. Times are UTC, the operator's clock; the repository host keeps
-`America/Denver`, so its jobs move an hour later in winter.
+backed up. Times are UTC, the operator's clock; the repository host, vulcanus and VM
+107 keep `America/Denver`, so their jobs move an hour later in winter. PBS #2 runs on
+UTC, so its rows never move.
 
 | UTC | What | Where |
 |---|---|---|
@@ -158,6 +224,11 @@ backed up. Times are UTC, the operator's clock; the repository host keeps
 | 08:00 (09:00 in winter) | the mass-file backup | repository host, 02:00 local |
 | 09:00 on the 1st (10:00) | `forget --prune` | repository host, 03:00 local |
 | 10:00 (11:00) | vzdump | vulcanus, 04:00 local |
+| 12:00 | sync, protection mirror, prune | PBS #2 |
+| Saturday 13:00 (14:00) | GC | VM 107, 07:00 local |
+| Saturday 14:00 | GC | PBS #2 |
+| Sunday 14:00 | verify | PBS #2 |
+| 18:00 | `pbs-offsite-freshness` | PBS #2 |
 
 **The dumps-only Schedules give the databases a six-hour RPO** without re-reading the
 volumes. They select the label `k8up-dump: "true"`, which every dump producer carries
@@ -275,7 +346,9 @@ receive then fails without `-F`.
 
 PBS retention is client-side: the vzdump job carries `prune-backups keep-last=31` and
 applies it per guest as it backs that guest up. The PVE storage entry sets
-`prune-backups keep-all=1`, so PVE never prunes the datastore itself.
+`prune-backups keep-all=1`, so PVE never prunes the datastore itself. PBS #2 prunes
+its own copy to the same `keep-last 31` per group, after each day's sync. Neither
+store's prune or forget reaches the other.
 
 Each restic snapshot is already a point-in-time copy, and the repository holds every
 one its retention keeps. So `rpool/backups/restic`'s own ZFS snapshots are only for
@@ -301,22 +374,22 @@ a group whose claim or producer is gone, tagged or not.
 
 ### A retired guest keeps what a live one would
 
-**PBS is the layer that retains a destroyed guest.** Its ZFS replica is destroyed
-alongside it. A retained replica fails `zfs-replication-freshness`: that check's age
-loop walks every dataset under `rpool/foreign-backups/vulcanus` with no exclusion, and
-a retired guest's newest snapshot is frozen at the moment of deletion, so it trips the
+**PBS is the layer that retains a destroyed guest**, on both stores. Guest disks are
+not ZFS-replicated, VM 107's own apart, so nothing else holds one. A replica whose
+source is destroyed goes with it: `zfs-replication-freshness`'s age loop walks every
+dataset under `rpool/foreign-backups/vulcanus` but `canmount=off` containers, and a
+retired dataset's newest snapshot is frozen at the moment of deletion, so it trips the
 26 h limit exactly as a genuinely stale one does. A check that is never green is a
 check nobody reads, which is the condition that let `syncoid-vulcanus-data` fail for
 seven months unnoticed.
 
-The cost is that a retired guest sits at one failure domain — PBS on `rpool`, the same
-spindles as the original — until PBS #2 exists. That is bounded and deliberate: guests
-are rebuildable from `terraform` plus `talosctl`, which is why the failure-domain table
-gives them two copies rather than three.
+A retired guest so keeps two copies in two failure domains, PBS on `rpool` and PBS #2
+on mini-nas, and no third. That is deliberate: guests are rebuildable from `terraform`
+plus `talosctl`.
 
 Retention itself is unchanged by deletion — a retired guest keeps what a live one
 would. Freeing the space is a separate, deliberate act: inspect what is there, decide
-whether it is worth keeping, remove it by hand.
+whether it is worth keeping, remove it by hand, on both stores.
 
 **A group frozen by deletion is preserved by nothing arriving, not by any retention
 setting.** That distinction matters because it is also how the preservation ends:
@@ -334,8 +407,17 @@ before changing a retention value:
 Neither can be made to expire a retired guest by tuning its numbers, and neither can a
 datastore-wide prune job on PBS: prune counts the buckets that *contain* backups rather
 than elapsed calendar time, so `keep-daily 30` against a group frozen months ago keeps
-30 of its snapshots and stops. A retired guest expires only by forgetting its PBS
-group, or by a deliberate `zfs destroy`.
+30 of its snapshots and stops. A retired guest expires only by forgetting its group on
+each store, or by a deliberate `zfs destroy`.
+
+**Archiving is protecting.** Prune neither removes a protected snapshot nor counts it
+toward `keep-last`, and forgetting a group leaves its protected snapshots in place.
+Protect on the primary, and PBS #2's mirror carries the flag across with the next day's
+chain; clearing it travels the same way. From vulcanus:
+
+```bash
+pvesh set /nodes/vulcanus/storage/pbs/content/pbs:backup/vm/<vmid>/<time> --protected 1
+```
 
 ### VMID reuse is tolerated, and alerted on
 
@@ -345,11 +427,13 @@ one. The price is data loss rather than inconvenience, and is worth stating plai
 A PBS group is keyed `vm/<vmid>` with no notion of which machine wrote a given
 snapshot, and the vzdump job prunes every group it touches to `keep-last 31`. So a
 reused VMID appends the new guest's backups to the retired guest's group and evicts one
-old backup per run: **after 31 runs the prior machine is gone from PBS entirely.**
-Nothing fails, and the group simply stops being frozen.
+old backup per run: **after 31 runs the prior machine is gone from both stores**,
+PBS #2 pruning its copy to the same count. Nothing fails, and the group simply stops
+being frozen.
 
 Before reissuing a VMID, look at what its PBS group still holds. If any of it matters,
-take a copy out first — reuse evicts it within 31 days.
+protect it on the primary first — see *Archiving is protecting* — since reuse evicts
+the rest within 31 days.
 
 **It goes to Pushover directly, on its own channel.** The signal is intrinsic to the
 group, so nothing has to be remembered. vzdump stores the guest config in every backup,
@@ -363,10 +447,15 @@ backup failure arriving inside that window would raise no notification at all �
 check would already be red. Keeping the channels apart means a red `pbs-freshness`
 still means "a guest's backups are broken", while the decision gets its own push:
 
-> `vm/900: VMID reused. The oldest backup is machine 31282d50-… and the newest is
-> 6f685ca0-…. 12 of 30 backups still belong to the earlier machine, and the job evicts
-> one per run — they are gone in 12 more runs. Copy out anything worth keeping first —
-> nothing else will say so, and this clears itself when the last one goes.`
+> `vm/900: VMID reused. The oldest unprotected backup is machine 31282d50-… and the
+> newest is 6f685ca0-…. 12 of 30 unprotected backups still belong to the earlier
+> machine, and the job evicts one per run -- they are gone in 12 more runs. Protect on
+> the primary those worth keeping, which archives them on both stores -- nothing else
+> will say so. This clears itself once none of the earlier machine's backups is left
+> unprotected.`
+
+**Reuse is read from the unprotected snapshots alone**, the ones prune can still evict.
+Protecting the earlier machine's backups therefore archives them and ends the alerts.
 
 Counting costs a config-blob read per snapshot, so it happens only once the two ends
 already disagree — never on a healthy group.
@@ -384,7 +473,7 @@ healthchecks ping that never arrives turns its own check red on its own period, 
 losing one announces itself; a Pushover push that never arrives leaves no trace
 anywhere. Failing `pbs-freshness` is the only thing that makes a lost alert visible.
 
-This costs no healthchecks check, so the enumerated twenty are unaffected.
+This costs no healthchecks check, so the checks under *Reporting* are unaffected.
 
 Containers carry no `smbios1`, so for `ct/<vmid>` the comparison uses `net0`'s
 `hwaddr`, which PVE generates per container and which survives a restore of the same
@@ -394,7 +483,44 @@ Comparing against a remembered inventory would miss the transition whenever the 
 file is lost or the check was down for it. The UUID comparison is retroactive, because
 identity is carried in the content. Its reporting lifetime is exactly the decision
 window: it begins on the first run after reuse and falls silent once `keep-last 31` has
-evicted the last old backup, at the moment there is nothing left to decide.
+evicted the last unprotected old backup, at the moment there is nothing left to decide.
+
+## Restoring a guest from PBS #2
+
+Nothing holds a credential for PBS #2 day to day. A restore adds it as PBS storage
+on the host doing the restoring, with a token made for the purpose, and removes both
+afterwards.
+
+1. **A read-only token**, inside PBS #2. The first command prints the secret, once:
+   ```bash
+   proxmox-backup-debug api create /access/users/root@pbs/token/restore --output-format json
+   proxmox-backup-manager acl update /datastore/offsite/vulcanus DatastoreReader --auth-id 'root@pbs!restore'
+   proxmox-backup-manager cert info | sed -n 's/^Fingerprint (sha256): //p'
+   ```
+2. **The storage**, on the restoring host:
+   ```bash
+   pvesm add pbs pbs-offsite --server <address> --datastore offsite --namespace vulcanus \
+     --username 'root@pbs!restore' --password <secret> --fingerprint <fingerprint> --content backup
+   ```
+   mini-nas reaches it on its LAN address. vulcanus has no path to it until the
+   tailnet policy grants `tag:vulcanus-subnet` → `tag:pbs-offsite:8007`, after which
+   the address is `100.64.0.10`; see *Expanding it* in [`tailnet.md`](tailnet.md).
+3. **Restore** with `qmrestore` or `pct restore` from `pbs-offsite:backup/<type>/<id>/<time>`.
+   A scratch restore on vulcanus goes to a VMID added to the vzdump job's `exclude`
+   for as long as it exists: the job is `all 1`, and would back the guest up into a
+   group that freezes the moment it is destroyed.
+4. **If the original may still be running, before anything else**, set `onboot 0`
+   and `link_down=1` on each NIC. The guest comes back with `onboot: 1` and its own
+   addresses, so the host's next boot starts a duplicate on the live guest's IP.
+5. **Afterwards**, `pvesm remove pbs-offsite`, delete the token with
+   `proxmox-backup-debug api delete /access/users/root@pbs/token/restore`, and revert
+   the grant and the `exclude` if either was added.
+
+A VM restored onto mini-nas still names vulcanus's storage: `ide2`'s ISO stops it
+starting until the line is removed, and a SeaBIOS VM's `efidisk0`, which vzdump does
+not take, makes `qm destroy` warn and nothing more. A restore runs at about 300 MB/s
+over mini-nas's LAN and 11 MiB/s from vulcanus over the tailnet, where a worker's
+100 GiB boot disk takes up to two and a half hours, less whatever of it is zeroes.
 
 ## Restoring from restic
 
@@ -473,10 +599,10 @@ restic dump <snapshot-id> <path>
 
 ## Reporting
 
-Twelve healthchecks.io checks, all routed to Pushover: six fed from mini-nas and two
-from the restic repository host via sops-nix secrets, three from vulcanus via
-`/etc/healthchecks/` written by
-[`ansible/backup-monitoring.yaml`](../ansible/backup-monitoring.yaml), and one from a
+Thirteen healthchecks.io checks, all routed to Pushover: six fed from mini-nas; one
+from PBS #2 and two from the restic repository host, via sops-nix secrets; three from
+vulcanus via `/etc/healthchecks/`, written by
+[`ansible/backup-monitoring.yaml`](../ansible/backup-monitoring.yaml); and one from a
 CronJob in the cluster.
 
 | Check | Fed by |
@@ -486,6 +612,7 @@ CronJob in the cluster.
 | `pool-health-mini-nas`, `pool-health-vulcanus` | an hourly timer per host |
 | `zfs-replication-freshness` | a daily timer on mini-nas |
 | `pbs-freshness` | a daily timer on vulcanus |
+| `pbs-offsite-freshness` | a daily timer in PBS #2 |
 | `restic-massfiles`, `restic-prune` | the repository host's two units |
 | `backup-coverage` | the coverage CronJob, every six hours |
 
@@ -530,6 +657,20 @@ prompt it.
 
 An empty group is distinct from an absent one and is treated as no coverage: `vm/107`
 has existed with zero backups since PBS was built.
+
+**PBS #2 is asserted against the primary, reading both stores.** `pbs-offsite-freshness`
+fails when a group's newest snapshot on the primary, once 26 h old, is not on PBS #2,
+and when PBS #2 holds a snapshot whose verify failed, or that is still unverified 8
+days after it last arrived there. Comparing newest snapshots rather than ages lets a
+frozen group pass, having nothing new to copy, while a live group fails within a day
+of its sync stopping. A group only PBS #2 holds is reported, not failed: it is what a
+forget on the primary leaves offsite. It runs at 18:00 UTC, six hours after the sync
+starts, and dies with PBS #2, which the check's period catches.
+
+**PBS #2's job failures go to Pushover directly**: a sync, prune, verify or GC error
+through PBS's own notification target, and a failed protection mirror from the chain
+itself. None spends a check. A GC that stops running is not asserted; the space it
+would have freed reaches `pool-health-mini-nas`.
 
 **Pool health is read from the pool.** `zfs-scrub@` exits 0 having found errors, so no
 unit's exit status can report a dirty pool. The check reads `zpool status -x`, the
