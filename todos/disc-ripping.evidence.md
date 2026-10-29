@@ -3282,3 +3282,256 @@ This completes the three-disc-type validation of phase 2c:
 - Job 76: DVD, stamp + ISO + title map (backfilled)
 - Job 77: DVD, stamp + ISO + title map (live)
 - Job 78: Blu-ray, stamp + BDMV folder
+
+### 2026-10-24 — titles that repeat other titles: surveyed, decided, built
+
+Asked by Will: whether play-all titles only occur on TV discs, whether they
+always duplicate the other titles, and how to recognise one. Job 80 (Downton
+Abbey D1, the first Blu-ray series disc) was transcoding as this ran, and has
+since started on its 207-minute play-all. Scripts and full outputs are in
+`captures/play-all/`.
+
+**Sources.** All 54 Blu-ray backups in `raw/` (playlists parsed from
+`BDMV/PLAYLIST/*.mpls`: each play item's clip and in/out times, chapter marks);
+the two phase-2c ISOs of *Pinky* D2 (`lsdvd`'s cell sector ranges); the
+MakeMKV title tables in the ~45 job logs that still hold them, for the older
+DVDs whose raw copy is only their long titles; durations of the older TV DVDs'
+MKVs.
+
+**Not TV alone.** TV discs with a play-all: *Sylvester and Tweety* D1/D2,
+*Pinky* D1/D2, the animated *Mummy*, Downton D1. TV discs without: *Firefly*
+D1–3, *Witch Hunter Robin* V1–6, *Sherlock Holmes in the 22nd Century*. Movie
+discs carry them too: *Alien* Bonus D5 (four featurette play-alls), *Scott
+Pilgrim* (two), the *Downton Abbey* film (a 16.9-min featurette play-all),
+*Robin Hood*'s bonus disc, *X-Men: First Class*.
+
+**Usually but not always a strict duplicate.** On *Pinky* D2, DVD title 1's 30
+cells are exactly the six episodes' five content cells each; every episode
+also plays one shared 73-sector closing cell the play-all omits, which is the
+0.1 min the 2026-09-04 entry measured. *Scott Pilgrim* `00448` and *Alien*
+`00246` hold pieces (a 175 s clip, ~7 min) that no title of 7 min or more
+plays, so for those the play-all is the only transcoded copy.
+
+**How to tell.** Length against the sum of the others works only on a simple
+TV disc; it fails once a disc has extras or several play-alls. Position, chapter
+counts and MakeMKV's segment map (TINFO 26, which restarts at 1 for every
+title) don't work. libbluray's duplicate filters, which HandBrake uses, drop
+only identical and clip-looping playlists. What works is containment of what
+is played: a title that two or more others, each inside it and disjoint from
+each other, cover.
+
+**Near misses that shaped the rule.** *Dredd*'s film is four clips, three of
+them long titles of their own, covering 93.5% of it: not a play-all. Alternate
+cuts (*Cabin in the Woods*, *Howl's*, *Cowboy Bebop*) contain each other but
+are one component, never two parts. Hence a 99% coverage threshold and the
+two-disjoint-parts requirement.
+
+**What the play-alls are**, checked rather than assumed:
+
+- *Robin Hood*'s bonus disc (job 36, `crc_id` `d3c5ce89aef40f61`; job 35 was
+  the film's disc): its 62.7-min title is `t01`+`t02`+`t03` back to back,
+  90,696 of 90,698 video packets identical (`ffmpeg -f framemd5`), with chapters
+  at the joins. Frames show interviews and an edit suite, a making-of in three
+  parts. ARM filed it as `completed/movies/Robin-Hood (2010)_178999705941/Robin-Hood (2010).mkv`.
+- *X-Men: First Class* `00500` is the film's 14 clips (`00800`, 131.7 min, the
+  released 2h11m) in order with eight featurette clips from `00432` cut
+  between them. It is the disc's "X Marks the Spot" mode, which "seamlessly
+  branches away to behind-the-scenes videos… at appropriate moments"
+  ([BigPictureBigSound](https://www.bigpicturebigsound.com/X-Men-First-Class-Blu-ray.shtml));
+  frames of the inserts show a captioned interview, crew on set, a
+  pre-visualisation split screen and a title-sequence motion test. The MPLS
+  connection flags (5, seamless, on every join) can't tell this from an
+  extended cut's branching.
+- In our AV1 transcode of *Robin Hood*'s documentary, keyframes sit every
+  ~6.7 s plus one exactly at each chapter (1086.185 s, 2854.390 s), so a kept
+  whole can be cut into its parts without re-encoding.
+
+**Decided** (Will, 2026-10-24), after asking whether TV alone would be safer:
+every disc, since movie discs fare worse today (a play-all named as the film)
+and the series label is OMDb's guess (job 63, the animated *Mummy*, came back
+`movie`; job 69, *True Crime*, `series`). The in-film extras mode is not the
+film: *"if it's like an interactive mode (e.g. not what the director would
+have considered part of the movie), then preferable to leave it out"*, where an
+extended edition would be the film. For a work in parts, *"very tempting to
+keep the whole and skip the parts"*, without contradicting TV, where the
+episodes are wanted. Hence: a series keeps the parts; a movie disc keeps a
+whole whose parts are sequential with a chapter at each join; interleaved
+parts are kept apart and the whole skipped, with a notification on a movie
+disc. Plex documents no multi-part extras or sequential play
+([Plex](https://support.plex.tv/articles/local-files-for-trailers-and-extras)),
+so one file with chapters is the dependable way to play a work in parts
+through.
+
+**Built** as `arm-duplicate-titles.py`, appended to `handbrake.py`, with two
+edits in `handbrake_all`. Run over every raw folder with a structure
+(`captures/play-all/harness.py`, read-only, ARM's track list from a full
+HandBrake scan as `get_track_info` makes it), the outcome:
+
+| disc | type | skipped |
+|---|---|---|
+| Downton Abbey D1 | series | the 207-min play-all; main feature moved to an episode |
+| *Pinky* D2, both ISOs | series | DVD title 1, 127.8 min |
+| *Alien* Bonus D5 | movie | 32 featurettes, kept as three documentary wholes; `00246` and its parts transcoded |
+| *Downton Abbey* film | movie | six intro variants, kept as the 16.9-min whole |
+| *Scott Pilgrim* | movie | `00370`'s two halves, the whole kept; `00448` transcoded |
+| *X-Men: First Class* | movie | `00500`, notified; main feature moved to `00800` |
+| 47 others | | nothing |
+
+*Pinky* D2 run as a movie keeps the 127.8-min whole and skips the six
+episodes, with each episode's start recorded, which is the misfiled-series
+case.
+
+**Wrong turns in the session.**
+
+- *X-Men*'s `00500` was first described as "the film with featurettes cut in",
+  then grouped with *Robin Hood* as "extras filed as the film". Only *Robin
+  Hood*'s is bonus-only.
+- The first build placed each part by everything it plays. The *Downton Abbey*
+  film's featurette variants share an intro clip, so both started at 0, read
+  as interleaved, and sent a spurious "extended cut?" notification. Parts are
+  now placed by what only they play.
+- `lsdvd -c -d` was used to read a DVD's cells; it prints no title-set number
+  (`vts`), only with `-v`, and the survey had used `-x`. The DVD path fell back
+  to transcoding everything on both ISOs. The unit-test fixture had invented
+  the key; the fake lsdvd now prints `vts` only with `-v`.
+- The first edit's anchor spanned `d14-encode`'s line, marker included, so the
+  patcher would have read D14 as applied wherever that text stood. Split into
+  two edits that avoid it.
+
+**Measured costs.** The comparison needs its own HandBrake scan of the
+Blu-ray. A full scan of *Alien* (180 playlists) took 315 s; with
+`--min-duration 420`, 22 s, the title numbering identical on all 52 Blu-rays
+whose scan found titles (only HandBrake's own main-feature guess differs, on
+*Alien* Bonus D5, which the code doesn't read). *Now You See Me*'s 213 long
+playlists took 430 s even so, beside a transcode, and the decision 8.5 s. *Dune*
+and *The Polar Express* yield no titles at all ("scan thread found 0 valid
+title(s)"); both are D16's partial backups.
+
+**Seen, not acted on.** *Now You See Me*'s 212 near-identical playlists are
+alternate cuts to the rule and all transcoded; it is on the re-rip list. A
+bonus disc's longest kept title is still named as the film.
+
+### 2026-10-25 — job 82, Downton Abbey D2: the first real run, and a type bug
+
+Deployed as `89dface9`. The pod logged eight `source-patches: applied` lines.
+
+**Job 81 was killed by the deploy, not the disc.** A `kubectl rollout restart`
+at 18:01 UTC, made on top of Flux's own rollout, left a `restartedAt`
+annotation on the Deployment. Flux's next reconcile, 10 minutes later, removed
+it, which rolled the pod again and sent SIGTERM to job 81 in its manual wait.
+To pick up a change to `init-scripts.yaml` without that, delete the pod
+(`kubectl delete pod`): the ReplicaSet recreates it from the same template, and
+Flux has nothing to revert.
+
+Job 82, the same disc with the tray closed from vulcanus at Will's direction:
+backup 18:28–21:59 UTC, checked complete, nine HandBrake titles. Then:
+
+```
+WARNING: handbrake._arm_duplicate_titles: Transcoding every title, as the disc's
+structure cannot be read: TypeError('expected str, bytes or os.PathLike object, not int')
+```
+
+`cfg.arm_config["MINLENGTH"]` is the int `420` in ARM's loaded config, and was
+passed into HandBrake's argument list as it stood. The tests' fake config and
+the corpus harness both held the string `"420"`, so neither could see it, and
+the fake `subprocess` accepted any argument. Both now match the real ones: the
+config is typed as ARM loads it, and the fake raises the real `TypeError`. Six
+tests failed on that before the fix, the end-to-end Downton tests among them,
+in the same way the job did. The fallback behaved as designed: the job went on
+with every title, the 157-minute play-all (title 7) included.
+
+The fixed code, run read-only on job 82's backup with ARM's own `cfg`, skips
+title 7 (`00006.mpls`) as the play-all of titles 2, 3 and 4, at 0, 2859.8 and
+5658.6 s, and keeps the two extras (titles 5 and 6, 13 and 10 min).
+
+**Job 83, the fix on the disc.** `c78322b0` deployed as `b05a4488`. Job 82 was
+on its third title. The pod was deleted at 03:15 UTC rather than restarted,
+which killed job 82 (`Received SIGTERM`, D2 ejected), and the new pod logged
+eight `applied` lines. The tray was closed from vulcanus. Job 83: backup
+03:26–06:58 UTC, checked complete, then
+
+```
+handbrake._arm_duplicate_titles: Title 7 is not transcoded: it plays titles 2, 3, 4 in turn
+```
+
+The stamp's `duplicates` holds `00006.mpls` as skipped, `kept: parts`, and
+the parts starting at 0, 2859.79 and 5658.62 s, as the read-only run on job
+82's backup predicted. The main feature moved from title 7 to title 4 (3761
+s). Job 82's two partial transcodes are left in
+`transcode/tv/Downton-Abbey (2010-2015)_179295226579/`.
+
+### 2026-10-26 — the main feature keeps its title_N name
+
+Asked by Will whether to stop ARM relabelling the longest title. `utils.move_files`
+moves the track flagged as main feature to `<Title (Year)>/<Title (Year)>.mkv`,
+others keeping `title_N.mkv` under `extras/`. Both routes to a main feature,
+HandBrake's flag and `skip_transcode_movie`'s largest file, pass through it.
+The rename leaves no record of which HandBrake title the film was outside
+ARM's database: a Blu-ray stamp has no title map, the transcode's tags name
+only the disc, and the job log goes after 90 days. Nothing reads the name:
+Plex never sees `completed/`, and reelbarrow decides the film from TMDB's
+runtime and fingerprints. Its examples (*Robin Hood*'s bonus disc) are the
+rename being wrong.
+
+**Decided** (Will, 2026-10-26): disable the rename, keep the folder naming, and
+update reelbarrow's specs. Built as the `keep-main-feature-name` edit. Applied
+to a copy of the running image's `utils.py` and called on scratch files, the
+main feature lands as `Robin-Hood (2010)/title_1.mkv` and the other title as
+`Robin-Hood (2010)/extras/title_2.mkv`.
+
+Job 83 ended `success` at 16:51 UTC: three episodes (47.7, 46.6 and 62.7 min)
+and two extras (13.2, 9.7 min) in `completed/`, no play-all. `30e0245f`
+deployed as `4d4aa9ed`, and the pod was deleted once job 83 had ended with no
+other job active. The new pod logged nine `applied` lines and none `cannot
+apply`, and `utils.py` carries `keep-main-feature-name`.
+
+### 2026-10-26 — the stamp's fields renamed, schema left at 1
+
+`titles` became `extracted` (it lists the titles MakeMKV extracted, not the
+disc's), and every HandBrake number `handbrake_title`, where `duplicates` had
+a bare `title`. Will: since nothing had consumed the stamp and every copy is
+rewritten, keep `schema` at 1. `1a8b04ac` deployed as `76367fdd`; the pod was
+deleted with no job active and logged nine `applied` lines. Then
+`captures/stamps/rename-fields.py` rewrote all seven stamps on the share (jobs
+76–80, 82, 83; job 79's had been missed when listing them by folder name),
+and a second pass changed nothing. Each is byte-identical to reelbarrow's
+fixture. Originals are in `captures/stamps/original/`. ZFS snapshots from
+before the rewrite still hold the earlier shape.
+
+### 2026-10-26 — the SATA streak re-counted, and job 73
+
+`journalctl _TRANSPORT=kernel` on vulcanus has no `ata4` line after the boot of
+2026-10-08 22:25, so jobs 47–83 are clean, 37 in a row (job 81 was killed in
+its manual wait and never reached the drive). Job 73, *Pinky* D1 on
+2026-10-21, failed `Error while running MakeMKV`: `MSG:5010 Failed to open
+disc`, then `Call to MakeMKV failed with code: 11`, the signature of job 19.
+Job 74 ripped the same disc two hours later.
+
+### 2026-10-29 — job 87, the Robin Hood bonus DVD: a movie DVD's whole kept
+
+The disc of job 36 (`crc_id` `d3c5ce89aef40f61`), ripped again for its image.
+The title was set by hand to `Robin Hood` in the manual wait, so the folders are
+`raw/Robin Hood/` and `movies/Robin Hood (2010)/`, not job 36's
+`Robin-Hood (2010)_178999705941`. Backup 01:33–01:47 UTC, six titles extracted
+from the ISO, then:
+
+```
+handbrake._arm_duplicate_titles: Title 4 is not transcoded: it is played whole by title 3
+handbrake._arm_duplicate_titles: Title 5 is not transcoded: it is played whole by title 3
+handbrake._arm_duplicate_titles: Title 6 is not transcoded: it is played whole by title 3
+```
+
+The stamp records disc title 1 (HandBrake 3) as `kept: whole`, not
+interleaved, its parts at 0, 1086.118 and 2854.385 s. The whole's MKV
+(`E1_t00`) has chapters at 1086.118367 and 2854.384867, and its transcode at
+1086.185 and 2854.390: the starts are in playback time, where lsdvd's unscaled
+lengths would put them about a second early. The parts' MKVs last 1086.118,
+1768.266 and 907.239 s.
+
+Job 87 ended at 02:44 UTC: `title_3.mkv` (62.7 min) at the top of
+`completed/movies/Robin Hood (2010)/`, `title_1.mkv` and `title_2.mkv` (13.3
+and 7.4 min) under `extras/`, the disc ejected, and an empty `transcode/`
+folder left as before. MakeMKV's `info disc:9999` logged `Failed to open
+disc` at 01:33:56, as it does in jobs 76's and 77's logs; the backup that
+followed opened the drive. The stamp is reelbarrow's fixture `job-87.json`,
+copied by checksum.

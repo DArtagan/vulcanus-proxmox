@@ -36,10 +36,11 @@ INIT_SCRIPTS = (
 RIPPER = "/opt/arm/arm/ripper"
 ARM_LOG = "/home/arm/logs/arm.log"
 WHOLE_DISC_PY = "/usr/local/bin/arm-whole-disc.py"
+DUPLICATE_TITLES_PY = "/usr/local/bin/arm-duplicate-titles.py"
 
 SECTOR = 2048
 PACKET = 192
-APPLIED_EDITS = 5
+APPLIED_EDITS = 9
 
 
 def load_configmap(key: str) -> str:
@@ -73,6 +74,8 @@ class Patcher:
         self.log = self.root / "arm.log"
         self.whole_disc = self.root / "arm-whole-disc.py"
         self.whole_disc.write_text(load_configmap("arm-whole-disc.py"))
+        self.duplicate_titles = self.root / "arm-duplicate-titles.py"
+        self.duplicate_titles.write_text(load_configmap("arm-duplicate-titles.py"))
         ns = patcher_namespace()
         self.edits = [
             (name, Path(path.replace(RIPPER, str(self.ripper))), old)
@@ -87,6 +90,7 @@ class Patcher:
             (RIPPER, self.ripper),
             (ARM_LOG, self.log),
             (WHOLE_DISC_PY, self.whole_disc),
+            (DUPLICATE_TITLES_PY, self.duplicate_titles),
         ):
             if original not in script:
                 message = (
@@ -133,8 +137,13 @@ class Patching(unittest.TestCase):
         self.p.run()
         order = [line.split("applied ", 1)[1].split()[0] for line in self.p.log_lines()]
         self.assertLess(order.index("whole-disc-code"), order.index("whole-disc-route"))
+        self.assertLess(
+            order.index("duplicate-titles-code"), order.index("duplicate-titles-scan")
+        )
         makemkv = (self.p.ripper / "makemkv.py").read_text()
         self.assertIn("def _arm_backup_dvd(job, rawpath):", makemkv)
+        handbrake = (self.p.ripper / "handbrake.py").read_text()
+        self.assertIn("def _arm_duplicate_titles(srcpath, job):", handbrake)
 
     def test_a_restart_applies_nothing_again(self) -> None:
         # The container keeps its patched files across a restart.
@@ -228,11 +237,6 @@ class TInfo(CInfo):
     tid: int
 
 
-def convert_to_seconds(hms: str) -> int:
-    hours, minutes, seconds = hms.split(":")
-    return int(hours) * 3600 + int(minutes) * 60 + int(seconds)
-
-
 class TrackInfoProcessor:
     seen: list = []  # noqa: RUF012 - reset per test
 
@@ -280,8 +284,7 @@ def whole_disc(fake: FakeMakeMKV) -> dict:
         ),
         "TrackInfoProcessor": TrackInfoProcessor,
         "TInfo": TInfo,
-        "TrackID": types.SimpleNamespace(DURATION=9, FILENAME=27),
-        "convert_to_seconds": convert_to_seconds,
+        "TrackID": types.SimpleNamespace(FILENAME=27),
         "utils": types.SimpleNamespace(RipperException=RipperError),
     }
     exec(compile(load_configmap("arm-whole-disc.py"), "arm-whole-disc.py", "exec"), ns)  # noqa: S102
@@ -369,7 +372,7 @@ class Stamp(Base):
                 "start_time": "2026-10-21T13:19:30+00:00",
                 "complete": None,
                 "problems": [],
-                "titles": None,
+                "title_map": None,
             },
         )
 
@@ -588,20 +591,10 @@ class Dvd(Base):
         # its title 2, whatever MakeMKV's own numbering.
         self.backup_dvd()
         self.assertEqual(
-            self.stamp()["titles"],
+            self.stamp()["title_map"],
             [
-                {
-                    "disc_title": 1,
-                    "mkv": "B1_t00.mkv",
-                    "length": 429,
-                    "handbrake_title": 2,
-                },
-                {
-                    "disc_title": 4,
-                    "mkv": "A2_t01.mkv",
-                    "length": 449,
-                    "handbrake_title": 1,
-                },
+                {"disc_title": 1, "mkv": "B1_t00.mkv", "handbrake_title": 2},
+                {"disc_title": 4, "mkv": "A2_t01.mkv", "handbrake_title": 1},
             ],
         )
 
@@ -613,14 +606,14 @@ class Dvd(Base):
         ]
         self.fake.titles_saved = ["b_t00.mkv", "C_t01.mkv"]
         self.backup_dvd()
-        numbers = {t["mkv"]: t["handbrake_title"] for t in self.stamp()["titles"]}
+        numbers = {t["mkv"]: t["handbrake_title"] for t in self.stamp()["title_map"]}
         self.assertEqual(numbers, {"C_t01.mkv": 1, "b_t00.mkv": 2})
 
     def test_a_title_listed_but_not_saved_has_no_handbrake_number(self) -> None:
         # The ones after it move up, because HandBrake counts what is there.
         self.fake.titles_saved = ["B1_t00.mkv"]
         self.backup_dvd()
-        numbers = {t["mkv"]: t["handbrake_title"] for t in self.stamp()["titles"]}
+        numbers = {t["mkv"]: t["handbrake_title"] for t in self.stamp()["title_map"]}
         self.assertEqual(numbers, {"B1_t00.mkv": 1, "A2_t01.mkv": None})
 
     def test_the_stamp_has_no_titles_until_they_are_extracted(self) -> None:
@@ -629,7 +622,7 @@ class Dvd(Base):
         )
         with self.assertRaises(RipperError):
             self.backup_dvd()
-        self.assertIsNone(self.stamp()["titles"])
+        self.assertIsNone(self.stamp()["title_map"])
 
 
 if __name__ == "__main__":

@@ -94,6 +94,9 @@ spec:
             - mountPath: /usr/local/bin/arm-whole-disc.py
               name: init-scripts
               subPath: arm-whole-disc.py
+            - mountPath: /usr/local/bin/arm-duplicate-titles.py
+              name: init-scripts
+              subPath: arm-duplicate-titles.py
             - mountPath: /etc/service/armui/run
               name: init-scripts
               subPath: armui.sh
@@ -142,6 +145,8 @@ spec:
                 path: arm-source-patches.py
               - key: arm-whole-disc.py
                 path: arm-whole-disc.py
+              - key: arm-duplicate-titles.py
+                path: arm-duplicate-titles.py
               - key: armui.sh
                 path: armui.sh
         - name: data

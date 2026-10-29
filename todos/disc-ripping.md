@@ -30,23 +30,24 @@ review base `review/disc-ripping-base`.
 | 2c | DVD — a whole-disc raw copy, each raw folder stamped with its job, every backup checked (D16) | done 2026-10-23; jobs 76–78 (two DVDs, one Blu-ray) |
 | 3 | Blu-ray | done 2026-09-17 |
 | 4 | 4K UHD Blu-ray | not started — feasibility unproven |
-| — | Drive drops off its SATA link | **open, watching** — no event in jobs 47–72 |
+| — | Drive drops off its SATA link | **open, watching** — no event in jobs 47–83 |
 
 CD, DVD and Blu-ray rip end to end, and the disc stays locked until its whole job
 is done. Each phase's working is in the evidence. Since phase 2c, a DVD's raw copy
 is the whole disc as a decrypted ISO, and DVDs ripped before it hold only their
 long titles.
 
-`disc-rerip-list.txt`, untracked at the root of the main checkout, is the list
-handed to Will's brother: the seven Blu-rays D16 found missing part of their film,
-to re-rip now, and every DVD ARM has ripped, to re-rip once phase 2c is deployed.
+The re-rip list is with Will's brother, emailed by Will, and no copy is kept
+here: the seven Blu-rays D16 found missing part of their film, and every DVD
+ripped before phase 2c, whose raw copy is only its long titles.
 
 ---
 
 ## The drive's SATA link losses: start here
 
-Summary as of 2026-10-20. The evidence is the progress log's entries from
-2026-09-22 through 2026-10-20, and each point below names its entry.
+Summary as of 2026-10-20, the streak re-counted 2026-10-26. The evidence is the
+progress log's entries from 2026-09-22 through 2026-10-20, and each point below
+names its entry.
 
 **What the failure is.** The drive stops answering one command, LibreDrive's
 handshake read, `READ BUFFER` mode 2 buffer `0x77`. There are two forms: the
@@ -78,9 +79,9 @@ downgraded.
 
 **The current lead.** The D15 `HOME` fix also let MakeMKV download and keep
 the latest LibreDrive definitions: SDF `0xA6`, against the built-in `0xA5`
-that every earlier job ran. Jobs 47 through 72, 26 in a row, have run on `0xA6`
+that every earlier job ran. Jobs 47 through 83, 37 in a row, have run on `0xA6`
 with no `ata4` event, all on the host boot of 2026-10-08 22:25 (checked
-2026-10-20). Two of them were the discs with the worst record (*Around the
+2026-10-26; job 81 was killed before it reached the drive). Two of them were the discs with the worst record (*Around the
 World* disc 2, *Sherlock*). From the 2026-09-21 restart until the fix, 1 of 9
 jobs was clean. Against it: `0xA5` ran mostly clean in jobs 18–36; the drive's
 `sdftool --info` entry is identical in both versions; and the host's lone read
@@ -140,8 +141,13 @@ every earlier run read `0x121000`.
   within seconds but still leaves a fresh pod. Confirm in the running container,
   for instance `grep MANUAL_WAIT_TIME /etc/arm/config/arm.yaml`, and do not trust
   `flux get kustomizations`, which reports healthy either way.
-- **After an ARM image bump**, `arm.log` should show five `source-patches:
-  applied` lines (see `docs/automatic-ripping-machine.md`).
+- **After an ARM image bump**, `arm.log` should show nine `source-patches:
+  applied` lines (see `docs/automatic-ripping-machine.md`). If HandBrake changed,
+  also check one Blu-ray: the duplicate check's own scan uses `--min-duration`,
+  and assumes it numbers titles as ARM's full scan does. That held on all 52
+  readable Blu-rays with HandBrake 1.11.2 (2026-10-24), and a mismatch would
+  skip the wrong titles. Compare `HandBrakeCLI --json -i <raw> -t 0 --scan`
+  with and without `--min-duration 420`.
 - **`sops -d` cannot run unattended here**: the age recipient is a
   passphrase-protected SSH key and sops has no tty. Editing the ARM secret is
   always Will's to do.
@@ -172,7 +178,8 @@ current ring buffer and nothing older. Capture it while a failure is fresh.
 - `kubernetes/apps/automatic-ripping-machine/deployment.yaml` — mounts, resources
 - `kubernetes/apps/automatic-ripping-machine/init-scripts.yaml` — the udev rule,
   `arm-disc-wrapper.sh`, `arm-audio-handoff.sh`, `arm-title-charset.*`,
-  `arm-source-patches.py` and the `arm-whole-disc.py` it appends
+  `arm-source-patches.py` and the `arm-whole-disc.py` and
+  `arm-duplicate-titles.py` it appends
 - `kubernetes/apps/automatic-ripping-machine/api-keys` — SOPS; MakeMKV, OMDb and
   Pushover
 - `tools/arm-disc-wrapper/`, `tools/arm-audio-handoff/`, `tools/arm-title-charset/`,
@@ -316,8 +323,8 @@ number for it, which names its transcode. Nothing else keeps that chain once
 `titles/` is deleted: the database's MakeMKV and HandBrake rows aren't linked,
 the transcode's tags name only the disc, and the job log goes after 90 days.
 Job 76 shows why `_tNN` isn't the disc's number: `t01` is DVD title 4. Deployed
-2026-10-22 (`35dfcd4e`); job 76's stamp predates it, and no DVD has run with it
-yet.
+2026-10-22 (`35dfcd4e`): job 77 wrote its own, and job 76's was filled in from its
+log and matches it. The field is `title_map`, without lengths (below).
 
 **Backfill for existing jobs** is possible, from what ARM still holds:
 
@@ -335,7 +342,22 @@ yet.
 
 Logs age out 90 days after their job, so job 15's goes around 2026-11-30, and the
 rest follow week by week. Run the backfill before then, or keep the mapping
-somewhere durable.
+somewhere durable. The DVD jobs it leaves without a stamp aren't kept: those
+discs are to be re-ripped, for their images (Will, 2026-10-28), and each re-rip
+writes its own stamp.
+
+**The backfill is limited to folders holding the whole disc** (Will, 2026-10-28):
+a `BDMV/` or an image, which no DVD job before the stamp left, so Blu-ray jobs
+alone. `tools/arm-stamps/stamps.py` does it and the rewrite of every stamp to the
+current form in one pass. Its dry run on 2026-10-28: ten rewrites (jobs 76–80,
+82–86) and five backfills, jobs 23, 25 and 27 by their own logs and 7 and 8 by
+their `_<stage>` suffixes. Every copy passed the size check. `complete` is left
+out unless that check fails, because the backup's hash check can't be rerun, and
+a stamp carries no mark of being backfilled (both Will, 2026-10-28). Job 2's row
+names job 61's log, which the tool rejects by its first line's time. Written
+with `--write` on 2026-10-28, the share's ten stamps copied out first, and every
+stamp read back in the current form. After the deploy and ARM's restart, a dry
+run found nothing left to change.
 
 ## Other open items
 
@@ -344,11 +366,69 @@ somewhere durable.
   to Opus. Nothing is lost — the raw backup keeps it — but the intent recorded was
   passthrough. Will's call which is wanted; the docs describe the re-encode, and
   change with the preset if passthrough is chosen.
-- **Play-all titles are transcoded in full.** On a TV disc the compilation title
-  passes `MINLENGTH` and costs hours of encoding for output that duplicates the
-  episodes. It is recognisable: on both *Sylvester and Tweety* discs its length was
-  within 0.1 min of the sum of the other titles. Needs a guard for one-episode discs
-  and mixed discs before filtering on it. Not decided.
+- **Titles that repeat other titles: verified on a Blu-ray series disc (job
+  83, 2026-10-26) and a movie DVD (job 87, 2026-10-29).** The
+  rule and its outcomes are in the docs (*Titles that repeat other titles*), the
+  survey behind it in the evidence (2026-10-24). Decided (Will, 2026-10-24):
+  apply it to every disc, not TV alone, since the series/movie label is OMDb's
+  guess and movie discs fare worse today; a series keeps its parts, a movie
+  disc keeps a sequential whole; an in-film extras mode like *X-Men: First
+  Class*'s is not the film and is left out, where an extended edition would be
+  the film. Job 83, Downton Abbey D2, skipped its 157-minute play-all and
+  recorded it in the stamp. Job 87, the *Robin Hood* bonus DVD, transcoded its
+  62.7-minute documentary and skipped the three parts it plays, placed at 0,
+  1086.118 and 2854.385 s, its MKV's own chapters. Still unrun in a job: a TV
+  DVD's play-all, next *Sylvester and Tweety* D1. Unproven too: a
+  job has never sent the movie-disc notification for an interleaved title, and
+  a series filed as a movie (as job 63's animated *Mummy* was) keeping one
+  whole has only run read-only. Open: on a
+  movie disc, a title playing the film and then a featurette, with a chapter at
+  the join, would be kept whole and taken for the film. No disc ripped here has
+  that shape.
+- **The main feature keeps its `title_N` name: verified 2026-10-29, job 87.**
+  Decided (Will, 2026-10-26): ARM's rename to `<Title (Year)>.mkv`
+  is disabled, the folder naming kept. The rename erased the film's title
+  number, and reelbarrow identifies the film itself. Job 87 left
+  `title_3.mkv` at the top of `Robin Hood (2010)/` and the two featurettes
+  under `extras/`.
+- **A skipped title's track row reads `ripped`.** ARM sets `ripped` at
+  registration for any title over `MINLENGTH`, so job 83's skipped play-all
+  has `ripped = 1` and no `filename`, and a manifest exports that. Documented
+  as is on both sides (Will, 2026-10-26: note it, don't fix it yet); readers
+  take a transcode as `filename` set. Potential fix: `_arm_duplicate_titles`
+  sets `ripped = False` on each title it skips. Nothing in ARM's move reads
+  it otherwise: an empty `filename` is already passed over.
+- **The stamp is a contract with reelbarrow.** Its evolution rule is in the
+  docs (*Stage 1*). reelbarrow keeps every stamp on the share as a test
+  fixture (jobs 76–80 and 82–87, and the five backfilled), so a change to
+  the stamp should come with a fixture there. Fields renamed 2026-10-26 (Will), schema left at 1 because nothing had read it:
+  `titles` became `extracted`, and every HandBrake number `handbrake_title`.
+  The seven stamps on the share were rewritten once that code ran, and match
+  reelbarrow's fixtures byte for byte. Changed again 2026-10-28, still at schema
+  1 because reelbarrow's reader isn't deployed yet (Will: *"We've been
+  essentially in prolonged iterative feature development, before release"*):
+  `extracted` and a Blu-ray's `playlists` became one `title_map`, each entry's
+  identifiers in the order the title passes through them, and `length` went,
+  since nothing reads it.
+- **A Blu-ray stamp's title map: built (Will, 2026-10-28).** Parked until
+  reelbarrow found fingerprint pairing ambiguous on a Blu-ray, and job 79 did:
+  four of its featurettes come in variants 1–3 s apart that share 99–100% of
+  their clips, so their audio can't tell them apart, and nearest length paired
+  `title_76` with `01235.mpls` where the job log shows `01227.mpls`. A
+  Blu-ray's `title_map` now records each playlist against its `handbrake_title`,
+  from the scan the duplicate check runs, on every Blu-ray, and older jobs' maps
+  come from their own logs (the backfill above). **To verify:** the next Blu-ray
+  job's `title_map` matches the `+ playlist:` line beside each `Transcoding title
+  N` in its job log.
+- **Two ways the DVD duplicate check can fail to read a disc, neither seen on
+  one yet.** `_arm_dvd_titles` takes lsdvd's `-Oy` output after its first `=`,
+  and libdvdread writes its warnings to stdout ahead of it, `CHECK_VALUE failed
+  … == 0` among them: lsdvd printed those for an image built from IFOs alone,
+  though not for job 76's ISO. And lsdvd copies the device path, so a raw
+  folder's name, into that output unescaped, and a name with an apostrophe ends
+  its string early. Either raises, and every title is transcoded, which costs
+  encoding time and nothing else. reelbarrow's reader starts at `lsdvd = {` and
+  lifts the free-text lines out before parsing; the same would do here.
 - **The transcode preset has never been reviewed** against a finished file: SVT-AV1
   10-bit, CRF 30, preset 4, Opus audio. Finished files now exist.
 - **`LOGLEVEL: DEBUG`** was kept through phase 3 for detail when a rip failed, to be
@@ -362,15 +442,20 @@ somewhere durable.
   get a main feature picked, rather than being recognised as a pair.
 - **Job 19, *An American Tail: Fievel Goes West*, failed to open** (`code: 11`) on a
   disc that mounted and identified. Job 62 ripped the same disc (`crc_id`
-  `34518b467593a800`) cleanly on 2026-10-18, so the disc reads. Why job 19 failed
-  is undiagnosed.
+  `34518b467593a800`) cleanly on 2026-10-18, so the disc reads. Job 73 (*Pinky*
+  D1, 2026-10-21) failed the same way, `Failed to open disc` then `code: 11`,
+  with no `ata4` event, and job 74 ripped the same disc two hours later. Twice
+  now, each time cured by a retry. Undiagnosed.
 - **Job 39's `completed/` holds two titles** where seven passed `MINLENGTH`.
   Unexplained; its raw MKVs are intact.
 - **Housekeeping**, after the work rather than during it: 76 empty directories in
   `/root/video/raw/`, four surplus copies of *The Rescuers*' BDMV (185 GB), D16's
   partial Blu-ray copies once their complete twins are confirmed, empty
   directories under `completed/` and `transcode/` that force the `_<stage>` suffix
-  on later output, and *Sherlock* filed as `tv/Sherlock (2010-2017)/`.
+  on later output, *Sherlock* filed as `tv/Sherlock (2010-2017)/`, job 80's
+  Downton D1 transcodes, which include its 207-minute play-all (`title_6.mkv`),
+  and job 82's two partial transcodes in
+  `transcode/tv/Downton-Abbey (2010-2015)_179295226579/`.
 - **Downstream.** Nothing watches `video/import/automatic-ripping-machine/`; that is
   [`video-library-ingest.md`](video-library-ingest.md), which also holds what the
   rips showed about TV numbering and the duplicate Blu-ray feature.
@@ -456,23 +541,16 @@ just ripped the old way (evidence, 2026-10-21):
   in size. One pair checked hashes identically stream by stream; the files
   differ only in container metadata.
 - No pack in any VOB of the ISO carries a PES scrambling flag (2,989,811
-  packs). The counter finds 100 of 100 in a control. **Whether the disc is
-  CSS-protected isn't established**, so this shows a clear image, not yet that
-  scrambled sectors were decrypted. Will has approved reading the drive's
-  copyright descriptor (`READ DVD STRUCTURE` format 1, 2026-10-22). Do it while
-  the next DVD job holds its disc, since the tray is open between jobs and
-  closing it starts one: the `DVD_READ_STRUCT` ioctl (`0x5390`, type 1) on
-  `/dev/sr0` opened `O_NONBLOCK`, `cpst` at byte 2 (1 is CSS). Then run
-  `css_check.py` (evidence, 2026-10-21) on that job's ISO.
+  packs). The counter finds 100 of 100 in a control. The disc is CSS-protected:
+  25 of 98 packs sampled from it carry the flag, against 0 of 100 at the same
+  points of jobs 76's and 77's images (evidence, 2026-10-22), so the backup
+  decrypts. The copyright descriptor can't say: `READ DVD STRUCTURE` format 1
+  returns `EINVAL`, refused by the drive or the disc.
 - Job 76 finished `success` at 23:34:50 UTC: seven transcodes in `completed/`,
   the disc ejected at the end, and an empty `transcode/` folder left as before.
 
 **Still unverified:**
 
-- **A Blu-ray backup into a folder already holding `arm-job.json`.** ARM has only
-  ever given MakeMKV a new, empty folder. If MakeMKV refuses one that isn't
-  empty, the first Blu-ray after deploy fails at once. It would fail
-  loudly, and the fix is to write the Blu-ray's stamp after its backup.
 - How the backup copes with deliberately unreadable sectors.
 - Whether pydvdid over the ISO reproduces the disc's `crc_id`. The 2009 ISO's
   didn't, since the image re-stamped every file, which is one reason D17 stamps
@@ -660,10 +738,9 @@ the remaining work could repeat.
 ## Prompt to open with
 
 > Read `todos/disc-ripping.md` in full. ARM rips CD, DVD and Blu-ray end to end;
-> what is left is proving phase 2c on a disc (a whole-disc raw copy for DVD, D17's
-> job stamp and D16's completeness check, all built, see its *Unverified* list),
-> D17's backfill, the drive's intermittent SATA link loss, the other open defects,
-> and 4K.
+> what is left is proving the duplicate-title skip on a TV DVD,
+> D17's backfill before the job logs age out, the drive's intermittent SATA link
+> loss, the other open defects and items, and 4K.
 > Work is on the `disc-ripping` branch in `.worktrees/disc-ripping`, with its review
 > at `review/disc-ripping-base`. If a new `ata4` event is why you are here, start at
 > **The drive's SATA link losses: start here** and gather its list before anything

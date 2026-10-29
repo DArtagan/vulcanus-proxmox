@@ -352,6 +352,7 @@ data:
     # ARM's code does. Applied before EDITS, which call them.
     APPENDS = [
         ("whole-disc-code", f"{RIPPER}/makemkv.py", "/usr/local/bin/arm-whole-disc.py"),
+        ("duplicate-titles-code", f"{RIPPER}/handbrake.py", "/usr/local/bin/arm-duplicate-titles.py"),
     ]
 
     EDITS = [
@@ -419,6 +420,53 @@ data:
             '        rawpath = _arm_backup_dvd(job, rawpath)\n'
             '    # Rip BluRay or DVD\n',
         ),
+        (
+            # HandBrake otherwise encodes every title over MINLENGTH, a disc's
+            # play-all included, repeating hours of encoding that the other titles
+            # already hold. In handbrake_all, the only caller followed by this
+            # debug line. Neither this edit nor the next spans d14-encode's line,
+            # whose marker would read as applied wherever the text appeared.
+            "duplicate-titles-scan",
+            f"{RIPPER}/handbrake.py",
+            '    get_track_info(srcpath, job)\n'
+            '\n'
+            '    logging.debug(f"Total number of tracks is {job.no_of_titles}")\n',
+            '    get_track_info(srcpath, job)\n'
+            '    # _arm_source_patch duplicate-titles-scan: titles the kept ones already play\n'
+            '    duplicates = _arm_duplicate_titles(srcpath, job)\n'
+            '\n'
+            '    logging.debug(f"Total number of tracks is {job.no_of_titles}")\n',
+        ),
+        (
+            # A movie's main feature keeps its title_N name instead of taking the
+            # film's. The rename erased the one title number that ties the film's
+            # transcode to the disc, and it named whatever ARM guessed: a bonus
+            # disc's longest featurette, a film's in-film extras mode. Where it
+            # lands, above extras/, still records the guess. Both routes that
+            # pick a main feature, HandBrake's flag and skip_transcode_movie's
+            # largest file, come through here.
+            "keep-main-feature-name",
+            f"{RIPPER}/utils.py",
+            '    if is_main_feature:\n'
+            '        movie_file = os.path.join(movie_path, video_title + "." + job.config.DEST_EXT)\n',
+            '    if is_main_feature:\n'
+            '        # _arm_source_patch keep-main-feature-name: the film is identified downstream\n'
+            '        movie_file = os.path.join(movie_path, filename)\n',
+        ),
+        (
+            "duplicate-titles-skip",
+            f"{RIPPER}/handbrake.py",
+            '            continue\n'
+            '        if track.length < int(cfg.arm_config["MINLENGTH"]):\n'
+            '            # too short\n',
+            '            continue\n'
+            '        # _arm_source_patch duplicate-titles-skip\n'
+            '        if int(track.track_number) in duplicates:\n'
+            '            logging.info(f"Track #{track.track_number} of {job.no_of_titles}. "\n'
+            '                         f"It {duplicates[int(track.track_number)]}. Skipping...")\n'
+            '        elif track.length < int(cfg.arm_config["MINLENGTH"]):\n'
+            '            # too short\n',
+        ),
     ]
 
 
@@ -460,8 +508,8 @@ data:
     # The raw copy of a disc is the whole disc, decrypted, in a folder stamped with
     # the job that made it, and a backup that is short fails its job rather than
     # passing for complete. Appended to makemkv.py, whose run(), progress_log(),
-    # convert_to_seconds(), OutputType, TInfo, TrackID, TrackInfoProcessor and
-    # utils it uses as module globals.
+    # OutputType, TInfo, TrackID, TrackInfoProcessor and utils it uses as module
+    # globals.
     import datetime as _arm_datetime  # noqa: E402
     import json as _arm_json  # noqa: E402
     import struct as _arm_struct  # noqa: E402
@@ -471,7 +519,7 @@ data:
     _ARM_DISC_TITLE = 24
 
 
-    def _arm_write_stamp(job, rawpath, problems=None, titles=None):
+    def _arm_write_stamp(job, rawpath, problems=None, title_map=None):
         # ARM's database records a job's completed path and never its raw one, and
         # a title corrected later renames only the completed folder. The stamp
         # travels with the raw folder through any rename. `complete` stays null
@@ -488,7 +536,7 @@ data:
             if job.start_time else None,
             "complete": None if problems is None else not problems,
             "problems": problems or [],
-            "titles": titles,
+            "title_map": title_map,
         }
         path = os.path.join(rawpath, "arm-job.json")
         with open(f"{path}.tmp", "w") as f:
@@ -630,14 +678,385 @@ data:
         for _, attributes in sorted(found.items()):
             mkv = attributes.get(TrackID.FILENAME)
             disc_title = attributes.get(_ARM_DISC_TITLE)
-            duration = attributes.get(TrackID.DURATION)
             entries.append({
                 "disc_title": int(disc_title) if disc_title else None,
                 "mkv": mkv,
-                "length": convert_to_seconds(duration) if duration else None,
                 "handbrake_title": saved.index(mkv) + 1 if mkv in saved else None,
             })
         return entries
+
+  arm-duplicate-titles.py: |
+    # --- _arm_source_patch duplicate-titles-code, appended by arm-source-patches.py -
+    # A title is not transcoded when the titles that are kept already play it: a
+    # TV disc's play-all, a bonus disc's play-all of its featurettes, a film with
+    # featurettes cut into it. Titles are compared by what they play from the
+    # disc, a Blu-ray playlist's clip times or a DVD title's cell sectors, never by
+    # length alone. Appended to handbrake.py, whose os, logging, subprocess, cfg,
+    # db and utils it uses as module globals.
+    import ast as _arm_ast  # noqa: E402
+    import json as _arm_json  # noqa: E402
+    import struct as _arm_struct  # noqa: E402
+
+
+    _ARM_BD_TICK = 45000
+    # A part is inside a whole when this much of it is. Parts of one whole overlap
+    # each other by less than _ARM_PARTS_OVERLAP: a DVD's episodes can share a
+    # closing cell, which its play-all leaves out.
+    _ARM_PART_INSIDE = 0.95
+    _ARM_PARTS_OVERLAP = 0.05
+    # Nothing is skipped unless the titles kept play this much of it. Below it sit
+    # wholes holding pieces too short to be titles of their own, and films built
+    # from clips the disc also offers singly.
+    _ARM_COVERED = 0.99
+    # Seconds between a part's start and the chapter marking the join.
+    _ARM_JOIN = 1.0
+    # What a second of a DVD's IFO plays for, by its frame rate. NTSC timecode
+    # counts 30 frames to its second while the video runs at 30000/1001, so
+    # lsdvd's lengths are 0.1% short, and unscaled a part's start lands seconds
+    # early against the transcode's chapters, which keep playback time.
+    _ARM_DVD_SECOND = {25.0: 1.0, 29.97: 1001 / 1000}
+
+
+    def _arm_duplicate_titles(srcpath, job):
+        # HandBrake's numbers for the titles not to transcode, each with the reason.
+        if job.disctype not in ("bluray", "dvd"):
+            return {}
+        srcpath = os.path.normpath(srcpath)
+        raw = srcpath if job.disctype == "bluray" else os.path.dirname(srcpath)
+        minimum = int(cfg.arm_config["MINLENGTH"])
+        maximum = int(cfg.arm_config["MAXLENGTH"])
+        tracks = {
+            int(track.track_number): track
+            for track in job.tracks.filter_by(source="HandBrake")
+            if minimum <= track.length <= maximum
+        }
+        series = job.video_type == "series"
+        try:
+            titles, skip, wholes = {}, {}, []
+            # A Blu-ray is scanned whatever its count, as the scan is its title map.
+            if job.disctype == "bluray":
+                titles = _arm_bluray_titles(srcpath, tracks)
+            elif len(tracks) >= 3:
+                titles = _arm_dvd_titles(raw, tracks)
+            # A whole and two parts, or nothing to compare.
+            if len(tracks) >= 3:
+                skip, wholes = _arm_duplicates(titles, series)
+        except Exception as error:  # noqa: BLE001
+            # Skipping is an economy. Whatever it trips on costs encoding time,
+            # never the job.
+            logging.warning(f"Transcoding every title, as the disc's structure cannot be read: {error!r}")
+            return {}
+
+        for number, reason in sorted(skip.items()):
+            logging.info(f"Title {number} is not transcoded: it {reason}")
+        _arm_move_main_feature(tracks, skip)
+        _arm_record_scan(raw, titles, skip, wholes)
+        for whole in wholes:
+            # A series' play-all can open on a recap its episodes share, which
+            # reads as interleaved and is no film.
+            if whole["interleaved"] and whole["title"] in skip and not series:
+                utils.notify(
+                    job,
+                    utils.NOTIFY_TITLE,
+                    f"{job.title}: title {whole['title']} is not transcoded, as it {skip[whole['title']]}. "
+                    "If it is an extended cut of the film, transcode it by hand from the raw copy.",
+                )
+        return skip
+
+
+    def _arm_duplicates(titles, series):
+        # A whole is a title that two or more others, each inside it and none
+        # overlapping another, play between them. A series keeps the parts, since
+        # each episode is an item of its own in the library. Otherwise the whole is
+        # kept when its parts follow one another with a chapter at each join: the
+        # encode has a keyframe at every chapter, so the parts can be cut from it
+        # without re-encoding. Parts that interleave, as with featurettes cut into
+        # a film, are kept apart.
+        units = {number: _arm_units(title["segments"]) for number, title in titles.items()}
+        titles = {number: title for number, title in titles.items() if units[number]}
+
+        def inside(part, whole):
+            return _arm_covered(titles[part]["segments"], [titles[whole]["segments"]]) / units[part]
+
+        wholes = []
+        for whole in sorted(titles, key=lambda number: (-units[number], number)):
+            parts = []
+            for part in sorted(titles, key=lambda number: (-units[number], number)):
+                if part == whole or inside(part, whole) < _ARM_PART_INSIDE:
+                    continue
+                if all(
+                    _arm_covered(titles[part]["segments"], [titles[other]["segments"]])
+                    < _ARM_PARTS_OVERLAP * units[part]
+                    for other in parts
+                ):
+                    parts.append(part)
+            if len(parts) < 2:
+                continue
+            played = _arm_covered(titles[whole]["segments"], [titles[part]["segments"] for part in parts])
+            if played < _ARM_COVERED * units[whole]:
+                continue
+
+            def place(part, parts=parts, whole=whole):
+                # By what only this part plays: featurettes sharing an intro, or
+                # episodes a recap, would otherwise all start where it does and
+                # read as interleaved.
+                others = [titles[other]["segments"] for other in parts if other != part]
+                own = _arm_own(titles[part]["segments"], others) or titles[part]["segments"]
+                return _arm_span(own, titles[whole]["segments"])
+
+            spans = sorted((place(part), part) for part in parts)
+            interleaved = any(
+                later[0][0] < earlier[0][1] - _ARM_JOIN for earlier, later in zip(spans, spans[1:])
+            )
+            joined = all(
+                any(abs(chapter - start) <= _ARM_JOIN for chapter in titles[whole]["chapters"])
+                for (start, _), _ in spans[1:]
+            )
+            wholes.append({
+                "title": whole,
+                "parts": [{"title": part, "start": round(start, 3)} for (start, _), part in spans],
+                "interleaved": interleaved,
+                "keep_whole": not (series or interleaved or not joined),
+            })
+
+        skip = {}
+        for whole in wholes:
+            number = whole["title"]
+            if number in skip:
+                continue
+            if whole["keep_whole"]:
+                for other in titles:
+                    if other != number and other not in skip and inside(other, number) >= _ARM_COVERED:
+                        skip[other] = f"is played whole by title {number}"
+            elif whole["interleaved"]:
+                parts = " and ".join(str(part["title"]) for part in whole["parts"])
+                skip[number] = f"interleaves titles {parts}"
+            else:
+                parts = ", ".join(str(part["title"]) for part in whole["parts"])
+                skip[number] = f"plays titles {parts} in turn"
+
+        # Unskip until every skipped title is played by those kept.
+        while True:
+            kept = [title["segments"] for number, title in titles.items() if number not in skip]
+            short = [
+                number
+                for number in sorted(skip)
+                if _arm_covered(titles[number]["segments"], kept) < _ARM_COVERED * units[number]
+            ]
+            if not short:
+                break
+            del skip[short[0]]
+
+        for whole in wholes:
+            del whole["keep_whole"]
+            if whole["title"] in skip:
+                whole["kept"] = "parts"
+            elif all(part["title"] in skip for part in whole["parts"]):
+                whole["kept"] = "whole"
+            else:
+                whole["kept"] = "both"
+        return skip, wholes
+
+
+    def _arm_units(segments):
+        return sum(end - start for _, start, end, _ in segments)
+
+
+    def _arm_covered(segments, others):
+        # How much of `segments` at least one of `others` also plays, in the
+        # segments' own units: ticks of a clip, or sectors of a title set.
+        total = 0
+        for source, start, end, _ in segments:
+            spans = sorted(
+                (max(start, other_start), min(end, other_end))
+                for other in others
+                for other_source, other_start, other_end, _ in other
+                if other_source == source and min(end, other_end) > max(start, other_start)
+            )
+            reached = start
+            for span_start, span_end in spans:
+                span_start = max(span_start, reached)
+                if span_end > span_start:
+                    total += span_end - span_start
+                    reached = span_end
+        return total
+
+
+    def _arm_own(segments, others):
+        # `segments` less whatever any of `others` also plays.
+        own = []
+        for source, start, end, seconds in segments:
+            rate = seconds / (end - start) if end > start else 0.0
+            spans = sorted(
+                (other_start, other_end)
+                for other in others
+                for other_source, other_start, other_end, _ in other
+                if other_source == source
+            )
+            reached = start
+            for span_start, span_end in spans + [(end, end)]:
+                if min(span_start, end) > reached:
+                    own.append((source, reached, min(span_start, end), (min(span_start, end) - reached) * rate))
+                reached = max(reached, span_end)
+        return own
+
+
+    def _arm_span(part, whole):
+        # The first and last second of `whole` that plays any of `part`.
+        first = last = None
+        elapsed = 0.0
+        for source, start, end, seconds in whole:
+            rate = seconds / (end - start) if end > start else 0.0
+            for part_source, part_start, part_end, _ in part:
+                low, high = max(start, part_start), min(end, part_end)
+                if part_source == source and high > low:
+                    begins = elapsed + (low - start) * rate
+                    ends = elapsed + (high - start) * rate
+                    first = begins if first is None else min(first, begins)
+                    last = ends if last is None else max(last, ends)
+            elapsed += seconds
+        return first, last
+
+
+    def _arm_bluray_titles(srcpath, tracks):
+        # HandBrake numbers only the playlists libbluray keeps, and its JSON scan
+        # names each one's playlist. --min-duration leaves the numbering as ARM's
+        # own scan has it and skips decoding previews of every short playlist,
+        # which on a disc of 180 took five minutes.
+        scan = subprocess.run(
+            [
+                cfg.arm_config["HANDBRAKE_LOCAL"], "--json", "-i", srcpath, "-t", "0", "--scan",
+                "--min-duration", str(cfg.arm_config["MINLENGTH"]),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout
+        marker = "JSON Title Set:"
+        title_set, _ = _arm_json.JSONDecoder().raw_decode(scan[scan.index(marker) + len(marker):].lstrip())
+        folder = os.path.join(srcpath, "BDMV", "PLAYLIST")
+        playlists = {name.lower(): name for name in os.listdir(folder)}
+        titles = {}
+        for title in title_set["TitleList"]:
+            if title["Index"] not in tracks:
+                continue
+            name = playlists[f"{title['Playlist']:05d}.mpls"]
+            segments, chapters = _arm_mpls(os.path.join(folder, name))
+            titles[title["Index"]] = {"segments": segments, "chapters": chapters, "source": {"playlist": name}}
+        return titles
+
+
+    def _arm_mpls(path):
+        # A playlist's play items, each a clip between two times, and its chapter
+        # marks in seconds from the playlist's start.
+        with open(path, "rb") as f:
+            data = f.read()
+        if data[:4] != b"MPLS":
+            raise ValueError(f"{path} is not a playlist")
+        items_at, marks_at = _arm_struct.unpack_from(">II", data, 8)
+        offset = items_at + 10
+        segments, starts, elapsed = [], [], 0.0
+        for _ in range(_arm_struct.unpack_from(">H", data, items_at + 6)[0]):
+            length = _arm_struct.unpack_from(">H", data, offset)[0]
+            clip = data[offset + 2:offset + 7].decode("ascii")
+            start, end = _arm_struct.unpack_from(">II", data, offset + 14)
+            segments.append((clip, start, end, (end - start) / _ARM_BD_TICK))
+            starts.append(elapsed)
+            elapsed += (end - start) / _ARM_BD_TICK
+            offset += 2 + length
+        chapters = []
+        for mark in range(_arm_struct.unpack_from(">H", data, marks_at + 4)[0]):
+            kind, item, stamp = _arm_struct.unpack_from(">xBHI", data, marks_at + 6 + 14 * mark)
+            # Kind 1 is an entry mark, a chapter; kind 2 is a link point.
+            if kind == 1 and item < len(segments):
+                chapters.append(starts[item] + (stamp - segments[item][1]) / _ARM_BD_TICK)
+        return segments, chapters
+
+
+    def _arm_dvd_titles(raw, tracks):
+        # The stamp maps HandBrake's numbers to the DVD's own, and lsdvd reads each
+        # of those titles' cells and chapters from the ISO. A cell's sectors count
+        # within its title set, whose number, like the frame rate, only -v prints.
+        with open(os.path.join(raw, "arm-job.json")) as f:
+            mapped = _arm_json.load(f).get("title_map") or []
+        images = [name for name in os.listdir(raw) if name.endswith(".iso")]
+        if not mapped or len(images) != 1:
+            raise ValueError(f"{raw} has no title map, or not exactly one ISO")
+        listing = subprocess.run(
+            ["lsdvd", "-c", "-d", "-v", "-Oy", os.path.join(raw, images[0])],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        disc = {title["ix"]: title for title in _arm_ast.literal_eval(listing.split("=", 1)[1])["track"]}
+        titles = {}
+        for entry in mapped:
+            number, disc_title = entry["handbrake_title"], entry["disc_title"]
+            if number not in tracks or disc_title not in disc:
+                continue
+            title = disc[disc_title]
+            second = _ARM_DVD_SECOND[title["fps"]]
+            lengths = [chapter["length"] * second for chapter in title["chapter"]]
+            titles[number] = {
+                "segments": [
+                    (title["vts"], cell["first_sector"], cell["last_sector"] + 1, cell["length"] * second)
+                    for cell in title["cell"]
+                ],
+                "chapters": [sum(lengths[:index]) for index in range(len(lengths))],
+                "source": {"disc_title": disc_title},
+            }
+        return titles
+
+
+    def _arm_move_main_feature(tracks, skip):
+        # A movie's transcodes are named from the HandBrake track marked as its main
+        # feature, and a skipped title has no transcode to name.
+        if not any(tracks[number].main_feature for number in skip):
+            return
+        for number in skip:
+            tracks[number].main_feature = False
+        kept = [track for number, track in tracks.items() if number not in skip]
+        max(kept, key=lambda track: track.length).main_feature = True
+        db.session.commit()
+
+
+    def _arm_record_scan(raw, titles, skip, wholes):
+        # The map from each whole to its parts, with where each part starts, is what
+        # cuts a kept whole into its parts later.
+        path = os.path.join(raw, "arm-job.json")
+        try:
+            with open(path) as f:
+                stamp = _arm_json.load(f)
+        except (OSError, ValueError) as error:
+            logging.warning(f"Not recording the skipped titles in {path}: {error}")
+            return
+
+        def entry(number):
+            return {"handbrake_title": number, **titles[number]["source"]}
+
+        stamp["duplicates"] = {
+            "skipped": [{**entry(number), "reason": reason} for number, reason in sorted(skip.items())],
+            "wholes": [
+                {
+                    **entry(whole["title"]),
+                    "kept": whole["kept"],
+                    "interleaved": whole["interleaved"],
+                    "parts": [{**entry(part["title"]), "start": part["start"]} for part in whole["parts"]],
+                }
+                for whole in wholes
+            ],
+        }
+        if any("playlist" in title["source"] for title in titles.values()):
+            # A Blu-ray's title map, each playlist against its title_N, as a DVD's
+            # maps the disc's titles through their MKVs. Length can't stand in for
+            # it: featurette variants a second apart share all but a clip.
+            stamp["title_map"] = [
+                {**titles[number]["source"], "handbrake_title": number} for number in sorted(titles)
+            ]
+        with open(f"{path}.tmp", "w") as f:
+            _arm_json.dump(stamp, f, indent=2)
+            f.write("\n")
+        os.replace(f"{path}.tmp", path)
 
   armui.sh: |
     #!/bin/bash
