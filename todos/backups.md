@@ -33,7 +33,7 @@ squashing.
 | 2 | Application backups — K8up + restic | done 2026-10-12 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13) |
 | 2b | Delete the borg tree | done 2026-10-13 — [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) |
 | 3 | Performance — drop the OpenEBS disks from vzdump | applied 2026-10-16, review closed; checks B-E outstanding, carried by the user |
-| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — sync, verify, GC, mirror, freshness both ways and both restores proven by 10-28; `rpool/data` narrowed 10-29; docs left |
+| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — sync, verify, GC, mirror, freshness both ways and both restores proven by 10-28; `rpool/data` narrowed and docs written 10-29; one incremental send left to see |
 | 4b | The primary into a NixOS container on vulcanus | designed 2026-10-17; after 4a |
 | 5 | The offline copy — external disk | not started; needs a ~$200 purchase |
 | 6 | Verification, notification, runbook | not started |
@@ -832,8 +832,29 @@ aborts any PBS #2 sync or verify in flight.
 **Then, in order:**
 
 1. **See `syncoid-vulcanus-data` send VM 107's 10-30 00:00 UTC snapshot**
-   incrementally, and the next scheduled `zfs-replication-freshness` pass.
-2. `docs/backups.md`, `docs/nixos.md` and `docs/tailnet.md` for what 4a made true.
+   incrementally, and the next scheduled `zfs-replication-freshness` pass. That is
+   4a's last open item: a phase boundary, where the review can close and reopen
+   under the same slug for 4b.
+
+**The docs are written, 2026-10-29**: PBS #2's section, schedules, retention and
+archiving, restoring a guest from PBS #2, and reporting in `docs/backups.md`; the
+host, its deploy path and the nixos-pbs pin in `docs/nixos.md`; both PBS nodes and
+their grants in `docs/tailnet.md`. Writing them turned up three things:
+
+- **`pbs-freshness`'s protected-snapshot change (`0b5753d2`, 10-18) had never
+  reached vulcanus**: `ansible/backup-monitoring.yaml` was last run 09-19. A
+  `--check --diff` showed that script as its only change; run on 10-29 with the
+  user's agreement, then idempotent, and the check passed by hand, reporting `vm/107`
+  and `vm/100` as before.
+- **`docs/tailnet.md`'s policy table was behind the policy.** Read from the compiled
+  filters (PBS #2's, VM 107's and vulcanus's `PacketFilter`), the PBS grants are all
+  by tag: `will@` → both hosts on 22 and 8007, and `tag:pbs-offsite` →
+  `tag:pbs-primary:8007`. No rule for `192.168.0.107` survives on vulcanus, neither
+  the documented 8007 nor `cb794923`'s SSH, so that entry, if still in the policy
+  source, compiles to nothing. The table also lacked the workers' Talos API,
+  `192.168.0.195` and `.196:50000`.
+- **VM 107 runs no verify and no prune job**, and GCs Saturday 07:00 Denver time:
+  read from `proxmox-backup-manager` over the tailnet.
 
 ### mini-nas's host side
 
