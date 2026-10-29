@@ -3506,3 +3506,32 @@ its manual wait and never reached the drive). Job 73, *Pinky* D1 on
 2026-10-21, failed `Error while running MakeMKV`: `MSG:5010 Failed to open
 disc`, then `Call to MakeMKV failed with code: 11`, the signature of job 19.
 Job 74 ripped the same disc two hours later.
+
+### 2026-10-29 — job 87, the Robin Hood bonus DVD: a movie DVD's whole kept
+
+The disc of job 36 (`crc_id` `d3c5ce89aef40f61`), ripped again for its image.
+The title was set by hand to `Robin Hood` in the manual wait, so the folders are
+`raw/Robin Hood/` and `movies/Robin Hood (2010)/`, not job 36's
+`Robin-Hood (2010)_178999705941`. Backup 01:33–01:47 UTC, six titles extracted
+from the ISO, then:
+
+```
+handbrake._arm_duplicate_titles: Title 4 is not transcoded: it is played whole by title 3
+handbrake._arm_duplicate_titles: Title 5 is not transcoded: it is played whole by title 3
+handbrake._arm_duplicate_titles: Title 6 is not transcoded: it is played whole by title 3
+```
+
+The stamp records disc title 1 (HandBrake 3) as `kept: whole`, not
+interleaved, its parts at 0, 1086.118 and 2854.385 s. The whole's MKV
+(`E1_t00`) has chapters at 1086.118367 and 2854.384867, and its transcode at
+1086.185 and 2854.390: the starts are in playback time, where lsdvd's unscaled
+lengths would put them about a second early. The parts' MKVs last 1086.118,
+1768.266 and 907.239 s.
+
+Job 87 ended at 02:44 UTC: `title_3.mkv` (62.7 min) at the top of
+`completed/movies/Robin Hood (2010)/`, `title_1.mkv` and `title_2.mkv` (13.3
+and 7.4 min) under `extras/`, the disc ejected, and an empty `transcode/`
+folder left as before. MakeMKV's `info disc:9999` logged `Failed to open
+disc` at 01:33:56, as it does in jobs 76's and 77's logs; the backup that
+followed opened the drive. The stamp is reelbarrow's fixture `job-87.json`,
+copied by checksum.

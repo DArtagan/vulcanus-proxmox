@@ -366,7 +366,8 @@ run found nothing left to change.
   to Opus. Nothing is lost — the raw backup keeps it — but the intent recorded was
   passthrough. Will's call which is wanted; the docs describe the re-encode, and
   change with the preset if passthrough is chosen.
-- **Titles that repeat other titles: verified 2026-10-26, job 83.** The
+- **Titles that repeat other titles: verified on a Blu-ray series disc (job
+  83, 2026-10-26) and a movie DVD (job 87, 2026-10-29).** The
   rule and its outcomes are in the docs (*Titles that repeat other titles*), the
   survey behind it in the evidence (2026-10-24). Decided (Will, 2026-10-24):
   apply it to every disc, not TV alone, since the series/movie label is OMDb's
@@ -374,20 +375,22 @@ run found nothing left to change.
   disc keeps a sequential whole; an in-film extras mode like *X-Men: First
   Class*'s is not the film and is left out, where an extended edition would be
   the film. Job 83, Downton Abbey D2, skipped its 157-minute play-all and
-  recorded it in the stamp. Still unrun in a job on a DVD or a movie disc: next
-  are the *Robin Hood* bonus DVD (its documentary kept whole, the three parts
-  skipped) and *Sylvester and Tweety* D1 (a TV DVD's play-all). Unproven too: a
+  recorded it in the stamp. Job 87, the *Robin Hood* bonus DVD, transcoded its
+  62.7-minute documentary and skipped the three parts it plays, placed at 0,
+  1086.118 and 2854.385 s, its MKV's own chapters. Still unrun in a job: a TV
+  DVD's play-all, next *Sylvester and Tweety* D1. Unproven too: a
   job has never sent the movie-disc notification for an interleaved title, and
   a series filed as a movie (as job 63's animated *Mummy* was) keeping one
   whole has only run read-only. Open: on a
   movie disc, a title playing the film and then a featurette, with a chapter at
   the join, would be kept whole and taken for the film. No disc ripped here has
   that shape.
-- **The main feature keeps its `title_N` name: deployed 2026-10-26, no job
-  has run with it yet.** Decided (Will, 2026-10-26): ARM's rename to `<Title (Year)>.mkv`
+- **The main feature keeps its `title_N` name: verified 2026-10-29, job 87.**
+  Decided (Will, 2026-10-26): ARM's rename to `<Title (Year)>.mkv`
   is disabled, the folder naming kept. The rename erased the film's title
-  number, and reelbarrow identifies the film itself. To verify: the *Robin
-  Hood* bonus DVD should leave `title_N.mkv` at the top of its folder.
+  number, and reelbarrow identifies the film itself. Job 87 left
+  `title_3.mkv` at the top of `Robin Hood (2010)/` and the two featurettes
+  under `extras/`.
 - **A skipped title's track row reads `ripped`.** ARM sets `ripped` at
   registration for any title over `MINLENGTH`, so job 83's skipped play-all
   has `ripped = 1` and no `filename`, and a manifest exports that. Documented
@@ -396,9 +399,9 @@ run found nothing left to change.
   sets `ripped = False` on each title it skips. Nothing in ARM's move reads
   it otherwise: an empty `filename` is already passed over.
 - **The stamp is a contract with reelbarrow.** Its evolution rule is in the
-  docs (*Stage 1*). reelbarrow keeps real stamps as test fixtures (jobs 76–80,
-  82, 83), so a change to the stamp should come with a fixture there. Fields
-  renamed 2026-10-26 (Will), schema left at 1 because nothing had read it:
+  docs (*Stage 1*). reelbarrow keeps every stamp on the share as a test
+  fixture (jobs 76–80 and 82–87, and the five backfilled), so a change to
+  the stamp should come with a fixture there. Fields renamed 2026-10-26 (Will), schema left at 1 because nothing had read it:
   `titles` became `extracted`, and every HandBrake number `handbrake_title`.
   The seven stamps on the share were rewritten once that code ran, and match
   reelbarrow's fixtures byte for byte. Changed again 2026-10-28, still at schema
@@ -735,7 +738,7 @@ the remaining work could repeat.
 ## Prompt to open with
 
 > Read `todos/disc-ripping.md` in full. ARM rips CD, DVD and Blu-ray end to end;
-> what is left is proving the duplicate-title skip on a DVD and a movie disc,
+> what is left is proving the duplicate-title skip on a TV DVD,
 > D17's backfill before the job logs age out, the drive's intermittent SATA link
 > loss, the other open defects and items, and 4K.
 > Work is on the `disc-ripping` branch in `.worktrees/disc-ripping`, with its review
