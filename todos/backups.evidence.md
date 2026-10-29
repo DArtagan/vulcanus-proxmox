@@ -1392,6 +1392,27 @@ and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
   71. The container's conf was unchanged, so it was not
   restarted.
 
+### Narrowing `rpool/data`: preconditions — 2026-10-28
+
+- **Lineage.** `rpool/data/vm-107-disk-0` on vulcanus: 31 snapshots; its replica on
+  mini-nas: 32; 31 common, newest `autosnap_2026-10-28_00:00:04_daily`, GUID
+  17055302005900344446 on both.
+- **Delegation.** vulcanus `zfs allow rpool`: Descendent `user mini-nas hold,send`.
+- **Holds.** 0 snapshots with `userrefs` > 0 under
+  `rpool/foreign-backups/vulcanus/data`.
+- **The parent.** `rpool/foreign-backups/vulcanus/data`: `canmount on` (default),
+  newest snapshot `autosnap_2026-10-28_00:00:22_daily`; it receives with the
+  recursive command and would age once narrowed.
+- **Coverage of the 12.** vzdump: `backup=0` on `vm-910-disk-1` and `vm-911-disk-2`;
+  `bios: seabios` on 900 and 910, so their `efidisk0` is not taken; 911 `ovmf`, its
+  `drive-efidisk0` in PBS. PBS #2: every CT and VM group 31 snapshots, 09-28 to
+  10-28; `virtio1` in 19 of vm/910's and vm/911's, newest 10-16.
+- **Restic replica.** `rpool/foreign-backups/vulcanus/backups/restic` 306G used, as
+  is `rpool/backups/restic` on vulcanus; 40 snapshots, newest 10-29 00:00 UTC;
+  `syncoid-vulcanus-backups-restic` `Result=success` at 04:00:09 UTC.
+- **Sizes.** The 12 replicas: 929G under the parent less `vm-107-disk-0`'s 18.4G.
+  mini-nas `rpool` at 86%.
+
 ### Two test restores from PBS #2 — 2026-10-28
 
 - **Token.** `root@pbs!restore-test`, minted with `proxmox-backup-debug api create
@@ -1519,6 +1540,11 @@ backup were deleted.
   branch never saw it and `secrets.sops.yaml` parsed with four keys where the module
   declared five. Read the key paths out of the file before deploying a secret, and
   check which checkout an edit landed in.
+- **Keeping the OpenEBS replicas was first argued as supplying a missing third
+  copy.** It was put to the user that application state had only two copies until
+  Phase 5; the user asked whether the restic repository was not replicated to
+  mini-nas, and it is, hourly. The replicas would sit in the same domain as that
+  replica. Check what already covers a thing before arguing for another copy of it.
 - **The freshness fix was explained as "every pull re-syncs the newest snapshot"**,
   from one day's log showing `re-sync snapshot` for every group. That day's pull was
   the first after a verify; `pull.rs` replaces a manifest only when it differs. The

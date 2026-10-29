@@ -831,7 +831,8 @@ aborts any PBS #2 sync or verify in flight.
 
 **Then, in order:**
 
-1. `rpool/data` narrows to `vm-107-disk-0`.
+1. `rpool/data` narrows to `vm-107-disk-0`: mini-nas PR #7, then the steps under
+   *Retiring `rpool/data` from replication*.
 2. `docs/backups.md`, `docs/nixos.md` and `docs/tailnet.md` for what 4a made true.
 
 ### mini-nas's host side
@@ -1039,9 +1040,26 @@ alone breaks the freshness check:
   individually, with the user confirming. Any sibling left behind is reported stale
   every day, because the age loop walks everything under
   `rpool/foreign-backups/vulcanus` with no exclusion.
+- **Set the parent `canmount=off`.** It stops receiving once the command narrows, and
+  the age loop skips only `canmount=off` datasets, so it would otherwise read stale
+  from the next morning. Missed when this plan was written; found reading the check
+  on 2026-10-28.
 - **Leave mini-nas's sanoid entry alone.** `"rpool/foreign-backups/vulcanus/data"` is
   `replica-shallow` with `recursive = true`, which goes on pruning the retained child
   unchanged. Verified 2026-09-19 — the one step here easiest to "fix" unnecessarily.
+
+**Decided 2026-10-29: "Destroy all 12."** Asked to list what goes and what copies
+remain, the user weighed keeping the OpenEBS replicas (`vm-910-disk-1`,
+`vm-911-disk-2`), which have no PBS copy past the 10-16 snapshots ageing out by
+~11-16. Their application data is in the restic repository, and that repository is
+replicated to mini-nas hourly (`syncoid-vulcanus-backups-restic`, 306 GiB on both
+sides). The replicas would add a second mechanism on the same host, not another
+failure domain, against 675 GiB on a pool at 86%. The two SeaBIOS EFI disks,
+`vm-900-disk-1` and `vm-910-disk-2`, are unused and have no other copy.
+
+The code is mini-nas [PR #7](https://github.com/DArtagan/mini-nas/pull/7) (`b9b23ba`),
+the user choosing a PR. After it merges and deploys: the 12 destroyed one by one,
+`canmount=off`, then `syncoid-vulcanus-data` and the freshness check run by hand.
 
 **At 4b**, with the primary's configuration in git, `vulcanus-data` retires entirely:
 its syncoid command, its healthchecks check and sops secret, its source root in the
