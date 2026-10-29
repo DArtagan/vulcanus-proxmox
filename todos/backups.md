@@ -33,7 +33,7 @@ squashing.
 | 2 | Application backups — K8up + restic | done 2026-10-12 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13) |
 | 2b | Delete the borg tree | done 2026-10-13 — [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) |
 | 3 | Performance — drop the OpenEBS disks from vzdump | applied 2026-10-16, review closed; checks B-E outstanding, carried by the user |
-| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — sync, verify, GC, mirror, freshness both ways and both restores proven by 10-28; `rpool/data` and docs left |
+| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — sync, verify, GC, mirror, freshness both ways and both restores proven by 10-28; `rpool/data` narrowed 10-29; docs left |
 | 4b | The primary into a NixOS container on vulcanus | designed 2026-10-17; after 4a |
 | 5 | The offline copy — external disk | not started; needs a ~$200 purchase |
 | 6 | Verification, notification, runbook | not started |
@@ -831,8 +831,8 @@ aborts any PBS #2 sync or verify in flight.
 
 **Then, in order:**
 
-1. `rpool/data` narrows to `vm-107-disk-0`: mini-nas PR #7, then the steps under
-   *Retiring `rpool/data` from replication*.
+1. **See `syncoid-vulcanus-data` send VM 107's 10-30 00:00 UTC snapshot**
+   incrementally, and the next scheduled `zfs-replication-freshness` pass.
 2. `docs/backups.md`, `docs/nixos.md` and `docs/tailnet.md` for what 4a made true.
 
 ### mini-nas's host side
@@ -1057,9 +1057,13 @@ sides). The replicas would add a second mechanism on the same host, not another
 failure domain, against 675 GiB on a pool at 86%. The two SeaBIOS EFI disks,
 `vm-900-disk-1` and `vm-910-disk-2`, are unused and have no other copy.
 
-The code is mini-nas [PR #7](https://github.com/DArtagan/mini-nas/pull/7) (`b9b23ba`),
-the user choosing a PR. After it merges and deploys: the 12 destroyed one by one,
-`canmount=off`, then `syncoid-vulcanus-data` and the freshness check run by hand.
+**Done 2026-10-29.** mini-nas [PR #7](https://github.com/DArtagan/mini-nas/pull/7)
+merged (`25f47f8`) and deployed at 04:40 UTC; the 12 were destroyed one by one,
+each dry-run first to show it held only its own snapshots; the parent took
+`canmount=off`. `syncoid-vulcanus-data` then succeeded, finding the replica already
+at the source's newest snapshot, and `zfs-replication-freshness` passed. mini-nas's
+`rpool` went from 86% to 79%. Not yet seen: an incremental send in the narrowed
+form, which comes with vulcanus's 00:00 UTC snapshot.
 
 **At 4b**, with the primary's configuration in git, `vulcanus-data` retires entirely:
 its syncoid command, its healthchecks check and sops secret, its source root in the

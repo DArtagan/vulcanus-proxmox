@@ -1392,6 +1392,22 @@ and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
   71. The container's conf was unchanged, so it was not
   restarted.
 
+### Narrowing `rpool/data`: done — 2026-10-29
+
+- mini-nas `main` `25f47f8` deployed 04:40 UTC, confirmed;
+  `syncoid-vulcanus-data.service` runs `… mini-nas@vulcanus.forge.local:rpool/data/vm-107-disk-0
+  rpool/foreign-backups/vulcanus/data/vm-107-disk-0` with no `--recursive`. PBS #2's
+  container not restarted.
+- `zfs destroy -rnv` on each of the 12: only the dataset and its own 30-32
+  snapshots. Then `zfs destroy -r` each, all succeeding; left under the parent:
+  `vm-107-disk-0`, 18.4G.
+- `canmount off local` on `rpool/foreign-backups/vulcanus/data`.
+- `syncoid-vulcanus-data` by hand: `Result=success`, "no snapshots on source newer
+  than autosnap_2026-10-29_00:00:21_daily on target. Nothing to do".
+  `zfs-replication-freshness` by hand: `Result=success`.
+- `rpool`: 86%, free 2.51T before; `freeing` 868G at once, 0 by 04:44; then 79%,
+  alloc 15.2T, free 3.83T. No failed units.
+
 ### Narrowing `rpool/data`: preconditions — 2026-10-28
 
 - **Lineage.** `rpool/data/vm-107-disk-0` on vulcanus: 31 snapshots; its replica on
