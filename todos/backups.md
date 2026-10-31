@@ -33,7 +33,7 @@ squashing.
 | 2 | Application backups — K8up + restic | done 2026-10-12 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13) |
 | 2b | Delete the borg tree | done 2026-10-13 — [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) |
 | 3 | Performance — drop the OpenEBS disks from vzdump | applied 2026-10-16, review closed; checks B-E outstanding, carried by the user |
-| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — first sync done 2026-10-21, first verify and the protection mirror passed 10-22; then the freshness fix deployed, freshness red, restores |
+| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — sync, verify, GC, mirror, freshness both ways and both restores proven by 10-28; `rpool/data` narrowed and docs written 10-29; one incremental send left to see |
 | 4b | The primary into a NixOS container on vulcanus | designed 2026-10-17; after 4a |
 | 5 | The offline copy — external disk | not started; needs a ~$200 purchase |
 | 6 | Verification, notification, runbook | not started |
@@ -721,10 +721,16 @@ chunks the two syncs pulled; the rest is indexes and ZFS overhead, and
 second opinion here: on a dataset it is that dataset's `statfs`, and matched ZFS's
 to 42 KB. The primary counts 629.7 GiB (`pvesm status`), the difference being
 chunks no snapshot references, awaiting its GC. PBS #2's independent figure,
-`disk-bytes`, arrives with its first GC, Saturday 10-24 14:00 UTC.
+`disk-bytes`, arrived with its first GC on 10-24: **572.9 GiB in 270,282 chunks**,
+against `rpool/pbs`'s **578.4 GiB**, the 5.5 GiB between them indexes and metadata.
+The GC ran 12 min and removed 23.9 GiB in 16,004 chunks, the snapshots pruned since
+the first sync. The pool agrees: 590.4 GiB on 10-21, plus the 12.0 GiB the three
+daily syncs since pulled, less the 23.9 GiB, is 578.5.
 
-**Memory:** the container peaked at **423 MiB** across the whole sync, against its
-2 GiB `MemoryMax`. Verify and GC are still to be read before the limit is resized.
+**Memory:** the container peaked at **423 MiB** across the whole sync, and at
+**247 MiB** across a boot that ran two chains, the first GC and Sunday's 3 h 30 min
+verify. Its `MemoryMax` is **1 GiB** (mini-nas `3df478a`, 10-26), the user's choice
+of about 2.4× the larger, as the restic repository's container has over its own peak.
 
 **The first verify passed**, through the declared `weekly` job
 (`proxmox-backup-debug api create /admin/verify/weekly/run`): 2026-10-21 20:05:54 to
@@ -735,19 +741,19 @@ the workers' pre-10-17 snapshots, whose OpenEBS-disk chunks nothing newer shares
 in inode order before reading any, so each large image opens with minutes of ~70 IOPS
 and almost no bandwidth: not a stall. **`pbs-offsite-freshness` then went green**,
 run by hand at 03:45 UTC — but only because the verify had just run. At 18:00 it
-failed on `vm/100`: each pull re-syncs every group's newest snapshot, stripping its
-verify state, so the frozen group's one snapshot arrived unverified again at 12:00,
-and the check measured the limit from 09-18, when it was taken. `cba654b5` measures
+failed on `vm/100`: the first pull after a verify re-syncs each group's newest
+snapshot, its manifest now differing from the primary's by the verify's result, and
+strips its verify state. So the frozen group's one snapshot arrived unverified again
+at 12:00, and the check measured the limit from 09-18, when it was taken. `cba654b5` measures
 it from the snapshot's last arrival, its manifest's mtime; against the live stores
 that finds no problem.
 
 ### Picking 4a up again
 
-**Deployed state, 2026-10-22.** mini-nas PR #6 merged (`d317ea2`), and mini-nas runs
-its `main` at `7108ea8`, deployed 20:17 UTC, pinning vulcanus-proxmox's `main` at
-`05354bd1`, which carries the freshness fix. Run by hand at 20:18 with `vm/100`
-unverified, re-synced at 12:00, the check passed; no unit failed on the host or in
-the container. A vulcanus-proxmox change to `nixos/` reaches PBS #2 by `wt deploy`
+**Deployed state, 2026-10-28.** mini-nas runs its `main` at `19c32fb`, deployed
+17:19 UTC, pinning vulcanus-proxmox's `main` at `f4df242e`, which carries
+everything of this project's under `nixos/`. No unit failed in the container; the host's `nixos-upgrade.service` fails daily, a
+standing mini-nas fault outside this project (below). A vulcanus-proxmox change to `nixos/` reaches PBS #2 by `wt deploy`
 (the user's), then `nix flake update vulcanus-proxmox` committed straight to
 mini-nas's `main`, as the user chose for a re-pin, and the deploy below from that
 checkout.
@@ -801,21 +807,54 @@ as a tmpfiles rule. What remains outside it:
 --protected 1`), and a hand-run `pbs-offsite mirror` set it on PBS #2. On 10-22 both
 stores' prunes kept it past `keep-last 31` (`keep protected …` in PBS #2's chain),
 each holding 31 unprotected `vm/900` snapshots beside it. Cleared on the primary, a
-hand-run mirror cleared it on PBS #2; the 10-23 prunes remove it and 09-22 from both.
+hand-run mirror cleared it on PBS #2, and the 10-23 prunes removed it from both.
+
+**The scheduled freshness runs pass.** 10-23 and 10-24 at 18:00 UTC both succeeded,
+with `vm/100` unverified throughout, its manifest last written 10-22 12:00:50.
+
+**Freshness went red with a sync held back, and green again.** The user chose a
+real hold-back over a simulated one. `pbs-offsite-daily.timer` was stopped in the
+container at 10-26 03:18 UTC, and the container ran unrestarted until it was
+started again. Monday 18:00 passed, Sunday's snapshots having been copied. Tuesday
+10-27 18:00:14 failed on exactly the seven live groups' 10-26 snapshots, "on the
+primary 31h, not copied here (limit 26h)" (`ct/103` 32h), and on nothing else.
+The frozen `vm/100` was not among them. Starting the timer at 10-28 16:29 fired the
+missed run at once, the timer being `Persistent`: 11.171 GiB in 43 min, and a prune
+of three snapshots per group back to `keep-last 31`. The check, run by hand at
+17:13, passed. The user confirmed both reached Pushover, the red and the green.
+
+**mini-nas's `nixos-upgrade.service` fails every day**, outside this project:
+`system.autoUpgrade` has no `flake`, so its 04:40 run looks for `nixos-config` on
+the channel path and stops at evaluation. It has never switched the system. Whoever
+fixes it should know `allowReboot = true`: a working upgrade reboots mini-nas, which
+aborts any PBS #2 sync or verify in flight.
 
 **Then, in order:**
 
-1. **See the scheduled 18:00 UTC `pbs-offsite-freshness` pass on 10-23**, a weekday,
-   `vm/100` unverified but arrived that day: `systemctl show -p Result
-   pbs-offsite-freshness` in the container, and the check green on healthchecks.
-2. **`pbs-offsite-freshness` red with a sync held back**, the direction still to
-   show.
-3. The two test restores, which touch both hypervisors.
-4. `rpool/data` narrows to `vm-107-disk-0`.
-5. `docs/backups.md`, `docs/nixos.md` and `docs/tailnet.md` for what 4a made true.
+1. **See `syncoid-vulcanus-data` send VM 107's 10-30 00:00 UTC snapshot**
+   incrementally, and the next scheduled `zfs-replication-freshness` pass. That is
+   4a's last open item: a phase boundary, where the review can close and reopen
+   under the same slug for 4b.
 
-The GC's own figures, `disk-bytes` against `rpool/pbs`'s `used`, can be read any
-time after 10-24 14:00 UTC.
+**The docs are written, 2026-10-29**: PBS #2's section, schedules, retention and
+archiving, restoring a guest from PBS #2, and reporting in `docs/backups.md`; the
+host, its deploy path and the nixos-pbs pin in `docs/nixos.md`; both PBS nodes and
+their grants in `docs/tailnet.md`. Writing them turned up three things:
+
+- **`pbs-freshness`'s protected-snapshot change (`0b5753d2`, 10-18) had never
+  reached vulcanus**: `ansible/backup-monitoring.yaml` was last run 09-19. A
+  `--check --diff` showed that script as its only change; run on 10-29 with the
+  user's agreement, then idempotent, and the check passed by hand, reporting `vm/107`
+  and `vm/100` as before.
+- **`docs/tailnet.md`'s policy table was behind the policy.** Read from the compiled
+  filters (PBS #2's, VM 107's and vulcanus's `PacketFilter`), the PBS grants are all
+  by tag: `will@` → both hosts on 22 and 8007, and `tag:pbs-offsite` →
+  `tag:pbs-primary:8007`. No rule for `192.168.0.107` survives on vulcanus, neither
+  the documented 8007 nor `cb794923`'s SSH, so that entry, if still in the policy
+  source, compiles to nothing. The table also lacked the workers' Talos API,
+  `192.168.0.195` and `.196:50000`.
+- **VM 107 runs no verify and no prune job**, and GCs Saturday 07:00 Denver time:
+  read from `proxmox-backup-manager` over the tailnet.
 
 ### mini-nas's host side
 
@@ -926,9 +965,9 @@ it gets no `discard`: it retires rather than trims.
   when each group's newest snapshot on the primary, once 26 h old, is on PBS #2 too,
   and when PBS #2 holds no snapshot whose verify failed, or that is still unverified
   8 days after it last arrived — the primary's own verification waits for its verify
-  job at 4b. Arrival, not backup time, because each pull re-syncs every group's
-  newest snapshot and strips its verify state, so a frozen group's one snapshot
-  arrives anew every day. Comparing newest snapshots rather than ages lets a frozen group pass,
+  job at 4b. Arrival, not backup time, because the first pull after each verify
+  re-syncs every group's newest snapshot and strips its verify state, so a frozen
+  group's one snapshot arrives anew every week. Comparing newest snapshots rather than ages lets a frozen group pass,
   having nothing new to copy, while a live group fails within a day of its sync
   stopping. Asserted from the stores rather than from the jobs, as `pbs-freshness`
   is, and it dies with PBS #2, which the check's period catches. A group on PBS #2
@@ -959,6 +998,41 @@ Both from PBS #2, restored unstarted with the network disconnected, then destroy
   up into a group of its own, which freezes the moment the guest is destroyed and is
   then kept until someone forgets it.
 
+**Both passed, 2026-10-28,** and nothing they created remains. One token,
+`root@pbs!restore-test` with `DatastoreReader` on `/datastore/offsite/vulcanus`,
+served both and is deleted. The grant left in `250f9b12`: after headscale's
+restart, `100.64.0.4` was gone from PBS #2's `PacketFilter`, and the `curl` from
+vulcanus that had returned 200 timed out.
+
+- **`vm/900` onto mini-nas** as VM 9900 on `local`, over the LAN to the container's
+  `192.168.1.35`: 10 GiB in 34 s, 299 MB/s. The restored disk's GPT matched the
+  live `vm-900-disk-0` exactly, disk and all six partition UUIDs, and its STATE and
+  EPHEMERAL partitions carried XFS superblocks.
+- **`ct/104` onto vulcanus** as CT 9104 on `local-zfs`, over the tailnet to
+  `100.64.0.10`: 1.06 GiB in 1 min 40 s, 10.8 MiB/s. Compared with the live
+  rootfs by checksum, 28 of ~27,250 entries differed, every one churn: pihole's FTL
+  database, four logs, `/tmp` and `/var/tmp` contents vzdump excludes,
+  `.pxarexclude-cli`, and mtimes. None differed in mode, owner, ACL or xattr, the
+  unprivileged uid shift included.
+
+**What a real restore meets, for the Phase 6 runbook:**
+
+- **The restored guest keeps `onboot: 1` and its live addresses.** 9104 came back
+  with pihole's `192.168.0.104` and would have started beside pihole at vulcanus's
+  next boot. Set `onboot 0` and `link_down=1` straight after the restore, before
+  anything else, whenever the original may still be running.
+- **A VM's config names what only vulcanus has**: `ide2` an ISO on `local`, and an
+  `efidisk0` on `local-zfs` that vzdump does not back up under SeaBIOS. On another
+  host the ISO stops the VM starting until removed; the dangling `efidisk0` only
+  makes `qm destroy` warn.
+- **A Headscale policy edit made on a branch need not merge into `main`.** The
+  grant's first deploy conflicted: `main` held `cb794923`, an edit the branch never
+  received, and an encrypted file cannot be merged by line. It was resolved on
+  `main` by taking `main`'s copy and re-applying the grant with `sops`, then the
+  branch took `main`'s file (`14be033a`) so the removal would merge.
+- **A PBS fingerprint read with a greedy `sed`** stops at its last colon; the
+  token's one-time secret was lost with that first attempt and regenerated.
+
 ### Retiring `rpool/data` from replication
 
 Guest images leave ZFS replication for PBS in two steps.
@@ -987,9 +1061,30 @@ alone breaks the freshness check:
   individually, with the user confirming. Any sibling left behind is reported stale
   every day, because the age loop walks everything under
   `rpool/foreign-backups/vulcanus` with no exclusion.
+- **Set the parent `canmount=off`.** It stops receiving once the command narrows, and
+  the age loop skips only `canmount=off` datasets, so it would otherwise read stale
+  from the next morning. Missed when this plan was written; found reading the check
+  on 2026-10-28.
 - **Leave mini-nas's sanoid entry alone.** `"rpool/foreign-backups/vulcanus/data"` is
   `replica-shallow` with `recursive = true`, which goes on pruning the retained child
   unchanged. Verified 2026-09-19 — the one step here easiest to "fix" unnecessarily.
+
+**Decided 2026-10-29: "Destroy all 12."** Asked to list what goes and what copies
+remain, the user weighed keeping the OpenEBS replicas (`vm-910-disk-1`,
+`vm-911-disk-2`), which have no PBS copy past the 10-16 snapshots ageing out by
+~11-16. Their application data is in the restic repository, and that repository is
+replicated to mini-nas hourly (`syncoid-vulcanus-backups-restic`, 306 GiB on both
+sides). The replicas would add a second mechanism on the same host, not another
+failure domain, against 675 GiB on a pool at 86%. The two SeaBIOS EFI disks,
+`vm-900-disk-1` and `vm-910-disk-2`, are unused and have no other copy.
+
+**Done 2026-10-29.** mini-nas [PR #7](https://github.com/DArtagan/mini-nas/pull/7)
+merged (`25f47f8`) and deployed at 04:40 UTC; the 12 were destroyed one by one,
+each dry-run first to show it held only its own snapshots; the parent took
+`canmount=off`. `syncoid-vulcanus-data` then succeeded, finding the replica already
+at the source's newest snapshot, and `zfs-replication-freshness` passed. mini-nas's
+`rpool` went from 86% to 79%. Not yet seen: an incremental send in the narrowed
+form, which comes with vulcanus's 00:00 UTC snapshot.
 
 **At 4b**, with the primary's configuration in git, `vulcanus-data` retires entirely:
 its syncoid command, its healthchecks check and sops secret, its source root in the

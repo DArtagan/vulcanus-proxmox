@@ -1392,6 +1392,115 @@ and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
   71. The container's conf was unchanged, so it was not
   restarted.
 
+### Narrowing `rpool/data`: done — 2026-10-29
+
+- mini-nas `main` `25f47f8` deployed 04:40 UTC, confirmed;
+  `syncoid-vulcanus-data.service` runs `… mini-nas@vulcanus.forge.local:rpool/data/vm-107-disk-0
+  rpool/foreign-backups/vulcanus/data/vm-107-disk-0` with no `--recursive`. PBS #2's
+  container not restarted.
+- `zfs destroy -rnv` on each of the 12: only the dataset and its own 30-32
+  snapshots. Then `zfs destroy -r` each, all succeeding; left under the parent:
+  `vm-107-disk-0`, 18.4G.
+- `canmount off local` on `rpool/foreign-backups/vulcanus/data`.
+- `syncoid-vulcanus-data` by hand: `Result=success`, "no snapshots on source newer
+  than autosnap_2026-10-29_00:00:21_daily on target. Nothing to do".
+  `zfs-replication-freshness` by hand: `Result=success`.
+- `rpool`: 86%, free 2.51T before; `freeing` 868G at once, 0 by 04:44; then 79%,
+  alloc 15.2T, free 3.83T. No failed units.
+
+### Narrowing `rpool/data`: preconditions — 2026-10-28
+
+- **Lineage.** `rpool/data/vm-107-disk-0` on vulcanus: 31 snapshots; its replica on
+  mini-nas: 32; 31 common, newest `autosnap_2026-10-28_00:00:04_daily`, GUID
+  17055302005900344446 on both.
+- **Delegation.** vulcanus `zfs allow rpool`: Descendent `user mini-nas hold,send`.
+- **Holds.** 0 snapshots with `userrefs` > 0 under
+  `rpool/foreign-backups/vulcanus/data`.
+- **The parent.** `rpool/foreign-backups/vulcanus/data`: `canmount on` (default),
+  newest snapshot `autosnap_2026-10-28_00:00:22_daily`; it receives with the
+  recursive command and would age once narrowed.
+- **Coverage of the 12.** vzdump: `backup=0` on `vm-910-disk-1` and `vm-911-disk-2`;
+  `bios: seabios` on 900 and 910, so their `efidisk0` is not taken; 911 `ovmf`, its
+  `drive-efidisk0` in PBS. PBS #2: every CT and VM group 31 snapshots, 09-28 to
+  10-28; `virtio1` in 19 of vm/910's and vm/911's, newest 10-16.
+- **Restic replica.** `rpool/foreign-backups/vulcanus/backups/restic` 306G used, as
+  is `rpool/backups/restic` on vulcanus; 40 snapshots, newest 10-29 00:00 UTC;
+  `syncoid-vulcanus-backups-restic` `Result=success` at 04:00:09 UTC.
+- **Sizes.** The 12 replicas: 929G under the parent less `vm-107-disk-0`'s 18.4G.
+  mini-nas `rpool` at 86%.
+
+### Two test restores from PBS #2 — 2026-10-28
+
+- **Token.** `root@pbs!restore-test`, minted with `proxmox-backup-debug api create
+  /access/users/root@pbs/token/restore-test`, granted `DatastoreReader` on
+  `/datastore/offsite/vulcanus`; secret regenerated per use with `api set …
+  --regenerate true`, piped host to host, never printed. Deleted after: `acl list`
+  then held only `root@pbs` `Admin` on `/`.
+- **`vm/900/2026-10-28T10:20:23Z` → mini-nas VM 9900**, storage `pbs-offsite` at
+  `192.168.1.35`: "restore image complete (bytes=10737418240, duration=34.28s,
+  speed=298.68MB/s)", zeroes 38%. `sfdisk -d` of the image and of vulcanus's
+  `/dev/zvol/rpool/data/vm-900-disk-0` identical in label-id and every partition's
+  start, size, type, uuid and name (EFI, BIOS, BOOT, META, STATE, EPHEMERAL);
+  `blkid -p` at STATE and EPHEMERAL's offsets: `TYPE=xfs`. Config came back with
+  `onboot: 1`, `ide2: local:iso/talos_1.12.1.iso`, `efidisk0: local-zfs:vm-900-disk-1`.
+  `qm destroy 9900 --purge`: "WARN: failed to get path and owner of volume
+  'local-zfs:vm-900-disk-1': storage 'local-zfs' does not exist".
+- **Grant.** First `wt deploy` of `fbc868b5` conflicted on
+  `policy-config-map.sops.yaml` against `main`'s `cb794923`; resolved on `main`
+  (`9236786f`), carried to the branch as `14be033a`. After `rollout restart`, the
+  pod Ready 2/2, and PBS #2's `PacketFilter` held `100.64.0.4/32` →
+  `100.64.0.10/32:8007`. From vulcanus, `curl` to `https://100.64.0.10:8007/`: 200.
+- **`ct/104/2026-10-28T10:04:56Z` → vulcanus CT 9104**, `exclude 107,9104` meanwhile:
+  "restore complete (1.061 GiB processed in 1m 40.5s, average 10.814 MiB/s)".
+  Config came back `onboot: 1`, `ip=192.168.0.104/24`. Files: live 27,256, restored
+  27,248. `rsync -anciHAX --delete` live→restored: 28 entries; content or presence:
+  `.pxarexclude-cli`, `etc/pihole/pihole-FTL.db`, `tmp/` and `var/tmp/` entries,
+  `var/log/{auth,daemon,pihole-FTL,syslog}.log`; the rest mtime only. 0 entries
+  flagged in perms, owner, group, ACL or xattr. `/etc/shadow` `100000:100042 640` on
+  both. `etc/hostname`, `etc/os-release`, `etc/pihole/setupVars.conf` same sha256.
+- **Cleanup.** `pct destroy 9104 --purge`; `exclude 107`; `pvesm remove pbs-offsite`
+  on both hosts, `/etc/pve/priv/storage/` holding no offsite entry; no dataset
+  matching 9104; CT 104 `running`, untouched.
+
+### Freshness red with a sync held back — 2026-10-26 to 10-28
+
+- `pbs-offsite-daily.timer` stopped at 10-26 03:18 UTC; `container@pbs-offsite`
+  `ActiveEnterTimestamp` 10-26 03:17:52 UTC when read at 10-28 16:29, so no restart
+  re-armed it. No `pbs-offsite-daily` journal entries 10-26 to 10-28 16:29.
+- Freshness 10-26 18:00:30: success. 10-27 18:00:14: `status=1/FAILURE`, logging
+  only these, all "not copied here (limit 26h)": `ct/103/2026-10-26T10:00:04Z` 32h;
+  `ct/104/…10:05:17Z`, `ct/105/…10:07:28Z`, `ct/108/…10:09:26Z`,
+  `vm/900/…10:20:32Z`, `vm/910/…10:22:26Z`, `vm/911/…10:27:22Z` 31h.
+- 10-28 16:29:28 `systemctl start pbs-offsite-daily.timer` triggered the service
+  immediately (`Persistent`). Sync to 17:12:55: 11.171 GiB, 8,252 chunks,
+  4.441 MiB/s, `TASK OK`. Prune: removed 09-25, 09-26 and 09-27 from each of the
+  seven groups, `TASK OK`. Timer next 10-29 12:00.
+- Freshness by hand 17:13:19: `Result=success`, `ExecMainStatus=0`.
+- Host `nixos-upgrade.service` failed at 04:40 local daily 10-23 to 10-28:
+  `error: file 'nixos-config' was not found in the Nix search path`, from
+  `nix-build '<nixpkgs/nixos>'`. mini-nas `configuration.nix` sets
+  `system.autoUpgrade = { enable = true; allowReboot = true; }` with no `flake`.
+
+### Two days on the fix, and the first GC — 2026-10-24
+
+- **Freshness** succeeded at 10-23 18:00:11 and 10-24 18:00:07. `vm/100`'s
+  `verification` read `None` on 10-24 at 22:02, its `index.json.blob` dated
+  10-22 12:00:50.
+- **The re-sync rewrites a manifest only when it differs.** `pull.rs` (PBS 4.2.4,
+  lines 735-739) compares the local manifest's raw bytes with the primary's and, if
+  equal, fetches the client log and logs "no data changes". A verify writes its
+  result into the local manifest, so only the first pull after a verify strips the
+  newest snapshot's state, which is why the 10-23 and 10-24 pulls left `vm/100`'s
+  manifest alone.
+- **Chains.** 10-23: 4.389 GiB, 3,172 chunks, 3.7 MiB/s; prune removed
+  `vm/900/2026-09-21T10:17:05Z` and `09-22`. 10-24: 3.934 GiB, 2,754 chunks. The
+  primary's `vm/900` read 31, 09-24 to 10-24, none protected.
+- **GC**, Sat 10-24 14:00, `OK` in 739 s: `disk-bytes` 615,170,260,290 in 270,282
+  chunks; removed 25,672,847,917 bytes in 16,004 chunks; 420 index files;
+  `still-bad` 0. `rpool/pbs` `used` 621,022,685,536 at 22:02.
+- **Memory.** `MemoryPeak` 259,457,024 bytes (247 MiB) on `container@pbs-offsite`
+  for the boot from 10-22 20:17, which ran two chains and the GC.
+
 ### mini-nas's tofu, removed — 2026-10-22
 
 The user recovered mini-nas's state from an old machine: serial 35, tofu 1.8.6,
@@ -1447,6 +1556,17 @@ backup were deleted.
   branch never saw it and `secrets.sops.yaml` parsed with four keys where the module
   declared five. Read the key paths out of the file before deploying a secret, and
   check which checkout an edit landed in.
+- **Keeping the OpenEBS replicas was first argued as supplying a missing third
+  copy.** It was put to the user that application state had only two copies until
+  Phase 5; the user asked whether the restic repository was not replicated to
+  mini-nas, and it is, hourly. The replicas would sit in the same domain as that
+  replica. Check what already covers a thing before arguing for another copy of it.
+- **The freshness fix was explained as "every pull re-syncs the newest snapshot"**,
+  from one day's log showing `re-sync snapshot` for every group. That day's pull was
+  the first after a verify; `pull.rs` replaces a manifest only when it differs. The
+  fix stood, the explanation did not, and it went into the commit message, the
+  code and the spec before the next two days' manifests showed it. Read the code
+  path a one-off observation stands for before generalising from it.
 - **The verify log was first read as 249 errors**, from a grep for `error` that
   matched every index's `(0 errors)` summary. Count `errors)` lines that are not
   `(0 errors)`.
