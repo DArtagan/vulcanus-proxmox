@@ -470,6 +470,9 @@ restic dump <snapshot-id> <path>
 - **Grafana:** its configuration is in git, and its plugins on the volume.
 - **Stump:** its database holds accounts, reading progress and library settings; the
   books themselves are on the books share. Its volume holds the configuration file.
+- **bookdrop:** its volume holds the author aliases and uploads awaiting
+  confirmation; restore it whole. Its Adobe device key is the `bookdrop-adept`
+  Secret, in git. Books already filed carry no DRM and need neither.
 
 ## Reporting
 

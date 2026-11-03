@@ -1,0 +1,19 @@
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: bookdrop
+spec:
+  image: ghcr.io/dartagan/bookdrop
+  interval: 15m0s
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: bookdrop
+spec:
+  imageRepositoryRef:
+    name: bookdrop
+  policy:
+    semver:
+      range: ">=0.1.0 <1.0.0"

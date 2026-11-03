@@ -5,6 +5,7 @@ resources:
   - audio-pvc.yaml
   - audio-rw-pvc.yaml
   - books-pvc.yaml
+  - bookdrop
   #- botamusique
   - beets
   - cloudflare-ddns

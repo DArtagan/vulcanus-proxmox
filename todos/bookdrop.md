@@ -22,7 +22,7 @@ Verified **2026-11-03** unless marked otherwise.
 bookdrop's `todos/README.md` orders the work. These steps also need work here:
 
 - **release-pipeline**: `kubernetes/apps/bookdrop/`, under *Deployment*.
-- **adept**: the Adobe device key in `secrets.sops.yaml`.
+- **adept**: nothing further here; the device key is already mounted.
 - **filing**: the Stump API key, and the switch to live, under *Going live*.
 
 ## Decisions already made
@@ -42,7 +42,9 @@ By Will, 2026-11-03:
 - **Its own repository, like reelbarrow**, with the same repository settings,
   and release-please without a component in branch or tag names.
 - **A prefilled confirmation screen**, not auto-filing.
-- **A dedicated Adobe ID** for bookdrop, separate from any other device.
+- **A dedicated Adobe ID** for bookdrop, separate from any other device. Adobe
+  no longer runs ebook DRM sign-in, so this is a ByteBooks ID; see *The device
+  key*.
 
 ## Deployment
 
@@ -50,16 +52,27 @@ By Will, 2026-11-03:
 
 - A `Deployment` from `ghcr.io/dartagan/bookdrop`, with `books-pvc` mounted
   read-only at `/books` while dry run is on, and a volume at `/data` for uploads
-  awaiting confirmation. `/data` needs a backup decision per
-  [`docs/kubernetes.md`](../docs/kubernetes.md); it holds nothing that cannot be
-  uploaded again, so likely none.
+  awaiting confirmation, backed up as a plain volume (see *Each application* in
+  [`docs/backups.md`](../docs/backups.md)).
 - A `Service`, and an `Ingress` on the internal class with
   `nginx.ingress.kubernetes.io/proxy-body-size` raised, as beets, photoprism and
-  soft-serve set it to `"0"`. The phone reaches it off-LAN through the tailnet's
+  soft-serve set it to `"0"`, and a Let's Encrypt certificate like reelbarrow's,
+  which a phone trusts. The phone reaches it off-LAN through the tailnet's
   internal ingress grant ([`docs/tailnet.md`](../docs/tailnet.md)).
 - Image automation with the semver range `>=0.1.0 <1.0.0`, like reelbarrow's.
-- `secrets.sops.yaml`: the Adobe device key (`device.xml`, `activation.xml`,
-  `devicesalt`) mounted as files, and later the Stump API key.
+- `secrets.sops.yaml`: the `bookdrop-adept` Secret, mounted read-only at
+  `/adept`, and later the Stump API key.
+
+### The device key
+
+Activated on 2026-11-03 on the desktop with `adept_activate` (libgourou 0.8.9,
+nixpkgs) against a dedicated **ByteBooks ID**. Adobe moved ebook DRM to Wipro's
+ByteBooks in July 2025, and a freshly made Adobe ID fails activation with
+`E_AUTH_FAILED … User does not exist`; ByteBooks accounts are made at
+<https://dtsbytebooks.com/register>. The account's email and password are Will's
+to keep; only the three device files are in the Secret. The desktop copy is in
+`~/.config/bookdrop/adept`. The first Kobo `.acsm` was fulfilled against this
+key on the desktop the same day, so that book belongs to this device.
 
 Whether the internal network boundary is enough, as for the other internal
 apps, or whether the page needs its own login, is still to decide.
