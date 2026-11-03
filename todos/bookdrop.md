@@ -19,10 +19,11 @@ Verified **2026-11-03** unless marked otherwise.
 
 ## The steps
 
-bookdrop's `todos/README.md` orders the work. These steps also need work here:
+bookdrop's `todos/README.md` orders the work. Its release-pipeline and adept
+steps are done: 0.2.1 runs here in dry run, and on 2026-11-03 a Kobo `.acsm`
+dropped from the phone came out a DRM-free EPUB. The one step left that needs
+work here:
 
-- **release-pipeline**: `kubernetes/apps/bookdrop/`, under *Deployment*.
-- **adept**: nothing further here; the device key is already mounted.
 - **filing**: the Stump API key, and the switch to live, under *Going live*.
 
 ## Decisions already made
