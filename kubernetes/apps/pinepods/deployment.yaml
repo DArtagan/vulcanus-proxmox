@@ -27,7 +27,7 @@ spec:
     spec:
       containers:
         - name: pinepods
-          image: madeofpendletonwool/pinepods:0.9.1 # {"$imagepolicy": "apps:pinepods"}
+          image: madeofpendletonwool/pinepods:0.9.2 # {"$imagepolicy": "apps:pinepods"}
           env:
             # HOSTNAME is embedded in the RSS feeds PinePods generates, so it must be
             # the externally reachable URL rather than localhost.
