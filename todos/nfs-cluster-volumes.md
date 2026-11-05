@@ -110,8 +110,8 @@ the ownership trap above stops recurring.
 ### What is written, and what has run
 
 - `ansible/nfs.yaml`, on the hypervisor: re-owns the books dataset to
-  1100:1200 (directories `u+rwx,g+rwxs,o+rx`, files gaining `ug+rw,o+r`, nothing
-  removed), serves NFSv4.2 only through `/etc/nfs.conf.d/cluster.conf`, and
+  1100:1200 (directories `u+rwx,g+rwxs,o+rx`, files gaining `ug+rw,o+r`, and
+  world-write the one bit removed), serves NFSv4.2 only through `/etc/nfs.conf.d/cluster.conf`, and
   exports `rpool/storage/books` to the two workers, squashed to 1100:1200, from
   `/etc/exports.d/cluster.exports`. exports.d won over `sharenfs` for readable
   per-client options, and because `sharenfs` is how the unnoticed LAN-wide

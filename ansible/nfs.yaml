@@ -28,17 +28,18 @@
     # mini-nas replication account by collision, at 755, and so refused every
     # writer, over SMB as much as NFS. Directories are setgid so what is written
     # keeps the group; everything stays world-readable for restic, which reads
-    # as its own unprivileged user.
+    # as its own unprivileged user. Never world-writable: the restic container
+    # sees these trees as owned by nobody, and only that keeps it read-only.
     - name: own the exported trees by the cluster's account
       ansible.builtin.shell: |
         set -euo pipefail
         {
           find {{ item | quote }} \( ! -user {{ piraeus_uid }} -o ! -group {{ fileshare_gid }} \) \
             -print -exec chown -h {{ piraeus_uid }}:{{ fileshare_gid }} {} +
-          find {{ item | quote }} -type d ! -perm -2775 \
-            -print -exec chmod u+rwx,g+rwxs,o+rx {} +
-          find {{ item | quote }} -type f ! -perm -0664 \
-            -print -exec chmod ug+rw,o+r {} +
+          find {{ item | quote }} -type d \( ! -perm -2775 -o -perm -0002 \) \
+            -print -exec chmod u+rwx,g+rwxs,o+rx,o-w {} +
+          find {{ item | quote }} -type f \( ! -perm -0664 -o -perm -0002 \) \
+            -print -exec chmod ug+rw,o+r,o-w {} +
         } | wc -l
       args:
         executable: /bin/bash
