@@ -4,9 +4,9 @@
   hosts: fileserver
   vars:
     samba_groups:
-      - groupname: users
+      - groupname: piraeus
         gid: 1100
-      - groupname: fileshare
+      - groupname: storage-read
         gid: 1200
     samba_users:
       # The cluster's storage account: the only login on every share but
@@ -16,11 +16,11 @@
         password: "{{ smb_credentials.data.password | b64decode }}"
         uid: 1100
         group: 1100
-        groups: fileshare
+        groups: storage-read
       - username: nobody
         uid: 65534
         group: nogroup
-        groups: nogroup,fileshare
+        groups: nogroup,storage-read
 
   tasks:
     # The Secret the cluster mounts with is the only copy of the password.

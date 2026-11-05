@@ -1,5 +1,5 @@
 # Managed by ansible/nfs.yaml.
 {% for path in nfs_exports %}
-{{ path }}{% for client in nfs_clients %} {{ client }}(rw,sec=sys,all_squash,anonuid={{ piraeus_uid }},anongid={{ fileshare_gid }},no_subtree_check){% endfor %}
+{{ path }}{% for client in nfs_clients %} {{ client }}(rw,sec=sys,all_squash,anonuid={{ piraeus_uid }},anongid={{ storage_read_gid }},no_subtree_check){% endfor %}
 
 {% endfor %}

@@ -1,6 +1,6 @@
 # The cluster's NFS exports, served by the hypervisor, which holds the datasets.
 #
-# Every request is squashed to the cluster's storage account, piraeus:fileshare
+# Every request is squashed to the cluster's storage account, piraeus:storage-read
 # (1100:1200; ansible/fileserver.yaml defines both on the fileserver). With
 # sec=sys the server trusts the client node, not the pod, so what separates
 # workloads is which claims each mounts, not uids.
@@ -9,7 +9,7 @@
   hosts: proxmox
   vars:
     piraeus_uid: 1100
-    fileshare_gid: 1200
+    storage_read_gid: 1200
     # The workers. kubelet mounts from the node's address; the control plane
     # mounts nothing.
     nfs_clients:
@@ -34,8 +34,8 @@
       ansible.builtin.shell: |
         set -euo pipefail
         {
-          find {{ item | quote }} \( ! -user {{ piraeus_uid }} -o ! -group {{ fileshare_gid }} \) \
-            -print -exec chown -h {{ piraeus_uid }}:{{ fileshare_gid }} {} +
+          find {{ item | quote }} \( ! -user {{ piraeus_uid }} -o ! -group {{ storage_read_gid }} \) \
+            -print -exec chown -h {{ piraeus_uid }}:{{ storage_read_gid }} {} +
           find {{ item | quote }} -type d \( ! -perm -2775 -o -perm -0002 \) \
             -print -exec chmod u+rwx,g+rwxs,o+rx,o-w {} +
           find {{ item | quote }} -type f \( ! -perm -0664 -o -perm -0002 \) \
