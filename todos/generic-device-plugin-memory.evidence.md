@@ -134,3 +134,63 @@ Read on the node at about 00:25 UTC on 10-23, compared with pid 125271 on
 file_mapped has nearly quadrupled at the same memory.current. With room, the
 binary's pages stay resident. stime is 5% of what the degraded process
 accumulated, over 27 times the lifetime.
+
+## 2026-11-05: three weeks after the change
+
+Same three pods, 0 restarts, 21 days old.
+
+### Weeks two and three
+
+- `DevicePluginDegraded`: no pending or firing sample in the 21 days.
+- Median GC pause, median over the whole experiment: 96 / 82 / 92µs.
+- pgmajfault, 10-23 to 11-05: 7 / 3 / 17 faults, max rate 0.005 / 0.005 /
+  0.01/s.
+
+Daily maxima, days to 00:00 UTC 10-24 through 11-05 (cp / w0 / w1):
+
+| | range over the 13 days |
+|---|---|
+| memory.current MiB | 20.0–22.9 / 22.4–22.8 / 21.2–22.6 |
+| RSS MiB | 9.1–9.3 / 8.9–9.2 / 9.1–9.6 |
+| goroutines | 21–22 each |
+| threads | 9 / 8 / 9 |
+| open fds | 10 each |
+| heap in use MB | 5.8–5.9 / 5.8–5.9 / 5.9–6.1 |
+
+No climb in any of them. The largest memory.current over the whole experiment is
+35.7% of the 64Mi limit.
+
+### The cgroups, read on the nodes at about 18:30 UTC
+
+| | cp pid 179623 | w0 pid 63421 | w1 pid 149101 |
+|---|---|---|---|
+| memory.current | 18,079,744 | 20,140,032 | 19,394,560 |
+| memory.events `max` / `oom` / `oom_kill` | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| `pgmajfault` (cgroup) | 31 | 27 | 37 |
+| anon / file / file_mapped MB | 8.9 / 8.7 / 3.2 | 8.6 / 10.8 / 7.1 | 8.0 / 10.9 / 5.8 |
+| utime / stime, ticks | 37,057 / 28,989 | 40,912 / 38,544 | 47,362 / 28,577 |
+
+### The memory pressure the old limit produced, for comparison
+
+Over 10-08 to 10-15, on 20Mi, the median GC pause of each process ran at a
+median of 1.0–17.9ms, apart from two processes at 56 and 104µs, with
+maxima of 3.3–52.6ms.
+
+### Backtest of DevicePluginMemoryHigh
+
+The rule fires on RSS above 16Mi or memory.current above 75% of the limit, for
+1h. Fraction of 5-minute steps true:
+
+- 10-06 to 10-15, 20Mi limit: 0.994, 1 and 1 for the three pods, all from the
+  ratio half.
+- 10-16 to 11-05, 64Mi limit: 0 on each. Largest ratio 0.357.
+
+RSS reached at most 9.7MiB under either limit, so the RSS half has never been
+true.
+
+### Worker-1 under transcodes
+
+From 11-01, worker-1's plugin has run several hours a day with its median pause
+at 275–521µs, during ARM transcodes, while its memory stayed at ~19Mi with no
+faults. Every Go process on worker-1 is slowed in the same windows. Carried
+forward as `transcode-cpu-contention`, which holds the figures.
