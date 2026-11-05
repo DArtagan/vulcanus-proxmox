@@ -13,6 +13,8 @@ spec:
   mountOptions:
     - nfsvers=4.2
     - hard
+  # The hypervisor, by address: nodes resolve names through CoreDNS, which a
+  # mount would then depend on.
   nfs:
     server: 192.168.0.111
     path: /rpool/storage/books
