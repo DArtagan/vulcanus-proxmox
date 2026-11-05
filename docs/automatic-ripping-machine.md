@@ -433,13 +433,15 @@ Key encoding settings (defined in the `vulcanus-handbrake-preset` custom preset)
 |---|---|---|
 | Video codec | SVT-AV1 10-bit | Royalty-free, ~30-50% smaller than H.264 at equivalent quality |
 | Quality | CRF 30 (constant quality) | Perceptually equivalent to x264 CRF 20 |
-| Encoder preset | 4 (SVT-AV1 scale: 0=slowest, 13=fastest) | Quality-focused; expect several hours per film on 6 CPU cores |
+| Encoder preset | 4 (SVT-AV1 scale: 0=slowest, 13=fastest) | Quality-focused; expect several hours per film |
 | Audio | Opus stereo 192 kbps + Opus 5.1 320 kbps | Lossless TrueHD and DTS-HD MA are re-encoded too; the raw copy keeps the originals |
 | Subtitles | All tracks (English + any) | Soft subs, not burned in |
 | Container | MKV | With chapter markers and metadata passthrough |
 | Deinterlace | Decomb (default) | Important for interlaced DVD content |
 
 `MAX_CONCURRENT_TRANSCODES: 1` limits to one transcode at a time — AV1 at preset 4 saturates whatever it is given, and this runs on `piraeus-worker-1`, the smaller of the two workers, alongside everything else scheduled there.
+
+A job runs on every CPU of `piraeus-worker-1` but CPU 0, which stays free for the node's other tenants, and ARM has no CPU limit. What a transcode costs those tenants shows in their own CPU wait (`container_pressure_cpu_waiting_seconds_total` per container), not in the node's load average or CPU pressure: both count HandBrake's threads queueing behind each other for its own CPUs, and read the same whether or not anything else is waiting.
 
 `MAINFEATURE: false` means all tracks above the minimum length are transcoded, not just the longest. This is necessary for TV show discs where multiple episodes need to be extracted.
 

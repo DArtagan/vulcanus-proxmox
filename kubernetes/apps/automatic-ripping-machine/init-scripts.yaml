@@ -133,7 +133,14 @@ data:
     # version has expired, refuses every disc with "This application version is
     # too old". ARM runs the job as root and writes the key to /root/.MakeMKV.
     export HOME=/root
-    exec /opt/arm/scripts/docker/docker_arm_wrapper.sh "${DEVNAME}"
+
+    # The job runs on every CPU but the first, which keeps one free for the
+    # node's other tenants. A CPU limit cannot: HandBrake spends its quota on
+    # all the CPUs at once early in each period, and everything else on the node
+    # waits behind it until it is throttled. MakeMKV and HandBrake inherit the
+    # mask.
+    exec taskset -c "1-$(( $(getconf _NPROCESSORS_ONLN) - 1 ))" \
+        /opt/arm/scripts/docker/docker_arm_wrapper.sh "${DEVNAME}"
 
   arm-audio-handoff.sh: |
     #!/bin/bash
