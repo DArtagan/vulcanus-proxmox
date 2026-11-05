@@ -107,9 +107,7 @@ the ownership trap above stops recurring.
 - **`docs/tailnet.md`** says the fileserver has NFS exports (see *The host's
   exports start from nothing*).
 
-### What is written, and what is still to run
-
-On the branch, for review before anything runs (Will, 2026-11-05):
+### What is written, and what has run
 
 - `ansible/nfs.yaml`, on the hypervisor: re-owns the books dataset to
   1100:1200 (directories `u+rwx,g+rwxs,o+rx`, files gaining `ug+rw,o+r`, nothing
@@ -117,16 +115,22 @@ On the branch, for review before anything runs (Will, 2026-11-05):
   exports `rpool/storage/books` to the two workers, squashed to 1100:1200, from
   `/etc/exports.d/cluster.exports`. exports.d won over `sharenfs` for readable
   per-client options, and because `sharenfs` is how the unnoticed LAN-wide
-  export happened.
-- `ansible/fileserver.yaml` and `smb.conf.j2`: the account is `piraeus`, its
-  password from `SAMBA_PIRAEUS_PASSWORD`. The task setting it changes an
-  existing password, which the old one never did, and keeps it out of the
-  process list and the output.
+  export happened. `ansible/zfs.yaml` holds `sharenfs=off` on `rpool/storage`,
+  which every dataset beneath inherits. **Both ran on 2026-11-05**; see
+  *Applying it*, step 1.
+- `ansible/fileserver.yaml` and `smb.conf.j2`: the account is `piraeus`. Its
+  password comes from `smb-credentials` itself, through
+  `community.sops.load_vars`, so the Secret the cluster mounts with is the
+  only copy; running the playbook needs a key that decrypts it. The task
+  setting it changes an existing password, which the old one never did, and
+  keeps it out of the process list and the output. Not run.
 - A new `smb-credentials` (`piraeus` and the new password, generated
-  2026-11-05). The password is also in this worktree's `.env`, gitignored, for
-  Ansible; copy it to the main checkout's `.env` before the worktree goes.
+  2026-11-05). An earlier draft also kept the password in a worktree's
+  gitignored `.env` for Ansible; that copy went with the worktree, so nothing
+  outside the Secret holds it. Not deployed.
 - `books-nfs-pv` and `books-nfs-pvc`, Stump and bookdrop on the claim, and
-  `rancher-key` removed. `docs/tailnet.md` and `docs/beets.md` corrected.
+  `rancher-key` removed. `docs/tailnet.md`, `docs/network.md`, `docs/beets.md`
+  and CLAUDE.md corrected. Not deployed.
 
 ### Applying it
 
@@ -142,12 +146,18 @@ pinepods, plex, reelbarrow, salamander, stump, syncthing and youtube-dl on
 worker-0; bookdrop, podbook-rebound and automatic-ripping-machine on worker-1.
 List them again before starting, and do not start while ARM is ripping.
 
-1. **The export** (`ansible-playbook nfs.yaml`). Harmless on its own: nothing
-   writes to books over SMB, and Stump's reads need only the world-read bit,
-   which re-owning keeps. Check `exportfs -v` shows the one path to the two
-   workers, then mount it from a throwaway pod with an inline `nfs` volume
-   (`baseline`, which `apps` enforces, allows one) and write a probe:
-   it should land as 1100:1200 with the setgid group.
+1. **The export** (`ansible-playbook zfs.yaml nfs.yaml`). **Done
+   2026-11-05**, and a second run changed nothing. `exportfs -v` shows the one
+   path to 192.168.0.195 and .196 with `all_squash`, `/proc/fs/nfsd/versions`
+   reads `-3 +4 -4.0 -4.1 +4.2`, and nothing under books is off 1100:1200. A
+   pod on each worker with bookdrop's security context, mounting through a
+   throwaway static PV with the same source and options as `books-nfs-pv`,
+   wrote a directory and a file: both landed 1100:1200 under the setgid group,
+   at 2755 and 644 from the pod's 022 umask, which the ownership task widens
+   to 2775 and 664 on its next run. `chown` was refused with EPERM. Probes
+   removed. `/etc/exports.d/zfs.exports`, ZFS's own file for `sharenfs`, was
+   42 bytes before the first run and empty after it; what it held was not
+   read.
 2. **The window.**
    1. On the fileserver: `usermod -l piraeus -d /nonexistent rancher` and
       `pdbedit -x -u rancher`, then `ansible-playbook fileserver.yaml`. The
