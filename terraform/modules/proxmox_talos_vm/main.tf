@@ -44,6 +44,12 @@ variable "cores" {
   default = 2
 }
 
+variable "cpu_units" {
+  description = "The VM's CPU weight on the host, relative to other guests. 0 leaves Proxmox's default of 100."
+  type = number
+  default = 0
+}
+
 variable "ip_address" {
   description = "Static IP address for the VM (without CIDR, e.g. 192.168.0.190)."
   type = string
@@ -178,6 +184,7 @@ resource "proxmox_vm_qemu" "main" {
     type = "host"
     cores = var.cores
     sockets = 1
+    units = var.cpu_units
   }
   network {
     id = 0

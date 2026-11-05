@@ -327,7 +327,11 @@ module "talos_worker_1" {
   # leaves only 5.26 GiB allocatable — so the node's OOM controller kills whole
   # pod cgroups before a 4 GiB container limit is ever reached.
   memory = 16384
-  cores = 4
+  cores = 6
+  # Half the default weight, so that when the host runs short, as it does
+  # during the nightly backups, the control plane and worker-0 are served before
+  # a transcode.
+  cpu_units = 50
   ip_address = "192.168.0.196"
   boot_disk_size = "100G"
   uefi = true
