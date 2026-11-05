@@ -4,10 +4,14 @@
     zpool: rpool
 
   tasks:
+    # Exports are declared in nfs.yaml. sharenfs is inherited, so set here it
+    # would export every dataset beneath to whichever clients it names.
     - name: 'storage dataset'
       community.general.zfs:
         name: "{{ zpool }}/storage"
         state: present
+        extra_zfs_properties:
+          sharenfs: 'off'
 
     - name: 'storage/filesync dataset'
       community.general.zfs:
