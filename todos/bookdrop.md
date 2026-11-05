@@ -24,7 +24,7 @@ steps are done: 0.2.1 runs here in dry run, and on 2026-11-03 a Kobo `.acsm`
 dropped from the phone came out a DRM-free EPUB. The one step left that needs
 work here:
 
-- **filing**: the Stump API key, and the switch to live, under *Going live*.
+- **filing**: the switch to live, under *Going live*. Its Stump key is in place.
 
 ## Decisions already made
 
@@ -62,7 +62,10 @@ By Will, 2026-11-03:
   internal ingress grant ([`docs/tailnet.md`](../docs/tailnet.md)).
 - Image automation with the semver range `>=0.1.0 <1.0.0`, like reelbarrow's.
 - `secrets.sops.yaml`: the `bookdrop-adept` Secret, mounted read-only at
-  `/adept`, and later the Stump API key.
+  `/adept`, and `stump.sops.yaml`: the `bookdrop-stump` Secret, Stump's
+  in-cluster URL, the Primary library's id and a key with only `ScanLibrary`,
+  in the environment. A scan made through it from the pod on 2026-11-05 ran
+  to completion in Stump.
 
 ### The device key
 
