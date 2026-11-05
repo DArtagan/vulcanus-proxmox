@@ -200,9 +200,9 @@ spec:
         # counts CONSTRAINT_MEMCG kills alongside node-wide ones, so a pod on the
         # control-plane node hitting its own limit trips a rule whose every other
         # line assumes the node ran out — and generic-device-plugin does exactly
-        # that against its 20Mi limit whenever it wedges. Every firing sample
-        # this rule produced in the seven days to 2026-08-25 was that, and none
-        # was a node-level kill. The guard excludes only kills attributable to a
+        # that whenever its limit is too small to hold its own code. Every
+        # firing sample this rule produced in the seven days to 2026-08-25 was
+        # that, and none was a node-level kill. The guard excludes only kills attributable to a
         # container that has a memory limit of its own, so a static pod, etcd or
         # kubelet — none of which carry one — still pages.
         #
@@ -461,10 +461,12 @@ spec:
               is the suspect; see docs/automatic-ripping-machine.md.
 
         # Watches the one number that separates a healthy plugin from a
-        # degrading one: its median garbage-collection pause, ~55us healthy and
-        # 11-18ms degraded, with nothing in between. Scrape latency moves with it
-        # but is noisier, and restarts only show the end of a degradation that
-        # can run for hours before the liveness probe reaps it. Backtested
+        # degrading one: its median garbage-collection pause, ~90us healthy and
+        # 1-18ms degraded. A transcode saturating the drive's node lifts it to
+        # ~0.5ms, as it does every Go process there, which the threshold clears.
+        # Scrape latency moves with the pause but is noisier, and restarts only
+        # show the end of a degradation that can run for hours before the
+        # liveness probe reaps it. Backtested
         # against a month of history: it fires on every day the plugin was
         # degrading and on none of the days it was healthy.
         #
@@ -481,13 +483,46 @@ spec:
           annotations:
             summary: generic-device-plugin on {{ $labels.instance }} is degrading.
             description: >-
-              Median GC pause is {{ $value | humanizeDuration }}, against ~55us
+              Median GC pause is {{ $value | humanizeDuration }}, against ~90us
               when healthy. Left alone, the liveness probe will reap it every few
               hours and devic.es/cdrom drops out while it restarts. First check
-              that go_sched_gomaxprocs_threads off the pod's /metrics reads 2: a
-              higher value means the GOMAXPROCS pin in
-              kubernetes/infrastructure/devices.yaml is gone or overridden. See
-              docs/automatic-ripping-machine.md.
+              whether DevicePluginMemoryHigh is firing too: a cgroup near its
+              memory limit evicts the plugin's own code and faults it back in,
+              which is what this pause measures. Then check that
+              go_sched_gomaxprocs_threads off the pod's /metrics reads 2, and
+              whether the node's CPU is saturated, as it is during a transcode on
+              the drive's node. See docs/automatic-ripping-machine.md.
+
+        # Two readings, because the plugin runs short of memory in two ways.
+        # RSS is its anonymous memory, flat at 9-10Mi under either limit; growth
+        # means a process accumulating something, which more headroom only lets
+        # live longer. memory.current near the limit is the failure that limit
+        # caused: it settles at ~36% of 64Mi, and sat at 98% of 20Mi throughout
+        # the degradation. The working set serves for neither, since it
+        # excludes the page cache that thrashes.
+        - alert: DevicePluginMemoryHigh
+          expr: |
+            max by (pod) (container_memory_rss{container="generic-device-plugin"}) > 16 * 2^20
+            or
+            max by (pod) (
+              container_memory_usage_bytes{container="generic-device-plugin"}
+                / on (namespace, pod, container) group_left ()
+              kube_pod_container_resource_limits{resource="memory", container="generic-device-plugin"}
+            ) > 0.75
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: generic-device-plugin pod {{ $labels.pod }} is running short of memory.
+            description: >-
+              Either its RSS is above 16Mi, against 9-10Mi when healthy, or its
+              cgroup's memory.current is above 75% of its limit, against ~36%.
+              The first is a process building something up, and a restart clears
+              it for now. The second leads to DevicePluginDegraded, since the
+              kernel starts evicting the plugin's code; raise the limit in
+              kubernetes/infrastructure/devices.yaml. Compare
+              container_memory_rss and container_memory_usage_bytes for the pod
+              to see which. See docs/automatic-ripping-machine.md.
 
 ---
 apiVersion: monitoring.coreos.com/v1

@@ -63,11 +63,13 @@ spec:
                     - path: /dev/sg0
           name: generic-device-plugin
           env:
-            # Do not remove.  With no CPU limit the Go runtime sizes itself to the
-            # node's core count, and on the multi-core workers that makes the
-            # plugin degrade until the liveness probe reaps it, every few hours.
-            # Pinned here rather than by restoring a CPU limit — see below, and
-            # docs/automatic-ripping-machine.md.
+            # With no CPU limit the Go runtime sizes itself to the node's core
+            # count, and every extra P costs resident memory: unpinned on the
+            # 8-core worker the plugin held 10-14.6Mi RSS, pinned 7.7Mi.  Under
+            # the old 20Mi limit that was the difference between degrading and
+            # not.  Whether the 64Mi limit makes the pin unnecessary is untested,
+            # so removing it is an experiment, not a tidy-up.  Pinned here rather
+            # than by restoring a CPU limit — see below.
             - name: GOMAXPROCS
               value: "2"
           resources:
@@ -80,8 +82,9 @@ spec:
             # and the Go runtime adds ~9Mi of anonymous memory.  Below that sum
             # the kernel evicts the code and faults it back from disk 60-150
             # times a second, which surfaces as millisecond GC pauses and a slow
-            # /metrics.  Judge headroom by the cgroup's memory.current; the
-            # working set excludes the very page cache that thrashes.
+            # /metrics.  memory.current settles at 20-23Mi, just over upstream's
+            # 20Mi limit.  Judge headroom by memory.current; the working set
+            # excludes the very page cache that thrashes.
             requests:
               cpu: 50m
               memory: 32Mi
