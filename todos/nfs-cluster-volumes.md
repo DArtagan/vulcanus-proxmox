@@ -5,13 +5,125 @@
 > The cluster reaches the fileserver's shares over SMB through `csi-driver-smb`,
 > and one smbd process per node serves every pod on it, single-threaded. NFS
 > from the host measured 3–15x faster for directory walks and small-file
-> opens. Read `todos/nfs-cluster-volumes.md`. Declaring the exports in
-> Ansible comes first, and `todos/smb-charset-utf8.md` must land before any
-> writer moves. Then design the identity mapping, prove it on one read-only
-> consumer, and move the rest one PVC at a time.
+> opens. Read `todos/nfs-cluster-volumes.md`. Phase 1 moves the books share,
+> with bookdrop and Stump on it, and its section below is where to start. Later
+> phases wait on `todos/smb-charset-utf8.md` for any consumer that stores
+> paths, then move the rest one PVC at a time.
 
-Verified **2026-10-12/13**. Measurements are in
+Verified **2026-10-12/13**, phase 1 **2026-11-05**. Measurements are in
 [nfs-cluster-volumes.evidence.md](nfs-cluster-volumes.evidence.md).
+
+## Phase 1: books, with bookdrop and Stump
+
+The first share to move. bookdrop (`todos/bookdrop.md`) is the reason: it is
+the first writer into the books share, and on 2026-11-05 no write could land
+there at all.
+
+### Why books cannot be written today
+
+A pod with bookdrop's security context and `books-pvc` mounted read-write got
+`EACCES` on `mkdir` at the library root. The client allowed it (the CIFS mount
+shows `root:1000`, `dir_mode=0775`, and the pod runs as gid 1000). The
+fileserver did not: the tree is owned by **uid 1001**, mode 755, and `[books]`
+writes as `rancher` (1100). NFS alone would not change this, since writes
+squashed to 1100 meet the same 755 directories.
+
+uid 1001 is `mini-nas` on the hypervisor and unknown in the fileserver LXC. The
+account exists for replication: `ansible/sanoid.yaml` creates it for mini-nas to
+pull with `zfs hold,send`, which never depends on file ownership, so it does not
+need to own anything here. 1001 is also `will` on the desktop. Every entry in the
+tree dates from 2026-05-26 23:24 local time, during the commits that set up
+Stump, and nothing under it has changed since June. The likeliest story is a
+copy from the desktop that preserved its uid; git does not record the copy, so
+that is inference. `docs/beets.md` describes the same trap on `audio-rw`: a copy
+that keeps another uid leaves a tree the share's account cannot write.
+
+### Stump can move with bookdrop
+
+The charset prerequisite below does not hold for books, measured from Stump's
+source at v0.1.11 and its database on 2026-11-05:
+
+- **Stump writes nothing to the library in practice.** Its one share-writing
+  feature is RAR-to-ZIP conversion, on for this library, which holds no RAR
+  files. Uploads are off; the rest goes to its cache under `/config`.
+- **It stores paths, and 18 books and 4 series have non-ASCII ones.** Their
+  names are UTF-8 on disk, so SMB, converting from Latin-1, shows them as
+  mojibake (`China MiÃ©ville`), which is what Stump recorded. NFS shows the real
+  bytes, so Stump would see those books as missing and add them anew.
+- **What that loses is one reading session, at 0%.** Favourites, bookmarks,
+  annotations, reviews and tags are empty for every book.
+
+Moving Stump in the same phase puts the whole tree on one protocol in the
+cluster, and corrects those 18 names in Stump.
+
+### The cluster's identity
+
+- **uid 1100 is the cluster's account already.** Desktops connect
+  anonymously, which `map to guest = Bad User` makes `nobody`, and `nobody` is a
+  valid user only on `[media]`. `[books]`, `[photos]`, `[filesync]` and
+  `[audio-rw]` accept only `rancher`, and the only login as `rancher` is the
+  cluster's `smb-credentials`. People and the cluster are therefore separate
+  already: people as guests on `[media]`, the cluster as 1100.
+- **Keep the number, rename the account.** Squashing is by number, so every file
+  owned by 1100 stays correct. `rancher` is a name from the Rancher era
+  (`/home/rancher/docker-vulcanus`). It becomes **`piraeus`**, the cluster's
+  name: mini-nas is getting a Talos cluster, which would then get an account of
+  its own rather than share this one. `cluster`, `k8s-storage` and `svc-files`
+  were the alternatives. The group stays `fileshare` (1200), which `nobody`
+  shares on `[media]`.
+- **The rename touches** the fileserver's account and its Samba entry, the
+  `valid users` lines in `ansible/templates/smb.conf.j2`, `samba_users` in
+  `ansible/fileserver.yaml`, the cluster's `smb-credentials`, and the rsync
+  example in `docs/beets.md`. No desktop.
+
+**What one squashed identity risks, and what it cannot.** With `sec=sys` the
+server trusts the node, not the pod, and `apps` enforces no Pod Security, so
+anything able to create a pod there could mount any export reachable from its
+node, as that export's squashed uid. Separate uids per export would therefore
+isolate nothing between cluster workloads. The boundaries are which claims each
+workload mounts and whether read-only, exporting single datasets rather than
+`rpool/storage` whole, `restricted` enforced on `apps`
+([pod-security-namespace-level.md](pod-security-namespace-level.md)), which
+refuses inline `nfs` volumes, and ZFS snapshots with the offsite pull, which no
+pod reaches, for recovery. A separate identity does matter between people and
+the cluster, which already holds, and for backups: `borg` should not be exported
+to the cluster under this identity. What one identity costs is knowing which app
+wrote a file. It gains that `root_squash` refuses `chown` and setuid, and that
+the ownership trap above stops recurring.
+
+### Cleanup found on the way, in this phase
+
+- **The Samba password is `rancher`, in plaintext, in this public repository**
+  (`samba_users` in `ansible/fileserver.yaml`), and the cluster's
+  `smb-credentials` is exactly `rancher`/`rancher`. SMB is reachable from the
+  LAN. Replace it with a generated password held in SOPS, at the same time as
+  the rename, so each place changes once.
+- **`rancher-key`**, `kubernetes.io/ssh-auth` Secrets in `apps` and
+  `infrastructure`, added 2023-01-07 ("Plex plus file transfer"). Nothing in the
+  repository or the cluster references either. Delete them.
+- **`docs/tailnet.md`** says the fileserver has NFS exports (see *The host's
+  exports start from nothing*).
+
+### The work
+
+1. Rename uid 1100 to `piraeus`, with a new password in SOPS, and update
+   `smb-credentials` with it.
+2. Re-own the books dataset to 1100:1200, directories `2775` so new files
+   take the group, everything world-readable for restic, which reads as the
+   unprivileged `restic` user. An Ansible task holds it there, with a comment on
+   where 1001 came from.
+3. Export `rpool/storage/books` only, declared in Ansible, to the two workers,
+   `all_squash,anonuid=1100,anongid=1200`, NFSv4.2. Decide between `sharenfs` and
+   `/etc/exports.d` here (see *Exports*).
+4. A static `books-nfs-pv` and `books-nfs-pvc` (with `k8up.io/backup: "false"`),
+   bookdrop on it read-only until its filing goes live, Stump on it, then
+   `books-pvc` and `books-pv` pruned once nothing mounts them. `Retain` keeps the
+   data either way.
+5. Delete `rancher-key`; correct `docs/tailnet.md`.
+
+Done when a file written by bookdrop through NFS lands as 1100:1200 with the
+group bit set, Stump lists the 18 books under their real names, and an SMB
+write as the renamed account still works on another share.
 
 ## Why
 
@@ -80,9 +192,10 @@ that row when this lands, if not before.
 
 [smb-charset-utf8.md](smb-charset-utf8.md) renames the ~150 Latin-1 names to
 UTF-8 and switches Samba to `unix charset = UTF-8`. After it, SMB and NFS
-present byte-identical names, and nothing stored in Plex, beets, photoprism or
-Stump changes meaning across the move. Do not move a consumer that stores
-paths before it lands. Read-only consumers that store nothing (borgmatic,
+present byte-identical names, and nothing stored in Plex, beets or photoprism
+changes meaning across the move. Do not move a consumer that stores paths
+before it lands, unless what it stores against the changed paths is measured
+and can be lost: Stump's was, and it moves in phase 1. Read-only consumers that store nothing (borgmatic,
 podbook-rebound) could go earlier, but borgmatic's archives would show every
 Latin-1 name as renamed.
 
@@ -117,8 +230,8 @@ video files. Open questions for the session:
 - **`chown` and `chmod` under squash fail with EPERM.** linuxserver-style
   images chown their mounts at start. Test each writer's startup against the
   NFS volume before cutting it over.
-- **`books` is owned by 1001.** Find what that uid is (mini-nas replication?)
-  before squashing writes there to 1100.
+- **`books` is owned by 1001**, the hypervisor's `mini-nas` account, which owns
+  it by uid collision, not use. Phase 1 re-owns it to 1100.
 
 ### Exports
 
@@ -199,11 +312,14 @@ settles on.
 
 ## Suggested order
 
-1. Declare the exports in Ansible: worker addresses only, squashed, v4.2.
+1. **Phase 1, books**, as above. It declares the first export in Ansible and
+   settles the identity. It comes ahead of Plex because a writer tests the
+   identity design, which a read-only consumer cannot, and bookdrop could not
+   write without it.
 2. Land `smb-charset-utf8`.
-3. Move one read-only consumer first, Plex's `video` read: largest library,
-   heaviest scanner, nothing to write. Compare scan time before and after.
-4. Move the writers one claim at a time, testing each image's startup and the
+3. Move Plex's `video` read: largest library, heaviest scanner, nothing to
+   write. Compare scan time before and after.
+4. Move the other writers one claim at a time, testing each image's startup and the
    modes of files it creates.
 5. Write the result into `docs/`: where exports are declared, the identity
    rule, and the `hard` mount behaviour under "what to do when it breaks".
@@ -212,6 +328,16 @@ settles on.
 ## Decisions already made
 
 - **Desktops stay on SMB.** Only the cluster's volumes move.
+- **Books first, as phase 1** (Will, 2026-11-05): "Yes, let's make that the
+  first part of the nfs-cluster-volumes project."
+- **One account for the cluster's storage, renamed from `rancher`** (Will,
+  2026-11-05): "'rancher' is a legacy filename. If we're setting a new
+  standard, we should take this opportunity to give it a better name." Named
+  `piraeus`: "`piraeus` is good."
+- **The host changes run after Will approves the review** (2026-11-05): "Once
+  I've reviewed #29 and approved, then you can run them."
+- **The cleanup found here belongs in phase 1** (Will, 2026-11-05): "we want
+  this all documented so we can address it. Phase 1 sounds like a great place."
 - **SMB tuning from the r/OpenMediaVault thread was measured and rejected**
   (2026-10-13): `use sendfile`, `aio … size = 16384`, socket buffer options and
   `write cache size` (removed from Samba) changed nothing on this workload.
