@@ -66,11 +66,11 @@ cluster, and corrects those 18 names in Stump.
   already: people as guests on `[media]`, the cluster as 1100.
 - **Keep the number, rename the account.** Squashing is by number, so every file
   owned by 1100 stays correct. `rancher` is a name from the Rancher era
-  (`/home/rancher/docker-vulcanus`). Candidates, with Will to choose:
-  `piraeus` (the cluster's name; mini-nas is getting a Talos cluster, which would
-  then get its own account rather than share this one), `cluster`,
-  `k8s-storage`, `svc-files`. The group stays `fileshare` (1200), which
-  `nobody` shares on `[media]`.
+  (`/home/rancher/docker-vulcanus`). It becomes **`piraeus`**, the cluster's
+  name: mini-nas is getting a Talos cluster, which would then get an account of
+  its own rather than share this one. `cluster`, `k8s-storage` and `svc-files`
+  were the alternatives. The group stays `fileshare` (1200), which `nobody`
+  shares on `[media]`.
 - **The rename touches** the fileserver's account and its Samba entry, the
   `valid users` lines in `ansible/templates/smb.conf.j2`, `samba_users` in
   `ansible/fileserver.yaml`, the cluster's `smb-credentials`, and the rsync
@@ -106,8 +106,8 @@ the ownership trap above stops recurring.
 
 ### The work
 
-1. Choose the account's name. Rename uid 1100 with a new password in SOPS,
-   and update `smb-credentials` with it.
+1. Rename uid 1100 to `piraeus`, with a new password in SOPS, and update
+   `smb-credentials` with it.
 2. Re-own the books dataset to 1100:1200, directories `2775` so new files
    take the group, everything world-readable for restic, which reads as the
    unprivileged `restic` user. An Ansible task holds it there, with a comment on
@@ -332,8 +332,10 @@ settles on.
   first part of the nfs-cluster-volumes project."
 - **One account for the cluster's storage, renamed from `rancher`** (Will,
   2026-11-05): "'rancher' is a legacy filename. If we're setting a new
-  standard, we should take this opportunity to give it a better name." The
-  name is still to choose.
+  standard, we should take this opportunity to give it a better name." Named
+  `piraeus`: "`piraeus` is good."
+- **The host changes run after Will approves the review** (2026-11-05): "Once
+  I've reviewed #29 and approved, then you can run them."
 - **The cleanup found here belongs in phase 1** (Will, 2026-11-05): "we want
   this all documented so we can address it. Phase 1 sounds like a great place."
 - **SMB tuning from the r/OpenMediaVault thread was measured and rejected**
