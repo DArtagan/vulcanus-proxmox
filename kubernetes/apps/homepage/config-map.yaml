@@ -69,6 +69,11 @@ data:
           description: Book server
           icon: stump
           siteMonitor: http://stump.apps.svc.cluster.local:10801
+      - bookdrop:
+          href: https://bookdrop.immortalkeep.com
+          description: Drop a purchased ebook into Stump
+          icon: mdi-book-arrow-down
+          siteMonitor: http://bookdrop.apps.svc.cluster.local:8000/healthz
       - Mumble:
           # No siteMonitor, and no href: Mumble speaks its own protocol on
           # 64738 and serves no HTTP endpoint, the same situation as RustDesk
