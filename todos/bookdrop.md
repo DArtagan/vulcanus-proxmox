@@ -82,14 +82,21 @@ apps, or whether the page needs its own login, is still to decide.
 
 `BOOKDROP_DRY_RUN: "false"` and the books mount made writable, in one commit.
 
+It waits on phase 1 of [nfs-cluster-volumes.md](nfs-cluster-volumes.md): no
+write can land in the books share today, since the tree belongs to uid 1001 at
+755 and `[books]` writes as 1100. That phase puts bookdrop on an NFS claim,
+so "the books mount" here is that claim.
+
 ## What bears on it here
 
 - **The books share** reaches pods through `books-pv`, an SMB CSI volume
   (`//192.168.0.105/books`, mount options `rw`). Stump mounts it at `/books`.
   Files on it show as root-owned from inside the Stump pod.
 - **Filenames above U+00FF fail with `EIO`** on every share
-  ([`smb-charset-utf8.md`](smb-charset-utf8.md)); bookdrop folds path
-  components to Latin-1 until that lands.
+  ([`smb-charset-utf8.md`](smb-charset-utf8.md)), and the books share's older
+  accented names are UTF-8 on disk, read through it as mojibake: 96 paths such
+  as `China MiÃ©ville`, seen from Stump's pod on 2026-11-05. bookdrop
+  writes ASCII paths, which read the same before and after that migration.
 - **Stump runs 0.1.11.** Its API takes user-scoped API keys, gated on the
   `ACCESS_API_KEYS` permission.
 - **The desktop's Calibre** has DeDRM, Obok and KFX Input installed, with no

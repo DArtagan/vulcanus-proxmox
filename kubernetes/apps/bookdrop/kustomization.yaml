@@ -7,3 +7,4 @@ resources:
   - ingress.yaml
   - secrets.sops.yaml
   - service.yaml
+  - stump.sops.yaml
