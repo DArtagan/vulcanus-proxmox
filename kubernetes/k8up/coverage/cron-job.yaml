@@ -4,11 +4,9 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: backup-coverage
-  namespace: infrastructure
 spec:
-  # UTC, at :45 past every sixth hour: after the nightly full Schedules
-  # (01:00-02:00) and after each dumps slot. The healthchecks check expects this
-  # cadence, and the script's age limits assume it.
+  # UTC, after the full Schedules and each dumps slot. The healthchecks check
+  # expects this cadence, and the script's age limits assume it.
   schedule: "45 2,8,14,20 * * *"
   concurrencyPolicy: Forbid
   failedJobsHistoryLimit: 3
@@ -49,20 +47,49 @@ spec:
               volumeMounts:
                 - name: tools
                   mountPath: /tools
+            # Plex's build of SQLite, the only one that can check its databases.
+            # The same version as the server's, which wrote them.
+            - name: plex-sqlite
+              image: plexinc/pms-docker:1.43.6.11085-d1e52e169 # {"$imagepolicy": "infrastructure:backup-coverage-plex"}
+              command:
+                - sh
+                - -c
+                - >-
+                  mkdir /tools/plex && cd /usr/lib/plexmediaserver && cp -a "Plex SQLite" "Plex Media Server" lib /tools/plex/
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              # cp itself needs almost nothing, but the 107 MiB it writes is
+              # charged to this container as page cache until written back,
+              # so the limit holds the whole copy. Below it, a copy is
+              # OOM-killed now and then even with the disks idle.
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  memory: 256Mi
+              volumeMounts:
+                - name: tools
+                  mountPath: /tools
           containers:
             - name: coverage
-              image: python:3.14.7-alpine # {"$imagepolicy": "infrastructure:backup-coverage-python"}
+              image: python:3.15.2-alpine # {"$imagepolicy": "infrastructure:backup-coverage-python"}
               command: [python3, /script/backup_coverage.py]
               env:
                 - name: PATH
                   value: /tools:/usr/local/bin:/usr/bin:/bin
-                # Each dump read back loads the 48 MB index; a cache for the run
-                # loads it once rather than seven times.
+                # So the index loads once per run, not once per dump.
                 - name: RESTIC_CACHE_DIR
                   value: /cache
+                # Where each SQLite copy is read back whole to be checked.
+                - name: TMPDIR
+                  value: /scratch
                 - name: RESTIC_REPOSITORY
-                  # The rest-server every Schedule writes to, from
-                  # ../schedule-defaults.yaml. Credentials come from the
+                  # As ../schedule-defaults.yaml. Credentials come from the
                   # environment below, not the URL.
                   value: rest:http://192.168.0.108:8000/
                 - name: RESTIC_PASSWORD
@@ -91,9 +118,8 @@ spec:
                 capabilities:
                   drop:
                     - ALL
-              # restic holds the repository's index in this container's memory
-              # while it reads a dump back: 253 MiB at its peak for salamander's,
-              # with the repository at 302 GB. The limit leaves room to grow.
+              # restic holds the index in memory while it reads a dump back,
+              # peaking at 253 MiB for salamander's at 302 GB of repository.
               resources:
                 requests:
                   cpu: 10m
@@ -107,6 +133,8 @@ spec:
                   mountPath: /tools
                 - name: cache
                   mountPath: /cache
+                - name: scratch
+                  mountPath: /scratch
           volumes:
             - name: script
               configMap:
@@ -115,3 +143,7 @@ spec:
               emptyDir: {}
             - name: cache
               emptyDir: {}
+            # One copy at a time; Plex's blobs database, the largest, is 140 MB.
+            - name: scratch
+              emptyDir:
+                sizeLimit: 1Gi

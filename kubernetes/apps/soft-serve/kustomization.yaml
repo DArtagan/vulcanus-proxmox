@@ -1,12 +1,12 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
+  - backups.yaml
   - data-pvc.yaml
   - deployment.yaml
   - image.yaml
   - ingress.yaml
   - mirror-cron-job.yaml
-  - prebackup-pod.yaml
   - secrets.sops.yaml
   - service.yaml
 # From the files themselves, so the plan script deployed is the one the tests

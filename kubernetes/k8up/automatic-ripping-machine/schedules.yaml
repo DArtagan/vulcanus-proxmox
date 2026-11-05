@@ -1,0 +1,10 @@
+apiVersion: k8up.io/v1
+kind: Schedule
+metadata:
+  name: full
+spec:
+  backup:
+    # UTC. Staggered: K8up serialises jobs only within a namespace, so full
+    # runs at once would be three restic writers on the same spindles. Clear
+    # of the repository host's jobs too; see docs/backups.md.
+    schedule: "0 2 * * *"

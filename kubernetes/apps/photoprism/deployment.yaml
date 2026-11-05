@@ -12,27 +12,18 @@ spec:
     metadata:
       labels:
         app: photoprism
-        # Selected by the dumps-only K8up Schedule as well as the nightly one.
         k8up-dump: "true"
       annotations:
-        # Dumped beside its server, into a file of this run's own that is checked
-        # before a byte is streamed: a failed dump streams nothing, and
-        # overlapping Backups cannot read each other's half-written file. See
-        # docs/backups.md.
         k8up.io/backupcommand: >-
-          sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT;
-          MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb-dump -u root
-          --single-transaction --databases "$MARIADB_DATABASE" > "$f";
-          test -s "$f"; cat "$f"'
+          sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT; MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb-dump -u root --single-transaction --databases "$MARIADB_DATABASE" > "$f"; test -s "$f"; cat "$f"'
         k8up.io/backupcommand-container: database
-        # K8up names a dump /<namespace>-<container><extension>, and every
-        # database container here is called `database`, so the extension carries
-        # the application's name or the dumps overwrite each other's history.
+        # Every database container is called `database`, so the application's
+        # name keeps the dumps' restic paths apart. See docs/backups.md.
         k8up.io/file-extension: .photoprism.sql
     spec:
       containers:
         - name: photoprism
-          image: photoprism/photoprism:260919 # {"$imagepolicy": "apps:photoprism"}
+          image: photoprism/photoprism:261029 # {"$imagepolicy": "apps:photoprism"}
           env:
             - name: PHOTOPRISM_ADMIN_PASSWORD
               valueFrom:

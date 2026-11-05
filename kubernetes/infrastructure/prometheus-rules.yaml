@@ -386,6 +386,12 @@ spec:
         # 8. A rule built on the counter alone would have watched all of that
         # and reported nothing.
         #
+        # Both halves select the ripper by name, not just by namespace, because
+        # the namespace also holds k8up's nightly backup pods: a namespace-wide
+        # max() takes each one's start as the ripper being replaced and fires
+        # every night at 02:00. kube_pod_start_time's own `container` label is
+        # kube-state-metrics', so that half has to match on the pod name.
+        #
         # Clears by itself an hour after the event — the same shape as
         # ControlPlaneContainerRestarting above. Deliberate restarts page once,
         # which is worth keeping: a Flux image bump landing mid-rip destroys
@@ -393,12 +399,16 @@ spec:
         - alert: RipperRestarted
           expr: |
             (
-              time() - max(kube_pod_start_time{namespace="automatic-ripping-machine"}) < 3600
+              time() - max(kube_pod_start_time{
+                namespace="automatic-ripping-machine",
+                pod=~"automatic-ripping-machine-.+"
+              }) < 3600
             )
             or
             (
               sum(increase(kube_pod_container_status_restarts_total{
-                namespace="automatic-ripping-machine"
+                namespace="automatic-ripping-machine",
+                container="automatic-ripping-machine"
               }[1h])) > 0
             )
           for: 5m
@@ -448,8 +458,68 @@ spec:
               — "hardreset failed" means the link dropped, and recovery is
               /usr/local/bin/optical-drive-recovery.sh followed by a full power
               cycle if that fails. If the devices are present, the device plugin
-              is the suspect; see docs/automatic-ripping-machine.md and
-              todos/generic-device-plugin-hang.md.
+              is the suspect; see docs/automatic-ripping-machine.md.
+
+        # Watches the one number that separates a healthy plugin from a
+        # degrading one: its median garbage-collection pause, ~55us healthy and
+        # 11-18ms degraded, with nothing in between. Scrape latency moves with it
+        # but is noisier, and restarts only show the end of a degradation that
+        # can run for hours before the liveness probe reaps it. Backtested
+        # against a month of history: it fires on every day the plugin was
+        # degrading and on none of the days it was healthy.
+        #
+        # The quantile summarises recent pauses rather than an instant, so `for`
+        # only has to rule out a restart's first few GCs.
+        - alert: DevicePluginDegraded
+          expr: |
+            max by (instance) (
+              go_gc_duration_seconds{job="infrastructure/generic-device-plugin", quantile="0.5"}
+            ) > 0.001
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: generic-device-plugin on {{ $labels.instance }} is degrading.
+            description: >-
+              Median GC pause is {{ $value | humanizeDuration }}, against ~55us
+              when healthy. Left alone, the liveness probe will reap it every few
+              hours and devic.es/cdrom drops out while it restarts. First check
+              that go_sched_gomaxprocs_threads off the pod's /metrics reads 2: a
+              higher value means the GOMAXPROCS pin in
+              kubernetes/infrastructure/devices.yaml is gone or overridden. See
+              docs/automatic-ripping-machine.md.
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: container-health
+spec:
+  groups:
+    - name: container-health
+      rules:
+        # The chart's rule, minus pods in a terminal phase. When an init
+        # container fails under restartPolicy Never, the pod goes Failed but
+        # kube-state-metrics goes on reporting its main container as waiting in
+        # PodInitializing until the pod is deleted. For a CronJob that is
+        # whenever failedJobsHistoryLimit rotates it out, so one transient
+        # failure would page for weeks — the same inversion that retired
+        # KubeJobFailed. Whether the CronJob is working is CronJobNotSucceeding's
+        # question.
+        - alert: KubeContainerWaiting
+          expr: |
+            kube_pod_container_status_waiting_reason{reason!="CrashLoopBackOff", job="kube-state-metrics"} > 0
+            unless on (namespace, pod) (kube_pod_status_phase{phase=~"Failed|Succeeded"} == 1)
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: Pod container waiting longer than 1 hour
+            description: >-
+              pod/{{ $labels.pod }} in namespace {{ $labels.namespace }} on
+              container {{ $labels.container }} has been in waiting state for
+              longer than 1 hour (reason: "{{ $labels.reason }}").
+            runbook_url: https://runbooks.prometheus-operator.dev/runbooks/kubernetes/kubecontainerwaiting
 
 ---
 apiVersion: monitoring.coreos.com/v1

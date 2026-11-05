@@ -34,7 +34,7 @@ spec:
               name: config-data
       containers:
         - name: automatic-ripping-machine
-          image: automaticrippingmachine/automatic-ripping-machine:2.24.3 # {"$imagepolicy": "automatic-ripping-machine:automatic-ripping-machine"}
+          image: automaticrippingmachine/automatic-ripping-machine:2.24.4 # {"$imagepolicy": "automatic-ripping-machine:automatic-ripping-machine"}
           env:
             - name: ARM_UID
               value: "0"
@@ -88,6 +88,15 @@ spec:
             - mountPath: /usr/local/bin/arm-title-charset.py
               name: init-scripts
               subPath: arm-title-charset.py
+            - mountPath: /usr/local/bin/arm-source-patches.py
+              name: init-scripts
+              subPath: arm-source-patches.py
+            - mountPath: /usr/local/bin/arm-whole-disc.py
+              name: init-scripts
+              subPath: arm-whole-disc.py
+            - mountPath: /usr/local/bin/arm-duplicate-titles.py
+              name: init-scripts
+              subPath: arm-duplicate-titles.py
             - mountPath: /etc/service/armui/run
               name: init-scripts
               subPath: armui.sh
@@ -132,6 +141,12 @@ spec:
                 path: arm-title-charset.sh
               - key: arm-title-charset.py
                 path: arm-title-charset.py
+              - key: arm-source-patches.py
+                path: arm-source-patches.py
+              - key: arm-whole-disc.py
+                path: arm-whole-disc.py
+              - key: arm-duplicate-titles.py
+                path: arm-duplicate-titles.py
               - key: armui.sh
                 path: armui.sh
         - name: data

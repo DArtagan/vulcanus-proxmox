@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agents working in this repository.
 
 ## Development Environment
 
@@ -27,7 +27,7 @@ kubectl debug -n apps -it --copy-to=<debug-pod-name> --container=<container> <po
 kubectl port-forward -n <ns> <pod> <local>:<remote>  # Port forwarding
 ```
 
-**Distroless containers:** Loki, Prometheus and node-exporter ship distroless
+**Distroless containers:** Prometheus and node-exporter ship distroless
 images and contain no shell, so `kubectl exec … -- sh`, `wget` and `df` all fail
 with `executable file not found in $PATH`. Reach their HTTP APIs from a pod that
 does have a shell (the Alertmanager pod works), read disk usage from Prometheus'
@@ -51,6 +51,35 @@ sops <file>        # Edit encrypted file
 treefmt            # Format the whole tree
 ```
 
+**Checking a change:**
+```bash
+devenv test                    # Every hook over every tracked file
+PREK_QUIET=1 devenv -q test    # The same, printing only failing hooks
+```
+The hooks are the ones `git commit` runs: formatting, linters, the SOPS guard,
+Flux renders, NixOS evaluation, Ansible syntax, `tofu validate` and the Python
+suites. All of it is offline, so a server-side dry run is still worth doing
+before deploying. Files git does not track are invisible to it; `git add -N` a
+new file first.
+
+### Working here as an agent
+
+Everything a command prints lands in the context window, so keep output to
+what carries the result.
+
+- **`git diff --no-ext-diff`.** The global git config sends `git diff` through
+  difftastic, whose side-by-side output is several times the size, and which
+  skips the masked view `.gitattributes` gives SOPS files.
+- **Verify with `PREK_QUIET=1 devenv -q test`, not by printing.** A successful Edit has already
+  matched its text exactly once; reading the result back proves nothing more.
+- **Edit a single file with the Edit tool.** Script an edit only when the same
+  change spans many files or a large block moves, and have the script assert that
+  each pattern matched: `sed -i` succeeds on no match.
+- **Filter noisy commands** to the lines that carry the result: builds, evals,
+  applies and renders print far more than they conclude. Find a file's place
+  with `grep -n` and read that range with Read's `offset` and `limit`, not the
+  whole file.
+
 ## Architecture
 
 ### Infrastructure Layers
@@ -60,7 +89,7 @@ treefmt            # Format the whole tree
 2. **Talos Linux Kubernetes cluster** — provisioned by `terraform/modules/talos/`. Three nodes:
    - Control plane: `192.168.0.190` (`piraeus-control-plane-0`)
    - Worker 0: `192.168.0.195` (`piraeus-worker-0`) — primary workload node, 24 GiB RAM / 8 cores, 1 TB OpenEBS disk
-   - Worker 1: `192.168.0.196` (`piraeus-worker-1`) — secondary node, 8 GiB / 4 cores, 100 GB OpenEBS disk; hosts the physical optical-drive passthrough for `automatic-ripping-machine` (vmid 911 in Proxmox)
+   - Worker 1: `192.168.0.196` (`piraeus-worker-1`) — secondary node, 16 GiB / 4 cores, 100 GB OpenEBS disk; hosts the physical optical-drive passthrough for `automatic-ripping-machine` (vmid 911 in Proxmox)
 
    New nodes MUST be booted from a factory.talos.dev image that bundles the required extensions (see "Talos extensions required" below) — booting a new node from a stock ISO will leave it on a different Talos minor/patch version than the rest of the cluster, which can break Flannel VXLAN pod-to-pod traffic.
 
@@ -71,14 +100,14 @@ treefmt            # Format the whole tree
    - MetalLB pool `192.168.0.201-210` — load balancer IPs
    - Nginx ingress at `192.168.0.203` — internal ingress for `*.immortalkeep.com`
 
-5. **Storage:** OpenEBS for Kubernetes PVCs, backed by a dedicated disk on the worker VM (`terraform/main.tf`: `openebs_disk_size`). Fileserver at `192.168.0.105` provides NFS/SMB mounts for media.
+5. **Storage:** OpenEBS for Kubernetes PVCs, backed by a dedicated disk on each worker VM (`terraform/main.tf`: each worker module's `openebs_disk`). Fileserver at `192.168.0.105` provides NFS/SMB mounts for media.
 
 ### Kubernetes Directory Layout
 
 ```
 kubernetes/
 ├── cluster/          # Flux Kustomization objects (bootstraps infrastructure & apps)
-├── infrastructure/   # Platform components: metallb, openebs, cert-manager, coredns, prometheus, loki, grafana, etc.
+├── infrastructure/   # Platform components: metallb, openebs, cert-manager, coredns, prometheus, victoria-logs, alloy, grafana, etc.
 ├── apps/             # Application deployments (plex, photoprism, mumble, syncthing, headscale, etc.)
 ├── charts/           # Custom Helm charts
 └── flux-customizations/  # Flux webhooks and image automation
@@ -95,10 +124,9 @@ sops kubernetes/apps/<app>/secrets.sops.yaml
 
 ## Key Operational Notes
 
-- **Increase VM disk:** `qm resize <vm-id> virtio1 +<size>G` on the Proxmox host, then update `openebs_disk_size` in `terraform/main.tf` and run `tofu apply`.
+- **Increase VM disk:** `qm resize <vm-id> virtio1 +<size>G` on the Proxmox host, then update that worker's `openebs_disk.size` in `terraform/main.tf` and run `tofu apply`.
 - **Talos upgrades:** Upgrade one node at a time (controlplane first), incrementing minor versions. Use `talosctl --nodes <ip> upgrade --stage --image <factory-image>`.
 - **Talos extensions required:** `siderolabs/iscsi-tools`, `siderolabs/qemu-guest-agent` — get images from https://factory.talos.dev.
-- **talos-worker won't boot:** Check that a virtual SCSI/cdrom is attached in Proxmox VM config.
 
 ### Practices that exist because they were learned the hard way
 
@@ -106,9 +134,11 @@ sops kubernetes/apps/<app>/secrets.sops.yaml
 
 - **Establish what produces an artifact before changing what consumes it.** The mirror of the rule above. The blocklist sync's manifest was rewritten to use its image's new entrypoint before anyone checked how that image is built — a workflow pinned to a fork tag that had not moved in months, so every image it published was old source wearing a fresh timestamp and a plausible-looking revision label. A green build, a current tag and a matching label all agreed, and all three were wrong. Ask what builds an artifact, and from which ref, before trusting what its tag claims.
 
-- **When the system is running, measure it rather than reasoning about it.** A claim that can be queried should be. Predicting from a rule's structure that `KubeMemoryOvercommit` could not clear took longer than the query proving it had, and was wrong regardless. Metric names deserve the same check — `kube_endpoint_info` exists as a name here but kube-state-metrics emits zero series for it, since its `endpoints` collector isn't enabled. Confirm a series has data before building on it.
+- **Read a product's own documentation before designing around it.** Its designers know which files belong together, what a restore or an upgrade needs, and what cannot be undone. The application backups were built before anyone read Plex's restore guide, which swaps `library.db` and `library.blobs.db` as a pair while only the first was being dumped, or headscale's, whose migrations are one-way and cannot skip a minor version. Read the vendor's guidance for the operation in hand, and note where the design departs from it and why.
 
-- **A verification step is part of the change and earns the same scrutiny.** State where each check runs from and why the number it reports moves for the reason claimed. `kubectl top node` was once offered as proof a memory fix worked — it counts page cache, and read ~84% on a node with 2 GiB genuinely free. `nc -zv` was offered against ports the tailnet policy doesn't grant, which fails regardless of service health. Vantage point matters throughout this repo — LAN, tailnet and in-cluster reach different things, and the tailnet reaches only what [`docs/tailnet.md`](docs/tailnet.md) lists. A check that cannot fail is not a check.
+- **When the system is running, measure it rather than reasoning about it.** A claim that can be queried should be. Predicting from a rule's structure that `KubeMemoryOvercommit` could not clear took longer than the query proving it had, and was wrong regardless. Metric names deserve the same check — `kube_endpoint_info` exists as a name here but kube-state-metrics emits zero series for it, since its `endpoints` collector isn't enabled. Confirm a series has data before building on it. The same holds for a reason written into a comment or a doc, which outlives the session and is read as settled. The restic repository's container was sized at 4 GiB because `restic prune` "holds the whole index in memory", and measured 290 MiB at its peak; `nesting = true` was justified as Proxmox's default, which it is only in the GUI, the API's being off. State a figure or a default once it has been read from the system, not before.
+
+- **A verification step is part of the change and earns the same scrutiny.** State where each check runs from and why the number it reports moves for the reason claimed. `kubectl top node` was once offered as proof a memory fix worked — it counts page cache, and read ~84% on a node with 2 GiB genuinely free. `nc -zv` was offered against ports the tailnet policy doesn't grant, which fails regardless of service health. Vantage point matters throughout this repo — LAN, tailnet and in-cluster reach different things, and the tailnet reaches only what [`docs/tailnet.md`](docs/tailnet.md) lists. A check that cannot fail is not a check. Its tests earn the same scrutiny: put their inputs at the boundaries the system really meets, not comfortably either side. The backup coverage check rounded ages down to the hour, so a dump missed at 07:00 read as 7h at 08:45 and passed a 7h limit; every test age sat hours from a limit, and the documented six-hour RPO was twelve in practice until a test sat at the CronJob's real :45.
 
 - **Ask what is consuming a saturated resource before trying to make it faster.** etcd here has been slow since the cluster was built, and every remedy considered — a SLOG, defragmentation, wider leases — aimed at helping the disk keep up with the load, without ever asking what the load was. Nearly all of it was `openebs-localpv-provisioner` renewing an Endpoints object and a Lease every 2s to arbitrate between one replica and nobody — a quarter of etcd's total writes, removed by two lines of chart values. Profile the demand before buying more supply.
 
@@ -151,8 +181,9 @@ already been through.
 2. The work is carried out, usually in its own session opened with that spec.
 3. Whatever the work leaves behind that is *permanently true* is written into
    `docs/` — the resulting architecture, conventions, operational notes.
-4. The spec in `todos/` is deleted — it was scaffolding — and an entry is added
-   to [`docs/project_log.md`](docs/project_log.md). Steps 3 and 4 belong in one
+4. The spec in `todos/` is deleted, with its evidence file if it has one — it
+   was scaffolding — and an entry is added to
+   [`docs/project_log.md`](docs/project_log.md). Steps 3 and 4 belong in one
    commit on the project branch, so the closing change lands inside the review.
 
 A spec phased across months does not have to reach step 4 in one sitting. It can
@@ -202,15 +233,21 @@ Applies to comments and config as much as to prose here.
   [`docs/project_log.md`](docs/project_log.md), which is past tense by design —
   see [`docs/README.md`](docs/README.md) for why an index of pointers is not a
   file narrating its own edit history.
-- **Write it once, and point at it.** A fact belongs in exactly one place;
-  everywhere else refers to that place. Duplicating an explanation into a
-  manifest comment beside the doc that already holds it doubles the maintenance
-  and guarantees the two drift, at which point a reader cannot tell which is
-  current. Where the file lives decides what it may say: `docs/` carries the
-  explanation, and a comment carries only what a reader of *that file* needs and
-  could not infer — most often the warning that stops them reintroducing a bug,
-  which is the one thing worth repeating because its whole value is being where
-  the mistake would be made. "See `docs/network.md`" is a complete comment.
+- **Write it once, where it is needed.** A fact belongs in exactly one place.
+  Duplicating an explanation into a manifest comment beside the doc that already
+  holds it doubles the maintenance and guarantees the two drift, at which point a
+  reader cannot tell which is current. Where the file lives decides what it may
+  say: `docs/` carries the architecture and how to use it, and the reason an
+  implementation was chosen sits beside that implementation, where whoever
+  changes it will read it. A comment carries only what a reader of *that file*
+  needs and could not infer — most often the warning that stops them
+  reintroducing a bug, which is the one thing worth repeating because its whole
+  value is being where the mistake would be made. A comment that only points at a
+  doc tells the reader nothing they need, so leave it out.
+- **Write comments at their final length the first time.** A review spent
+  deleting restatements, history and pointers is a review not spent on the
+  change. Before committing a comment, ask what it says that the line beneath it
+  and the docs do not; if nothing, it goes.
 - **A doc is architecture and use, not implementation.** `docs/` says what a
   thing is, how it is reached and used, why it is shaped the way it is, and what
   to do when it breaks. Container ports, environment variable names, annotations
@@ -337,7 +374,7 @@ the project. Whatever a conclusion rests on beyond that belongs in the spec or
 
 Every formatter in the repo is a [treefmt](https://treefmt.com/) formatter,
 configured in the `treefmt` block of `devenv.nix`. `treefmt` formats the tree;
-entering the devenv shell runs it too, and it runs again on `git commit`.
+it runs again on `git commit` and under `devenv test`.
 
 `nixfmt`, `deadnix` and `statix` cover Nix; `yamlfmt` YAML; `ruff-format`
 Python; `jsonfmt` JSON; `taplo` TOML. Terraform goes through a wrapper that

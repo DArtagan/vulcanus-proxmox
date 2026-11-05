@@ -1,43 +1,37 @@
 #!/usr/bin/env python3
 """Assert backup coverage per claim and per dump, from the repository itself.
 
-K8up's own signals cannot say this. Its job counters carry no claim label, a
-Backup reports Succeeded when restic exits 3 having read nothing (k8up#1032),
-and `k8up_schedule_last_job_succeeded` never covers a backup. So this reads the
-store -- `restic snapshots` through the rest-server -- and compares it with what
-the cluster says should be there.
+K8up's own signals cannot say this: its job counters carry no claim label, a
+Backup reports Succeeded when restic read nothing (k8up#1032), and no metric
+records a backup's last success. So this lists the snapshots through
+rest-server and compares them with every PVC, `k8up.io/backupcommand` pod and
+PreBackupPod the cluster API returns -- not git, where some live claims have no
+literal declaration -- and reads each current dump back to see that it is
+whole. A size comparison cannot see a dump cut short by a percent, as k8up#1109
+did. See docs/backups.md for the verdicts.
 
-Scope comes from the cluster API, cluster-wide: every PVC, every pod carrying
-`k8up.io/backupcommand`, and every PreBackupPod. Not from git, where six live
-claims have no literal declaration, and not from the namespaces that happen to
-have a Schedule, which cannot see a namespace created later.
+Two outcomes, as in ansible/files/pbs_freshness.py: failures ping /fail and exit
+non-zero; reports print and ride along in the ping's body. An excluded claim or
+a retired application's snapshots are statements, not failures -- failing on
+them would make this the always-on warning docs/README.md warns against.
 
-Two outcomes, as in ansible/files/pbs_freshness.py. Failures ping /fail and exit
-non-zero; reports print and ride along in the ping's body. An excluded claim, or
-a retired application's last snapshot, is a statement rather than a failure --
-failing on it would make this the always-on warning docs/README.md warns against.
-
-Each current dump is also read back from the store to see that it is whole:
-a SQLite copy's header states its own length, and a SQL dump ends in a
-completion marker. k8up#1109 once dropped the last ~1% of dumps with no error
-anywhere, well inside what a size comparison can see.
-
-Restic's count of unreadable files exists only in each backup Job's log, so it
-is read from there, and only reports: files deleted mid-scan count too, and a
-Job's pods go when K8up prunes its history or their node restarts. See
-docs/backups.md.
+restic's unreadable-file counts only report: files deleted mid-scan count too,
+and the Job logs they are read from do not last.
 """
 
 import json
 import os
 import re
+import sqlite3
 import ssl
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.parse
 import urllib.request
 from collections.abc import Iterable, Mapping
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -52,7 +46,7 @@ EXTENSION_ANNOTATION = "k8up.io/file-extension"
 # plus the slack a long run needs.
 VOLUME_MAX_AGE_HOURS = 26
 # Dumps run at 01:00 (with `full`), 07:00, 13:00 and 19:00: one six-hour cycle
-# plus an hour.
+# plus an hour, so the check after a missed run fails.
 DUMP_MAX_AGE_HOURS = 7
 # A claim or producer younger than this has not yet met a nightly run.
 NEW_GRACE_HOURS = 26
@@ -61,6 +55,11 @@ NEW_GRACE_HOURS = 26
 # ordinary churn -- headscale's whole database is 90 KB.
 SHRINK_RATIO = 0.5
 SHRINK_FLOOR_BYTES = 1 << 20
+# SQLite's transient files. A checkpoint folds the WAL back into the database
+# and truncates it, so a volume holding little else halves overnight with
+# nothing lost: headscale's went from 2.36 MB to 242 KB that way. A volume that
+# shrinks is totalled again without them before it fails.
+SQLITE_SIDECARS = ("-wal", "-shm", "-journal")
 # Snapshots the repository host takes of its own mounts. Its timer reports them
 # to healthchecks itself, and they belong to no claim.
 REPOSITORY_HOSTS = frozenset({"restic-repository"})
@@ -69,6 +68,11 @@ DECOMMISSIONED = "decommissioned"
 
 # The first 100 bytes of a SQLite file are its header.
 SQLITE_HEADER_BYTES = 100
+# Plex's databases use its own collation and full-text tokenizer, so only its
+# build of SQLite can check them. The CronJob copies it in from Plex's image.
+PLEX_SQLITE = Path("/tools/plex/Plex SQLite")
+PLEX_DUMPS = (".plex.sqlite", ".plex-blobs.sqlite")
+INTEGRITY_REPORT_LINES = 3
 SQLITE_MAGIC = b"SQLite format 3\x00"
 # pg_dump 18 follows its marker with an \unrestrict line, 118 bytes from the end
 # of the pinepods dump; mariadb-dump's is its last line. A kilobyte covers both.
@@ -77,6 +81,8 @@ SQL_COMPLETION_MARKERS = (
     b"-- Dump completed on ",
     b"-- PostgreSQL database dump complete",
 )
+
+HOUR = 3600
 
 # healthchecks keeps the first 100 kB of a ping's body.
 PING_BODY_BYTES = 100_000
@@ -124,6 +130,8 @@ class Series(NamedTuple):
     previous_files: int | None
     previous_size: int | None
     tags: frozenset[str]
+    snapshot_id: str
+    previous_id: str | None
 
 
 def parse_time(text: str) -> int:
@@ -165,6 +173,8 @@ def parse_snapshots(text: str | bytes) -> dict[tuple[str, str], Series]:
             if previous is None
             else _summary(previous, "total_bytes_processed"),
             tags=frozenset(newest.get("tags") or ()),
+            snapshot_id=newest["id"],
+            previous_id=None if previous is None else previous["id"],
         )
     return held
 
@@ -306,21 +316,53 @@ def sql_trailer_verdict(tail: bytes) -> tuple[str | None, str | None]:
     )
 
 
-def _shrank(held: Series) -> bool:
+def _halved(previous: int | None, size: int | None) -> bool:
     return (
-        held.size is not None
-        and held.previous_size is not None
-        and held.previous_size >= SHRINK_FLOOR_BYTES
-        and held.size < held.previous_size * SHRINK_RATIO
+        size is not None
+        and previous is not None
+        and previous >= SHRINK_FLOOR_BYTES
+        and size < previous * SHRINK_RATIO
     )
 
 
-def _hours(now: int, then: int) -> int:
-    return (now - then) // 3600
+def _shrank(held: Series) -> bool:
+    return _halved(held.previous_size, held.size)
 
 
-def _volume_contents(name: str, held: Series) -> tuple[str | None, str | None]:
-    """Judge what a current snapshot holds, against the one before it."""
+def size_without_sidecars(listing: Iterable[str | bytes]) -> int:
+    """Total the files in `restic ls --json` output, leaving out SQLite's own."""
+    total = 0
+    for line in listing:
+        if not line.strip():
+            continue
+        node = json.loads(line)
+        if (
+            node.get("struct_type") == "node"
+            and node.get("type") == "file"
+            and not node["name"].endswith(SQLITE_SIDECARS)
+        ):
+            total += node.get("size", 0)
+    return total
+
+
+def _older_than(now: int, then: int, hours: int) -> bool:
+    """Compare exactly: rounded to the hour, a 7h44m dump passes a 7h limit."""
+    return now - then > hours * HOUR
+
+
+def _age(now: int, then: int) -> str:
+    minutes = (now - then) // 60
+    return f"{minutes // 60}h{minutes % 60:02d}m"
+
+
+def _volume_contents(
+    name: str, held: Series, recount: tuple[int, int] | None
+) -> tuple[str | None, str | None]:
+    """Judge what a current snapshot holds, against the one before it.
+
+    `recount` is the (previous, newest) pair totalled without SQLite's sidecar
+    files, taken only for a volume that shrank. Without one the shrink stands.
+    """
     if held.files == 0:
         if held.previous_files:
             return (
@@ -328,29 +370,36 @@ def _volume_contents(name: str, held: Series) -> tuple[str | None, str | None]:
                 f"before held {held.previous_files}. Can the Job still read it?"
             ), None
         return None, f"{name}: in scope and holds nothing"
-    if _shrank(held):
-        return (
-            f"{name}: shrank from {held.previous_size} to {held.size} bytes "
-            "between its last two snapshots"
-        ), None
-    return None, None
+    if not _shrank(held):
+        return None, None
+    shrank = (
+        f"{name}: shrank from {held.previous_size} to {held.size} bytes "
+        "between its last two snapshots"
+    )
+    if recount is None:
+        return shrank, None
+    without = f"{recount[0]} to {recount[1]} without SQLite's -wal, -shm and -journal"
+    if _halved(*recount):
+        return f"{shrank}, {without}", None
+    return None, f"{shrank}; {without}"
 
 
 def _judge_volume(
-    name: str, claim: Claim, held: Series | None, now: int
+    name: str,
+    claim: Claim,
+    held: Series | None,
+    now: int,
+    recount: tuple[int, int] | None,
 ) -> tuple[str | None, str | None]:
     """Return (problem, report) for one in-scope claim; at most one of each."""
     if held is None:
-        if _hours(now, claim.created) < NEW_GRACE_HOURS:
+        if not _older_than(now, claim.created, NEW_GRACE_HOURS):
             return None, f"{name}: new, awaiting its first backup"
         return f"{name}: in scope and never backed up", None
-    age = _hours(now, held.newest)
-    if age > VOLUME_MAX_AGE_HOURS:
-        return (
-            f"{name}: newest snapshot {age}h old, limit {VOLUME_MAX_AGE_HOURS}h",
-            None,
-        )
-    return _volume_contents(name, held)
+    if _older_than(now, held.newest, VOLUME_MAX_AGE_HOURS):
+        age = _age(now, held.newest)
+        return f"{name}: newest snapshot {age} old, limit {VOLUME_MAX_AGE_HOURS}h", None
+    return _volume_contents(name, held, recount)
 
 
 def _dump_contents(
@@ -380,20 +429,20 @@ def _judge_dump(
 ) -> tuple[str | None, str | None]:
     """Return (problem, report) for one dump; at most one of each."""
     if held is None:
-        if _hours(now, producer.created) < NEW_GRACE_HOURS:
+        if not _older_than(now, producer.created, NEW_GRACE_HOURS):
             return None, f"{name}: new, awaiting its first dump ({producer.source})"
         return f"{name}: never dumped ({producer.source})", None
-    age = _hours(now, held.newest)
-    if age > DUMP_MAX_AGE_HOURS:
-        return f"{name}: newest dump {age}h old, limit {DUMP_MAX_AGE_HOURS}h", None
+    if _older_than(now, held.newest, DUMP_MAX_AGE_HOURS):
+        age = _age(now, held.newest)
+        return f"{name}: newest dump {age} old, limit {DUMP_MAX_AGE_HOURS}h", None
     return _dump_contents(name, held, content)
 
 
 def _orphan_report(held: Series, now: int) -> str:
-    age = _hours(now, held.newest)
+    age = _age(now, held.newest)
     if DECOMMISSIONED in held.tags:
         return (
-            f"{held.host} {held.path}: decommissioned, newest snapshot {age}h old, "
+            f"{held.host} {held.path}: decommissioned, newest snapshot {age} old, "
             "kept by the prune's --keep-tag"
         )
     if held.path.startswith("/data/"):
@@ -401,7 +450,7 @@ def _orphan_report(held: Series, now: int) -> str:
             f"{held.host}/{held.path.removeprefix('/data/')}: claim gone, newest "
             f"snapshot {age}h old -- tag it {DECOMMISSIONED} if it is worth keeping"
         )
-    return f"{held.host} dump {held.path}: producer gone, newest dump {age}h old"
+    return f"{held.host} dump {held.path}: producer gone, newest dump {age} old"
 
 
 # Each argument is a separate source the verdicts read; bundling them would hide
@@ -414,6 +463,7 @@ def classify(  # noqa: PLR0913
     now: int,
     item_errors: Mapping[tuple[str, str], int],
     dump_contents: Mapping[tuple[str, str], tuple[str | None, str | None]],
+    volume_recounts: Mapping[tuple[str, str], tuple[int, int]],
 ) -> tuple[list[str], list[str]]:
     """Sort every claim, dump and snapshot series into failures and reports.
 
@@ -447,7 +497,9 @@ def classify(  # noqa: PLR0913
                 'backup set by default? Annotate it k8up.io/backup: "false".'
             )
         else:
-            record(_judge_volume(name, claim, held.get(key), now))
+            record(
+                _judge_volume(name, claim, held.get(key), now, volume_recounts.get(key))
+            )
 
     for producer in sorted(producers, key=lambda p: (p.namespace, p.path)):
         key = (producer.namespace, producer.path)
@@ -522,14 +574,57 @@ def _dump_command(host: str, path: str) -> list[str]:
     ]
 
 
-def _dump_head(host: str, path: str, count: int) -> bytes:
-    """Read the first bytes of an item's newest snapshot, then stop restic."""
-    with subprocess.Popen(
-        _dump_command(host, path), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
-    ) as process:
-        head = process.stdout.read(count)
-        process.kill()
-    return head
+def _dump_to_file(host: str, path: str, destination: Path) -> None:
+    """Stream an item's newest snapshot into a file, failing if restic does."""
+    with (
+        destination.open("wb") as out,
+        subprocess.Popen(
+            _dump_command(host, path), stdout=out, stderr=subprocess.PIPE
+        ) as process,
+    ):
+        stderr = process.stderr.read().decode().strip()
+    if process.returncode != 0:
+        message = f"restic dump exited {process.returncode}: {stderr}"
+        raise RuntimeError(message)
+
+
+def sqlite_integrity_verdict(path: str, copy: Path) -> tuple[str | None, str | None]:
+    """Run SQLite's integrity_check on a copy: the one check a restore relies on."""
+    if path.endswith(PLEX_DUMPS):
+        result = subprocess.run(
+            [str(PLEX_SQLITE), str(copy), "PRAGMA integrity_check;"],
+            capture_output=True,
+            check=False,
+            timeout=600,
+        )
+        lines = (result.stdout + result.stderr).decode().split("\n")
+        lines = [line for line in lines if line.strip()]
+        if result.returncode == 0 and lines == ["ok"]:
+            return None, None
+    else:
+        # immutable: the copy never changes, so no -shm is needed to read it.
+        try:
+            with closing(sqlite3.connect(f"file:{copy}?immutable=1", uri=True)) as db:
+                lines = [row[0] for row in db.execute("PRAGMA integrity_check")]
+        except sqlite3.DatabaseError as error:
+            lines = [str(error)]
+        if lines == ["ok"]:
+            return None, None
+    detail = "; ".join(lines[:INTEGRITY_REPORT_LINES])
+    return f"integrity_check failed: {detail}", None
+
+
+def _sqlite_contents(series: Series) -> tuple[str | None, str | None]:
+    """Read a SQLite copy back whole, then check its length and its integrity."""
+    with tempfile.TemporaryDirectory() as scratch:
+        copy = Path(scratch) / "copy.sqlite"
+        _dump_to_file(series.host, series.path, copy)
+        with copy.open("rb") as f:
+            header = f.read(SQLITE_HEADER_BYTES)
+        verdict = sqlite_header_verdict(header, series.size)
+        if verdict != (None, None):
+            return verdict
+        return sqlite_integrity_verdict(series.path, copy)
 
 
 def _dump_tail(host: str, path: str, count: int) -> bytes:
@@ -556,8 +651,8 @@ def inspect_dumps(
 ) -> dict[tuple[str, str], tuple[str | None, str | None]]:
     """Read each current dump back from the store and judge whether it is whole.
 
-    A dump that cannot be read at all is reported: which snapshots the store
-    can serve is the weekly Check's question, not this one's.
+    A dump the store cannot serve fails: a restore would meet the same, and the
+    weekly K8up Check never reads pack data to notice.
     """
     contents = {}
     for producer in producers:
@@ -568,14 +663,57 @@ def inspect_dumps(
             continue
         try:
             if kind == "sqlite":
-                head = _dump_head(series.host, series.path, SQLITE_HEADER_BYTES)
-                contents[key] = sqlite_header_verdict(head, series.size)
+                contents[key] = _sqlite_contents(series)
             else:
                 tail = _dump_tail(series.host, series.path, TRAILER_WINDOW_BYTES)
                 contents[key] = sql_trailer_verdict(tail)
-        except (OSError, RuntimeError) as error:
-            contents[key] = (None, f"could not read it back to check: {error}")
+        except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+            contents[key] = (f"could not read it back and check it: {error}", None)
     return contents
+
+
+def _listed_size(snapshot_id: str) -> int:
+    """Total one snapshot's files without SQLite's sidecars, streaming the list."""
+    with subprocess.Popen(
+        ["restic", "ls", "--json", "--no-lock", snapshot_id],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    ) as process:
+        total = size_without_sidecars(process.stdout)
+        stderr = process.stderr.read().decode().strip()
+    if process.returncode != 0:
+        message = f"restic ls exited {process.returncode}: {stderr}"
+        raise RuntimeError(message)
+    return total
+
+
+def recount_shrunk_volumes(
+    claims: Iterable[Claim], held: Mapping[tuple[str, str], Series]
+) -> tuple[dict[tuple[str, str], tuple[int, int]], list[str]]:
+    """Total each shrunk volume's last two snapshots again, without sidecars.
+
+    Only where the summaries already say it shrank, since a listing reads the
+    snapshot's whole tree. A recount that fails leaves the shrink failing, and
+    says why in a report.
+    """
+    recounts = {}
+    errors = []
+    for claim in claims:
+        key = (claim.namespace, f"/data/{claim.name}")
+        series = held.get(key)
+        if claim.excluded or claim.shared or series is None or not _shrank(series):
+            continue
+        try:
+            recounts[key] = (
+                _listed_size(series.previous_id),
+                _listed_size(series.snapshot_id),
+            )
+        except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as error:
+            errors.append(
+                f"{claim.namespace}/{claim.name}: could not total it without "
+                f"SQLite's sidecars: {error}"
+            )
+    return recounts, errors
 
 
 def collect_item_errors() -> dict[tuple[str, str], int]:
@@ -656,6 +794,9 @@ def main() -> int:
         item_errors = {}
         extra.append(f"could not read restic's per-item error counts: {error}")
 
+    recounts, recount_errors = recount_shrunk_volumes(claims, held)
+    extra.extend(recount_errors)
+
     problems, reports = classify(
         claims,
         producers,
@@ -663,6 +804,7 @@ def main() -> int:
         now=int(time.time()),
         item_errors=item_errors,
         dump_contents=inspect_dumps(producers, held),
+        volume_recounts=recounts,
     )
     reports.extend(extra)
 

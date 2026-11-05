@@ -4,11 +4,6 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-    # Taken from upstream rather than from nixpkgs, which ships refs/tags/v0.4.0
-    # -- the May 2023 release, and the last one tagged. Upstream has since fixed
-    # things a deployment relies on, including `--evaluator streaming` being a
-    # no-op. flake.lock is the pin: "tracking main" here means one revision that
-    # changes only when someone runs `nix flake update`.
     colmena = {
       url = "github:nix-community/colmena";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -18,6 +13,11 @@
       url = "github:Mic92/sops-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # Young, with one maintainer, so pinned to a revision and moved deliberately:
+    # `nix flake update` cannot move it. Its nixpkgs is left its own, so its
+    # packages are the builds its binary cache holds. See docs/nixos.md.
+    nixos-pbs.url = "github:AWildLeon/nixos-pbs/57c3aafe739be5540935ce4c1a129073a9f9f09d";
   };
 
   outputs =
@@ -29,71 +29,54 @@
     }:
     let
       system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system};
+      inherit (nixpkgs) lib;
 
-      # One definition per host, feeding both the colmena node and the image
-      # build below. They must not diverge: an image built from different
-      # modules than the deployment expects is how a host ends up unmanageable
-      # the first time anyone tries to change it.
-      #
-      # `deployment` lives here rather than in the host module because it is a
-      # colmena option, and the plain nixosSystem that builds the image rejects
-      # options it has never heard of.
       hosts = {
         restic-repository = {
           module = ./hosts/restic-repository;
-          deployment = {
-            targetHost = "192.168.0.108";
-            targetUser = "root";
-          };
+          address = "192.168.0.108";
         };
+      };
+
+      # What every host module receives besides the usual module arguments.
+      hostArgs = host: {
+        inherit (self) inputs;
+        inherit (host) address;
       };
     in
     {
-      # The hive definition. The pinned colmena reads it through `colmenaHive`
-      # below and does not look at this attribute at all -- only 0.4.0, the tag
-      # nixpkgs still ships, consumes `colmena` directly.
-      colmena = {
-        meta = {
-          nixpkgs = pkgs;
-          specialArgs.inputs = self.inputs;
-        };
-      }
-      // builtins.mapAttrs (_: host: {
-        imports = [ host.module ];
-        inherit (host) deployment;
-      }) hosts;
-
-      # What the pinned colmena actually evaluates. It resolves
-      # `colmenaHive` and errors out if only `colmena` is present.
-      colmenaHive = colmena.lib.makeHive self.outputs.colmena;
-
-      # The same systems colmena deploys, reachable by the tools that expect
-      # this output -- `nixos-rebuild --flake`, and anything introspecting the
-      # flake. Built from `host.module` alone, since `deployment` is colmena's
-      # and a plain nixosSystem rejects it.
-      nixosConfigurations = builtins.mapAttrs (
-        _: host:
-        nixpkgs.lib.nixosSystem {
-          inherit system;
-          specialArgs.inputs = self.inputs;
-          modules = [ host.module ];
+      colmenaHive = colmena.lib.makeHive (
+        {
+          meta = {
+            nixpkgs = nixpkgs.legacyPackages.${system};
+            nodeSpecialArgs = lib.mapAttrs (_: hostArgs) hosts;
+          };
         }
-      ) hosts;
+        // lib.mapAttrs (_: host: {
+          imports = [ host.module ];
+          deployment = {
+            targetHost = host.address;
+            targetUser = "root";
+          };
+        }) hosts
+      );
 
-      # LXC templates to feed Proxmox when first creating a container. After
-      # that, colmena owns the host and these are only rebuilt to recreate it.
-      packages.${system} = builtins.mapAttrs (
+      # NixOS containers that another host runs and deploys: PBS #2 is mini-nas's
+      # `containers.pbs-offsite`, built from here. See docs/nixos.md.
+      nixosConfigurations.pbs-offsite = lib.nixosSystem {
+        inherit system;
+        specialArgs = { inherit (self) inputs; };
+        modules = [ ./hosts/pbs-offsite ];
+      };
+
+      # LXC templates, for creating a container; colmena owns it after that.
+      packages.${system} = lib.mapAttrs (
         _: host:
-        (nixpkgs.lib.nixosSystem {
+        (lib.nixosSystem {
           inherit system;
-          specialArgs.inputs = self.inputs;
+          specialArgs = hostArgs host;
           modules = [ host.module ];
         }).config.system.build.tarball
       ) hosts;
-
-      devShells.${system}.default = pkgs.mkShell {
-        packages = [ colmena.packages.${system}.colmena ];
-      };
     };
 }

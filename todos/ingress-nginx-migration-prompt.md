@@ -151,5 +151,18 @@ Candidates worth evaluating:
   serial in `kubernetes/infrastructure/coredns.yaml`.
 - Every HelmRelease now sets `install`/`upgrade` `remediation.retries: 3`, so a
   failed chart rolls itself back rather than stalling. Keep that on anything new.
+- The internal entry point must accept a request line of at least ~14 KB,
+  and that figure grows with the beets inbox. beets-flask's `/inbox` page puts
+  every top-level inbox folder in one GET's query string (145 folders measured
+  14 KB on 2026-10-21). ingress-nginx-internal sets
+  `large-client-header-buffers: "4 64k"` for it; at the 8k default, HTTP/2
+  requests are reset with nothing in the access log, and the page fails with
+  only "NetworkError when attempting to fetch resource". Find the replacement's
+  equivalent limit and test it with that URL before moving `beets`.
+- Both controllers are scraped by Prometheus through the chart's ServiceMonitor
+  (enabled 2026-10-22), with the size histograms dropped. The replacement needs
+  an equivalent scrape, and any alerts built from
+  [ingress-error-alerting.md](ingress-error-alerting.md) need their
+  `nginx_ingress_*` expressions rewritten.
 - The repo is public. See the Security Policy in `CLAUDE.md`.
 - The user's SSH key is passphrase-protected — they run `git push` and `sops -d`.

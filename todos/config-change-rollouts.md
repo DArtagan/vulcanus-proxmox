@@ -47,12 +47,12 @@ Both were fixed with `kubectl rollout restart`, which is the interim workaround.
 
 ## Scope
 
-Eight Deployments consume a ConfigMap and would benefit:
+Seven Deployments consume a ConfigMap and would benefit:
 
 ```
-apps/automatic-ripping-machine   apps/beets        apps/borgmatic
-apps/botamusique                 apps/headscale    apps/homepage
-apps/mumble                      apps/youtube-dl
+apps/automatic-ripping-machine   apps/beets        apps/botamusique
+apps/headscale                   apps/homepage     apps/mumble
+apps/youtube-dl
 ```
 
 The three CronJobs that consume ConfigMaps (`beets`, `beets-replaygain`,
@@ -69,7 +69,7 @@ metadata:
     reloader.stakater.com/auto: "true"
 ```
 
-- Fixes all eight with one annotation each and no restructuring.
+- Fixes all seven with one annotation each and no restructuring.
 - Works for **SOPS-encrypted Secrets too**, which Option B cannot: a generator
   needs plaintext at build time, so encrypted secrets must keep stable names.
   This repo has several.

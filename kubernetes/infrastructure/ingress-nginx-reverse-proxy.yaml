@@ -62,13 +62,25 @@ spec:
         controllerValue: "k8s.io/ingress-nginx-internal"
         default: true
       ingressClass: ingress-nginx-internal
+      config:
+        # beets-flask's inbox page asks for every top-level inbox folder's
+        # status in one GET, about 100 bytes of query string per folder. A
+        # request line must fit in a single buffer; the 8k default is
+        # outgrown at ~80 folders, and over HTTP/2 nginx then resets the
+        # stream instead of answering 414, which the browser reports only
+        # as "NetworkError when attempting to fetch resource".
+        large-client-header-buffers: "4 64k"
       metrics:
         enabled: true
         serviceMonitor:
+          enabled: true
           namespace: infrastructure
-      podAnnotations:
-        prometheus.io/scrape: true
-        prometheus.io/port: 10254
+          # The size histograms are most of what the controller exports and
+          # nothing here reads them. Their _sum and _count stay.
+          metricRelabelings:
+            - sourceLabels: [__name__]
+              regex: nginx_ingress_controller_(request_size|response_size|bytes_sent)_bucket
+              action: drop
       service:
         loadBalancerIP: "192.168.0.203"
         # No metallb.io/allow-shared-ip here on purpose. Mumble briefly shared
@@ -110,10 +122,12 @@ spec:
       metrics:
         enabled: true
         serviceMonitor:
+          enabled: true
           namespace: infrastructure
-      podAnnotations:
-        prometheus.io/scrape: true
-        prometheus.io/port: 10254
+          metricRelabelings:
+            - sourceLabels: [__name__]
+              regex: nginx_ingress_controller_(request_size|response_size|bytes_sent)_bucket
+              action: drop
       service:
         loadBalancerIP: "192.168.0.201"
     # See the note on the internal controller: both L4 services moved to their

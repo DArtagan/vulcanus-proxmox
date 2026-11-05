@@ -16,28 +16,18 @@ spec:
     metadata:
       labels:
         app: pinepods
-        # Selected by the dumps-only K8up Schedule as well as the nightly one.
         k8up-dump: "true"
       annotations:
-        # Dumped beside its server over the local socket, into a file of this
-        # run's own that is checked before a byte is streamed: a failed dump
-        # streams nothing, and overlapping Backups cannot read each other's
-        # half-written file. Plain SQL rather than custom format: it ends in a
-        # completion marker the coverage check reads, where a truncated
-        # custom-format dump still lists cleanly. See docs/backups.md.
         k8up.io/backupcommand: >-
-          sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT;
-          pg_dump -U postgres -d "$POSTGRES_DB" -f "$f";
-          test -s "$f"; cat "$f"'
+          sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT; pg_dump -U postgres -d "$POSTGRES_DB" -f "$f"; test -s "$f"; cat "$f"'
         k8up.io/backupcommand-container: database
-        # K8up names a dump /<namespace>-<container><extension>, and every
-        # database container here is called `database`, so the extension carries
-        # the application's name or the dumps overwrite each other's history.
+        # Every database container is called `database`, so the application's
+        # name keeps the dumps' restic paths apart. See docs/backups.md.
         k8up.io/file-extension: .pinepods.sql
     spec:
       containers:
         - name: pinepods
-          image: madeofpendletonwool/pinepods:0.9.0 # {"$imagepolicy": "apps:pinepods"}
+          image: madeofpendletonwool/pinepods:0.9.2 # {"$imagepolicy": "apps:pinepods"}
           env:
             # HOSTNAME is embedded in the RSS feeds PinePods generates, so it must be
             # the externally reachable URL rather than localhost.
@@ -89,14 +79,6 @@ spec:
             - mountPath: /opt/pinepods/local-media
               name: audio
               subPath: podcasts-legacy/
-            # pg_dump output. Intended for the borg share so rclone-b2 would carry
-            # it offsite, but that share is not writable by the SMB credentials and
-            # borgmatic's own repositories are currently missing, so its backups are
-            # failing. Parked on a local volume until that is sorted out: this
-            # survives pod restarts and guards against a bad migration, but it is
-            # node-local and not offsite.
-            - mountPath: /opt/pinepods/backups
-              name: backups
         - name: database
           image: postgres:18.6 # {"$imagepolicy": "apps:pinepods-postgres"}
           env:
@@ -121,7 +103,7 @@ spec:
             - mountPath: /var/lib/pgdata
               name: database
         - name: valkey
-          image: valkey/valkey:8.1.10-alpine # {"$imagepolicy": "apps:pinepods-valkey"}
+          image: valkey/valkey:8.1.11-alpine # {"$imagepolicy": "apps:pinepods-valkey"}
           ports:
             - containerPort: 6379
           resources:
@@ -140,6 +122,3 @@ spec:
         - name: audio
           persistentVolumeClaim:
             claimName: audio-rw-pvc
-        - name: backups
-          persistentVolumeClaim:
-            claimName: pinepods-backups-pvc

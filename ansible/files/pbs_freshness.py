@@ -71,10 +71,16 @@ class Group(NamedTuple):
     was built. Identities are None when the config blob could not be read, and
     `prior_count` -- how many backups still belong to the earlier machine -- is
     None unless reuse was detected, because counting costs a read per snapshot.
+
+    Reuse is read from the unprotected snapshots alone. Prune neither removes a
+    protected snapshot nor counts it toward keep-last, so a protected earlier
+    machine is archived rather than being evicted, and alerting on it would go
+    on for as long as it is kept.
     """
 
     name: str
     count: int
+    unprotected: int
     newest: int | None
     oldest_identity: str | None
     newest_identity: str | None
@@ -240,7 +246,9 @@ def classify(
 def reuse_detected(group: Group) -> bool:
     """Say whether a group's two ends belong to different machines."""
     ends = (group.oldest_identity, group.newest_identity)
-    return group.count >= BACKUPS_TO_SHOW_REUSE and all(ends) and ends[0] != ends[1]
+    return (
+        group.unprotected >= BACKUPS_TO_SHOW_REUSE and all(ends) and ends[0] != ends[1]
+    )
 
 
 def reuse_message(group: Group) -> str:
@@ -249,17 +257,18 @@ def reuse_message(group: Group) -> str:
     One message for both, so the two cannot drift.
     """
     detail = (
-        f"{group.prior_count} of {group.count} backups still belong to the earlier "
-        f"machine, and the job evicts one per run -- they are gone in "
+        f"{group.prior_count} of {group.unprotected} unprotected backups still belong "
+        "to the earlier machine, and the job evicts one per run -- they are gone in "
         f"{group.prior_count} more runs."
         if group.prior_count
         else "The earlier machine's backups are being evicted one per run."
     )
     return (
-        f"{group.name}: VMID reused. The oldest backup is machine "
+        f"{group.name}: VMID reused. The oldest unprotected backup is machine "
         f"{group.oldest_identity} and the newest is {group.newest_identity}. "
-        f"{detail} Copy out anything worth keeping first -- nothing else will say "
-        "so, and this clears itself when the last one goes."
+        f"{detail} Protect on the primary those worth keeping, which archives them "
+        "on both stores -- nothing else will say so. This clears itself once none "
+        "of the earlier machine's backups is left unprotected."
     )
 
 
@@ -280,7 +289,7 @@ def reuse_alerts(groups: Mapping[str, Group]) -> list[str]:
             continue
         if (
             group.prior_count is None
-            or group.count - group.prior_count == 1
+            or group.unprotected - group.prior_count == 1
             or group.prior_count in REUSE_RUNGS
         ):
             due.append(reuse_message(group))
@@ -346,47 +355,65 @@ def _identity_at(
     return parse_identity(raw.decode("utf-8", "replace"), guest_type)
 
 
+def summarise_group(
+    name: str,
+    snapshots: list[Mapping[str, Any]],
+    identity_at: Callable[[int], str | None],
+) -> Group:
+    """Reduce one group's snapshot listing to a Group.
+
+    Takes the identity reader as an argument, so which snapshots it is asked
+    about is testable without a datastore.
+    """
+    times = sorted(snapshot["backup-time"] for snapshot in snapshots)
+    unprotected = sorted(
+        snapshot["backup-time"]
+        for snapshot in snapshots
+        if not snapshot.get("protected", False)
+    )
+
+    oldest_identity = newest_identity = prior_count = None
+    if len(unprotected) >= BACKUPS_TO_SHOW_REUSE:
+        oldest_identity = identity_at(unprotected[0])
+        newest_identity = identity_at(unprotected[-1])
+        if oldest_identity and newest_identity and oldest_identity != newest_identity:
+            # Only on reuse, and bounded by keep-last: ~31 reads at 0.24s.
+            # The count *is* the decision -- how many runs remain before the
+            # earlier machine is gone -- so it is paid for exactly when it is
+            # the thing being asked, and never otherwise.
+            prior_count = sum(
+                1 for when in unprotected if identity_at(when) == oldest_identity
+            )
+
+    return Group(
+        name=name,
+        count=len(times),
+        unprotected=len(unprotected),
+        newest=times[-1] if times else None,
+        oldest_identity=oldest_identity,
+        newest_identity=newest_identity,
+        prior_count=prior_count,
+    )
+
+
 def collect_groups(env: Mapping[str, str]) -> dict[str, Group]:
     """Read every group in the datastore, with the identity at each end.
 
     Two blob reads per group, ~0.25 s each, and only where there are at least
-    two backups to compare -- a single backup cannot show reuse.
+    two unprotected backups to compare -- a single backup cannot show reuse.
     """
     groups = {}
     for entry in _client_json(["list"], env):
         guest_type, vmid = entry["backup-type"], entry["backup-id"]
         name = f"{guest_type}/{vmid}"
-        snapshots = _client_json(["snapshots", name], env)
-        times = sorted(snapshot["backup-time"] for snapshot in snapshots)
         blob = "pct.conf.blob" if guest_type == "ct" else "qemu-server.conf.blob"
         pve_type = "lxc" if guest_type == "ct" else "qemu"
-
-        oldest_identity = newest_identity = prior_count = None
-        if len(times) >= BACKUPS_TO_SHOW_REUSE:
-            oldest_identity = _identity_at(name, times[0], blob, pve_type, env)
-            newest_identity = _identity_at(name, times[-1], blob, pve_type, env)
-            if (
-                oldest_identity
-                and newest_identity
-                and oldest_identity != newest_identity
-            ):
-                # Only on reuse, and bounded by keep-last: ~31 reads at 0.24s.
-                # The count *is* the decision -- how many runs remain before the
-                # earlier machine is gone -- so it is paid for exactly when it is
-                # the thing being asked, and never otherwise.
-                prior_count = sum(
-                    1
-                    for when in times
-                    if _identity_at(name, when, blob, pve_type, env) == oldest_identity
-                )
-
-        groups[name] = Group(
-            name=name,
-            count=len(times),
-            newest=times[-1] if times else None,
-            oldest_identity=oldest_identity,
-            newest_identity=newest_identity,
-            prior_count=prior_count,
+        groups[name] = summarise_group(
+            name,
+            _client_json(["snapshots", name], env),
+            lambda when, name=name, blob=blob, pve_type=pve_type: _identity_at(
+                name, when, blob, pve_type, env
+            ),
         )
     return groups
 

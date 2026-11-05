@@ -3,7 +3,7 @@ kind: ImageRepository
 metadata:
   name: cloudflare-gateway-sync
 spec:
-  image: ghcr.io/dartagan/cloudflare-gateway-pihole-scripts
+  image: ghcr.io/mrrfv/cloudflare-gateway-pihole-scripts
   interval: 15m0s
 
 

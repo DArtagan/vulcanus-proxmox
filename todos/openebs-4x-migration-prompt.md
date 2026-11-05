@@ -71,7 +71,7 @@ not move — a hostpath PV pins its pod to one node.
 
 ## PVC inventory (2026-08-07)
 
-26 PVCs on `openebs-hostpath`. The rest of the cluster's storage is NFS/SMB from
+25 PVCs on `openebs-hostpath`. The rest of the cluster's storage is NFS/SMB from
 the fileserver at 192.168.0.105 via statically-defined PVs (`*-pv.yaml`) and is
 unaffected by any of this.
 
@@ -80,7 +80,7 @@ unaffected by any of this.
 - `server-volume-victoria-logs-0` — 50Gi (replaced `storage-loki-0` on 2026-08-10)
 - `traefik`, `traefik-external`, `traefik-internal`, `traefik-internal2` — 128Mi each
 
-**apps** — `beets-library` 256Mi, `borgmatic-data` 10Gi, `filebot` 1Gi,
+**apps** — `beets-library` 256Mi, `filebot` 1Gi,
 `headplane-data` 1Gi, `headscale-data` 1Gi, `linkding-data` 50Gi, `mumble-data` 1Gi,
 `photoprism-data` 50Gi, `photoprism-database` 10Gi, `pinepods-backups` 5Gi,
 `pinepods-database` 10Gi, `pinepods-valkey` 1Gi, `plex-config` 10Gi,
@@ -119,10 +119,10 @@ delete them as cleanup — that also shrinks the migration surface by four.
 >    that removing a StorageClass with no PVs is a no-op for Helm here. Note also
 >    that Mayastor never reads `BlockDevice` — its `DiskPool` names device paths
 >    directly — so nothing about replicated storage depends on what was removed.
-> 4. A restore path. Before anything is applied I want to know how each of the 26
->    volumes gets back. Borgmatic already backs up some of this — check
->    `kubernetes/apps/borgmatic/` and `todos/backups.md` for what is actually
->    covered, and say plainly which PVCs have no backup.
+> 4. A restore path. Before anything is applied I want to know how each of the 25
+>    volumes gets back. K8up backs up every claim not annotated out — check
+>    *What is in scope* and *Restoring from restic* in `docs/backups.md`, and
+>    say plainly which PVCs have no backup.
 >
 > Propose an order that does VictoriaLogs and Prometheus last, since they are the largest
 > and the least painful to lose. Don't apply cluster changes without checking with

@@ -195,6 +195,7 @@ internet (external).
 | youtube.immortalkeep.com | youtube-dl | Video downloader |
 | media-toolkit.immortalkeep.com | Media Toolkit Webtop | Desktop environment |
 | arm.immortalkeep.com | Automatic Ripping Machine | DVD ripper |
+| reelbarrow.immortalkeep.com | reelbarrow | Files ARM's rips into the video library |
 | botamusique.immortalkeep.com | Botamusique | Music bot (disabled) |
 
 ### Non-HTTP Services (dedicated LoadBalancer IP)
@@ -255,8 +256,7 @@ internal ingress via the wildcard; sync traffic uses `syncthing-sync`.
 
 | Service | Notes |
 |---------|-------|
-| borgmatic | Backup orchestration |
-| rclone | Cloud sync (Dropbox, B2) |
+| rclone | Cloud sync (Dropbox) |
 | cloudflare-ddns | DDNS updater, see Public DNS above |
 | beets | Music library CronJob |
 | tinyproxy | HTTP proxy (disabled) |

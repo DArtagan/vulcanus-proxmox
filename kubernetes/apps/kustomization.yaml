@@ -5,9 +5,7 @@ resources:
   - audio-pvc.yaml
   - audio-rw-pvc.yaml
   - books-pvc.yaml
-  - borg-backups-pvc.yaml
-  - borgmatic
-  - sqlite3-image.yaml
+  - bookdrop
   #- botamusique
   - beets
   - cloudflare-ddns
@@ -30,6 +28,7 @@ resources:
   - photos-pvc.yaml
   - rclone
   - rancher-key.sops.yaml
+  - reelbarrow
   - rustdesk
   - salamander.yaml
   - soft-serve

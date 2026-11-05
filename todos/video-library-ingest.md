@@ -1,265 +1,162 @@
-# Get ripped video out of `import/` and into the library
+# Video library ingest: deploying reelbarrow, and ARM's half of the handoff
 
 ## Opening prompt
 
-> A ripped DVD lands in `media/video/import/automatic-ripping-machine/completed/`
-> and stops there. Nothing watches that directory, Plex cannot see it, and the
-> one tool that could file it — FileBot — reports `Bad License` and refuses to
-> rename. Read `todos/video-library-ingest.md`: the asymmetry with the audio
-> path, what FileBot can and cannot do, and three routes with the naming traps
-> each has to survive. The first decision is whether to renew the FileBot licence
-> or write our own mover, and that is Will's.
+> Ripped discs stop in `media/video/import/automatic-ripping-machine/` and never
+> reach the library Plex reads. The service that files them is **reelbarrow**,
+> in its own repository (<https://github.com/DArtagan/reelbarrow>, checked out
+> at `~/repositories/reelbarrow`). Its `docs/design.md` is the design, and its
+> `todos/` holds the application work, one spec per step. This spec is the
+> vulcanus-proxmox half: ARM's manifest hook, reelbarrow's deployment, its
+> secrets and its alerts. Read `todos/video-library-ingest.md`, then
+> reelbarrow's `todos/README.md`, whose first spec is the next step.
 
-Verified **2026-09-01**.
+The design was verified 2026-10-03 to 10-08 and moved to reelbarrow on
+2026-10-18. The evidence behind every decision, including the experiments table,
+is there now.
 
-## The asymmetry
+---
 
-Audio is wired end to end and proven twice: ARM writes to `audio-rw/import`,
-beets-flask watches it, the album reaches the library without anyone touching it.
+## The steps
 
-Video dead-ends.
+reelbarrow's `todos/README.md` orders the work, and a spec still in its
+`todos/` is not done. Most steps are application work there alone. These also
+need work here:
 
-| | audio | video |
-|---|---|---|
-| ARM writes to | `audio-rw/import` | `media/video/import/automatic-ripping-machine/completed/` |
-| watched by | beets-flask, 30s debounce | **nothing** |
-| reaches library | automatically | never |
+- **arm-manifest-hook**: the dispatcher and its wiring, under *ARM's manifest
+  hook*.
+- **movie-filing**: the switch, under *The switch to live filing*.
+- **metrics**: the alert rules, under *Alerting*.
+- **Each step that calls an outside service** adds its key to reelbarrow's
+  secret; *Secrets, as each step needs them* says which.
 
-Plex mounts only `movies`, `shows`, `music` and `audiobooks` as read-only
-subPaths (`kubernetes/apps/plex/deployment.yaml`), so it cannot see `import/` at
-all. **filebot** and **media-toolkit-webtop** are the only workloads that mount
-the whole video share and can see both sides; both are manual UIs.
+---
 
-Will's framing on 2026-08-24 was that downstream cataloguing is *"mostly outside
-the scope of this project, unless there's opportunity for radical improvement"*.
-The catch is that for video there is no downstream system to be outside the
-scope — "processed later by other systems" does not happen. He confirmed on
-2026-09-01 that this is the improvement worth having, once the phases produced a
-file worth filing. One now exists.
+## Decisions already made
 
-## What is waiting
+The application's decisions are recorded verbatim in reelbarrow's design,
+under *Decisions already made*. These bind this half:
 
-```
-/video/import/automatic-ripping-machine/completed/movies/
-  The-Hallelujah-Trail (1965)_178824223068/The-Hallelujah-Trail (1965).mkv   1.29 GB
+- **Our own tool, in a new repository, as a separate service with a small web
+  UI** (Will, 2026-10-04), named `reelbarrow` (2026-10-05).
+- **The design lives in reelbarrow** (2026-10-18). Will chose to move it there,
+  beside the code, over keeping it here, so this spec carries only the
+  deployment half.
+- **Public repository, MIT licence, semver releases** (2026-10-18).
+  release-please cuts releases. The image is
+  `ghcr.io/dartagan/reelbarrow:X.Y.Z`, built from the release tag, and the
+  `ImagePolicy` here takes `>=0.1.0 <1.0.0`. A merge in reelbarrow deploys
+  nothing until its release pull request is merged. This was chosen over the
+  timestamp-per-push scheme trello-randomizer uses, because this tool moves and
+  deletes media.
+- **Dry run first** (2026-10-18): *"Initially we won't want to make actual
+  changes, just do dry-runs and collect data - might be worth an flag."*
+  `REELBARROW_DRY_RUN` defaults to true in the code. The deployment sets it
+  explicitly and also mounts the share read-only, so a bug in the flag's handling
+  meets `EROFS` rather than the library.
 
-  The Rescuers (1977)_178961349896/The Rescuers (1977).mkv                   1.44 GB
-    └ extras/title_43, title_44, title_46, title_71                          2.4 GB
-  Field-of-Dreams (1989)/Field-of-Dreams (1989).mkv                           980 MB
-  Shrek-the-Third (2007)/ · The-Great-Race (1965)/ · The-Polar-Express (2004)/
+---
 
-/video/import/automatic-ripping-machine/completed/tv/
-  The-Sylvester-and-Tweety-Mysteries (1995-2002)/               disc 1: title_0 … title_8
-  The-Sylvester-and-Tweety-Mysteries (1995-2002)_178840975618/  disc 2: title_0 … title_5
-```
+## reelbarrow's deployment
 
-Plus **8 empty directories** in that same tree, left by failed jobs — see the
-naming traps below, they are not merely untidy.
+`kubernetes/apps/reelbarrow/`, in the `apps` namespace beside filebot and Plex:
 
-### A film can arrive twice, and the better copy is the one marked "extra"
+- **The video share** through `video-pvc`, at `/video`, **read-only**. One
+  mount covers both `import/` and the libraries, which filing needs, because
+  filing is a `rename()` within one filesystem.
+- **A 5 Gi `openebs-hostpath` claim** at `/data`, for SQLite (job state, plans,
+  the ledger). It gets K8up's default volume backup. That is sufficient while
+  it holds regenerable dry-run plans, but not once the ledger records real
+  moves: reelbarrow's `movie-filing` decides the dump before filing starts.
+- **The internal ingress** at `reelbarrow.immortalkeep.com`, LAN-only like
+  `arm.immortalkeep.com`. The `*.immortalkeep.com` wildcard in CoreDNS already
+  resolves it.
+- A readiness probe on `/healthz`. No liveness probe, because analysis is long,
+  synchronous work (see `docs/kubernetes.md`, *Probes*).
 
-Blu-rays frequently present the feature through two playlists. ARM transcodes
-both and keeps both — one becomes the film, the other lands in `extras/` — so a
-single 77-minute title occupies 3.1 GB:
+### Secrets, as each step needs them
 
-```
-The Rescuers (1977)/The Rescuers (1977).mkv    77.2m  1435 MB
-The Rescuers (1977)/extras/title_71.mkv        77.1m  1719 MB
-```
+One SOPS secret, `kubernetes/apps/reelbarrow/secrets.sops.yaml`, grown step by step:
 
-**The copy promoted to feature is the smaller one.** `skip_transcode_movie` does
-pick the largest file, but it only runs when `track.source == "MakeMKV"`, and a
-Blu-ray reaches `handbrake_all` with tracks registered by HandBrake's own scan —
-so `move_files_post` takes the other branch and trusts HandBrake's `main_feature`
-flag. At a fixed CRF a 20% larger file means more retained detail, so on this
-evidence the better encode is the one filed as an extra.
+| key | first needed by |
+|---|---|
+| TMDB API key (free personal key) | `dry-run-planner` |
+| fanart.tv key, Plex token | `movie-filing` |
+| Pushover app token | `review-ui`. ARM's pair is in `automatic-ripping-machine/api-keys.sops.yaml`; a separate token keeps the messages distinguishable |
+| Anthropic API key, pay as you go, with a spend cap set in the Console | `episode-matching` |
 
-An ingest therefore cannot treat `extras/` as discardable, and cannot assume the
-feature file is the best available copy. Where two files in one folder have
-near-identical durations, they are the same film and the choice between them is
-the ingest's to make — on size, or better, on measured quality. Deleting the
-duplicate is the obvious saving, but it is the kind of decision that wants a
-person the first few times.
+### The switch to live filing
 
-### The TV tree is harder than the movie tree, and measurably so
+Done in reelbarrow's `movie-filing`, and only after its preconditions pass. In
+one commit, set `REELBARROW_DRY_RUN` to `"false"` and drop `readOnly` from the
+video mount. One precondition belongs here: `video-pv` mounts with options
+`rw` and nothing else (verified 2026-10-05). It sets no `uid`, `gid`,
+`file_mode` or `dir_mode`, so whether the image's uid 1000 may write to the
+share is unknown until tested.
 
-Two discs of one season have now been ripped, and between them they rule out
-every mapping that does not look at the video itself.
+---
 
-**Within a disc, `title_N` is not episode N.** Disc 1 holds nine titles, of which
-`title_1` is a 168-minute "play all" compilation of the other eight. So the
-numbering runs *episode, compilation, episode, episode…* — a mover assuming
-position files seven of eight episodes wrongly and files a 2h48m compilation as a
-21-minute one.
+## ARM's manifest hook
 
-The compilation is at least *detectable* without content matching: its length
-matches the sum of the other titles to within a tenth of a minute on both discs
-(168.8 vs 168.9; 105.7 vs 105.8), and it is ~8× any single episode. That is a
-reliable enough signal to drop it, and dropping it would also save around 40% of
-each disc's transcode time. It does not, however, help identify what remains.
+The one interface between ARM and reelbarrow. **The script that writes the
+manifests ships in reelbarrow** (decided 2026-10-19), so every user runs the
+same one: reelbarrow's `todos/arm-manifest-hook.md` builds it, along with its
+export mode for jobs 1–41. What the manifest carries is in reelbarrow's design,
+*The ARM manifest*.
 
-**Across discs, the same filename means different episodes.** Disc 2 did not join
-disc 1's folder — `check_for_dupe_folder` gave it a sibling directory suffixed
-with the job's stage number — and it numbers from `title_0` again. The season
-therefore has two `title_0.mkv`, two `title_1.mkv` and so on, in directories
-distinguished only by an opaque integer that records *when the job ran*, not which
-disc it was. Re-ripping disc 1 tomorrow would sort it after disc 2.
+What stays here is wiring it into this ARM:
 
-The disc ordinal survives only in the label on the job row —
-`SYLVESTER_TWEETY_MYSTERY_D1` and `..._D2` — which is a convention of one
-publisher, not something to build on.
+1. **A dispatcher as `BASH_SCRIPT`.** The setting is single-valued and holds
+   `arm-audio-handoff.sh` today. The dispatcher calls that and reelbarrow's
+   hook, both with ARM's `$1` (title) and `$2` (body). It runs them as children,
+   so it must pass its own `$PPID`, the ripper's pid, to reelbarrow's hook in the
+   environment variable that spec names. Otherwise the hook sees the dispatcher
+   as its parent and selects no job.
+2. **reelbarrow's script in ARM's container**, by whichever route that spec
+   chooses (a copy pinned to a release, a release asset, or an init container).
+   It writes to `/root/video/manifests/`, which is
+   `import/automatic-ripping-machine/manifests/` on the share, where reelbarrow
+   looks by default.
+3. **The export for jobs 1–41**, run with reelbarrow's script against a copy of
+   `/root/db/arm.db`, since ARM is live.
 
-**Conclusion: content matching is the only thing that can file TV.** For a film,
-ARM's own metadata is enough — it knows the title, the year and which file is the
-main feature. For a series it knows the show and nothing else, and no amount of
-filesystem or database inspection recovers the episode numbers. This is the
-strongest argument for resolving the FileBot licence question below, because the
-alternative is a person watching the opening of each file.
+`init-scripts` is a `subPath` mount, so a changed script reaches the container
+only after `kubectl rollout restart`, and must be checked in the container, not
+in the ConfigMap ([config-change-rollouts.md](config-change-rollouts.md)).
+`docs/automatic-ripping-machine.md` gets the hook once it is in place.
 
-## FileBot cannot do this today
+---
 
-`rednoah/filebot:node`, FileBot **5.1.2**. A licence file exists at
-`/data/license.txt` (673 bytes, dated 2024-02-04) and FileBot rejects it:
+## Alerting
 
-```
-$ filebot -rename --action test -r "…/The-Hallelujah-Trail (1965)_178824223068" --db TheMovieDB --format "{plex}"
-FileBot requires a valid license. Please run `filebot --license *.psm` to install your FileBot license.
-* FileBot is running as [root] using [/data/license.txt]
-Bad License (>_<)
-```
+When reelbarrow's `metrics` step lands, the rules go in
+`kubernetes/infrastructure/prometheus-rules.yaml`: a successful ARM job neither
+filed nor awaiting review after 24 h, a review untouched for 7 days, and the
+service's own liveness. That spec says what each rule must be shown to do before
+it counts.
 
-FileBot has been commercial since 4.9, and 5.x refuses rename and move without a
-valid licence. So the obvious tool is **unavailable until someone buys or renews
-a licence**, and that is a purchase decision, not an engineering one. It also
-explains why this has stayed manual: the tool nominally there for the job has
-not worked, and nothing said so.
+---
 
-Its `history.xml` was last written 2024-08-05, which is consistent with it having
-worked once and lapsed.
+## Closing
 
-## Naming traps any route must survive
+This half spans most of reelbarrow's steps, so expect several review cycles
+under this slug, closed at phase boundaries. See "A phased project spans several
+reviews" in `CLAUDE.md`. The spec retires once the case photo works. What stays
+true then goes into a `docs/reelbarrow.md`: how it is deployed, how it is turned
+on and off, and where manifests are written. The hook goes into
+`docs/automatic-ripping-machine.md`.
 
-**The source directory name is wrong and the file name is right.** ARM's
-`check_for_dupe_folder` appends the job's stage id when the tidy name is taken:
-
-```
-completed/movies/The-Hallelujah-Trail (1965)/                  <- empty, from a failed job
-completed/movies/The-Hallelujah-Trail (1965)_178822432143/     <- empty, from a failed job
-completed/movies/The-Hallelujah-Trail (1965)_178823907384/     <- empty, from a failed job
-completed/movies/The-Hallelujah-Trail (1965)_178824223068/     <- the real one
-        └── The-Hallelujah-Trail (1965).mkv
-```
-
-A mover keying on the **directory** name files this as
-`The-Hallelujah-Trail (1965)_178824223068`. Keying on the **file** name is
-correct here — but that only holds because ARM renames the main title to
-`<Title> (<Year>).mkv`. It does not hold for extras, which stay `title_N.mkv`
-under an `extras/` subdirectory.
-
-**The existing library's convention**, which anything filed must match:
-
-```
-/video/movies/A Bug's Life (1998)/…          Title (Year)
-/video/shows/Frontline {tmdb-4384}/…         Title {tmdb-id} where disambiguation is needed
-```
-
-Note `/video/movies/` also contains stragglers that do not follow it —
-`2022 Laguna Seca`, a bare `GOPR3003.MP4` — so the convention is aspirational in
-places and a mover should not assume every existing entry parses.
-
-**TV is unsolved and worse, and the source says why.** For a movie,
-`skip_transcode_movie` keeps the largest title and renames it
-`<Title> (<Year>).mkv`. For a series, `move_files_post` (`arm_ripper.py:198`)
-moves **every** track with `is_main_feature=False`, and `move_files`
-(`utils.py:210`) flattens them into one directory because "for series there are
-no extras". Nothing is the main feature, so nothing is renamed:
-
-```
-completed/tv/<Show Title>/title_0.mkv
-completed/tv/<Show Title>/title_1.mkv   ← no episode identity anywhere
-```
-
-ARM knows the *show* and cannot know which title is which episode. So a mover
-built on ARM's own metadata — which is sufficient for a film — **cannot file
-TV**. Only content matching can, which is FileBot's whole purpose. That is the
-strongest argument for route A, and it is why the recommendation defers rather
-than dismisses the licence.
-
-**Measured on a real disc, 2026-09-03**, and it is worse than "no episode
-numbers". Job 21 produced nine files:
-
-```
-title_0.mkv   21m    239 MB   ← episode
-title_1.mkv  168m   1.88 GB   ← "play all": every episode concatenated
-title_2.mkv   21m    215 MB   ← episode
-…            21m             ← episodes through title_8
-```
-
-So the numbering is *episode, compilation, episode, episode…*. **Positional
-mapping is not fragile, it is wrong** — it would file seven of the eight
-episodes under the wrong number and a 2h48m compilation as a 21-minute episode.
-And a mover cannot detect the compilation by name or by size ratio alone without
-essentially reimplementing content matching.
-
-A heuristic does exist — a play-all's length is close to the sum of the others,
-and ARM's `track` table holds every length — but it identifies *which file to
-skip*, not *which episode each remaining file is*. That second half is the one
-that matters, and only FileBot answers it.
-
-Note also the destination differs: `convert_job_type` returns `"tv"`, while the
-library is `/video/shows/`.
-
-## Three routes
-
-**A. Renew the FileBot licence and automate it.** FileBot's `amc` script is
-purpose-built: it matches against TheMovieDB/TheTVDB, renames to a Plex-shaped
-format, and moves. It reads the *file*, so the `_<stage>` directory suffix does
-not mislead it, and it is the only option that has a credible answer for TV.
-Costs a licence, and puts the pipeline's last mile behind a third-party paid
-dependency that has already failed silently once.
-
-**B. Write a mover, like the audio handoff.** `arm-audio-handoff.sh` is the
-precedent and it works. For **movies only** the job is small: ARM has already
-identified the film, so `job.title`, `job.year` and `job.imdb_id` are in the
-database and the destination name can be built from them rather than re-derived
-from the filesystem. No licence, no external lookup, no third party.
-
-It does not solve TV, and it means ARM's identification is load-bearing — a
-misidentified disc files a film under the wrong name, where FileBot would have
-matched on content. Given `MANUAL_WAIT` exists precisely to correct
-identification, that may be acceptable.
-
-**C. Leave it manual.** Honest status quo. Reasonable while the volume is a
-handful of discs, and it is what happens today.
-
-**A hybrid is probably right:** B for movies, since ARM already knows what the
-film is, and revisit A when TV discs are actually being ripped. That defers the
-licence question until something needs it.
-
-## Plex will not notice either way
-
-ARM has `EMBY_REFRESH: false` and no Plex integration at all — no token, no
-server URL. Whatever files the media, Plex needs a library scan afterwards or the
-film sits on disk unlisted. Plex's API takes a token; that is a credential and
-belongs in SOPS. `kubernetes/apps/homepage/secret.yaml` already holds a Plex
-key for its widget, so the pattern and possibly the value exist.
-
-## Verification
-
-The film above is the fixture. Done means:
-
-1. `ls "/video/movies/The Hallelujah Trail (1965)"` exists with the `.mkv` in it.
-2. The `import/` copy is gone, or deliberately kept — **decide which**. `beets`
-   keeps its inbox copy (`import.move: no`), and the raw `VIDEO_TS` backup is
-   the archival copy regardless, so deleting the transcoded copy from `import/`
-   loses nothing that matters.
-3. Plex lists it without a manual scan.
-4. The 8 empty directories are gone, and re-running does not recreate them.
+---
 
 ## Related
 
-- [disc-ripping.md](disc-ripping.md) — produces the files this consumes, and
-  records why the directory suffix exists.
-- [backups.md](backups.md) — `media/video` is covered by ZFS replication and the
-  Proxmox backup, so moving files between directories on the same share does not
-  change what is protected.
+- [disc-ripping.md](disc-ripping.md): produces what reelbarrow consumes. It
+  owns DVD-to-ISO, and the drift in `docs/automatic-ripping-machine.md` about
+  `backup_dvd`.
+- [smb-charset-utf8.md](smb-charset-utf8.md): the share rejects filenames above
+  U+00FF with `EIO`, and TMDB names contain them. reelbarrow folds to Latin-1
+  until that lands.
+- [config-change-rollouts.md](config-change-rollouts.md): the hook is a `subPath`
+  mount.
+- [backups.md](backups.md): `media/video` is snapshotted and replicated, which
+  is what makes deleting leftovers acceptable.

@@ -11,26 +11,32 @@ sitting in this directory means the work has not been done.
 ## Infrastructure, in the order worth tackling
 
 **1. [backups.md](backups.md) — build a 3-2-1-0 backup architecture**
-The Kubernetes-side backups do not work, and reconnaissance found three live
-failures beyond that: offsite replication of the VM datasets has failed every run
-since 2026-01-14 leaving worker-1 seven months stale, sanoid on mini-nas has never
-once succeeded so nothing prunes the replication target, and that pool has never
-been scrubbed. PBS's datastore also sits on the same pool as the VMs it protects.
-First because it is the only item where the failure mode is losing data.
+Replication, retention and scrubs work again, and every Kubernetes volume and
+database is backed up to an append-only restic repository with a verified
+offsite replica. What remains is taking the OpenEBS disks out of vzdump, PBS
+offsite, the offline disk and the restore runbook. Until
+PBS has its offsite twin, losing `rpool` loses every guest image together with
+its backups. First because it is the only item where the failure mode is losing
+data.
 
 Unlike the other specs here this one is **maintained through implementation** — it
 spans sessions and carries a status table. Slug `backups`, branch `backups`.
 
 **2. [talosconfig-renewal.md](talosconfig-renewal.md) — keep `talosctl`'s certificate from lapsing unnoticed**
-The client certificate in `.talosconfig` expires 2026-11-07. The provider renews
-it only when an apply lands in the final month -- from 2026-10-07 -- and nothing
-announces the window opening. A lapse is recoverable with one apply, so this is
-small; it is second because it is the only item here with a date on it, and
-because `talosctl` is the tool needed when the cluster is the thing that is
-broken. Also carries the one command never to run: `-replace` on the machine
-secrets.
+The client certificate in `.talosconfig` expires 2026-11-07, and the provider
+renews it only on an apply from 2026-10-07, with nothing to announce it. A lapse
+costs one apply; it is second for its date, and because `talosctl` is the tool
+needed when the cluster is what is broken. Also carries the one command never to
+run: `-replace` on the machine secrets.
 
-**3. [cert-manager-dns01.md](cert-manager-dns01.md) — stop renewing certificates through the public IP**
+**3. [mariadb-datadir-rebuild.md](mariadb-datadir-rebuild.md) — rebuild two downgraded MariaDB data directories**
+PhotoPrism's and salamander's MariaDB run 10.11 on data directories that 11.0 and
+12.2 last upgraded, after salamander's image went untagged for years and was then
+pinned back. MariaDB does not support downgrades, and both log a change-buffer error
+at every start. The data reads correctly today, and each dump has been loaded into a
+fresh 10.11, so the fix is proven; which version to settle on is the open decision.
+
+**4. [cert-manager-dns01.md](cert-manager-dns01.md) — stop renewing certificates through the public IP**
 All 24 certificates validate over HTTP-01, so every renewal needs the public A
 record, port 80 and `ingress-nginx-external`. Fourteen internal-only hostnames
 are included, because the solver names the external ingress class and is used
@@ -38,42 +44,42 @@ whatever class the certificate's own ingress has. Above the ingress migration
 because that migration has to rework this solver anyway; doing it first deletes
 the question rather than answering it mid-migration.
 
-**4. [ingress-nginx-migration-prompt.md](ingress-nginx-migration-prompt.md) — move to Gateway API**
+**5. [ingress-nginx-migration-prompt.md](ingress-nginx-migration-prompt.md) — move to Gateway API**
 ingress-nginx is retired upstream: no releases, no bugfixes and **no security
 patches** since March 2026. It is the internet-facing entry point, and it had an
 unauthenticated RCE as recently as CVE-2025-1974. Its announced successor,
 InGate, is archived. Traefik is ruled out on prior experience; the doc records
 why so it does not get proposed again.
 
-**5. [version-notification-prompt.md](version-notification-prompt.md) — notice when a version stops tracking**
-23 of 34 ImagePolicies will silently stop advancing when a new major appears
+**6. [version-notification-prompt.md](version-notification-prompt.md) — notice when a version stops tracking**
+22 of 33 ImagePolicies will silently stop advancing when a new major appears
 outside their range, and two are already stuck. This is the work that makes the
 other items visible rather than needing to be rediscovered by audit. It also
 closes the separate gap where no metric can express a Flux object being unready.
 
-**6. [talos-terraform-migration-prompt.md](talos-terraform-migration-prompt.md) — Talos versions under Terraform**
+**7. [talos-terraform-migration-prompt.md](talos-terraform-migration-prompt.md) — Talos versions under Terraform**
 kube-proxy ran eight minor versions behind the control plane for roughly three
 years, because Talos refreshes bootstrap manifests only via `upgrade-k8s`, which
 the documented upgrade path here never ran. Fixed by hand on 2026-08-07; this is
 about making it not recur. Newer provider versions also make the factory image
 schematic declarative.
 
-**7. [config-change-rollouts.md](config-change-rollouts.md) — make a ConfigMap change reach the running process**
+**8. [config-change-rollouts.md](config-change-rollouts.md) — make a ConfigMap change reach the running process**
 Flux applies an updated ConfigMap without restarting the workload that reads it,
 so the cluster can run configuration that no longer matches the repo with
 nothing to indicate it — `flux get kustomizations` reports healthy, correctly,
 because the desired state *was* applied. It caused two silent misbehaviours in
-the beets stack on 2026-08-13 and eight Deployments are exposed. Here because
+the beets stack on 2026-08-13 and seven Deployments are exposed. Here because
 the failure mode is invisible rather than loud, which is the same reason the
 alerting work sits where it does.
 
-**8. [openebs-4x-migration-prompt.md](openebs-4x-migration-prompt.md) — OpenEBS 3.10 to 4.x**
+**9. [openebs-4x-migration-prompt.md](openebs-4x-migration-prompt.md) — OpenEBS 3.10 to 4.x**
 The chart repository in use was abandoned in December 2023, so the unpinned
 version silently meant "3.10.0 forever". 4.x is an architectural change touching
 every PVC in the cluster. Last not because it matters least but because it
 carries the most risk and needs a verified restore path first — which is item 1.
 
-**9. [tailnet-multi-user.md](tailnet-multi-user.md) — family on the tailnet**
+**10. [tailnet-multi-user.md](tailnet-multi-user.md) — family on the tailnet**
 Every policy rule is `src: will@`, so a second Headscale user currently gets no
 access at all — their devices would register and then reach nothing, which
 presents as a broken tunnel rather than an intentional deny. Needs a tag scheme,
@@ -81,36 +87,49 @@ rules for them, and a less manual way to issue keys. Low in the ordering
 because nothing is broken until someone is actually added — it and the item
 below are the two here driven by a new want rather than an existing defect.
 
-**10. [pod-security-namespace-level.md](pod-security-namespace-level.md) — put pod security at the namespace**
+**11. [pod-security-namespace-level.md](pod-security-namespace-level.md) — put pod security at the namespace**
 `apps` carries no Pod Security Admission labels at all, so workloads that want
 the restricted profile restate it individually and the rest are simply
 unexamined. Last because nothing is broken today: the
 cluster-level fallback admits these pods, and the work is auditing what each
 workload actually needs rather than setting a label.
 
+**12. [nfs-cluster-volumes.md](nfs-cluster-volumes.md) — cluster media volumes over NFS**
+Each node's SMB traffic funnels through one single-threaded smbd, and NFS
+from the host measured 3–15x faster for directory walks and small-file opens.
+This is a speed-up, not a defect. It waits on
+[smb-charset-utf8.md](smb-charset-utf8.md), because NFS shows the Latin-1 filenames
+Samba translates.
+
+**13. [mini-nas-access.md](mini-nas-access.md) — narrow what mini-nas can do on vulcanus**
+syncoid's key gives mini-nas a login shell with TCP forwarding, so it can reach
+all of `192.168.0.0/24` around the Headscale policy. It also has `hold,send` on
+all of `rpool`, a second, unused key sits beside it, and as a `will@` node it gets
+every `will@` grant. syncoid needs SSH and four trees. Placed last only because
+it is new; it is small, and mini-nas is about to start running AI agents.
+
+## Waiting on evidence
+
+**[generic-device-plugin-memory.md](generic-device-plugin-memory.md) — is the plugin's degradation its memory limit?**
+The plugin degraded 18–24h a day from 2026-10-06 with GOMAXPROCS still pinned.
+A degraded process sits at its 20Mi limit, thrashing its own code through
+page cache. The limit is raised to 64Mi with nothing else changed, and the spec
+says which readouts decide the question. Runs two weeks.
+
+**[ingress-error-alerting.md](ingress-error-alerting.md) — alert on failed requests at the ingress**
+No ingress metric had ever reached Prometheus. Both controllers are scraped
+from 2026-10-22, and alerts are to be designed against a week of that data,
+from 2026-10-29. 30 days of logs show what complicates it: crawler 501s, a
+daily trickle of podbook 500s, and nginx retries that record stalled backends
+as 200. Keep it small, since the ingress-nginx migration will rewrite it.
+
 ## Waiting on a decision
 
-**[generic-device-plugin-hang.md](generic-device-plugin-hang.md) — find what flips a process into degrading**
-Each plugin process on the worker nodes starts at a 7ms `/metrics` gather and
-slows ~1.25× per minute until the liveness probe reaps it, every ~11 minutes on
-worker-1 and ~19 on worker-0; a restart resets it completely. The control plane
-degrades too and is never reaped, with the worst median of the three and the
-best tail — so what reaps a process is tail excursions past the 5s timeout, not
-where its latency sits. **What flips a process into that state is the open
-question, and it is not gather traffic**: 117 req/s for 45s leaves a healthy
-process at 2.93ms, so traffic only amplifies a process that has already flipped.
-The flip is in-process — 27 of 29 onsets, a median 495× step inside one scrape
-interval at a median process age of 5.2 minutes, with no runtime metric moving
-across it — and `tools/gdp-flip-watch/` exists to catch the next one and dump
-it. The hours-long total wedge
-this spec opened on is gone: the 2026-08-26 fixes removed the CPU limit and
-added the probe, and there have been no collapses and no OOM kills since, with
-`devic.es/cdrom` allocatable 98.25% of the day. Fix C — both arrival rates
-15s → 60s, live 2026-09-17 03:32Z — is a mitigation shipped on the mechanism
-that test disproved, and worth measuring but not worth waiting on. Outstanding
-is the flip, and handing the bug report over for filing. The spec also carries
-several conclusions the goroutine dumps disproved, why the memory limit must not
-be raised, and two measurement traps that have each cost a session.
+**[generic-device-plugin-upstream.md](generic-device-plugin-upstream.md) — file the issue upstream**
+A draft for `squat/generic-device-plugin` about its shipped CPU limit and
+`GOMAXPROCS`. Blocked on generic-device-plugin-memory above, whose result may
+move the mechanism from GOMAXPROCS to the memory limit. After that, waiting on
+Will to file it, since he does the filing himself.
 
 **[etcd-disk-latency.md](etcd-disk-latency.md) — get etcd off spinning disks**
 etcd's p99 WAL fsync is 0.25s at rest against a target of 0.010s, because `rpool`
@@ -138,6 +157,29 @@ alternative it does offer inverts the safety property so a new guest would be
 silently unbacked-up. Everything else about the approach was proven to work.
 Waiting on a bpg release, and nothing to do until one appears.
 
+## Waiting on a release
+
+**[headscale-0-30.md](headscale-0-30.md) — OAuth clients, node TLS, the operator and the Talos extension**
+Headscale 0.30 adds OAuth clients, `tailscale cert` through a DNS-01 provider,
+and enough of the v2 API for the Tailscale Kubernetes operator. `docs/tailnet.md`
+rules out the operator and `siderolabs/tailscale` for reasons that this release
+partly removes. Unreleased as of 2026-10-22, and the ImagePolicy will take it
+unattended. Node TLS needs the MagicDNS domain moved off `forge.local`, and it
+publishes node names in CT logs.
+
+## Waiting on a site visit
+
+**[vulcanus-onsite-checks.md](vulcanus-onsite-checks.md) — cables, power and ports, in person**
+The optical drive hangs on one command badly enough to drop off its SATA link,
+and a disc-free reproducer now exists to measure it. Its link-down events show
+8b/10b decode errors, and `sda`, one port over on the same controller, logged
+link-layer failures from June to September. The checks run in order, with the
+reproducer after each, and stop at the first change that helps. Since
+2026-10-09 the evidence points at the drive's LibreDrive handling rather than
+the cable, and rips have been clean since a fix that changed the LibreDrive
+definitions in use. So the visit may not be needed. Check the spec's status
+note first.
+
 
 ## Applications
 
@@ -147,12 +189,12 @@ Separate track; these do not compete with the infrastructure ordering.
 |---|---|
 | [audiobook-importing.md](audiobook-importing.md) | Getting ~440 GiB of audiobooks out of the inbox and into MusicBrainz, and moving path routing off `genres` onto `albumtypes` |
 | [audiobook-cover-art.md](audiobook-cover-art.md) | A unified system for sourcing, filing and refreshing cover art. `artpath` is empty on every audiobook while 95% of the inbox carries art `fetchart` cannot see |
-| [book-import-spec.md](book-import-spec.md) | Design for a CLI tool to be the single entry point into the Stump library |
+| [bookdrop.md](bookdrop.md) | A web drop that takes a purchased ebook, Kobo's Adobe-DRM `.acsm` included, from phone or desktop into the Stump library with confirmed metadata |
 | [podcast-archive-context.md](podcast-archive-context.md) | Follow-up context from replacing Podgrab with Pinepods, including the feed snapshot job |
 | [smb-charset-utf8.md](smb-charset-utf8.md) | Samba runs `unix charset = ISO-8859-1`, so any filename above U+00FF fails with EIO on every share. Blocks a TV rip today; latent for any title with a curly apostrophe |
-| [video-library-ingest.md](video-library-ingest.md) | Ripped films stop in `import/` and never reach the library. Nothing watches the video inbox and FileBot, the one tool that could file them, reports `Bad License` |
+| [video-library-ingest.md](video-library-ingest.md) | Ripped films stop in `import/` and never reach the library. The fix is [reelbarrow](https://github.com/DArtagan/reelbarrow), which holds the design and the application work; this spec is the deployment half: ARM's manifest hook, `kubernetes/apps/reelbarrow/`, secrets and alerts |
 | [acoustid-identification.md](acoustid-identification.md) | Identifying discs MusicBrainz has no disc ID for, by fingerprinting the audio rather than the table of contents |
-| [disc-ripping.md](disc-ripping.md) | Getting ARM to rip audio CD, DVD, Blu-ray and 4K reliably into the `import/` folders. No job has ever produced a transcoded file; a one-year manual-identification wait wedges the drive on every disc |
+| [disc-ripping.md](disc-ripping.md) | Getting ARM to rip audio CD, DVD, Blu-ray and 4K reliably into the `import/` folders. CD, DVD and Blu-ray rip end to end; 4K is unproven, and the drive intermittently drops off its SATA link |
 
 The nine beets-flask v2.0.0-rc5 bugs that used to sit here moved to
 `~/repositories/beets-flask/todos/` on 2026-08-14, decomposed one spec per bug.
@@ -169,6 +211,29 @@ What makes these useful when opened cold, months later:
   on experience will not re-propose it.
 - **Include the prompt.** Ending with the literal text to open a session with
   removes the work of reconstructing intent.
+- **Every line is read as context.** A session opens a spec by reading all of
+  it and carries it to the end, so a line that neither helps the next session
+  act nor stops it repeating a mistake costs every session after. What belongs:
+  where things stand and what is next, the work still to do, the decisions that
+  bind it, the wrong turns it could repeat, and the prompt.
+- **Collapse finished work to what still binds.** When a phase or an item
+  closes, its working comes out. What stays is what later work depends on, where
+  the result is now written down, and the pull request. The commits carry the
+  rest, and git keeps the old text.
+- **Point at `docs/` rather than restate it.** Once work has written its
+  permanent facts into `docs/`, the spec names the doc and the section. Two
+  copies drift, and the spec's is the one that rots.
+- **Correct in place.** When a finding is overturned, rewrite the passage to say
+  what is true rather than appending a correction beneath it, so no reader has to
+  reconcile a claim with its refutation. A mistake a later session could
+  plausibly make again also goes under the wrong turns.
+- **Evidence goes beside the spec, in `<slug>.evidence.md`.** Session journals,
+  measurements, traces, timelines and transcripts: what a conclusion rests on,
+  rather than the conclusion. The spec states the conclusion and names the
+  evidence entry, and a session opens the evidence only to re-examine one. A
+  session's log entry goes there; what it changes about where things stand goes
+  in the spec. The evidence file is not a spec, has no slug of its own, and is
+  deleted with its spec.
 - **Note decisions already made, and by whom.** Where the user has expressed a
   preference — accepting unattended major upgrades, say — record it verbatim so
   it is not relitigated.

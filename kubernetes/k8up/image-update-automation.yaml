@@ -1,6 +1,5 @@
-# The images in coverage/, whose ImagePolicies live in infrastructure. A third
-# automation rather than a wider path on that namespace's own: each is scoped to
-# one directory so that no two rewrite and push the same commit.
+# The image markers under kubernetes/k8up/. Its own automation, scoped to this
+# directory, so that no two rewrite and push the same commit.
 apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImageUpdateAutomation
 metadata:

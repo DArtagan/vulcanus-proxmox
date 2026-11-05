@@ -57,27 +57,13 @@ So: read freely; scale beets-flask to zero before any ad-hoc write. The
 because `deployment.yaml` sets no `replicas` field — server-side apply never
 claims it, so the reconciler leaves manual scaling alone.
 
-### Neither database is backed up
+### Backups
 
-`beets-library-pvc` is `openebs-hostpath` with `reclaimPolicy: Delete`, and it
-is *not* in borgmatic's mount list — unlike the audio share itself, which is
-covered. Deleting the PVC destroys the catalogue. The audio files survive, but
-every tagging decision made since 2022 does not.
-
-`beets-flask-config-pvc` is exposed the same way and is easier to overlook,
-because it looks like configuration. It also holds beets-flask's own database —
-518 sessions as of 2026-08-13 — which is every fetched candidate for every
-folder in the inbox. Losing it costs hours of MusicBrainz lookups rather than
-anything irreplaceable, but it is not free.
-
-Neither is a beets-specific problem: 33 PVCs use `openebs-hostpath` and exactly
-one of them is in borgmatic. Only the coarse Proxmox VM blob backup covers the
-rest. See [`todos/backups.md`](../todos/backups.md), which is the top-priority
-item in that directory.
-
-Ad-hoc snapshots taken during the 2026-08-13 migration live in
-`~/backups/beets/` on the workstation — both databases plus a `beet stats`
-reference. They are not managed by anything and will go stale.
+Both claims are in K8up's nightly volume backup; see [`backups.md`](backups.md).
+`beets-library-pvc` holds `library.blb`, the catalogue of every tagging decision
+since 2022, and `beets-flask-config-pvc` holds beets-flask's own database, every
+fetched candidate for every folder in the inbox. Both are SQLite in journal mode
+and get a file copy, not a dump, so a copy taken mid-import could be torn.
 
 Snapshot it before any significant change. Use SQLite's backup API rather than
 `cp`, so the result is valid even if something is mid-write:
@@ -334,7 +320,7 @@ It resolves in this order:
 
 1. An explicit `author` flexible field, the manual override:
    `beet modify 'album:Tanya' author='Carlo Zen'`. Note it lives only in
-   `library.blb`, which is not backed up, and is never written to file tags.
+   `library.blb`, and is never written to file tags.
 2. `albumartists[0]`. MusicBrainz splits the credit into an ordered list with
    the author first.
 3. `albumartist` split on ` read by ` / ` narrated by ` / ` performed by ` / `/`,
@@ -347,8 +333,7 @@ light novels) is taken at its word, and a co-authored book files under its first
 author only.
 
 Three overrides are in force as of 2026-08-13. They are listed here because they
-live only in `library.blb`, which [is not backed up](#neither-database-is-backed-up)
-— losing it loses them silently, and this is the only record:
+live only in `library.blb`, so a restore from an older copy loses them silently:
 
 ```sh
 beet modify 'album:The Saga of Tanya the Evil, Vol. 1' author='Carlo Zen'

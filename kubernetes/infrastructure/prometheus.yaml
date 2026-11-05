@@ -85,8 +85,7 @@ spec:
           volumeClaimTemplate:
             metadata:
               annotations:
-                # Silences and notification state, both regenerable. Same
-                # immutability caveat as the Prometheus claim above.
+                # Silences and notification state, both regenerable.
                 k8up.io/backup: "false"
             spec:
               storageClassName: openebs-hostpath
@@ -176,6 +175,9 @@ spec:
         # twice — single Dropbox-side failures that alerted for seven days and
         # four days respectively, each across runs that had already recovered.
         KubeJobFailed: true
+        # Replaced by the KubeContainerWaiting in prometheus-rules.yaml, which
+        # skips pods that have already finished.
+        KubeContainerWaiting: true
         # Two questions welded together with `or`, only one of which applies
         # here. Its first branch — do the declared requests fit at all — is the
         # useful one, and is replaced by cluster-capacity in
@@ -320,13 +322,7 @@ spec:
           volumeClaimTemplate:
             metadata:
               annotations:
-                # Regenerable, and the largest thing on the node. K8up's
-                # default is opt-out, so this has to be said.
-                #
-                # A volumeClaimTemplate annotation reaches PVCs created from
-                # here on. It is immutable on a live StatefulSet and does not
-                # propagate to the claim that already exists, which is why
-                # docs/backups.md carries the one-time kubectl annotate.
+                # Regenerable, and the largest volume on its node.
                 k8up.io/backup: "false"
             spec:
               storageClassName: openebs-hostpath

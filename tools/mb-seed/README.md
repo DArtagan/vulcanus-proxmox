@@ -6,6 +6,7 @@ with every field pre-filled from the file's own tags.
 ```bash
 mb-seed                          # the whole inbox
 mb-seed Goroth Stain Jackson     # only books matching those substrings
+MB_SEED_PORT=8788 mb-seed        # serve on another port when 8787 is taken
 ```
 
 ## Why it exists

@@ -1,0 +1,3 @@
+# SOPS files diff with their values masked, through the textconv devenv.nix
+# sets up: keys, recipients and plaintext fields show; ciphertext does not.
+*.sops.yaml diff=sops

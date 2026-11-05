@@ -7,6 +7,7 @@ work per book drops from transcribing a release by hand to reading a filled
 form and pressing submit.
 
     mb-seed                      # serves http://127.0.0.1:8787
+    MB_SEED_PORT=8788 mb-seed    # when 8787 is taken
 
 The ledger (path -> MBID) is what the rest of the workflow consumes: it drives
 `beet modify … mb_albumid=…` for albums already in the library, and for the
@@ -658,11 +659,17 @@ def main() -> None:
     print(
         f"{len(Handler.books)} books; {len(Handler.ledger.entries)} already submitted"
     )
+    # Bound before the browser opens, or a taken port sends it to whatever
+    # holds that port.
+    try:
+        server = HTTPServer(("127.0.0.1", PORT), Handler)
+    except OSError as e:
+        sys.exit(f"Cannot listen on {ORIGIN}: {e.strerror}; set MB_SEED_PORT")
     print(f"==> {ORIGIN}")
     # A headless shell is not a failure.
     with contextlib.suppress(Exception):
         webbrowser.open(ORIGIN)
-    HTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+    server.serve_forever()
 
 
 if __name__ == "__main__":

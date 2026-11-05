@@ -29,9 +29,29 @@
     opentofu.enable = true;
   };
 
-  claude.code = {
-    enable = true;
-  };
+  # The driver .gitattributes names for SOPS files; and one provider cache for
+  # every worktree, so `tofu init` in each links providers rather than fetching.
+  enterShell = ''
+    git config diff.sops.textconv tools/sops-diff-view.sh
+    export TF_PLUGIN_CACHE_DIR="''${XDG_CACHE_HOME:-$HOME/.cache}/opentofu/plugin-cache"
+    mkdir -p "$TF_PLUGIN_CACHE_DIR"
+  '';
+
+  # treefmt runs on commit, under `devenv test` and by hand: entering a
+  # checkout does not rewrite its files.
+  tasks."devenv:treefmt:run".before = lib.mkForce [ ];
+
+  # Scripts resolve the checkout they run in, not $DEVENV_ROOT: that is the
+  # checkout whose shell loaded the environment, so from a worktree it would
+  # run main's files.
+
+  # The colmena nixos/flake.lock pins, so the binary matches the flake's
+  # makeHive. Runs from anywhere in the repository.
+  scripts.colmena.exec = ''
+    root=$(git rev-parse --show-toplevel)
+    exec nix run --inputs-from "$root/nixos" colmena -- \
+      --config "$root/nixos/flake.nix" "$@"
+  '';
 
   scripts.beets-shell.exec = ''
     # An interactive beets CLI session against the real library, for the things
@@ -273,12 +293,52 @@
 
   git-hooks.hooks = {
     # Formatting is all treefmt; these are linters. ruff is the exception that
-    # also rewrites, applying its safe fixes wherever the hooks run -- which is
-    # every file in the repo on shell entry, not just the one being worked on.
+    # also rewrites, applying its safe fixes wherever the hooks run -- which
+    # under `devenv test` is every file in the repo, not just the one changed.
     ruff.enable = true;
     shellcheck.enable = true;
     tflint.enable = true;
     treefmt.enable = true;
+
+    # Each checks its whole scope when anything in it changes: a render, an
+    # eval or a playbook reaches past the file that triggered it. Scripts live
+    # in tools/hooks/ so an edit applies without re-entering the shell.
+    flux-render = {
+      enable = true;
+      name = "flux-render";
+      entry = "tools/hooks/flux-render.sh";
+      files = "^kubernetes/";
+      pass_filenames = false;
+    };
+    nixos-eval = {
+      enable = true;
+      name = "nixos-eval";
+      entry = "tools/hooks/nixos-eval.sh";
+      files = "^nixos/";
+      pass_filenames = false;
+    };
+    ansible-syntax = {
+      enable = true;
+      name = "ansible-syntax";
+      entry = "tools/hooks/ansible-syntax.sh";
+      files = "^ansible/";
+      pass_filenames = false;
+    };
+    tofu-validate = {
+      enable = true;
+      name = "tofu-validate";
+      entry = "tools/hooks/tofu-validate.sh";
+      files = "^terraform/";
+      pass_filenames = false;
+    };
+    # The exception, mapping files to the suites beside them: one suite takes
+    # 15s. Serial, or prek splits the files and runs a suite once per batch.
+    python-tests = {
+      enable = true;
+      name = "python-tests";
+      entry = "tools/hooks/python-tests.sh";
+      require_serial = true;
+    };
 
     sops-encrypted = {
       enable = true;
@@ -293,9 +353,7 @@
           runtimeInputs = [
             pkgs.gnugrep
             # pyyaml rather than a line-based scan: a sops-nix file nests its
-            # values arbitrarily, and a regex that walks indentation to decide
-            # what it is looking at is how the data/stringData-only check came
-            # to miss everything that is not a Kubernetes Secret.
+            # values arbitrarily.
             (pkgs.python3.withPackages (ps: [ ps.pyyaml ]))
           ];
           text = ''
@@ -324,11 +382,8 @@
             document = yaml.safe_load(open(sys.argv[1])) or {}
             document.pop("sops", None)
 
-            # Which keys are meant to be encrypted depends on the creation rule
-            # that produced the file, and .sops.yaml carries two. A Kubernetes
-            # Secret encrypts only data/stringData and leaves apiVersion, kind
-            # and metadata readable on purpose. Everything else -- sops-nix
-            # included -- is encrypted whole, so every value in it must be.
+            # As .sops.yaml's two rules: a Kubernetes manifest encrypts only
+            # data/stringData, and anything else every value.
             if "data" in document or "stringData" in document:
                 subtrees = {k: document[k] for k in ("data", "stringData") if k in document}
             else:

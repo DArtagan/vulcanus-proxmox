@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bookdrop
+  labels:
+    app: bookdrop
+spec:
+  # One pod owns the uploads awaiting confirmation.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: bookdrop
+  template:
+    metadata:
+      labels:
+        app: bookdrop
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        # Makes the data volume writable by the uid above.
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bookdrop
+          image: ghcr.io/dartagan/bookdrop:0.2.2 # {"$imagepolicy": "apps:bookdrop"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            # Setting this to "false" and dropping readOnly from the books mount
+            # are one change. The read-only mount is what stands between a bug in
+            # the flag's handling and the library.
+            - name: BOOKDROP_DRY_RUN
+              value: "true"
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            periodSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - mountPath: /books
+              name: books
+              readOnly: true
+            - mountPath: /data
+              name: data
+            - mountPath: /adept
+              name: adept
+              readOnly: true
+      volumes:
+        - name: books
+          persistentVolumeClaim:
+            claimName: books-pvc
+        - name: data
+          persistentVolumeClaim:
+            claimName: bookdrop-pvc
+        - name: adept
+          secret:
+            secretName: bookdrop-adept
