@@ -101,21 +101,28 @@ This is a speed-up, not a defect. It waits on
 [smb-charset-utf8.md](smb-charset-utf8.md), because NFS shows the Latin-1 filenames
 Samba translates.
 
+**13. [transcode-cpu-contention.md](transcode-cpu-contention.md) — why transcodes slow worker-1's Go processes more**
+A HandBrake transcode saturates worker-1, and since 2026-11-01 the same load
+lifts generic-device-plugin's median GC pause to ~0.5ms, half its alert's
+threshold, where earlier transcodes left it at ~0.1ms. metallb and alloy on the
+same node go further. Nothing is broken yet, which is why it is last; the risk
+is a false `DevicePluginDegraded`, and a starved node for the others.
+
 ## Waiting on evidence
 
-**[generic-device-plugin-memory.md](generic-device-plugin-memory.md) — is the plugin's degradation its memory limit?**
-The plugin degraded 18–24h a day from 2026-10-06 with GOMAXPROCS still pinned.
-A degraded process sits at its 20Mi limit, thrashing its own code through
-page cache. The limit is raised to 64Mi with nothing else changed, and the spec
-says which readouts decide the question. Runs two weeks.
+**[generic-device-plugin-gomaxprocs.md](generic-device-plugin-gomaxprocs.md) — does the plugin still need its GOMAXPROCS pin?**
+The plugin's degradation was its memory limit, and the pin's demonstrated effect
+is lowering resident memory. With 64Mi of headroom it may be unnecessary.
+Remove it, change nothing else, and read the spec's measures for two weeks. Not
+while transcode-cpu-contention is changing worker-1.
 
 ## Waiting on a decision
 
 **[generic-device-plugin-upstream.md](generic-device-plugin-upstream.md) — file the issue upstream**
-A draft for `squat/generic-device-plugin` about its shipped CPU limit and
-`GOMAXPROCS`. Blocked on generic-device-plugin-memory above, whose result may
-move the mechanism from GOMAXPROCS to the memory limit. After that, waiting on
-Will to file it, since he does the filing himself.
+A finished draft for `squat/generic-device-plugin`: its shipped 20Mi memory
+limit is smaller than the plugin's own code plus heap, and its 50m CPU limit
+makes the resulting degradation unrecoverable. Fixed locally; waiting on Will
+to file it.
 
 **[etcd-disk-latency.md](etcd-disk-latency.md) — get etcd off spinning disks**
 etcd's p99 WAL fsync is 0.25s at rest against a target of 0.010s, because `rpool`

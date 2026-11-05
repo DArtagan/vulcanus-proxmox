@@ -252,23 +252,51 @@ one. A replacement starts normally once the plugin re-registers, so delete the
 `Failed` pod by hand; it holds nothing. A node reboot can lose the same race,
 since the kubelet re-admits pods before the plugin has registered.
 
-**Its parallelism is pinned to two, and must stay pinned.** With no CPU limit
-the Go runtime sizes itself to the node's core count. On the 4- and 8-core
-workers that left the plugin degrading every few hours: its median
-garbage-collection pause rose from ~55µs to 11–18ms, `/metrics` slowed from ~2ms
-to seconds, and the liveness probe reaped it. The 2-core control plane never
-degraded. Pinned to two, all three nodes run identical ~55µs pauses regardless
-of core count. Why a wider runtime degrades intermittently, and what makes a
-scrape wait on it, are not established; the pause and the scrape latency move
-together, which is enough to use one as the readout for the other.
+**Its memory limit has to hold its own code.** The binary maps ~14Mi, which is
+charged to the plugin's cgroup as page cache, and the Go runtime adds ~9Mi of
+anonymous memory. The cgroup's `memory.current` settles at 20–23Mi. Under
+upstream's 20Mi limit the kernel evicts the plugin's code and reads it back from
+disk 60–150 times a second. The process spends 99% of its CPU in the kernel, its
+median garbage-collection pause rises from ~90µs to 1–18ms, `/metrics` slows from
+~2ms to seconds, and the liveness probe reaps it every few hours, on every node.
+The limit here is 64Mi, under which the cgroup has never reached its limit and
+the plugin takes about one major fault a day.
+
+Judge headroom by `memory.current` (`container_memory_usage_bytes`), not the
+working set. The working set subtracts inactive page cache, so it read 8–14Mi on
+a cgroup pinned at its limit. cAdvisor's `container_memory_failcnt` and
+`container_oom_events_total` read 0 on this cgroup v2 setup even across OOM
+kills, so read limit hits on the node:
+
+```bash
+talosctl -n <node-ip> processes | grep generic-device   # the plugin's pid
+talosctl -n <node-ip> read /proc/<pid>/cgroup           # its cgroup path
+talosctl -n <node-ip> read /sys/fs/cgroup<path>/memory.events
+```
+
+A climbing `max` count means the cgroup is pressing on its limit. A restart
+whose `lastState.terminated` reads `Completed`, exit 0, is a liveness reap
+rather than a clean exit: its log ends `caught interrupt`, which is the kubelet's
+SIGTERM.
+
+**Its parallelism is pinned to two.** With no CPU limit the Go runtime sizes
+itself to the node's core count, and each extra P costs resident memory:
+unpinned on the 8-core worker the plugin held 10–14.6Mi RSS, and pinned it holds
+7.7–9.6Mi. Under the 20Mi limit, that difference decided whether the plugin's
+code stayed resident. Whether the 64Mi limit alone is enough has not been tested, so the pin stays
+until it is.
 
 **It has no CPU limit, and must not get one.** A limit would also cap the
 runtime's width, but under one, CFS throttling freezes the process for most of
 every period and a slow `/metrics` never recovers — the plugin goes from
 degraded to dead.
 
-`DevicePluginDegraded` watches the median pause. To read it by hand, along with
-the parallelism the runtime is actually using:
+`DevicePluginDegraded` watches the median pause, and `DevicePluginMemoryHigh`
+watches for RSS growing past 16Mi or `memory.current` passing 75% of the limit.
+On the drive's node, a HandBrake transcode saturates the CPU and lifts the
+plugin's median pause to ~0.5ms, along with every other Go process there. That
+is contention, not degradation, and it clears when the transcode ends. To read
+the pause by hand, along with the parallelism the runtime is actually using:
 
 ```bash
 kubectl exec -n infrastructure alertmanager-kube-prometheus-kube-prome-alertmanager-0 \

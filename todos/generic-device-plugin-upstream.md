@@ -1,17 +1,10 @@
-# Report generic-device-plugin's CPU and GOMAXPROCS behaviour upstream
-
-**Blocked on [generic-device-plugin-memory](generic-device-plugin-memory.md).**
-The plugin degraded again from 2026-10-06 with GOMAXPROCS still pinned. The
-evidence now points at the 20Mi memory limit, with GOMAXPROCS mattering only
-through its memory cost. Do not hand this draft over until that experiment
-closes. Its summary, Evidence 2–3 and suggested change 1 will need rewriting
-around the result.
+# Report generic-device-plugin's resource defaults upstream
 
 ## Opening prompt
 
 > Read `todos/generic-device-plugin-upstream.md`. It holds a finished draft of an
-> issue for `squat/generic-device-plugin`, written 2026-10-03 when the
-> `generic-device-plugin-hang` project closed. **Will files it himself** — check
+> issue for `squat/generic-device-plugin`, rewritten 2026-11-05 when the
+> `generic-device-plugin-memory` project closed. **Will files it himself** — check
 > the draft against upstream's current `manifests/` and chart, update anything
 > that has moved, and hand it over; do not submit it. Once it is filed, record
 > the issue link in `docs/project_log.md` under this slug and delete this file.
@@ -20,65 +13,104 @@ around the result.
 
 The local problem is fixed and documented — see "Keeping the plugin healthy" in
 `docs/automatic-ripping-machine.md`. What remains is telling upstream, because
-both halves of what was found are traps in upstream's own defaults rather than
-in anything local:
+what was found is a trap in upstream's own defaults rather than in anything
+local:
 
-- Upstream's manifest ships `limits.cpu: 50m`. Under it the plugin collapsed
-  roughly daily and could not recover, because CFS throttling froze it for 97% of
-  every period.
-- Removing the limit stopped the collapse but let the runtime size itself to the
-  node's core count, and on multi-core nodes the plugin then degraded every few
-  hours until a liveness probe reaped it. Pinning `GOMAXPROCS` to 2 eliminated
-  that: zero reaps in the ten days after, against ~11 a day on the 8-core node
-  before.
+- Upstream's manifest ships `limits.memory: 20Mi`, which is smaller than the
+  plugin's own code plus its heap. Under it the kernel evicts the plugin's code
+  and faults it back from disk, and the plugin degrades until a liveness probe
+  reaps it. Raised to 64Mi, it ran three weeks clean in the configuration that
+  had degraded within two days on 20Mi.
+- Upstream's manifest also ships `limits.cpu: 50m`. Under it the plugin
+  collapsed roughly daily and could not recover, because CFS throttling froze it
+  for 97% of every period.
 
-Two things to be careful of, both learned the hard way during the project:
+Things to be careful of, learned the hard way:
 
-- **Do not overclaim the mechanism.** The garbage-collection pause and
-  `/metrics` latency rose and fell together, ordered exactly by GOMAXPROCS, and
-  pinning fixed both. Why a wider runtime degrades *intermittently*, and what
-  makes a scrape wait on it, were never established. An earlier version of this
-  draft asserted that the gather stops the world; this client_golang derives its
-  `go_memstats_*` series from `runtime/metrics` rather than `ReadMemStats`, so
-  that was not shown and is not claimed below.
-- **The 2026-08-19 goroutine dumps are lost.** Evidence 1 quotes figures read off
-  them at the time; it cannot be re-checked and is labelled as such. A capture
-  from a degrading process on 2026-09-22 showed every goroutine parked and no
-  gather in flight, which is why the draft does not lean on queueing as the
-  cause.
+- **GOMAXPROCS is not the fix.** The `generic-device-plugin-hang` project
+  credited pinning it to 2, and the degradation came back two weeks later with
+  the pin in place. The pin lowers resident memory, which under 20Mi decided
+  whether the code stayed resident. Whether it matters with headroom is
+  untested, so the draft reports it as an observation and does not suggest it.
+- **The memory mechanism is shown, the CPU-limit one inferred.** Fault rates,
+  `memory.events` and system CPU were read off live processes under the memory
+  limit. The CPU-limit collapse is from August, before Prometheus retention, and
+  that it was the same thrashing under a throttle fits its figures but was not
+  observed. The draft says so.
+- **The 2026-08-19 goroutine dumps are lost.** Evidence 3 quotes figures read off
+  them at the time; it cannot be re-checked and is labelled as such.
+- **The working set misleads.** `container_memory_working_set_bytes` subtracts
+  inactive page cache, so it read 8–14Mi on a cgroup at 98% of its limit. Quote
+  `memory.current` (`container_memory_usage_bytes`) and `memory.events`.
 
 ## Draft
 
-**Title:** Default 50m CPU limit makes `/metrics` degradation unrecoverable; without it, GOMAXPROCS follows the node and the plugin degrades on multi-core hosts
+**Title:** Shipped 20Mi memory limit is smaller than the plugin's own code plus heap, so it thrashes and degrades; the 50m CPU limit makes that unrecoverable
 
 ### Summary
 
-Two related problems with the shipped resource settings, seen over six weeks on
-a three-node cluster with the plugin scraped by Prometheus.
+Seen over three months on a three-node cluster, with the plugin scraped by
+Prometheus.
 
-With the manifest's `limits.cpu: 50m`, `/metrics` periodically slowed past the
-scrape timeout and never recovered: the process sat throttled for 97% of every
-CFS period, stopped serving HTTP entirely, and the node's advertised device count
-dropped to zero until the container was restarted.
+With the manifest's `limits.memory: 20Mi`, the plugin periodically degraded on
+every node: its median GC pause rose from ~90µs to 1–18ms, `/metrics` slowed to
+seconds, and a liveness probe reaped it every few hours. The binary maps ~14Mi,
+which is charged to the container's cgroup as page cache, and the runtime adds
+~9Mi of anonymous memory, so the cgroup sat at its limit and the kernel evicted
+the plugin's own code and read it back from disk 60–150 times a second. Raising
+the limit to 64Mi, with nothing else changed, ended it: three weeks with no
+degradation and no limit hits.
 
-With the CPU limit removed, that collapse stopped, but on the 4- and 8-core nodes
-the plugin began degrading every few hours instead — the Go runtime had sized
-itself to the node, and its GC pauses and `/metrics` latency both rose two to
-three orders of magnitude. The 2-core node never degraded. Setting
-`GOMAXPROCS=2` eliminated it.
+With the manifest's `limits.cpu: 50m` as well, a degraded plugin never
+recovered: it sat throttled for 97% of every CFS period, stopped serving HTTP,
+and the node's advertised device count dropped to zero until the container was
+restarted.
 
 ### Environment
 
 - `ghcr.io/squat/generic-device-plugin@sha256:dc192e164c69b03f156765793a1be62ca437709ae477b27ca7d8f3dcf5021576` (`latest` as of 2026-08-14), built with go1.26.2
-- Kubernetes v1.35.0; Talos Linux v1.12.4; kernel 6.18.9-talos; amd64; containerd 2.1.6
+- Kubernetes v1.35.0; Talos Linux v1.12.4; kernel 6.18.9-talos; cgroup v2; amd64; containerd 2.1.6
 - Started from the manifest's defaults: `requests: 50m/10Mi`, `limits: 50m/20Mi`
-- Nodes with 2, 4 and 8 cores; Prometheus scraping `/metrics` with a 10s timeout
+- Nodes with 2, 4 and 8 cores; Prometheus scraping `/metrics` every 30s with a
+  10s timeout; a liveness probe on `/metrics` every 10s
 
 ### Evidence
 
-**1. Under the CPU limit, degradation is irreversible.** *(Goroutine figures are
-quoted from a dump that no longer exists.)* `scrape_duration_seconds`, flat at
-1.7ms for four hours, then:
+**1. Under 20Mi, the plugin thrashes its own code.** A degraded process on the
+8-core node, 6.5 hours old, CPU limit removed:
+
+| | |
+|---|---|
+| `memory.current` / `memory.max` | 20,623,360 / 20,971,520 |
+| `memory.events` `max` | 104,203 |
+| major faults (cgroup) | 1,855,870 |
+| utime / stime | 23s / 2,468s |
+| heap in use, goroutines | 4.9MB, 23 |
+
+The binary's mappings in `/proc/<pid>/maps` sum to 14,721,024 bytes. Over a
+month, the days `memory.current` sat at ≥95% of the limit were the days the
+plugin degraded, on every node.
+
+**2. At 64Mi, it does not.** Same image, same arguments, same probe and scrape,
+with only the memory request and limit raised to 32Mi/64Mi. Over the 21 days
+since, on all three nodes:
+
+| | |
+|---|---|
+| `memory.current` | 18–23Mi, flat after the first day |
+| `memory.events` `max` | 0 |
+| major faults, total | 27–37 per process |
+| median GC pause | 80–100µs typical |
+| restarts | 0 |
+
+RSS held at 8.9–9.6Mi, goroutines at 21–22 and open fds at 10 throughout, so
+nothing builds up given room. The same configuration on 20Mi had degraded on
+all three nodes within two days of being deployed.
+
+**3. Under the CPU limit, degradation is irreversible.** *(From August, before
+the memory limit was identified. Goroutine figures are quoted from a dump that
+no longer exists.)* `scrape_duration_seconds`, flat at 1.7ms for four hours,
+then:
 
 ```
 22:35  0.0017
@@ -90,45 +122,33 @@ quoted from a dump that no longer exists.)* `scrape_duration_seconds`, flat at
 
 The process pinned its limit — `rate(container_cpu_usage_seconds_total[5m])`
 0.048–0.050 against 50m — and was throttled in 215,176 of 221,981 CFS periods,
-against 102 of 15,894 on a healthy replica. A `SIGQUIT` dump from that state
-held eight `Registry.Gather` calls still running, the oldest 308 minutes old:
-`promhttp` is served with no handler or server timeout, so a scrape abandoned at
-the client's timeout is never cancelled. Under throttling the backlog cannot
-drain.
+against 102 of 15,894 on a healthy replica. A thrashing process uses 105–126
+millicores, nearly all of it in the kernel, so the same thrashing under a 50m
+throttle would produce these figures, though it was not observed directly. A
+`SIGQUIT` dump from that state held eight `Registry.Gather` calls still
+running, the oldest 308 minutes old: `promhttp` is served with no handler or
+server timeout, so a scrape abandoned at the client's timeout is never
+cancelled. Under throttling the backlog cannot drain.
 
-**2. Without the limit, degradation tracks GOMAXPROCS.** Same image, same config,
-no CPU limit, read off each replica's `/metrics` within one minute:
-
-| node cores | GOMAXPROCS | GC pause p50 | GC pause max | heap in use | scrape |
-|---|---|---|---|---|---|
-| 2 | 2 | 65µs | 17.6ms | 4.4MB | 1.5ms |
-| 4 | 4 | 13.6ms | 99.8ms | 5.4MB | 1625ms |
-| 8 | 8 | 11.4ms | 291ms | 4.4MB | 655ms |
-
-Heap, goroutine count and memory working set were similar across all three.
-Degradation was intermittent: replicas ran healthy for minutes to days, then
-stepped up inside a single scrape interval and stayed there until restarted.
-Request rate does not trigger it — 117 req/s for 45s against a healthy replica
-left `/metrics` at 2.9ms.
-
-**3. Pinning GOMAXPROCS removes it.** With `GOMAXPROCS=2` on every replica and
-still no CPU limit, after ~1,950 GCs each:
-
-| node cores | GC pause p50 | GC pause max | scrape p50 | liveness restarts, 10 days |
-|---|---|---|---|---|
-| 2 | 56µs | 0.5ms | 1.7ms | 0 |
-| 4 | 56µs | 1.4ms | 1.7ms | 0 |
-| 8 | 52µs | 0.9ms | 1.6ms | 0 (was ~11/day) |
+**4. GOMAXPROCS moves resident memory.** With no CPU limit the runtime sizes
+itself to the node. Setting `GOMAXPROCS=2` lowered RSS on the 8-core node from
+10–14.6Mi to 7.7Mi, and the degradation stopped for twelve days. It returned
+with the pin still in place, after `/metrics` traffic tripled and RSS rose to
+9.1Mi, and the 2-core node degraded too, at two without any pin. We read the
+pin as headroom rather than a fix, and have not tested whether it matters at
+64Mi.
 
 ### Suggested changes
 
-1. **Set `GOMAXPROCS` in the shipped manifests and chart**, and drop the CPU limit
-   in favour of a request. The limit is what makes a slow `/metrics`
-   unrecoverable; GOMAXPROCS keeps the runtime narrow without throttling it.
-2. **Bound the gather and the server** — `promhttp.HandlerOpts{Timeout: ...}`,
+1. **Raise the memory limit in the shipped manifests and chart.** 32Mi/64Mi
+   works here; `memory.current` settles at 20–23Mi, which leaves the current
+   20Mi no room at all.
+2. **Drop the CPU limit in favour of a request.** The limit is what makes a
+   degraded plugin unrecoverable.
+3. **Bound the gather and the server** — `promhttp.HandlerOpts{Timeout: ...}`,
    plus `ReadHeaderTimeout`/`WriteTimeout` on an `http.Server` rather than bare
    `http.Serve` — so a scrape whose client has gone does not keep running.
-3. **Ship a liveness probe on `/metrics`.** Not `/health`, which answered 200
+4. **Ship a liveness probe on `/metrics`.** Not `/health`, which answered 200
    while `/metrics` was already unresponsive.
 
 ### Unrelated request
