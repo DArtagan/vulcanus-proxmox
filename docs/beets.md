@@ -205,13 +205,13 @@ option, since only port 22 is granted ([`tailnet.md`](tailnet.md)), so the route
 is rsync over SSH, which has to set ownership itself:
 
 ```sh
-rsync -avh --info=progress2 --chown=rancher --chmod=D755,F644 \
+rsync -avh --info=progress2 --chown=piraeus --chmod=D755,F644 \
   "$HOME/music/Artist - Album/" \
   root@192.168.0.105:"/mnt/storage/media/audio/import/Artist - Album/"
 ```
 
 `--chown` is the point of the command. `[audio-rw]` sets no `force user`, so
-Samba authorises as the real Unix user `rancher`, and a transfer that keeps its
+Samba authorises as the real Unix user `piraeus`, and a transfer that keeps its
 own uid lands a folder beets can read and cannot write — the failure under [the
 mount hides every permission the server
 enforces](#the-mount-hides-every-permission-the-server-enforces), which surfaces
@@ -455,10 +455,10 @@ ssh root@192.168.0.105 'stat -c "%a %U:%G %n" "/mnt/storage/media/audio/import/<
 ```
 
 There is a standing reason to reach for them. `[audio-rw]` sets no `force user`,
-so Samba authorises as the real Unix user `rancher` — unlike `[media]`, which
+so Samba authorises as the real Unix user `piraeus` — unlike `[media]`, which
 forces `nobody` and is immune. A folder that reaches the inbox by a route that
 preserves some other uid — rsync or scp as root, rather than a write through the
-share — lands owned by that uid at mode 0755, leaving rancher `r-x`. beets can
+share — lands owned by that uid at mode 0755, leaving piraeus `r-x`. beets can
 read the audio and can create nothing beside it.
 
 That asymmetry is what makes the failure confusing rather than merely annoying:

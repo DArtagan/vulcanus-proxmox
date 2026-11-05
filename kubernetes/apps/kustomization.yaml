@@ -4,6 +4,7 @@ namespace: apps
 resources:
   - audio-pvc.yaml
   - audio-rw-pvc.yaml
+  - books-nfs-pvc.yaml
   - books-pvc.yaml
   - bookdrop
   #- botamusique
@@ -27,7 +28,6 @@ resources:
   - podbook
   - photos-pvc.yaml
   - rclone
-  - rancher-key.sops.yaml
   - reelbarrow
   - rustdesk
   - salamander.yaml

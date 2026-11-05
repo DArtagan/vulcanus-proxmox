@@ -9,6 +9,7 @@ resources:
   - audio-rw-pv.yaml
   #- authentik.yaml
   - basic-auth.sops.yaml
+  - books-nfs-pv.yaml
   - books-pv.yaml
   - cert-manager.yaml
   - coredns-servers.sops.yaml
@@ -33,7 +34,6 @@ resources:
   - photos-pv.yaml
   - prometheus-rules.yaml
   - prometheus.yaml
-  - rancher-key.sops.yaml
   - smb-credentials.sops.yaml
   - syncthing-pv.yaml
   - victoria-logs.yaml

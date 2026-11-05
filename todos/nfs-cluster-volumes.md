@@ -6,9 +6,10 @@
 > and one smbd process per node serves every pod on it, single-threaded. NFS
 > from the host measured 3–15x faster for directory walks and small-file
 > opens. Read `todos/nfs-cluster-volumes.md`. Phase 1 moves the books share,
-> with bookdrop and Stump on it, and its section below is where to start. Later
-> phases wait on `todos/smb-charset-utf8.md` for any consumer that stores
-> paths, then move the rest one PVC at a time.
+> with bookdrop and Stump on it, and its section below is where to start. *The
+> permission model* is the target every phase builds toward. Later phases wait
+> on `todos/smb-charset-utf8.md` for any consumer that stores paths, then move
+> the rest one PVC at a time.
 
 Verified **2026-10-12/13**, phase 1 **2026-11-05**. Measurements are in
 [nfs-cluster-volumes.evidence.md](nfs-cluster-volumes.evidence.md).
@@ -69,17 +70,26 @@ cluster, and corrects those 18 names in Stump.
   (`/home/rancher/docker-vulcanus`). It becomes **`piraeus`**, the cluster's
   name: mini-nas is getting a Talos cluster, which would then get an account of
   its own rather than share this one. `cluster`, `k8s-storage` and `svc-files`
-  were the alternatives. The group stays `fileshare` (1200), which `nobody`
-  shares on `[media]`.
-- **The rename touches** the fileserver's account and its Samba entry, the
-  `valid users` lines in `ansible/templates/smb.conf.j2`, `samba_users` in
-  `ansible/fileserver.yaml`, the cluster's `smb-credentials`, and the rsync
+  were the alternatives.
+- **Both groups are renamed in the same window, numbers kept.** gid 1100, the
+  account's primary group, is `users` in `samba_groups`: the playbook
+  renumbers Debian's own `users` group, normally 100, to 1100. It becomes
+  `piraeus`. gid 1200, `fileshare`, becomes `storage-read`, the read tier of
+  *The permission model*. Until the media phase, `[media]` still writes
+  through it.
+- **The rename touches** the fileserver's account, groups and Samba entry, the
+  `valid users` and `force group` lines in `ansible/templates/smb.conf.j2`,
+  `samba_groups` and `samba_users` in `ansible/fileserver.yaml`, the gid's
+  name in `ansible/nfs.yaml`, the cluster's `smb-credentials`, and the rsync
   example in `docs/beets.md`. No desktop.
 
 **What one squashed identity risks, and what it cannot.** With `sec=sys` the
-server trusts the node, not the pod, and `apps` enforces no Pod Security, so
-anything able to create a pod there could mount any export reachable from its
-node, as that export's squashed uid. Separate uids per export would therefore
+server trusts the node, not the pod. `apps` carries no Pod Security labels, so
+the cluster's default applies: `baseline` enforced, `restricted` only warned
+(measured 2026-11-05 by server dry runs: a privileged pod was refused, a pod
+with an inline `nfs` volume admitted). Anything able to create a pod there could
+therefore mount any export reachable from its node, as that export's squashed
+uid. Separate uids per export would therefore
 isolate nothing between cluster workloads. The boundaries are which claims each
 workload mounts and whether read-only, exporting single datasets rather than
 `rpool/storage` whole, `restricted` enforced on `apps`
@@ -104,26 +114,201 @@ the ownership trap above stops recurring.
 - **`docs/tailnet.md`** says the fileserver has NFS exports (see *The host's
   exports start from nothing*).
 
-### The work
+### What is written, and what has run
 
-1. Rename uid 1100 to `piraeus`, with a new password in SOPS, and update
-   `smb-credentials` with it.
-2. Re-own the books dataset to 1100:1200, directories `2775` so new files
-   take the group, everything world-readable for restic, which reads as the
-   unprivileged `restic` user. An Ansible task holds it there, with a comment on
-   where 1001 came from.
-3. Export `rpool/storage/books` only, declared in Ansible, to the two workers,
-   `all_squash,anonuid=1100,anongid=1200`, NFSv4.2. Decide between `sharenfs` and
-   `/etc/exports.d` here (see *Exports*).
-4. A static `books-nfs-pv` and `books-nfs-pvc` (with `k8up.io/backup: "false"`),
-   bookdrop on it read-only until its filing goes live, Stump on it, then
-   `books-pvc` and `books-pv` pruned once nothing mounts them. `Retain` keeps the
-   data either way.
-5. Delete `rancher-key`; correct `docs/tailnet.md`.
+- `ansible/nfs.yaml`, on the hypervisor: re-owns the books dataset to
+  1100:1200 (directories `u+rwx,g+rwxs,o+rx`, files gaining `ug+rw,o+r`, and
+  world-write the one bit removed), serves NFSv4.2 only through `/etc/nfs.conf.d/cluster.conf`, and
+  exports `rpool/storage/books` to the two workers, squashed to 1100:1200, from
+  `/etc/exports.d/cluster.exports`. exports.d won over `sharenfs` for readable
+  per-client options, and because `sharenfs` is how the unnoticed LAN-wide
+  export happened. `ansible/zfs.yaml` holds `sharenfs=off` on `rpool/storage`,
+  which every dataset beneath inherits. **Both ran on 2026-11-05**; see
+  *Applying it*, step 1.
+- `ansible/fileserver.yaml` and `smb.conf.j2`: the account is `piraeus`, its
+  primary group `piraeus` and the 1200 group `storage-read`. Its password comes from `smb-credentials` itself, through
+  `community.sops.load_vars`, so the Secret the cluster mounts with is the
+  only copy; running the playbook needs a key that decrypts it. The task
+  setting it changes an existing password, which the old one never did, and
+  keeps it out of the process list and the output. Not run.
+- A new `smb-credentials` (`piraeus` and the new password, generated
+  2026-11-05). An earlier draft also kept the password in a worktree's
+  gitignored `.env` for Ansible; that copy went with the worktree, so nothing
+  outside the Secret holds it. Not deployed.
+- `books-nfs-pv` and `books-nfs-pvc`, Stump and bookdrop on the claim, and
+  `rancher-key` removed. `docs/tailnet.md`, `docs/network.md`, `docs/beets.md`
+  and CLAUDE.md corrected. Not deployed.
+
+### Applying it
+
+The password change is the delicate part. The kernel's CIFS client keeps the
+credentials a share was mounted with and reuses them to reconnect, and
+`csi-driver-smb` mounts each share once per node, unmounting it only when no pod
+on that node uses it. Once Samba's password changes, every existing SMB mount in
+the cluster keeps working only until its next reconnect, after a fileserver
+restart or a network blip, and then fails. So the change is one short window,
+and ends with every SMB consumer stopped at once. On 2026-11-05 that was 14 pods
+across both workers: beets-flask, filebot, media-toolkit-webtop, photoprism,
+pinepods, plex, reelbarrow, salamander, stump, syncthing and youtube-dl on
+worker-0; bookdrop, podbook-rebound and automatic-ripping-machine on worker-1.
+List them again before starting, and do not start while ARM is ripping.
+
+1. **The export** (`ansible-playbook zfs.yaml nfs.yaml`). **Done
+   2026-11-05**, and a second run changed nothing. `exportfs -v` shows the one
+   path to 192.168.0.195 and .196 with `all_squash`, `/proc/fs/nfsd/versions`
+   reads `-3 +4 -4.0 -4.1 +4.2`, and nothing under books is off 1100:1200. A
+   pod on each worker with bookdrop's security context, mounting through a
+   throwaway static PV with the same source and options as `books-nfs-pv`,
+   wrote a directory and a file: both landed 1100:1200 under the setgid group,
+   at 2755 and 644 from the pod's 022 umask, which the ownership task widens
+   to 2775 and 664 on its next run. `chown` was refused with EPERM. Probes
+   removed. `/etc/exports.d/zfs.exports`, ZFS's own file for `sharenfs`, was
+   42 bytes before the first run and empty after it; what it held was not
+   read.
+2. **The window.**
+   1. On the fileserver, first `getent group users fileshare` and
+      `id rancher`: the playbook implies `users` is gid 1100, which was not
+      checked on the host. Then `usermod -l piraeus -d /nonexistent rancher`,
+      `groupmod -n piraeus users`, `groupmod -n storage-read fileshare` and
+      `pdbedit -x -u rancher`, then `ansible-playbook fileserver.yaml`, which
+      asks once for the SSH key's passphrase to decrypt `smb-credentials`.
+      The playbook describes the end state and does not rename; run before
+      the renames, it fails on uid 1100 or gid 1100 being taken, which is
+      safe. Debian's standard `users` group (gid 100) is then absent; nothing
+      in this repository uses it.
+   2. Deploy (`wt step deploy`): Flux applies the new `smb-credentials`, the
+      NFS volume and claim, and the rest.
+   3. Scale every SMB consumer to zero, wait until none has a pod left, and
+      scale each back. Each node then mounts its shares afresh, with
+      `piraeus`. A rolling restart is not enough: old and new pods overlap on a
+      node, so its mount never goes.
+3. **Check**, then prune `books-pvc` and `books-pv` in a commit of their own:
+   every consumer running; a probe written and removed over SMB on `audio-rw`
+   as `piraeus`; Stump, after a scan, listing the 18 books under their real
+   names.
+4. **Tighten books to the library tier** of *The permission model*, in this
+   order, so backups never lose access:
+   1. Map gid 1200 into the restic container: `lxc.idmap` lines in
+      `/etc/pve/lxc/108.conf`, `root:1200:1` in `/etc/subgid`, a
+      `storage-read` group at gid 1200 in
+      `nixos/hosts/restic-repository` with `restic` in it, and a container
+      restart. The Terraform provider cannot write raw `lxc.*` lines, and
+      whether its later updates to container 108 keep them was **not
+      checked**; check before relying on them. Done when a restic run reads
+      books with the other bits still set.
+   2. Test POSIX default ACLs (`acltype=posix` on `rpool/storage/books`,
+      default `g::r-X,o::---`) against a probe written over NFS and one over
+      SMB. On a POSIX filesystem a default ACL replaces the umask at
+      creation, and knfsd should honour it under squash; **neither is tested
+      here**. If it fails, writers' umasks and the ownership task carry the
+      modes instead.
+   3. Then books goes to 2750/0640, `[books]` gets `force group =
+      storage-read`, `create mask = 0640` and `directory mask = 2750`, and the
+      ownership task enforces it.
+5. Write what is then true into `docs/`: where exports are declared, the
+   identity and permission model, the `hard` mount behaviour under what to
+   do when it breaks.
 
 Done when a file written by bookdrop through NFS lands as 1100:1200 with the
-group bit set, Stump lists the 18 books under their real names, and an SMB
-write as the renamed account still works on another share.
+group bit set, Stump lists the 18 books under their real names, an SMB write
+as the renamed account still works on another share, and books is 2750/0640
+with restic still reading it.
+
+## The permission model
+
+The target every phase builds toward, settled with Will on 2026-11-05 (see
+*Decisions already made*). One identity writes for the cluster, guests are
+one shared account, and ownership rather than Samba options decides what each
+may do.
+
+### Who is who
+
+- **The cluster is `piraeus`** (uid 1100), always: NFS squashes every request
+  to it, and until the cluster leaves SMB it logs in as `piraeus`.
+- **Guests are one dedicated guest account**, replacing `nobody`, which is
+  also NFS's default anonymous uid and so makes ownership ambiguous. It comes
+  in the media phase, which re-owns `nobody`'s 48,823 video files anyway, and
+  is one `guest account =` line in Samba. Its name is not chosen yet. Logging
+  guests in as themselves is the long-term direction and needs nothing on disk
+  to change: personal accounts would join the same groups.
+- **`storage-read`** (gid 1200, `fileshare` renamed): the guest account and
+  restic, which reaches it through the idmap in phase 1's step 4.
+- **`storage-write`** (new gid): the guest account and `piraeus`.
+
+### The tiers
+
+| tier | where | owner : group | dirs / files | guests | cluster |
+|---|---|---|---|---|---|
+| **library** | books; in media, the `audio` and `video` directories and everything in them except each one's `import` | `piraeus` : `storage-read` | 2750 / 0640 | read | write |
+| **shared** | `audio/import`, `video/import`, `games`, and everything else in media | guest account : `storage-write` | 2775 / 0664 | write | write |
+
+Nothing is world-writable, and the libraries are not world-readable. Under
+the library rule `video/config` is library too; on 2026-11-05 it held one
+guest-written JSON file, a copy of one at the media root.
+
+What the cluster writes into media, measured 2026-11-05: the ripper into
+`video/import/automatic-ripping-machine` and `audio/import` (with `UMASK:
+0o002` already), youtube-dl into `video/import/youtube-dl`, pinepods into
+`audio/podcasts` and `podcasts-legacy`, beets into `audio/music` and
+`audiobooks`, filebot from `video/import` into `movies` and `shows`.
+media-toolkit-webtop is a person's desktop running as the cluster, so the
+libraries are writable from it.
+
+### How it holds
+
+- **Libraries are read-only to guests because guests are neither their owner
+  nor in a group that may write.** No Samba setting carries it. `force user =
+  piraeus` on `[media]` would undo it, so `[media]` carries a comment saying
+  so when the media phase lands.
+- **`[media]` keeps the guest identity** with `force group = storage-write`,
+  so guest writes in shared areas take the write group.
+- **Setgid directories** keep each tier's group on everything created beneath.
+- **New-file modes** come from POSIX default ACLs if phase 1's test bears them
+  out. Otherwise the inbox writers need a 002 umask (the ripper has one;
+  youtube-dl would need it), and the ownership task widens or narrows the
+  rest on each run.
+- **The ownership task in `ansible/nfs.yaml` learns per-path tiers** in the
+  media phase. Today it applies one rule to every export.
+- **Once the cluster is off SMB**, the cluster-only shares (`[audio-rw]`,
+  `[photos]`, `[books]`, `[filesync]`) go, and `piraeus` keeps its Unix account
+  as owner but loses its Samba login. `[borg]` needs its own decision first:
+  borgmatic writes there over SMB today, and `borg` should not be exported
+  under this identity.
+
+### Alternatives rejected, and why
+
+- **Mapping `fileshare` into the restic container as it stood.** The group
+  could write everywhere (files `ug+rw`, directories `g+rwxs`), so restic would
+  have gained write over its own source. Under this model the group is
+  read-only, which is what makes the mapping safe.
+- **Guests forced to `piraeus` on `[media]`.** Anyone on the LAN would own
+  everything, the audio library beets manages included, without logging in.
+- **Library datasets mounted read-only into the fileserver.** About 2.6 TB of
+  copies (movies 1.3 TB, shows 0.75 TB, podcasts 300 GB, music 190 GB,
+  audiobooks 79 GB), held twice for up to two years by media's 24-month
+  snapshots and its hand-made `@20210110`, on rpool and on mini-nas. filebot's
+  moves from the inbox would become copies. Proxmox bind-mounts each mount
+  point non-recursively (`mount -o bind`, `PVE/LXC.pm`), so every dataset needs
+  its own, and the Terraform provider cannot make one read-only. Ownership is
+  enforced by the kernel all the same.
+- **Splitting `audio/import` (415 GB) into its own dataset.** It was for a
+  writable inbox inside a read-only mount, which the tiers make unnecessary.
+
+### Where this departs from a fresh design
+
+On identity and permissions it is the design a fresh build would take. The
+departures are on layout and the fileserver, each kept deliberately:
+
+- **One `media` dataset** mixing libraries, inboxes and people's archives
+  (`backups/`, `Benjammin`, `Moms Back up`, `Pictures`, `will`). A fresh build
+  would separate them, perhaps a dataset per media type with `recordsize=1M`.
+  Not worth the copies above. If it is ever done, do it before media's NFS
+  phase, since exports follow datasets.
+- **4.6 TB of inboxes under media's 24-month snapshots.** The price of keeping
+  inbox and library in one dataset, so moves stay renames.
+- **A privileged fileserver**, whose root is host root over every mounted
+  dataset, `borg` included. Outside this project, with the host firewall and
+  NFS authentication, which Will is taking on separately.
 
 ## Why
 
@@ -218,20 +403,15 @@ On-disk ownership, 2026-10-12: almost everything is `1100:1100`. `video` is
 mostly `65534:1200` (48,823 files, 0664), and `books` is `1001:1100`. Modes are
 mixed, including a lot of 0744.
 
-The recommended starting point is `all_squash,anonuid=1100,anongid=1200` on
-every cluster export. Every request becomes rancher:fileshare, which can write
-to both the rancher-owned trees and the group-writable `nobody:fileshare`
-video files. Open questions for the session:
+Every cluster export is `all_squash,anonuid=1100,anongid=1200`, and *The
+permission model* settles what owns what. Still to handle per writer:
 
-- **New files' modes.** With a 022 umask in the pod, files come out 644/755,
-  and SMB guests (who are `nobody`) could not modify them. Options: ZFS POSIX
-  default ACLs (`acltype=posix` is currently `off` on these datasets) or
-  per-app umask. Measure what each writer actually produces.
-- **`chown` and `chmod` under squash fail with EPERM.** linuxserver-style
-  images chown their mounts at start. Test each writer's startup against the
-  NFS volume before cutting it over.
-- **`books` is owned by 1001**, the hypervisor's `mini-nas` account, which owns
-  it by uid collision, not use. Phase 1 re-owns it to 1100.
+- **New files' modes.** With a 022 umask in the pod, files come out 644/2755
+  (measured in phase 1). Default ACLs, tested in phase 1, or per-writer umask;
+  see *How it holds*.
+- **`chown` under squash fails with EPERM** (measured in phase 1).
+  linuxserver-style images chown their mounts at start. Test each writer's
+  startup against the NFS volume before cutting it over.
 
 ### Exports
 
@@ -249,11 +429,11 @@ video files. Open questions for the session:
   different options for different subdirectory exports of one dataset apart
   reliably was **not verified**. Avoid depending on it, and keep
   `no_subtree_check` (exports(5) default).
-- **Where it is declared.** Either `sharenfs=<opts>` on the datasets through
-  `community.general.zfs` in `ansible/zfs.yaml`, or `sharenfs=off` plus an
-  Ansible-managed `/etc/exports.d/*.exports`. Undecided. The second uses plain
-  exports(5) syntax and keeps per-client options readable. The first keeps
-  exports tied to datasets, which matters if a dataset is renamed or recreated.
+- **Where it is declared:** `/etc/exports.d/cluster.exports`, from
+  `ansible/nfs.yaml`, with `sharenfs=off` on the datasets. It keeps plain
+  exports(5) syntax and per-client options readable. `sharenfs` would tie each
+  export to its dataset, which matters only if one is renamed or recreated, and
+  was how the unnoticed LAN-wide export happened.
 
 ### Failure behaviour
 
@@ -307,23 +487,31 @@ Current SMB claims and consumers (running pods, 2026-10-12):
 
 `borg` is `rpool/backups/borg`, outside `rpool/storage`, and would need its own
 export. `audio-rw-beets-pv` exists only to set uid/gid 1000 on a CIFS mount,
-which NFS has no equivalent for. Its replacement is whatever the identity design
-settles on.
+which NFS has no equivalent for and does not need: beets's writes arrive as
+`piraeus` like everyone's, so its claim moves to the same audio volume.
 
 ## Suggested order
 
-1. **Phase 1, books**, as above. It declares the first export in Ansible and
-   settles the identity. It comes ahead of Plex because a writer tests the
-   identity design, which a read-only consumer cannot, and bookdrop could not
-   write without it.
+1. **Phase 1, books**, as above, through its tightening to the library tier.
+   It declares the first export in Ansible, settles the identity, and tests
+   default ACLs and the restic mapping on the smallest tree. It comes ahead of
+   Plex because a writer tests the identity design, which a read-only consumer
+   cannot, and bookdrop could not write without it.
 2. Land `smb-charset-utf8`.
 3. Move Plex's `video` read: largest library, heaviest scanner, nothing to
    write. Compare scan time before and after.
-4. Move the other writers one claim at a time, testing each image's startup and the
-   modes of files it creates.
-5. Write the result into `docs/`: where exports are declared, the identity
-   rule, and the `hard` mount behaviour under "what to do when it breaks".
-   Correct `docs/tailnet.md`.
+4. Move the other writers one claim at a time, testing each image's startup and
+   the modes of files it creates. photos and filesync take the library tier as
+   they move, as books did, since restic reads them the same way.
+5. **The media tiers**, once media's writers are on NFS: the guest account and
+   `storage-write`, `[media]`'s `force group` and warning comment, per-path
+   tiers in the ownership task, and the re-own of libraries and shared areas.
+   It replaces today's 777 directories, the 25 root-owned and 13
+   `nobody`-owned files in audio, and the mixed 744 modes.
+6. **Retire the cluster's SMB** once nothing mounts it: `csi-driver-smb`,
+   `smb-credentials`, the cluster-only shares and `piraeus`'s Samba login,
+   after the `[borg]` decision.
+7. Write the result into `docs/`.
 
 ## Decisions already made
 
@@ -338,6 +526,30 @@ settles on.
   I've reviewed #29 and approved, then you can run them."
 - **The cleanup found here belongs in phase 1** (Will, 2026-11-05): "we want
   this all documented so we can address it. Phase 1 sounds like a great place."
+- **Exports in `/etc/exports.d`, not `sharenfs`**; **the hypervisor's address
+  in plaintext in the PV**; **SMB mounts restaged by scaling every consumer to
+  zero and back**, not by rebooting workers (Will, 2026-11-05, choosing the
+  recommended option each time). What the address discloses, and the host's
+  firewall and NFS authentication, Will is taking on outside this project:
+  "I'll handle it on my own."
+- **Never world-writable** (Will, 2026-11-05): "Let's enforce never
+  world-writable."
+- **Guests stay one shared account for now** (Will, 2026-11-05): "Long-term it
+  would be good for guests to log in as themselves, but for the
+  short-to-medium term future we'll need to continue using one account for
+  them all." A dedicated guest account replaces `nobody`: "confirmed."
+- **Media is guest-writable except its libraries** (Will, 2026-11-05): "most
+  of `/media` should be write-able by guests. It's just the select 'library'
+  directories that are best as read-only (books, music, movies, etc.)" Which
+  ones: "all audio folders, besides import, are libraries. Same for all
+  `video` folders besides import." And `games`: "Let's align games with the
+  `shared` settings."
+- **Groups renamed, numbers kept** (Will, 2026-11-05): `fileshare` becomes
+  `storage-read` ("it's perfectly all-right to rename `fileshare`"), the new
+  write group is `storage-write`, and gid 1100 goes from `users` to
+  `piraeus`, all "confirmed."
+- **No guest access to books yet** (Will, 2026-11-05): "Let's hold off on
+  making books a read-only share, for now."
 - **SMB tuning from the r/OpenMediaVault thread was measured and rejected**
   (2026-10-13): `use sendfile`, `aio … size = 16384`, socket buffer options and
   `write cache size` (removed from Samba) changed nothing on this workload.

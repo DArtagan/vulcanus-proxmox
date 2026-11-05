@@ -55,17 +55,17 @@
 
 [media]
    # For use by guests, to be read-write but only for pubic files
-   # Share should be `chown -R nobody:fileshare` and `chmod -R 777`
+   # Share should be `chown -R nobody:storage-read` and `chmod -R 777`
    browseable = yes
    writeable = yes
    path = /mnt/storage/media
    guest ok = yes
    # guest only = yes
    force user = nobody
-   force group = +fileshare
+   force group = +storage-read
    create mask = 0664
    directory mask = 0775
-   valid users = rancher nobody
+   valid users = piraeus nobody
    vfs objects = shadow_copy2
    shadow:snapdir = .zfs/snapshot
    shadow:sort = desc
@@ -75,7 +75,7 @@
    browseable = yes
    writeable = yes
    path = /mnt/storage/filesync
-   valid users = rancher
+   valid users = piraeus
    vfs objects = shadow_copy2
    shadow:snapdir = .zfs/snapshot
    shadow:sort = desc
@@ -86,7 +86,7 @@
    browseable = yes
    writeable = yes
    path = /mnt/storage/media/audio
-   valid users = rancher
+   valid users = piraeus
    vfs objects = shadow_copy2
    shadow:snapdir = .zfs/snapshot
    shadow:sort = desc
@@ -98,7 +98,7 @@
    browseable = yes
    writeable = yes
    path = /mnt/storage/photos
-   valid users = rancher
+   valid users = piraeus
    vfs objects = shadow_copy2
    shadow:snapdir = .zfs/snapshot
    shadow:sort = desc
@@ -108,7 +108,7 @@
    browseable = yes
    writeable = yes
    path = /mnt/storage/books
-   valid users = rancher
+   valid users = piraeus
    vfs objects = shadow_copy2
    shadow:snapdir = .zfs/snapshot
    shadow:sort = desc

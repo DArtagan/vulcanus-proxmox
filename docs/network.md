@@ -7,9 +7,9 @@
 | IP | Hostname | Description |
 |----|----------|-------------|
 | 192.168.0.1 | — | Router / gateway |
-| 192.168.0.105 | fileserver.immortalkeep.com | NFS/SMB file server (LXC on Proxmox) |
+| 192.168.0.105 | fileserver.immortalkeep.com | SMB file server (LXC on Proxmox) |
 | 192.168.0.107 | proxmox-backup-server.immortalkeep.com | Proxmox Backup Server |
-| 192.168.0.111 | vulcanus.immortalkeep.com | Originally our Minecraft server |
+| 192.168.0.111 | vulcanus.immortalkeep.com | Proxmox hypervisor; NFS exports to the cluster (`ansible/nfs.yaml`) |
 
 ### Kubernetes Cluster (Talos Linux)
 
