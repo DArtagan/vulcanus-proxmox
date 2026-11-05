@@ -13,7 +13,7 @@
       # [media], and the identity the NFS exports squash to (ansible/nfs.yaml).
       # Desktops connect as guests, which is nobody.
       - username: piraeus
-        password: "{{ lookup('env', 'SAMBA_PIRAEUS_PASSWORD') }}"
+        password: "{{ smb_credentials.data.password | b64decode }}"
         uid: 1100
         group: 1100
         groups: fileshare
@@ -23,13 +23,12 @@
         groups: nogroup,fileshare
 
   tasks:
-    - name: require every samba password from the environment
-      ansible.builtin.assert:
-        that: item.password | length > 0
-        fail_msg: "{{ item.username }}'s password is unset; it is in .env, and the cluster's copy in smb-credentials"
-      with_items: "{{ samba_users | selectattr('password', 'defined') }}"
-      loop_control:
-        label: "{{ item.username }}"
+    # The Secret the cluster mounts with is the only copy of the password.
+    - name: read the cluster's SMB credentials
+      community.sops.load_vars:
+        file: "{{ playbook_dir }}/../kubernetes/infrastructure/smb-credentials.sops.yaml"
+        name: smb_credentials
+      no_log: true
 
     - name: install samba
       apt:
