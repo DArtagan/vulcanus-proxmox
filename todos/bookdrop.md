@@ -82,6 +82,11 @@ apps, or whether the page needs its own login, is still to decide.
 
 `BOOKDROP_DRY_RUN: "false"` and the books mount made writable, in one commit.
 
+It waits on phase 1 of [nfs-cluster-volumes.md](nfs-cluster-volumes.md): no
+write can land in the books share today, since the tree belongs to uid 1001 at
+755 and `[books]` writes as 1100. That phase puts bookdrop on an NFS claim,
+so "the books mount" here is that claim.
+
 ## What bears on it here
 
 - **The books share** reaches pods through `books-pv`, an SMB CSI volume
