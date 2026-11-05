@@ -77,9 +77,12 @@ cluster, and corrects those 18 names in Stump.
   example in `docs/beets.md`. No desktop.
 
 **What one squashed identity risks, and what it cannot.** With `sec=sys` the
-server trusts the node, not the pod, and `apps` enforces no Pod Security, so
-anything able to create a pod there could mount any export reachable from its
-node, as that export's squashed uid. Separate uids per export would therefore
+server trusts the node, not the pod. `apps` carries no Pod Security labels, so
+the cluster's default applies: `baseline` enforced, `restricted` only warned
+(measured 2026-11-05 by server dry runs: a privileged pod was refused, a pod
+with an inline `nfs` volume admitted). Anything able to create a pod there could
+therefore mount any export reachable from its node, as that export's squashed
+uid. Separate uids per export would therefore
 isolate nothing between cluster workloads. The boundaries are which claims each
 workload mounts and whether read-only, exporting single datasets rather than
 `rpool/storage` whole, `restricted` enforced on `apps`
@@ -104,22 +107,64 @@ the ownership trap above stops recurring.
 - **`docs/tailnet.md`** says the fileserver has NFS exports (see *The host's
   exports start from nothing*).
 
-### The work
+### What is written, and what is still to run
 
-1. Rename uid 1100 to `piraeus`, with a new password in SOPS, and update
-   `smb-credentials` with it.
-2. Re-own the books dataset to 1100:1200, directories `2775` so new files
-   take the group, everything world-readable for restic, which reads as the
-   unprivileged `restic` user. An Ansible task holds it there, with a comment on
-   where 1001 came from.
-3. Export `rpool/storage/books` only, declared in Ansible, to the two workers,
-   `all_squash,anonuid=1100,anongid=1200`, NFSv4.2. Decide between `sharenfs` and
-   `/etc/exports.d` here (see *Exports*).
-4. A static `books-nfs-pv` and `books-nfs-pvc` (with `k8up.io/backup: "false"`),
-   bookdrop on it read-only until its filing goes live, Stump on it, then
-   `books-pvc` and `books-pv` pruned once nothing mounts them. `Retain` keeps the
-   data either way.
-5. Delete `rancher-key`; correct `docs/tailnet.md`.
+On the branch, for review before anything runs (Will, 2026-11-05):
+
+- `ansible/nfs.yaml`, on the hypervisor: re-owns the books dataset to
+  1100:1200 (directories `u+rwx,g+rwxs,o+rx`, files gaining `ug+rw,o+r`, nothing
+  removed), serves NFSv4.2 only through `/etc/nfs.conf.d/cluster.conf`, and
+  exports `rpool/storage/books` to the two workers, squashed to 1100:1200, from
+  `/etc/exports.d/cluster.exports`. exports.d won over `sharenfs` for readable
+  per-client options, and because `sharenfs` is how the unnoticed LAN-wide
+  export happened.
+- `ansible/fileserver.yaml` and `smb.conf.j2`: the account is `piraeus`, its
+  password from `SAMBA_PIRAEUS_PASSWORD`. The task setting it changes an
+  existing password, which the old one never did, and keeps it out of the
+  process list and the output.
+- A new `smb-credentials` (`piraeus` and the new password, generated
+  2026-11-05). The password is also in this worktree's `.env`, gitignored, for
+  Ansible; copy it to the main checkout's `.env` before the worktree goes.
+- `books-nfs-pv` and `books-nfs-pvc`, Stump and bookdrop on the claim, and
+  `rancher-key` removed. `docs/tailnet.md` and `docs/beets.md` corrected.
+
+### Applying it
+
+The password change is the delicate part. The kernel's CIFS client keeps the
+credentials a share was mounted with and reuses them to reconnect, and
+`csi-driver-smb` mounts each share once per node, unmounting it only when no pod
+on that node uses it. Once Samba's password changes, every existing SMB mount in
+the cluster keeps working only until its next reconnect, after a fileserver
+restart or a network blip, and then fails. So the change is one short window,
+and ends with every SMB consumer stopped at once. On 2026-11-05 that was 14 pods
+across both workers: beets-flask, filebot, media-toolkit-webtop, photoprism,
+pinepods, plex, reelbarrow, salamander, stump, syncthing and youtube-dl on
+worker-0; bookdrop, podbook-rebound and automatic-ripping-machine on worker-1.
+List them again before starting, and do not start while ARM is ripping.
+
+1. **The export** (`ansible-playbook nfs.yaml`). Harmless on its own: nothing
+   writes to books over SMB, and Stump's reads need only the world-read bit,
+   which re-owning keeps. Check `exportfs -v` shows the one path to the two
+   workers, then mount it from a throwaway pod with an inline `nfs` volume
+   (`baseline`, which `apps` enforces, allows one) and write a probe:
+   it should land as 1100:1200 with the setgid group.
+2. **The window.**
+   1. On the fileserver: `usermod -l piraeus -d /nonexistent rancher` and
+      `pdbedit -x -u rancher`, then `ansible-playbook fileserver.yaml`. The
+      playbook describes the end state and does not rename; run before the
+      rename, it fails on uid 1100 being taken, which is safe.
+   2. Deploy (`wt step deploy`): Flux applies the new `smb-credentials`, the
+      NFS volume and claim, and the rest.
+   3. Scale every SMB consumer to zero, wait until none has a pod left, and
+      scale each back. Each node then mounts its shares afresh, with
+      `piraeus`. A rolling restart is not enough: old and new pods overlap on a
+      node, so its mount never goes.
+3. **Check**, then prune `books-pvc` and `books-pv` in a commit of their own:
+   every consumer running; a probe written and removed over SMB on `audio-rw`
+   as `piraeus`; Stump, after a scan, listing the 18 books under their real
+   names.
+4. Write what is then true into `docs/`: where exports are declared, the
+   identity rule, the `hard` mount behaviour under what to do when it breaks.
 
 Done when a file written by bookdrop through NFS lands as 1100:1200 with the
 group bit set, Stump lists the 18 books under their real names, and an SMB
@@ -249,11 +294,11 @@ video files. Open questions for the session:
   different options for different subdirectory exports of one dataset apart
   reliably was **not verified**. Avoid depending on it, and keep
   `no_subtree_check` (exports(5) default).
-- **Where it is declared.** Either `sharenfs=<opts>` on the datasets through
-  `community.general.zfs` in `ansible/zfs.yaml`, or `sharenfs=off` plus an
-  Ansible-managed `/etc/exports.d/*.exports`. Undecided. The second uses plain
-  exports(5) syntax and keeps per-client options readable. The first keeps
-  exports tied to datasets, which matters if a dataset is renamed or recreated.
+- **Where it is declared:** `/etc/exports.d/cluster.exports`, from
+  `ansible/nfs.yaml`, with `sharenfs=off` on the datasets. It keeps plain
+  exports(5) syntax and per-client options readable. `sharenfs` would tie each
+  export to its dataset, which matters only if one is renamed or recreated, and
+  was how the unnoticed LAN-wide export happened.
 
 ### Failure behaviour
 

@@ -1,0 +1,97 @@
+# The cluster's NFS exports, served by the hypervisor, which holds the datasets.
+#
+# Every request is squashed to the cluster's storage account, piraeus:fileshare
+# (1100:1200; ansible/fileserver.yaml defines both on the fileserver). With
+# sec=sys the server trusts the client node, not the pod, so what separates
+# workloads is which claims each mounts, not uids.
+
+- name: 'export storage to the cluster over NFS'
+  hosts: proxmox
+  vars:
+    piraeus_uid: 1100
+    fileshare_gid: 1200
+    # The workers. kubelet mounts from the node's address; the control plane
+    # mounts nothing.
+    nfs_clients:
+      - 192.168.0.195
+      - 192.168.0.196
+    nfs_exports:
+      - /rpool/storage/books
+
+  tasks:
+    - name: install the NFS server
+      ansible.builtin.apt:
+        name: nfs-kernel-server
+        state: present
+
+    # The books tree arrived owned by uid 1001, which on this host is the
+    # mini-nas replication account by collision, at 755, and so refused every
+    # writer, over SMB as much as NFS. Directories are setgid so what is written
+    # keeps the group; everything stays world-readable for restic, which reads
+    # as its own unprivileged user.
+    - name: own the exported trees by the cluster's account
+      ansible.builtin.shell: |
+        set -euo pipefail
+        {
+          find {{ item | quote }} \( ! -user {{ piraeus_uid }} -o ! -group {{ fileshare_gid }} \) \
+            -print -exec chown -h {{ piraeus_uid }}:{{ fileshare_gid }} {} +
+          find {{ item | quote }} -type d ! -perm -2775 \
+            -print -exec chmod u+rwx,g+rwxs,o+rx {} +
+          find {{ item | quote }} -type f ! -perm -0664 \
+            -print -exec chmod ug+rw,o+r {} +
+        } | wc -l
+      args:
+        executable: /bin/bash
+      with_items: "{{ nfs_exports }}"
+      register: owned
+      changed_when: owned.stdout | int > 0
+
+    - name: create the NFS configuration drop-in directory
+      ansible.builtin.file:
+        path: /etc/nfs.conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: serve NFSv4.2 only
+      ansible.builtin.copy:
+        dest: /etc/nfs.conf.d/cluster.conf
+        content: |
+          # Managed by ansible/nfs.yaml.
+          [nfsd]
+          vers3=n
+          vers4.0=n
+          vers4.1=n
+          vers4.2=y
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart nfs-server
+
+    # Here rather than as sharenfs on the datasets: exports(5) keeps per-client
+    # options readable, and sharenfs on rpool/storage once exported every child
+    # read-write to the whole LAN without anything in this repo saying so.
+    - name: declare the exports
+      ansible.builtin.template:
+        src: cluster.exports.j2
+        dest: /etc/exports.d/cluster.exports
+        owner: root
+        group: root
+        mode: '0644'
+      notify: re-export
+
+    - name: start the NFS server and enable it on boot
+      ansible.builtin.systemd:
+        name: nfs-server
+        enabled: true
+        state: started
+
+  handlers:
+    - name: restart nfs-server
+      ansible.builtin.systemd:
+        name: nfs-server
+        state: restarted
+
+    - name: re-export
+      ansible.builtin.command: exportfs -ra

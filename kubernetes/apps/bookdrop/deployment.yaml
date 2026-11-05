@@ -59,7 +59,7 @@ spec:
       volumes:
         - name: books
           persistentVolumeClaim:
-            claimName: books-pvc
+            claimName: books-nfs-pvc
         - name: data
           persistentVolumeClaim:
             claimName: bookdrop-pvc

@@ -9,8 +9,11 @@
       - groupname: fileshare
         gid: 1200
     samba_users:
-      - username: rancher
-        password: rancher
+      # The cluster's storage account: the only login on every share but
+      # [media], and the identity the NFS exports squash to (ansible/nfs.yaml).
+      # Desktops connect as guests, which is nobody.
+      - username: piraeus
+        password: "{{ lookup('env', 'SAMBA_PIRAEUS_PASSWORD') }}"
         uid: 1100
         group: 1100
         groups: fileshare
@@ -20,6 +23,14 @@
         groups: nogroup,fileshare
 
   tasks:
+    - name: require every samba password from the environment
+      ansible.builtin.assert:
+        that: item.password | length > 0
+        fail_msg: "{{ item.username }}'s password is unset; it is in .env, and the cluster's copy in smb-credentials"
+      with_items: "{{ samba_users | selectattr('password', 'defined') }}"
+      loop_control:
+        label: "{{ item.username }}"
+
     - name: install samba
       apt:
         name: samba
@@ -45,17 +56,32 @@
       loop_control:
         label: "{{ item.username }}"
 
-    - name: add users to samba
-      with_items: "{{ samba_users }}"
-      when: "'password' in item"
-      shell: >
-        (pdbedit --user={{ item.username }} 2>&1 > /dev/null)
-        || (echo '{{ item.password }}'; echo '{{ item.password }}')
-        | smbpasswd -s -a {{ item.username }}
+    # Samba keeps only a hash it cannot compare against, and there is no
+    # smbclient to test a login with, so a root-only digest of the password
+    # last set says whether it has changed. The password travels by environment,
+    # not argv, so it is not in the process list.
+    - name: set samba passwords
+      with_items: "{{ samba_users | selectattr('password', 'defined') }}"
+      ansible.builtin.shell: |
+        set -eu
+        marker=/etc/samba/.password-{{ item.username }}.sha256
+        want=$(printf %s "$PASSWORD" | sha256sum | cut -d' ' -f1)
+        if pdbedit -u {{ item.username }} >/dev/null 2>&1 \
+            && [ -f "$marker" ] && [ "$(cat "$marker")" = "$want" ]; then
+          echo unchanged
+          exit 0
+        fi
+        printf '%s\n%s\n' "$PASSWORD" "$PASSWORD" | smbpasswd -s -a {{ item.username }}
+        umask 077
+        printf %s "$want" > "$marker"
+        echo changed
+      args:
+        executable: /bin/bash
+      environment:
+        PASSWORD: "{{ item.password }}"
       register: smbpasswd
-      changed_when: "'Added user' in smbpasswd.stdout"
-      loop_control:
-        label: "{{ item.username }}"
+      changed_when: "'changed' in smbpasswd.stdout"
+      no_log: true
 
     - name: create samba configuration
       template:
