@@ -39,6 +39,9 @@ spec:
             # the flag's handling and the library.
             - name: BOOKDROP_DRY_RUN
               value: "true"
+          envFrom:
+            - secretRef:
+                name: bookdrop-stump
           ports:
             - containerPort: 8000
           readinessProbe:
