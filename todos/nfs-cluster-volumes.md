@@ -219,8 +219,16 @@ List them again before starting, and do not start while ARM is ripping.
    `If at First . . ` ends in a space, which Windows names cannot, so Samba
    showed it as the mangled `IOPOL1~3`. Stump marked the old entries
    `MISSING`, but left the 10 books under the 4 old-name series `READY`;
-   its *Clean library* removes them. `books-pvc` and `books-pv` were then
-   pruned, after a check that no pod referenced `books-pvc`.
+   its *Clean library* removes them, which Will ran: afterwards every book
+   and series was `READY` and none carried an old name. `books-pvc` and
+   `books-pv` were then pruned, after a check that no pod referenced
+   `books-pvc`.
+
+   bookdrop came out of dry run the same evening (`5e3c9da`, from the
+   bookdrop project), and its first real filing, `Amia Srinivasan/The Right
+   to Sex` at 00:16 UTC on 2026-11-06, landed through NFS as 1100:1200 under
+   the setgid group, at 2755 and 644. That is the done criterion met by the
+   writer itself rather than a probe.
 4. **Tighten books to the library tier** of *The permission model*, in this
    order, so backups never lose access:
    1. Map gid 1200 into the restic container: `lxc.idmap` lines in
@@ -236,7 +244,9 @@ List them again before starting, and do not start while ARM is ripping.
       SMB. On a POSIX filesystem a default ACL replaces the umask at
       creation, and knfsd should honour it under squash; **neither is tested
       here**. If it fails, writers' umasks and the ownership task carry the
-      modes instead.
+      modes instead. bookdrop, the one writer, files at 644 and 2755 from a
+      022 umask, and is this repository's own image, so a 027 umask there is
+      the fallback.
    3. Then books goes to 2750/0640, `[books]` gets `force group =
       storage-read`, `create mask = 0640` and `directory mask = 2750`, and the
       ownership task enforces it.
