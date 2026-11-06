@@ -1,4 +1,11 @@
 # Note: the fileserver must be completely recreated to add new mount points to it
+#
+# Running this decrypts kubernetes/infrastructure/smb-credentials.sops.yaml, and
+# SOPS cannot ask for an SSH key's passphrase under Ansible. Give it a
+# passphrase-less copy on tmpfs for the run. ssh-to-age does not help: the file
+# is encrypted to ssh-ed25519 recipients, which an X25519 identity cannot open.
+#   k=$(mktemp -p /run/user/$(id -u)); cp ~/.ssh/id_ed25519 "$k"; ssh-keygen -p -f "$k" -N ''
+#   SOPS_AGE_SSH_PRIVATE_KEY_FILE=$k ansible-playbook fileserver.yaml; rm -f "$k"
 
 - name: 'set up a fileserver'
   hosts: fileserver
