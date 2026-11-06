@@ -198,8 +198,10 @@ List them again before starting, and do not start while ARM is ripping.
      renamed by editing `/etc/passwd` and `/etc/shadow`, and the
      `storage-read` member lists in `/etc/group` and `/etc/gshadow`, with
      backups in `/root/`; `pwck` and `grpck` were clean after. The home
-     directory is still `/home/rancher`: `usermod -d /nonexistent piraeus`
-     is still to run, now that the old sessions are gone.
+     directory went from `/home/rancher` to `/nonexistent` the same way:
+     smbd has a session as `piraeus` for as long as the cluster mounts
+     anything over SMB, so `usermod` refuses every change to the account
+     until then.
    - **The playbook could not decrypt under Ansible** with a
      passphrase-protected key; see the header of `ansible/fileserver.yaml`.
    - **Two SMB volumes of one share deadlock kubelet's unstaging.**
