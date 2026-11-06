@@ -126,18 +126,20 @@ the ownership trap above stops recurring.
   which every dataset beneath inherits. **Both ran on 2026-11-05**; see
   *Applying it*, step 1.
 - `ansible/fileserver.yaml` and `smb.conf.j2`: the account is `piraeus`, its
-  primary group `piraeus` and the 1200 group `storage-read`. Its password comes from `smb-credentials` itself, through
-  `community.sops.load_vars`, so the Secret the cluster mounts with is the
-  only copy; running the playbook needs a key that decrypts it. The task
-  setting it changes an existing password, which the old one never did, and
-  keeps it out of the process list and the output. Not run.
+  primary group `piraeus` and the 1200 group `storage-read`. Its password
+  comes from `smb-credentials` itself, through `community.sops.load_vars`, so
+  the Secret the cluster mounts with is the only copy; the playbook's header
+  says how to run it with a passphrase-protected key. The task setting it
+  changes an existing password, which the old one never did, and keeps it out
+  of the process list and the output. Ran 2026-11-05.
 - A new `smb-credentials` (`piraeus` and the new password, generated
   2026-11-05). An earlier draft also kept the password in a worktree's
   gitignored `.env` for Ansible; that copy went with the worktree, so nothing
-  outside the Secret holds it. Not deployed.
+  outside the Secret holds it. Deployed 2026-11-05.
 - `books-nfs-pv` and `books-nfs-pvc`, Stump and bookdrop on the claim, and
   `rancher-key` removed. `docs/tailnet.md`, `docs/network.md`, `docs/beets.md`
-  and CLAUDE.md corrected. Not deployed.
+  and CLAUDE.md corrected. Deployed 2026-11-05; `books-pvc` and `books-pv`
+  pruned after.
 
 ### Applying it
 
@@ -165,7 +167,8 @@ List them again before starting, and do not start while ARM is ripping.
    removed. `/etc/exports.d/zfs.exports`, ZFS's own file for `sharenfs`, was
    42 bytes before the first run and empty after it; what it held was not
    read.
-2. **The window.**
+2. **The window. Done 2026-11-05**, with three surprises recorded after the
+   steps.
    1. On the fileserver, first `getent group users fileshare` and
       `id rancher`: the playbook implies `users` is gid 1100, which was not
       checked on the host. Then `usermod -l piraeus -d /nonexistent rancher`,
@@ -181,11 +184,41 @@ List them again before starting, and do not start while ARM is ripping.
    3. Scale every SMB consumer to zero, wait until none has a pod left, and
       scale each back. Each node then mounts its shares afresh, with
       `piraeus`. A rolling restart is not enough: old and new pods overlap on a
-      node, so its mount never goes.
-3. **Check**, then prune `books-pvc` and `books-pv` in a commit of their own:
-   every consumer running; a probe written and removed over SMB on `audio-rw`
-   as `piraeus`; Stump, after a scan, listing the 18 books under their real
-   names.
+      node, so its mount never goes. Suspend the `apps` and
+      `automatic-ripping-machine` Flux Kustomizations first, so neither
+      reverts the scaling, and the CronJobs that mount SMB
+      (`beets-replaygain`, `podcast-feed-snapshot`, `rclone-dropbox`), letting
+      any running job finish: an interrupted rclone bisync can need
+      `--resync`. Done when `smbstatus -b` in the fileserver shows no session
+      from either worker; resuming Flux restores the rest.
+
+   What the window met:
+   - **`usermod -l` refuses while a process runs as the user**, and smbd's
+     per-node sessions (pid 343 for worker-0) run as uid 1100. The login was
+     renamed by editing `/etc/passwd` and `/etc/shadow`, and the
+     `storage-read` member lists in `/etc/group` and `/etc/gshadow`, with
+     backups in `/root/`; `pwck` and `grpck` were clean after. The home
+     directory is still `/home/rancher`: `usermod -d /nonexistent piraeus`
+     is still to run, now that the old sessions are gone.
+   - **The playbook could not decrypt under Ansible** with a
+     passphrase-protected key; see the header of `ansible/fileserver.yaml`.
+   - **Two SMB volumes of one share deadlock kubelet's unstaging.**
+     `audio-rw-pv` and `audio-rw-arm-pv` mount `//192.168.0.105/audio-rw` at two staging
+     paths on worker-1, which share one CIFS superblock, and kubelet refused
+     each with "still mounted by other references", naming the other. Both
+     were unmounted by hand through the `csi-smb-node` pod on that node
+     (`umount <staging path>/globalmount`), after which kubelet finished.
+     See *Migration mechanics*.
+3. **Check. Done 2026-11-05.** Every consumer came back ready. New sessions
+   from both workers authenticated as `piraeus`, and a probe written and
+   removed through `audio-rw` landed as 1100:1100, `[audio-rw]` having no
+   `force group`. Stump, after a scan, has the 18 books and 4 series under
+   their real names, `READY`. One more book moved with them:
+   `If at First . . ` ends in a space, which Windows names cannot, so Samba
+   showed it as the mangled `IOPOL1~3`. Stump marked the old entries
+   `MISSING`, but left the 10 books under the 4 old-name series `READY`;
+   its *Clean library* removes them. `books-pvc` and `books-pv` were then
+   pruned, after a check that no pod referenced `books-pvc`.
 4. **Tighten books to the library tier** of *The permission model*, in this
    order, so backups never lose access:
    1. Map gid 1200 into the restic container: `lxc.idmap` lines in
@@ -384,6 +417,13 @@ and can be lost: Stump's was, and it moves in phase 1. Read-only consumers that 
 podbook-rebound) could go earlier, but borgmatic's archives would show every
 Latin-1 name as renamed.
 
+**Mangled names change too, and the charset fix does not cover them.** Samba
+shows a name Windows cannot hold (a trailing dot or space, or one of
+`:*?"<>|\`) as an 8.3 alias such as `IOPOL1~3`, and NFS shows the real one.
+On 2026-11-05 `rpool/storage` held three: one in books, which Stump re-added,
+and two in `media/video`. Before Plex moves, find what it recorded for those
+two.
+
 ## The design work
 
 ### Identity: who owns what an NFS client writes
@@ -466,6 +506,13 @@ references it.
   does. Without it, the backup system would try to copy terabytes of media
   that ZFS snapshots and replication already cover (`docs/backups.md`). The
   coverage check lists exclusions, so it is visible in its report.
+- **Two SMB PVs of one share on one node will not unstage.** They share a
+  CIFS superblock, so kubelet sees each staging mount as held by the other
+  and retries forever. `audio-rw-pv`, `audio-rw-arm-pv` and
+  `audio-rw-beets-pv` all mount `audio-rw`, and `video-pv` and
+  `video-arm-pv` both mount `media/video`. Expect it at every cutover that
+  empties a node of such a pair, and unmount the staging paths by hand as in
+  phase 1's window. It ends when the pairs do.
 - `csi-driver-smb` and the `smb-credentials` secret stay until the last SMB PV
   is gone. Desktops keep SMB permanently, so Samba stays regardless.
 
