@@ -34,11 +34,8 @@ spec:
               drop:
                 - ALL
           env:
-            # Setting this to "false" and dropping readOnly from the books mount
-            # are one change. The read-only mount is what stands between a bug in
-            # the flag's handling and the library.
             - name: BOOKDROP_DRY_RUN
-              value: "true"
+              value: "false"
           envFrom:
             - secretRef:
                 name: bookdrop-stump
@@ -53,7 +50,6 @@ spec:
           volumeMounts:
             - mountPath: /books
               name: books
-              readOnly: true
             - mountPath: /data
               name: data
             - mountPath: /adept
