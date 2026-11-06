@@ -19,12 +19,13 @@ Verified **2026-11-03** unless marked otherwise.
 
 ## The steps
 
-bookdrop's `todos/README.md` orders the work. Its release-pipeline and adept
-steps are done: 0.2.1 runs here in dry run, and on 2026-11-03 a Kobo `.acsm`
-dropped from the phone came out a DRM-free EPUB. The one step left that needs
-work here:
+bookdrop's `todos/README.md` orders the work. Its release-pipeline, adept,
+confirm and filing steps are done: since 2026-11-06 it files books for real,
+on the NFS claim, and Stump scans them in. What is left touches this
+repository in two places:
 
-- **filing**: the switch to live, under *Going live*. Its Stump key is in place.
+- **remove-dry-run**: `BOOKDROP_DRY_RUN` goes from the Deployment.
+- **Whether the page needs its own login**, under *Deployment*.
 
 ## Decisions already made
 
@@ -81,14 +82,14 @@ key on the desktop the same day, so that book belongs to this device.
 Whether the internal network boundary is enough, as for the other internal
 apps, or whether the page needs its own login, is still to decide.
 
-### Going live
+### Live since 2026-11-06
 
-`BOOKDROP_DRY_RUN: "false"` and the books mount made writable, in one commit.
-
-It waits on phase 1 of [nfs-cluster-volumes.md](nfs-cluster-volumes.md): no
-write can land in the books share today, since the tree belongs to uid 1001 at
-755 and `[books]` writes as 1100. That phase puts bookdrop on an NFS claim,
-so "the books mount" here is that claim.
+`BOOKDROP_DRY_RUN: "false"` and the books mount writable, on `books-nfs-pvc`
+from nfs-cluster-volumes phase 1. Checked before the switch with a probe in
+bookdrop's security context: directories made, a file written and renamed,
+landing 1100:1200 with the setgid group, then removed. The pod's umask makes
+them `2755` and `644`. The first book filed from the phone that day landed
+the same way, and Stump listed it after the scan bookdrop asked for.
 
 ## What bears on it here
 
