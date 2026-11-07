@@ -12,7 +12,7 @@ everything here is about how queries reach it.
 | Cluster, infra VMs | the same CoreDNS | yes |
 | Tailnet devices | whatever their local network gives them | depends |
 | Family iPhones, anywhere | Apple configuration profile → Gateway DoH | yes |
-| Routers, at every site | Gateway resolver IPs, AdGuard as secondary | via Gateway |
+| Routers, at every site | Gateway resolver IPs with AdGuard as secondary, or a UniFi gateway's own DoH | via Gateway |
 
 A phone carrying the profile is covered on any network, including cellular,
 which is why the profile rather than the router is the primary delivery
@@ -65,9 +65,16 @@ CoreDNS out of the path entirely: internal names then follow the public
 `*.immortalkeep.com` wildcard to the WAN IP, where the external ingress has no
 rule for the internal-only hosts, so they stop resolving by name at all.
 
+**A UniFi gateway speaks DoH to Gateway itself** and hands out its own address
+over DHCP instead. `doghouse` works this way: Encrypted DNS is set to Custom,
+with a DNS stamp encoding the location's DoH URL. DoH attributes queries by
+hostname, so nothing depends on the site's public IP, which a residential
+connection changes without notice. The stamp contains that hostname, so it is
+kept out of the repository like the hostname itself.
+
 ## Gateway locations
 
-Three: `vulcanus`, `boston`, and `mobile` for the configuration profile. Each
+Four: `vulcanus`, `boston`, `doghouse`, and `mobile` for the configuration profile. Each
 has its own DoH hostname, which is what attributes a query to a site in
 Gateway's logs. Pointing phones at a site's endpoint would file every roaming
 query under that site and make the attribution meaningless.
