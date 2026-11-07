@@ -189,7 +189,6 @@ Separate track; these do not compete with the infrastructure ordering.
 |---|---|
 | [audiobook-importing.md](audiobook-importing.md) | Getting ~440 GiB of audiobooks out of the inbox and into MusicBrainz, and moving path routing off `genres` onto `albumtypes` |
 | [audiobook-cover-art.md](audiobook-cover-art.md) | A unified system for sourcing, filing and refreshing cover art. `artpath` is empty on every audiobook while 95% of the inbox carries art `fetchart` cannot see |
-| [bookdrop.md](bookdrop.md) | A web drop that takes a purchased ebook, Kobo's Adobe-DRM `.acsm` included, from phone or desktop into the Stump library with confirmed metadata |
 | [podcast-archive-context.md](podcast-archive-context.md) | Follow-up context from replacing Podgrab with Pinepods, including the feed snapshot job |
 | [smb-charset-utf8.md](smb-charset-utf8.md) | Samba runs `unix charset = ISO-8859-1`, so any filename above U+00FF fails with EIO on every share. Blocks a TV rip today; latent for any title with a curly apostrophe |
 | [video-library-ingest.md](video-library-ingest.md) | Ripped films stop in `import/` and never reach the library. The fix is [reelbarrow](https://github.com/DArtagan/reelbarrow), which holds the design and the application work; this spec is the deployment half: ARM's manifest hook, `kubernetes/apps/reelbarrow/`, secrets and alerts |
