@@ -33,9 +33,6 @@ spec:
             capabilities:
               drop:
                 - ALL
-          env:
-            - name: BOOKDROP_DRY_RUN
-              value: "false"
           envFrom:
             - secretRef:
                 name: bookdrop-stump

@@ -19,12 +19,12 @@ Verified **2026-11-03** unless marked otherwise.
 
 ## The steps
 
-bookdrop's `todos/README.md` orders the work. Its release-pipeline and adept
-steps are done: 0.2.1 runs here in dry run, and on 2026-11-03 a Kobo `.acsm`
-dropped from the phone came out a DRM-free EPUB. The one step left that needs
-work here:
+bookdrop's `todos/README.md` orders the work. Its release-pipeline, adept,
+confirm and filing steps are done: since 2026-11-06 it files books for real,
+on the NFS claim, and Stump scans them in. What is left touches this
+repository in two places:
 
-- **filing**: the switch to live, under *Going live*. Its Stump key is in place.
+- **Whether the page needs its own login**, under *Deployment*.
 
 ## Decisions already made
 
@@ -51,8 +51,8 @@ By Will, 2026-11-03:
 
 `kubernetes/apps/bookdrop/`, added to `kubernetes/apps/kustomization.yaml`:
 
-- A `Deployment` from `ghcr.io/dartagan/bookdrop`, with `books-pvc` mounted
-  read-only at `/books` while dry run is on, and a volume at `/data` for uploads
+- A `Deployment` from `ghcr.io/dartagan/bookdrop`, with `books-nfs-pvc`
+  mounted writable at `/books`, and a volume at `/data` for uploads
   awaiting confirmation, backed up as a plain volume (see *Each application* in
   [`docs/backups.md`](../docs/backups.md)).
 - A `Service`, and an `Ingress` on the internal class with
@@ -81,14 +81,14 @@ key on the desktop the same day, so that book belongs to this device.
 Whether the internal network boundary is enough, as for the other internal
 apps, or whether the page needs its own login, is still to decide.
 
-### Going live
+### Live since 2026-11-06
 
-`BOOKDROP_DRY_RUN: "false"` and the books mount made writable, in one commit.
-
-It waits on phase 1 of [nfs-cluster-volumes.md](nfs-cluster-volumes.md): no
-write can land in the books share today, since the tree belongs to uid 1001 at
-755 and `[books]` writes as 1100. That phase puts bookdrop on an NFS claim,
-so "the books mount" here is that claim.
+The books mount writable, on `books-nfs-pvc` from nfs-cluster-volumes phase 1.
+bookdrop 0.5.0 has no dry run, so nothing else gates its writes. Checked before the switch with a probe in
+bookdrop's security context: directories made, a file written and renamed,
+landing 1100:1200 with the setgid group, then removed. The pod's umask makes
+them `2755` and `644`. The first book filed from the phone that day landed
+the same way, and Stump listed it after the scan bookdrop asked for.
 
 ## What bears on it here
 
