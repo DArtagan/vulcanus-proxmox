@@ -72,6 +72,14 @@ hostname, so nothing depends on the site's public IP, which a residential
 connection changes without notice. The stamp contains that hostname, so it is
 kept out of the repository like the hostname itself.
 
+**Such a site has no fallback, and fails closed.** With its one server
+unreachable the router answers no DNS at all and does not fall back to the WAN
+DNS servers, so a Gateway outage takes the site offline by name rather than
+unfiltered. That is accepted. AdGuard is not added as a second Encrypted DNS
+server because UniFi does not treat the list as an order: it shares queries
+between its servers, measured at 48 to Gateway and 52 to AdGuard, so the
+allowlist would work about half the time.
+
 ## Gateway locations
 
 Four: `vulcanus`, `boston`, `doghouse`, and `mobile` for the configuration profile. Each
