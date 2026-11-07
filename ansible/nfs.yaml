@@ -19,27 +19,40 @@
       - /rpool/storage/books
 
   tasks:
-    - name: install the NFS server
+    - name: install the NFS server, and the ACL tools the libraries need
       ansible.builtin.apt:
-        name: nfs-kernel-server
+        name:
+          - nfs-kernel-server
+          - acl
         state: present
 
-    # The books tree arrived owned by uid 1001, which on this host is the
-    # mini-nas replication account by collision, at 755, and so refused every
-    # writer, over SMB as much as NFS. Directories are setgid so what is written
-    # keeps the group; everything stays world-readable for restic, which reads
-    # as its own unprivileged user. Never world-writable: the restic container
-    # sees these trees as owned by nobody, and only that keeps it read-only.
-    - name: own the exported trees by the cluster's account
+    # Every export is a library: piraeus writes, storage-read only reads, and
+    # nothing else may do either. restic reads through storage-read, the one
+    # host gid its container maps in (zfs.yaml), so a group or world bit here
+    # is write or read access from that container. Modes are exact because a
+    # library holds nothing executable. A copy that keeps its source's uid
+    # leaves a tree no writer can write; the chown puts it right.
+    #
+    # The default ACL on every directory fixes new entries at 2750/0640
+    # whatever the writer's umask, which over NFS is the pod's. It needs
+    # acltype=posix on the dataset (zfs.yaml). New directories inherit it, so
+    # the check finds only those made some other way, such as by cp -a.
+    - name: hold the exported trees to the library tier
       ansible.builtin.shell: |
         set -euo pipefail
         {
           find {{ item | quote }} \( ! -user {{ piraeus_uid }} -o ! -group {{ storage_read_gid }} \) \
             -print -exec chown -h {{ piraeus_uid }}:{{ storage_read_gid }} {} +
-          find {{ item | quote }} -type d \( ! -perm -2775 -o -perm -0002 \) \
-            -print -exec chmod u+rwx,g+rwxs,o+rx,o-w {} +
-          find {{ item | quote }} -type f \( ! -perm -0664 -o -perm -0002 \) \
-            -print -exec chmod ug+rw,o+r,o-w {} +
+          find {{ item | quote }} -type d ! -perm 2750 -print -exec chmod 2750 {} +
+          find {{ item | quote }} -type f ! -perm 0640 -print -exec chmod 0640 {} +
+          find {{ item | quote }} -type d -exec sh -c '
+            set -e
+            want=$(printf "user::rwx\ngroup::r-x\nother::---")
+            for d; do
+              [ "$(getfacl -dcnp -- "$d")" = "$want" ] && continue
+              printf "%s\n" "$d"
+              setfacl -d --set u::rwx,g::r-x,o::--- -- "$d"
+            done' sh {} +
         } | wc -l
       args:
         executable: /bin/bash
