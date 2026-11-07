@@ -96,8 +96,7 @@ workload mounts and whether read-only, exporting single datasets rather than
 ([pod-security-namespace-level.md](pod-security-namespace-level.md)), which
 refuses inline `nfs` volumes, and ZFS snapshots with the offsite pull, which no
 pod reaches, for recovery. A separate identity does matter between people and
-the cluster, which already holds, and for backups: `borg` should not be exported
-to the cluster under this identity. What one identity costs is knowing which app
+the cluster, which already holds. What one identity costs is knowing which app
 wrote a file. It gains that `root_squash` refuses `chown` and setuid, and that
 the ownership trap above stops recurring.
 
@@ -229,27 +228,66 @@ List them again before starting, and do not start while ARM is ripping.
    to Sex` at 00:16 UTC on 2026-11-06, landed through NFS as 1100:1200 under
    the setgid group, at 2755 and 644. That is the done criterion met by the
    writer itself rather than a probe.
-4. **Tighten books to the library tier** of *The permission model*, in this
-   order, so backups never lose access:
-   1. Map gid 1200 into the restic container: `lxc.idmap` lines in
-      `/etc/pve/lxc/108.conf`, `root:1200:1` in `/etc/subgid`, a
-      `storage-read` group at gid 1200 in
-      `nixos/hosts/restic-repository` with `restic` in it, and a container
-      restart. The Terraform provider cannot write raw `lxc.*` lines, and
-      whether its later updates to container 108 keep them was **not
-      checked**; check before relying on them. Done when a restic run reads
-      books with the other bits still set.
-   2. Test POSIX default ACLs (`acltype=posix` on `rpool/storage/books`,
-      default `g::r-X,o::---`) against a probe written over NFS and one over
-      SMB. On a POSIX filesystem a default ACL replaces the umask at
-      creation, and knfsd should honour it under squash; **neither is tested
-      here**. If it fails, writers' umasks and the ownership task carry the
-      modes instead. bookdrop, the one writer, files at 644 and 2755 from a
-      022 umask, and is this repository's own image, so a 027 umask there is
-      the fallback.
-   3. Then books goes to 2750/0640, `[books]` gets `force group =
-      storage-read`, `create mask = 0640` and `directory mask = 2750`, and the
-      ownership task enforces it.
+4. **Tighten books to the library tier** of *The permission model*. Written
+   on the branch for review #31, 2026-11-07; nothing below has run.
+
+   What the branch holds:
+   - `ansible/zfs.yaml`: `acltype=posix` on `rpool/storage/books`,
+     `root:1200:1` in `/etc/subgid`, and four `lxc.idmap` lines in
+     `/etc/pve/lxc/108.conf` passing host gid 1200 into the restic container
+     unshifted. Proxmox's API updates touch only the options they are given
+     and write raw `lxc.*` lines back (read from `PVE/LXC/Config.pm`);
+     whether the Terraform provider sends only changed options was **not
+     checked**.
+   - `nixos/hosts/restic-repository`: a `storage-read` group at gid 1200,
+     with `restic` in it. On 2026-11-07 nothing in the container used gid
+     1200 and `restic` was uid 291 in group 291 alone.
+   - `ansible/nfs.yaml`: exports held at exactly 2750/0640, with a default
+     ACL of `u::rwx,g::r-x,o::---` on every directory, so new entries take
+     the library tier whatever the writer's umask. Run against a scratch tree
+     on tmpfs with UTF-8 and space-bearing names, it set every directory's
+     ACL on the first pass and changed nothing on the second, and a file and
+     directory made under a 022 umask came out 640 and 750. Over ZFS through
+     knfsd under squash is **not tested**.
+   - `[books]` removed from Samba and the fileserver's books mountpoint
+     from Terraform (Will, 2026-11-07: nothing mounts the share, and it
+     admits only `piraeus`). Its log in the fileserver showed no connection
+     to it from any desktop.
+
+   The order, so backups never lose access:
+   1. **Plan Terraform from the checkout that holds the state.** The root
+      checkout's `terraform/terraform.tfstate` here is from 2026-02-04 and
+      lacks container 108. Expected: no change to either container. The
+      provider reads back as many mountpoints as are declared, so dropping
+      the fileserver's last one plans nothing and leaves it mounted; step 7
+      removes it.
+   2. **Deploy NixOS to the restic container.** Harmless alone: in-container
+      gid 1200 still maps to host 101200, which owns nothing.
+   3. **`ansible-playbook zfs.yaml`**, then check `/etc/pve/lxc/108.conf` has
+      all four `lxc.idmap` lines and nothing else changed: with some but not
+      all, the container will not start.
+   4. **Restart container 108** away from 02:00 (the backup) and the 1st at
+      03:00 (the prune). Check inside: `id restic` lists 1200, and `ls -ln
+      /mnt/storage/books` shows group 1200, not 65534. That proves the
+      mapping while the world-read bit still covers any mistake.
+   5. **Test the default ACL over NFS.** On the host, `mkdir` a probe
+      directory in books owned 1100:1200 at 2750 with the default ACL above,
+      then from a pod with bookdrop's security context write a file and a
+      directory into it through a throwaway static PV, as in step 1 of
+      *Applying it*. Expect 0640 and 2750 on the host; remove the probe. If
+      it fails, give bookdrop, this repository's own image, a 027 umask, and
+      let the ownership task correct anything else on its runs.
+   6. **`ansible-playbook nfs.yaml`**: books goes to 2750/0640 with default
+      ACLs. Then `systemctl start restic-backups-massfiles` in the container:
+      done when it succeeds and the new snapshot holds as many files under
+      books as the one before, which it can only read through the group.
+      Stump keeps reading, as the owner over NFS.
+   7. **The fileserver:** run `fileserver.yaml` to drop `[books]`, then
+      `pct set 105 --delete mp3`. Its pending changes already delete `mp4`
+      and turn `mp3` from the retired borg mount into a second books mount;
+      with `mp3` deleted too, its next restart leaves media, filesync and
+      photos, as Terraform declares. That restart drops every SMB session,
+      which the cluster's mounts reconnect from.
 5. Write what is then true into `docs/`: where exports are declared, the
    identity and permission model, the `hard` mount behaviour under what to
    do when it breaks.
@@ -315,10 +353,8 @@ libraries are writable from it.
 - **The ownership task in `ansible/nfs.yaml` learns per-path tiers** in the
   media phase. Today it applies one rule to every export.
 - **Once the cluster is off SMB**, the cluster-only shares (`[audio-rw]`,
-  `[photos]`, `[books]`, `[filesync]`) go, and `piraeus` keeps its Unix account
-  as owner but loses its Samba login. `[borg]` needs its own decision first:
-  borgmatic writes there over SMB today, and `borg` should not be exported
-  under this identity.
+  `[photos]`, `[filesync]`) go, and `piraeus` keeps its Unix account
+  as owner but loses its Samba login.
 
 ### Alternatives rejected, and why
 
@@ -352,7 +388,7 @@ departures are on layout and the fileserver, each kept deliberately:
 - **4.6 TB of inboxes under media's 24-month snapshots.** The price of keeping
   inbox and library in one dataset, so moves stay renames.
 - **A privileged fileserver**, whose root is host root over every mounted
-  dataset, `borg` included. Outside this project, with the host firewall and
+  dataset. Outside this project, with the host firewall and
   NFS authentication, which Will is taking on separately.
 
 ## Why
@@ -425,9 +461,8 @@ UTF-8 and switches Samba to `unix charset = UTF-8`. After it, SMB and NFS
 present byte-identical names, and nothing stored in Plex, beets or photoprism
 changes meaning across the move. Do not move a consumer that stores paths
 before it lands, unless what it stores against the changed paths is measured
-and can be lost: Stump's was, and it moves in phase 1. Read-only consumers that store nothing (borgmatic,
-podbook-rebound) could go earlier, but borgmatic's archives would show every
-Latin-1 name as renamed.
+and can be lost: Stump's was, and it moves in phase 1. Read-only consumers that store nothing, such as
+podbook-rebound, could go earlier.
 
 **Mangled names change too, and the charset fix does not cover them.** Samba
 shows a name Windows cannot hold (a trailing dot or space, or one of
@@ -444,8 +479,7 @@ Samba decides ownership today. Kubernetes writes arrive as:
 
 - `nobody:fileshare`, files 0664 / dirs 0775, on `[media]` (force user and
   group, create and directory masks);
-- `rancher` (uid 1100) on `[audio-rw]`, `[photos]`, `[books]`, `[filesync]`
-  and `[borg]`.
+- `piraeus` (uid 1100) on `[audio-rw]`, `[photos]` and `[filesync]`.
 
 The pods themselves run as root (filebot and pinepods with `PUID=0`, ARM,
 beets, salamander) or as image-defined users (Stump `PUID=1000`, syncthing,
@@ -528,24 +562,20 @@ references it.
 - `csi-driver-smb` and the `smb-credentials` secret stay until the last SMB PV
   is gone. Desktops keep SMB permanently, so Samba stays regardless.
 
-Current SMB claims and consumers (running pods, 2026-10-12):
+Current SMB claims and what declares them (Deployments and CronJobs,
+2026-11-07):
 
 | PVC | share | consumers |
 |---|---|---|
-| `video-pvc` | `media/video` | plex (ro), borgmatic (ro), filebot, youtube-dl, media-toolkit-webtop |
-| `audio-rw-pvc` | `audio-rw` | plex (ro), borgmatic (ro), podbook-rebound (ro), pinepods, media-toolkit-webtop, podcast-feed-snapshot |
-| `audio-rw-beets-pvc` | `audio-rw` (uid/gid 1000 mount) | beets-flask, beets-replaygain |
-| `audio-pvc` | `media/audio` | beets-import CronJob |
-| `photos-pvc` | `photos` | photoprism, salamander, borgmatic (ro) |
-| `books-pvc` | `books` | stump |
-| `syncthing-pvc` | `filesync/syncthing` | syncthing, borgmatic (ro) |
-| `games-pvc` | `media/games` | borgmatic (ro) |
-| `borg-backups-pvc` | `borg` | borgmatic |
-| `media-pvc` | `media` | none found |
+| `video-pvc` | `media/video` | plex, filebot, youtube-dl, reelbarrow, media-toolkit-webtop |
+| `audio-rw-pvc` | `audio-rw` | plex, podbook-rebound, pinepods, media-toolkit-webtop, podcast-feed-snapshot (CronJob) |
+| `audio-rw-beets-pvc` | `audio-rw` (uid/gid 1000 mount) | beets-flask, beets-import and beets-replaygain (CronJobs) |
+| `photos-pvc` | `photos` | photoprism, salamander |
+| `syncthing-pvc` | `filesync/syncthing` | syncthing, rclone-dropbox (CronJob) |
 | `video-arm-pvc`, `audio-rw-arm-pvc` | `media/video`, `audio-rw` | automatic-ripping-machine (worker-1) |
+| `audio-pvc`, `games-pvc`, `media-pvc` | `media/audio`, `media/games`, `media` | none |
 
-`borg` is `rpool/backups/borg`, outside `rpool/storage`, and would need its own
-export. `audio-rw-beets-pv` exists only to set uid/gid 1000 on a CIFS mount,
+The three unused claims can be pruned rather than moved. `audio-rw-beets-pv` exists only to set uid/gid 1000 on a CIFS mount,
 which NFS has no equivalent for and does not need: beets's writes arrive as
 `piraeus` like everyone's, so its claim moves to the same audio volume.
 
@@ -568,8 +598,7 @@ which NFS has no equivalent for and does not need: beets's writes arrive as
    It replaces today's 777 directories, the 25 root-owned and 13
    `nobody`-owned files in audio, and the mixed 744 modes.
 6. **Retire the cluster's SMB** once nothing mounts it: `csi-driver-smb`,
-   `smb-credentials`, the cluster-only shares and `piraeus`'s Samba login,
-   after the `[borg]` decision.
+   `smb-credentials`, the cluster-only shares and `piraeus`'s Samba login.
 7. Write the result into `docs/`.
 
 ## Decisions already made
