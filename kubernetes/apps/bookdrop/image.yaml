@@ -16,4 +16,4 @@ spec:
     name: bookdrop
   policy:
     semver:
-      range: ">=0.1.0 <1.0.0"
+      range: ">=0.1.0 <2.0.0"

@@ -29,7 +29,7 @@ library once one has lapsed.
 ## How it is deployed
 
 `kubernetes/apps/bookdrop/`, image `ghcr.io/dartagan/bookdrop`, which Flux
-follows within 0.x. Releases are cut in its own repository by release-please;
+follows within 1.x. Releases are cut in its own repository by release-please;
 its `docs/releasing.md` says how. Flux finds a new tag within 15 minutes. To
 take one at once:
 
