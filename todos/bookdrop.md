@@ -24,7 +24,6 @@ confirm and filing steps are done: since 2026-11-06 it files books for real,
 on the NFS claim, and Stump scans them in. What is left touches this
 repository in two places:
 
-- **remove-dry-run**: `BOOKDROP_DRY_RUN` goes from the Deployment.
 - **Whether the page needs its own login**, under *Deployment*.
 
 ## Decisions already made
@@ -52,8 +51,8 @@ By Will, 2026-11-03:
 
 `kubernetes/apps/bookdrop/`, added to `kubernetes/apps/kustomization.yaml`:
 
-- A `Deployment` from `ghcr.io/dartagan/bookdrop`, with `books-pvc` mounted
-  read-only at `/books` while dry run is on, and a volume at `/data` for uploads
+- A `Deployment` from `ghcr.io/dartagan/bookdrop`, with `books-nfs-pvc`
+  mounted writable at `/books`, and a volume at `/data` for uploads
   awaiting confirmation, backed up as a plain volume (see *Each application* in
   [`docs/backups.md`](../docs/backups.md)).
 - A `Service`, and an `Ingress` on the internal class with
@@ -84,8 +83,8 @@ apps, or whether the page needs its own login, is still to decide.
 
 ### Live since 2026-11-06
 
-`BOOKDROP_DRY_RUN: "false"` and the books mount writable, on `books-nfs-pvc`
-from nfs-cluster-volumes phase 1. Checked before the switch with a probe in
+The books mount writable, on `books-nfs-pvc` from nfs-cluster-volumes phase 1.
+bookdrop 0.5.0 has no dry run, so nothing else gates its writes. Checked before the switch with a probe in
 bookdrop's security context: directories made, a file written and renamed,
 landing 1100:1200 with the setgid group, then removed. The pod's umask makes
 them `2755` and `644`. The first book filed from the phone that day landed
