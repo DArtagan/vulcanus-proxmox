@@ -67,9 +67,9 @@ libgourou makes a new one against the same account, spending one of its limited
 activations; books already filed carry no DRM and are unaffected.
 
 **The Stump API key**, the `bookdrop-stump` Secret, beside Stump's in-cluster
-URL and the library's id. It has only the *Scan library* permission and no
-expiry. To replace it, create a key in Stump's settings with custom permissions,
-*Scan library* alone, and put it in `stump.sops.yaml` with `sops`.
+URL and the library's id. It has only the *Scan Libraries* permission and no
+expiry. To replace it, create a key in Stump's settings with *Explicit Permissions*,
+*Scan Libraries* alone, and put it in `stump.sops.yaml` with `sops`.
 
 ## When something goes wrong
 
