@@ -20,11 +20,11 @@ Verified **2026-11-03** unless marked otherwise.
 ## The steps
 
 bookdrop's `todos/README.md` orders the work. Its release-pipeline, adept,
-confirm and filing steps are done: since 2026-11-06 it files books for real,
-on the NFS claim, and Stump scans them in. What is left touches this
-repository in two places:
-
-- **Whether the page needs its own login**, under *Deployment*.
+confirm, filing and remove-dry-run steps are done: since 2026-11-06 it files
+books for real, on the NFS claim, and Stump scans them in, and since
+2026-11-07 it runs 0.5.0, which has no dry run. What remains there,
+share-target, needs nothing here, so this spec's own work is done; what it
+leaves permanently true belongs in `docs/` when it closes.
 
 ## Decisions already made
 
@@ -46,6 +46,11 @@ By Will, 2026-11-03:
 - **A dedicated Adobe ID** for bookdrop, separate from any other device. Adobe
   no longer runs ebook DRM sign-in, so this is a ByteBooks ID; see *The device
   key*.
+- **No login of its own** (Will, 2026-11-07): "Bookdrop does not need its own
+  login at this time. We'll add that scope if the circumstances necessitate
+  it. But presently, as it's only accessible via internal ingress, that's good
+  enough." A change to who reaches the internal ingress, such as
+  [tailnet-multi-user.md](tailnet-multi-user.md), reopens it.
 
 ## Deployment
 
@@ -78,8 +83,8 @@ to keep; only the three device files are in the Secret. The desktop copy is in
 `~/.config/bookdrop/adept`. The first Kobo `.acsm` was fulfilled against this
 key on the desktop the same day, so that book belongs to this device.
 
-Whether the internal network boundary is enough, as for the other internal
-apps, or whether the page needs its own login, is still to decide.
+The internal ingress is its only boundary, as for the other internal apps; see
+*Decisions already made*.
 
 ### Live since 2026-11-06
 
