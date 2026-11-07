@@ -119,6 +119,11 @@ in
   # For maintenance by hand: check, tag, restore.
   environment.systemPackages = [ pkgs.restic ];
 
+  # Reads the libraries, which grant this group read and nothing else.
+  # ansible/zfs.yaml maps gid 1200 into this container unshifted.
+  users.groups.storage-read.gid = 1200;
+  users.users.restic.extraGroups = [ "storage-read" ];
+
   services.restic.backups.massfiles = {
     inherit repository passwordFile;
     user = "restic";

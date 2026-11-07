@@ -31,10 +31,13 @@
         state: present
       notify: 'add photos dataset to proxmox'
 
+    # A library: nfs.yaml sets its default ACLs, which need acltype=posix.
     - name: 'storage/books dataset'
       community.general.zfs:
         name: "{{ zpool }}/storage/books"
         state: present
+        extra_zfs_properties:
+          acltype: posix
       notify: 'add books dataset to proxmox'
 
     - name: 'backups/restic dataset'
@@ -51,6 +54,35 @@
         owner: 100291
         group: 100291
         state: directory
+
+    # restic reads the libraries through storage-read, so host gid 1200 passes
+    # into the container unshifted and every other id keeps the default shift.
+    # It grants read only because the libraries give that group nothing more
+    # (nfs.yaml). nixos/hosts/restic-repository puts restic in the group.
+    #
+    # Line by line, not blockinfile: Proxmox reads a config's # lines as the
+    # container's description and moves them. Its API updates rewrite only the
+    # options they are given and write raw lxc.* lines back, but a recreated
+    # container loses them, and restic then fails its next run on the
+    # libraries it cannot read. All four lines or none: with only some, the
+    # container will not start. The mapping takes effect at the container's
+    # next start, left to a quiet moment because a restart interrupts backups.
+    - name: 'let root map host gid 1200 into containers'
+      lineinfile:
+        path: /etc/subgid
+        line: 'root:1200:1'
+
+    - name: 'restic repository container: storage-read unshifted'
+      lineinfile:
+        path: /etc/pve/lxc/108.conf
+        line: "{{ item }}"
+        insertbefore: '^\['
+        firstmatch: true
+      loop:
+        - 'lxc.idmap: u 0 100000 65536'
+        - 'lxc.idmap: g 0 100000 1200'
+        - 'lxc.idmap: g 1200 1200 1'
+        - 'lxc.idmap: g 1201 101201 64335'
 
     - name: 'proxmox_backup_server'
       community.general.zfs:
