@@ -27,7 +27,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: bookdrop
-          image: ghcr.io/dartagan/bookdrop:0.4.0 # {"$imagepolicy": "apps:bookdrop"}
+          image: ghcr.io/dartagan/bookdrop:0.5.0 # {"$imagepolicy": "apps:bookdrop"}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
