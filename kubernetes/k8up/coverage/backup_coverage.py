@@ -7,8 +7,8 @@ records a backup's last success. So this lists the snapshots through
 rest-server and compares them with every PVC, `k8up.io/backupcommand` pod and
 PreBackupPod the cluster API returns -- not git, where some live claims have no
 literal declaration -- and reads each current dump back to see that it is
-whole. A size comparison cannot see a dump cut short by a percent, as k8up#1109
-did. See docs/backups.md for the verdicts.
+whole. A size comparison cannot see a dump cut short by a percent, as
+kubernetes#142376 cuts them. See docs/backups.md for the verdicts.
 
 Two outcomes, as in ansible/files/pbs_freshness.py: failures ping /fail and exit
 non-zero; reports print and ride along in the ping's body. An excluded claim or
