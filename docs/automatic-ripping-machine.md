@@ -358,6 +358,14 @@ container start. Each edit is skipped, and logged as `source-patches: cannot
 apply` in `arm.log`, if an ARM update moves the text it replaces. After an image
 bump, check that log for nine `applied` lines.
 
+A change to `init-scripts.yaml` alone reaches no running pod, so ARM needs
+`kubectl rollout restart`, and that restart rolls twice: Flux's next scheduled
+reconcile, up to ten minutes later, strips the annotation and rolls the pod
+again, killing any job then running with `Received SIGTERM`. Job 101 died that
+way seven minutes into its backup. Insert a disc only once a scheduled
+reconcile has passed, `flux get kustomizations apps` showing a run after the
+restart and the pod's start time later than that run or unchanged by it.
+
 ### Data flow
 
 ```

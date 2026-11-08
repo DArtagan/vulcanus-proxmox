@@ -477,7 +477,8 @@ run found nothing left to change.
   and job 82's two partial transcodes in
   `transcode/tv/Downton-Abbey (2010-2015)_179295226579/`, and job 100's seven
   transcodes and partial `title_14.mkv`, shuffles of S6 D1's episode 1 and its
-  play-all, in `transcode/movies/Downton Abbey/`.
+  play-all, in `transcode/movies/Downton Abbey/`, and job 101's partial backup
+  in `raw/Downton Abbey_179416168414/`.
 - **Downstream.** Nothing watches `video/import/automatic-ripping-machine/`; that is
   [`video-library-ingest.md`](video-library-ingest.md), which also holds what the
   rips showed about TV numbering and the duplicate Blu-ray feature.
@@ -723,6 +724,14 @@ limits (D6) and the alert rules, both of which are facts about this cluster.
 
 The full set is in the evidence, marked where it was corrected. These are the ones
 the remaining work could repeat.
+
+- **A forced reconcile taken for the second roll.** After restarting ARM for
+  the playlist-obfuscation code (2026-11-08), a `flux reconcile` 17 s later
+  left the restart annotation in place, and that was read as proof Flux would
+  not roll the pod again, against `docs/kubernetes.md`. The scheduled
+  reconcile at 18:21:19 stripped it and killed job 101 mid-backup. The rule is
+  now in the docs, beside the source patches: wait out a scheduled reconcile,
+  not a forced one.
 
 - **A limit sized against the VM, not allocatable.** ARM's 4Gi limit read as
   generous on an 8 GiB VM with 5.26 GiB allocatable and the rest resident, so the
