@@ -6,15 +6,25 @@ Proxmox container. The other containers are managed by Ansible.
 | Host | Role | Where |
 |---|---|---|
 | `restic-repository` | the restic repository: `rest-server --append-only` and two local restic jobs. See [`backups.md`](backups.md) | LXC 108 on vulcanus, `192.168.0.108` |
+| `pbs-offsite` | PBS #2, the offsite copy of the guest images. See [`backups.md`](backups.md) | a NixOS container on mini-nas, DHCP on its LAN; `100.64.0.10` on the tailnet |
 
 ## Layout
 
 Everything is in `nixos/`:
 
-- **`flake.nix`** lists each host once, with its module and address. colmena deploys
-  from it, and builds each host's LXC template from the same module.
+- **`flake.nix`** lists each colmena host once, with its module and address. colmena
+  deploys from it, and builds each host's LXC template from the same module. A host
+  that another machine runs, as mini-nas runs PBS #2, is a `nixosConfigurations`
+  output instead.
 - **`hosts/<name>/default.nix`** is the host.
 - **`hosts/<name>/secrets.sops.yaml`** holds its secrets, for sops-nix.
+- **`modules/`** holds what more than one host shares: `pbs.nix` is PBS as both PBS
+  hosts run it, the role's own module adding the rest.
+
+**nixos-pbs is pinned to a revision** in the input's URL, so `nix flake update` cannot
+move it: one maintainer and young, it moves only when its URL is edited, after reading
+what changed. Its nixpkgs is left its own rather than following the flake's, so its
+packages are the builds its binary cache holds, rather than ones built here.
 
 ## Deploying a change
 
@@ -27,6 +37,30 @@ From the devenv shell, anywhere in the repository.
 Then check the change took effect *inside* the host: a unit's state, a file, a
 listening port. A successful apply is not that check. From off the LAN, SSH needs the
 host's grant in the tailnet policy; see [`tailnet.md`](tailnet.md).
+
+### PBS #2
+
+mini-nas's flake takes this one as its `vulcanus-proxmox` input and runs
+`nixosConfigurations.pbs-offsite` as `containers.pbs-offsite`, a systemd-nspawn
+container, so a change reaches it in three steps:
+
+1. Merge it to `main` here: `wt deploy`.
+2. In `~/repositories/mini-nas`, `nix flake update vulcanus-proxmox`, and commit the
+   lock.
+3. Deploy mini-nas from that checkout:
+   ```bash
+   nix run --inputs-from . deploy-rs -- .#mini-nas --hostname 192.168.1.11 \
+     --confirm-timeout 60 --skip-checks
+   ```
+
+A change to the container restarts it, which aborts a running sync or verify: deploy
+clear of PBS #2's 12:00 UTC chain and Sunday's verify, and see
+[`backups.md`](backups.md) for checking that no task is running. Its commands run from
+mini-nas with `nixos-container run pbs-offsite -- <command>`.
+
+PBS #2's secrets follow *Creating a host*'s step 4, its host key being the container's
+own: it lives on the container's root filesystem, so a deploy keeps it and only a
+recreated container needs its recipient replaced.
 
 ## Creating a host
 
@@ -84,4 +118,5 @@ activation, and a `host:port` value trips an assertion.
 
 **Hosts keep `America/Denver`**, like vulcanus, so a timer means what the
 hypervisor's logs mean. Kubernetes schedules are UTC; [`backups.md`](backups.md) lists
-both side by side.
+both side by side. **PBS #2 is the exception**, on UTC, for the reason `backups.md`
+gives under its section.

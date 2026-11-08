@@ -110,6 +110,13 @@ in
       ns = "vulcanus";
       # Nothing deleted on the primary reaches this store. See docs/backups.md.
       remove-vanished = false;
+      # vm/100 is frozen: every pull after a verify would re-sync its one 141 GiB
+      # snapshot, stripping its verify state, and the next weekly verify would
+      # read all of it again. More groups go in one `exclude:regex:`, as each
+      # setting is a single flag. Removing this line leaves the filter in PBS;
+      # `proxmox-backup-manager sync-job update pull-primary --delete group-filter`
+      # clears it.
+      group-filter = "exclude:group:vm/100";
     };
   };
 
