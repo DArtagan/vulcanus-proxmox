@@ -185,6 +185,18 @@ partly removes. Unreleased as of 2026-10-22, and the ImagePolicy will take it
 unattended. Node TLS needs the MagicDNS domain moved off `forge.local`, and it
 publishes node names in CT logs.
 
+## Watching upstream
+
+Upstream issues that something here works around, each with what to undo once
+it is fixed. An entry outlives the spec that added it: the workaround is in
+the running system, and this is where the reminder to remove it lives. Check
+each when its project's releases move, and delete the entry once the
+workaround is gone.
+
+| issue | worked around by | once a fix ships |
+|---|---|---|
+| [kubernetes#142376](https://github.com/kubernetes/kubernetes/issues/142376), exec drops the end of stdout when the client reads slowly | every K8up backup command sleeps 60 s after its last write, so its dump is not cut short ([dump-stream-truncation.md](dump-stream-truncation.md)) | the fix spans client-go, the apiserver, the kubelet and containerd's streaming server. When the Talos release running here ships a Kubernetes and a containerd that carry it, remove the sleeps and watch the backup coverage check for a week |
+
 ## Waiting on a site visit
 
 **[vulcanus-onsite-checks.md](vulcanus-onsite-checks.md) — cables, power and ports, in person**

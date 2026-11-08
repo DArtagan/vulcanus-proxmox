@@ -78,9 +78,8 @@ deploy. Check after deploying that salamander's Deployment carries the sleep.
 Alongside it:
 
 1. **`docs/backups.md`, *Each part closes off a failure*:** a bullet for the
-   sleep, saying what it guards against, linking kubernetes#142376, and saying
-   when it can go (below). That bullet is where the issue is tracked once this
-   spec is deleted.
+   sleep, saying what it guards against and linking kubernetes#142376, so
+   whoever reads the commands knows why the sleep is there.
 2. **`docs/backups.md`, the restore steps:** before loading a dump, confirm it
    is whole, by the same tests the coverage check applies: a SQL dump ends in
    its completion marker; a SQLite copy is as long as its header says. If it
@@ -110,6 +109,10 @@ by containerd), and is being staged behind a KEP. On Talos the kubelet and
 containerd both arrive with a Talos release, so the sleep can go once the
 Talos version running here ships a Kubernetes and a containerd that carry it.
 Then remove it and watch the check for a week, as above.
+
+**The issue is tracked in `todos/README.md`, under *Watching upstream*.** That
+entry stays when this spec is deleted, since the sleep stays in the running
+system; it goes only when the sleep does.
 
 ## Not this spec
 
