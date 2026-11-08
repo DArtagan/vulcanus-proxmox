@@ -120,9 +120,9 @@ What stays here is wiring it into this ARM:
 3. **The export for jobs 1–41**, run with reelbarrow's script against a copy of
    `/root/db/arm.db`, since ARM is live.
 
-`init-scripts` is a `subPath` mount, so a changed script reaches the container
-only after `kubectl rollout restart`, and must be checked in the container, not
-in the ConfigMap ([config-change-rollouts.md](config-change-rollouts.md)).
+ARM's scripts are generated into a ConfigMap whose name hashes their contents,
+so a merged script change rolls ARM by itself and kills any job running: merge
+one while ARM is idle, and check it in the container, not in the ConfigMap.
 `docs/automatic-ripping-machine.md` gets the hook once it is in place.
 
 ---

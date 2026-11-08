@@ -24,7 +24,7 @@ import types
 import unittest
 from pathlib import Path
 
-from test_patches import load_configmap
+from test_patches import load_script
 
 TICK = 45000
 
@@ -90,7 +90,7 @@ def load(fake: FakeSubprocess | None = None) -> dict:
         NOTIFY_TITLE="ARM notification",
         notify=lambda _job, _title, body: ns["notices"].append(body),
     )
-    code = load_configmap("arm-duplicate-titles.py")
+    code = load_script("arm-duplicate-titles.py")
     exec(compile(code, "arm-duplicate-titles.py", "exec"), ns)  # noqa: S102
     return ns
 

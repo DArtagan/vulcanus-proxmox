@@ -26,13 +26,9 @@ import types
 import unittest
 from pathlib import Path
 
-import yaml
-
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
-INIT_SCRIPTS = (
-    REPO / "kubernetes" / "apps" / "automatic-ripping-machine" / "init-scripts.yaml"
-)
+SCRIPTS = REPO / "kubernetes" / "apps" / "automatic-ripping-machine" / "scripts"
 RIPPER = "/opt/arm/arm/ripper"
 ARM_LOG = "/home/arm/logs/arm.log"
 WHOLE_DISC_PY = "/usr/local/bin/arm-whole-disc.py"
@@ -43,18 +39,13 @@ PACKET = 192
 APPLIED_EDITS = 9
 
 
-def load_configmap(key: str) -> str:
-    doc = yaml.safe_load(INIT_SCRIPTS.read_text())
-    try:
-        return doc["data"][key]
-    except KeyError:
-        message = f"init-scripts.yaml has no {key} entry"
-        raise AssertionError(message) from None
+def load_script(name: str) -> str:
+    return (SCRIPTS / name).read_text()
 
 
 def patcher_namespace() -> dict:
     """Read the patcher's EDITS and APPENDS without running it."""
-    source = load_configmap("arm-source-patches.py")
+    source = load_script("arm-source-patches.py")
     head = source.split("\ndef log(", 1)[0]
     ns: dict = {}
     exec(compile(head, "arm-source-patches.py", "exec"), ns)  # noqa: S102
@@ -73,9 +64,9 @@ class Patcher:
         self.ripper.mkdir()
         self.log = self.root / "arm.log"
         self.whole_disc = self.root / "arm-whole-disc.py"
-        self.whole_disc.write_text(load_configmap("arm-whole-disc.py"))
+        self.whole_disc.write_text(load_script("arm-whole-disc.py"))
         self.duplicate_titles = self.root / "arm-duplicate-titles.py"
-        self.duplicate_titles.write_text(load_configmap("arm-duplicate-titles.py"))
+        self.duplicate_titles.write_text(load_script("arm-duplicate-titles.py"))
         ns = patcher_namespace()
         self.edits = [
             (name, Path(path.replace(RIPPER, str(self.ripper))), old)
@@ -85,7 +76,7 @@ class Patcher:
         for path in {path for _, path, _ in self.edits}:
             olds = [old for _, p, old in self.edits if p == path]
             path.write_text("# head\n" + "# between\n".join(olds) + "# tail\n")
-        script = load_configmap("arm-source-patches.py")
+        script = load_script("arm-source-patches.py")
         for original, replacement in (
             (RIPPER, self.ripper),
             (ARM_LOG, self.log),
@@ -287,7 +278,7 @@ def whole_disc(fake: FakeMakeMKV) -> dict:
         "TrackID": types.SimpleNamespace(FILENAME=27),
         "utils": types.SimpleNamespace(RipperException=RipperError),
     }
-    exec(compile(load_configmap("arm-whole-disc.py"), "arm-whole-disc.py", "exec"), ns)  # noqa: S102
+    exec(compile(load_script("arm-whole-disc.py"), "arm-whole-disc.py", "exec"), ns)  # noqa: S102
     return ns
 
 

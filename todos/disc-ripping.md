@@ -133,12 +133,14 @@ every earlier run read `0x121000`.
 ## Before touching anything
 
 - **Check the container, not the ConfigMap.** ARM rewrites its own config file,
-  the init container leaves an unresolved `${...}` verbatim, and **`init-scripts`
-  is mounted with `subPath`, which Kubernetes never updates in place**, so the
-  scripts in `/usr/local/bin/` are frozen at pod start: **every change to
-  `init-scripts.yaml` needs a restart.** A secret read through `envFrom` on the
-  init container needs one too. `kubectl rollout restart` is reverted by Flux
-  within seconds but still leaves a fresh pod. Confirm in the running container,
+  the init container leaves an unresolved `${...}` verbatim, and **ARM's
+  scripts are mounted with `subPath`, which Kubernetes never updates in
+  place**, so those in `/usr/local/bin/` are frozen at pod start. Their
+  ConfigMap is generated from `scripts/` with a content hash in its name, so a
+  merged script change rolls ARM by itself and kills a running job. A secret
+  read through `envFrom` on the init container needs `kubectl rollout restart`,
+  which rolls twice: Flux strips the annotation at its next scheduled
+  reconcile, up to ten minutes later. Confirm in the running container,
   for instance `grep MANUAL_WAIT_TIME /etc/arm/config/arm.yaml`, and do not trust
   `flux get kustomizations`, which reports healthy either way.
 - **After an ARM image bump**, `arm.log` should show nine `source-patches:
@@ -176,7 +178,7 @@ current ring buffer and nothing older. Capture it while a failure is fresh.
 - `kubernetes/apps/automatic-ripping-machine/config-map.yaml` — `arm.yaml`,
   `abcde.conf` and `vulcanus-handbrake-preset.json`
 - `kubernetes/apps/automatic-ripping-machine/deployment.yaml` — mounts, resources
-- `kubernetes/apps/automatic-ripping-machine/init-scripts.yaml` — the udev rule,
+- `kubernetes/apps/automatic-ripping-machine/scripts/` — the udev rule,
   `arm-disc-wrapper.sh`, `arm-audio-handoff.sh`, `arm-title-charset.*`,
   `arm-source-patches.py` and the `arm-whole-disc.py` and
   `arm-duplicate-titles.py` it appends

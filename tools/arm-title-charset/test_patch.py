@@ -32,13 +32,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import yaml
-
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
-INIT_SCRIPTS = (
-    REPO / "kubernetes" / "apps" / "automatic-ripping-machine" / "init-scripts.yaml"
-)
+SCRIPTS = REPO / "kubernetes" / "apps" / "automatic-ripping-machine" / "scripts"
 UTILS = "/opt/arm/arm/ripper/utils.py"
 PATCH_PY = "/usr/local/bin/arm-title-charset.py"
 ARM_LOG = "/home/arm/logs/arm.log"
@@ -62,13 +58,8 @@ class Job:
         self.title_manual = None
 
 
-def load_configmap(key: str) -> str:
-    doc = yaml.safe_load(INIT_SCRIPTS.read_text())
-    try:
-        return doc["data"][key]
-    except KeyError:
-        message = f"init-scripts.yaml has no {key} entry"
-        raise AssertionError(message) from None
+def load_script(name: str) -> str:
+    return (SCRIPTS / name).read_text()
 
 
 def sandbox(script: str, utils_path: Path, patch_path: Path, log: Path) -> str:
@@ -96,11 +87,11 @@ class Harness:
         # The patch body ships as its own ConfigMap key, so the test uses the
         # real one rather than a copy.
         self.patch_py = self.tmpdir / "arm-title-charset.py"
-        self.patch_py.write_text(load_configmap("arm-title-charset.py"))
+        self.patch_py.write_text(load_script("arm-title-charset.py"))
         self.script = self.tmpdir / "arm-title-charset.sh"
         self.script.write_text(
             sandbox(
-                load_configmap("arm-title-charset.sh"),
+                load_script("arm-title-charset.sh"),
                 self.utils,
                 self.patch_py,
                 self.log,

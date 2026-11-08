@@ -6,9 +6,15 @@
 # ALL grows as ruff stabilises rules, so the `devenv update` that moves ruff can
 # bring new findings with it.
 
-# The oldest interpreter anything here runs on: tools/mb-seed/manifest.py runs
-# in the beets-flask pod's /venv, which is Python 3.12.
+# The oldest interpreter anything here runs on, ARM's scripts aside:
+# tools/mb-seed/manifest.py runs in the beets-flask pod's /venv, which is Python
+# 3.12.
 target-version = "py312"
+
+# ARM's scripts run on the python3 of ARM's image, 3.10 as read from its pod.
+# An image bump can move it.
+[per-file-target-version]
+"kubernetes/apps/automatic-ripping-machine/scripts/*.py" = "py310"
 
 [lint]
 select = ["ALL"]
@@ -47,3 +53,5 @@ ignore = [
 # A unittest method's name is already the sentence describing it; a docstring
 # would say the same thing twice.
 "test_*.py" = ["D1"]
+# Moved out of a ConfigMap unlinted; the next commit fixes them.
+"kubernetes/apps/automatic-ripping-machine/scripts/*.py" = ["ALL"]

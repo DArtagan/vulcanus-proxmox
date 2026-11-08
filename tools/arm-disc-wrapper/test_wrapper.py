@@ -3,9 +3,9 @@
 Run with `python3 -m unittest discover tools/arm-disc-wrapper`.
 
 The script under test is not a file in this directory — it lives in
-`kubernetes/apps/automatic-ripping-machine/init-scripts.yaml`, because that
-ConfigMap is what gets mounted into the pod. These tests extract it from there
-so there is exactly one copy of it, and exercise it with `python3`, `udevadm`
+`kubernetes/apps/automatic-ripping-machine/scripts/`, from which the ConfigMap
+mounted into the pod is generated. These tests read it from there so there is
+exactly one copy of it, and exercise it with `python3`, `udevadm`
 and ARM's own entry point stubbed onto PATH.
 
 What the script decides matters more than it looks. `Job.parse_udev()` derives
@@ -26,13 +26,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import yaml
-
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
-INIT_SCRIPTS = (
-    REPO / "kubernetes" / "apps" / "automatic-ripping-machine" / "init-scripts.yaml"
-)
+SCRIPTS = REPO / "kubernetes" / "apps" / "automatic-ripping-machine" / "scripts"
 
 # CDROM_DRIVE_STATUS values, from <linux/cdrom.h>.
 CDS_NO_INFO = "0"
@@ -74,7 +70,7 @@ MEDIA_INTERVAL = "MEDIA_INTERVAL=2"
 
 
 def load_wrapper() -> str:
-    return yaml.safe_load(INIT_SCRIPTS.read_text())["data"]["arm-disc-wrapper.sh"]
+    return (SCRIPTS / "arm-disc-wrapper.sh").read_text()
 
 
 def sandbox_wrapper(script: str, entry_point: Path, log: Path, lock_dir: Path) -> str:
