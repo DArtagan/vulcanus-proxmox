@@ -229,7 +229,8 @@ List them again before starting, and do not start while ARM is ripping.
    the setgid group, at 2755 and 644. That is the done criterion met by the
    writer itself rather than a probe.
 4. **Tighten books to the library tier** of *The permission model*. Written
-   on the branch for review #31, 2026-11-07; nothing below has run.
+   for review #31 and **run 2026-11-07** after Will approved it; the results
+   follow the steps.
 
    What the branch holds:
    - `ansible/zfs.yaml`: `acltype=posix` on `rpool/storage/books`,
@@ -301,6 +302,38 @@ List them again before starting, and do not start while ARM is ripping.
       with `mp3` deleted too, its next restart leaves media, filesync and
       photos, as Terraform declares. That restart drops every SMB session,
       which the cluster's mounts reconnect from.
+
+   What the run showed:
+   - **Step 3:** 1,380 group-writable entries in books, then none, all
+     still world-readable.
+   - **Steps 4 and 5:** `108.conf` gained exactly the four `lxc.idmap`
+     lines and `/etc/subgid` one. After the restart, `id restic` listed
+     1200, books showed group 1200 inside, a `touch` by container root
+     was refused, and `restic` listed books. The first `zfs.yaml` run
+     reported one failure: setting `acltype` fired the books dataset's
+     `pvesm add` handler against a storage defined years before. The
+     handlers now add only a missing storage.
+   - **Step 6:** a pod with bookdrop's security context and a 022 umask
+     wrote a file, a directory and a nested pair through NFS into a probe
+     directory holding the default ACL. All came out 0640 and 2750,
+     1100:1200, and the nested directory inherited the ACL. The 027-umask
+     fallback is not needed.
+   - **Step 7:** books went to 397 directories at 2750 and 988 files at
+     0640, every directory holding the default ACL and nothing open to
+     other; a second run changed nothing. `restic-backups-massfiles`
+     then succeeded, and snapshot `7ee582aa` holds 1,385 entries under
+     books, as `ce19a26c` from that morning did and as the disk does.
+     Stump and bookdrop still read books.
+   - **Step 8:** a restart applies a container's pending *values* but not
+     its pending *deletes*: it left `mp3` and `mp4` both mounting books,
+     and the pending section gone. A stopped container takes `pct set
+     --delete` at once, so it was stopped, `mp3,mp4` deleted, and
+     started, leaving media, filesync and photos. Both workers
+     reconnected as `piraeus`, and every cluster SMB mount read again.
+   - **Found on the way:** `/rpool/storage/filesync` itself is 777, the
+     one world-writable entry across the three trees the restic container
+     mounts, so the container could rename or delete filesync's top-level
+     entries. Everything that writes there is `piraeus`, its owner.
 5. Write what is then true into `docs/`: where exports are declared, the
    identity and permission model, the `hard` mount behaviour under what to
    do when it breaks.
