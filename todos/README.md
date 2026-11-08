@@ -97,10 +97,11 @@ workload actually needs rather than setting a label.
 **12. [nfs-cluster-volumes.md](nfs-cluster-volumes.md) — cluster media volumes over NFS**
 Each node's SMB traffic funnels through one single-threaded smbd, and NFS
 from the host measured 3–15x faster for directory walks and small-file opens.
-Its phase 1 moves the books share, which nothing can write today and bookdrop
-needs to; that phase also renames `rancher` and removes its plaintext password.
-Later phases wait on [smb-charset-utf8.md](smb-charset-utf8.md), because NFS
-shows the Latin-1 filenames Samba translates.
+Phase 1 moved books to NFS at a new library permission tier and replaced the
+cluster's plaintext SMB login (`docs/shared-storage.md`). The next phases wait
+on [smb-charset-utf8.md](smb-charset-utf8.md), because NFS shows the Latin-1
+filenames Samba translates, then move Plex and the other writers one claim at
+a time.
 
 **13. [mini-nas-access.md](mini-nas-access.md) — narrow what mini-nas can do on vulcanus**
 syncoid's key gives mini-nas a login shell with TCP forwarding, so it can reach
