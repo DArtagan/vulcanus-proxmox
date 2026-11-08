@@ -22,7 +22,6 @@ configMapGenerator:
       - scripts/51-docker-arm.rules
       - scripts/arm-disc-wrapper.sh
       - scripts/arm-audio-handoff.sh
-      - scripts/arm-title-charset.sh
       - scripts/arm-title-charset.py
       - scripts/arm-source-patches.py
       - scripts/arm-whole-disc.py

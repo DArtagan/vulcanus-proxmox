@@ -32,15 +32,9 @@ mkdir -p /home/arm/arm-incoming
 
 ln -s /root/.MakeMKV/ /home/arm/.MakeMKV
 
-# Patch fix_job_title so ARM cannot build a path this fileserver refuses to
-# write. Deliberately not fatal: a failure here costs TV discs with a
-# non-Latin-1 year, and it logs loudly, but it should not stop ARM starting.
-/usr/local/bin/arm-title-charset.sh || \
-    echo "WARNING: arm-title-charset.sh failed; see /home/arm/logs/arm.log"
-
-# Edit ARM's source where the fix is a line rather than a wrapper. Not fatal
-# for the same reason as above: each edit that cannot apply logs and is
-# skipped, and the rest still go in.
+# Edit ARM's source. Deliberately not fatal: each edit that cannot apply logs
+# and is skipped, and the rest still go in, as a missing fix should not stop
+# ARM starting.
 python3 /usr/local/bin/arm-source-patches.py || \
     echo "WARNING: arm-source-patches.py failed; see /home/arm/logs/arm.log"
 

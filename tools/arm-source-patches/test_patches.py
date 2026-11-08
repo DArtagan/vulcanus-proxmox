@@ -33,10 +33,13 @@ RIPPER = "/opt/arm/arm/ripper"
 ARM_LOG = "/home/arm/logs/arm.log"
 WHOLE_DISC_PY = "/usr/local/bin/arm-whole-disc.py"
 DUPLICATE_TITLES_PY = "/usr/local/bin/arm-duplicate-titles.py"
+TITLE_CHARSET_PY = "/usr/local/bin/arm-title-charset.py"
+# The function the title-charset wrapper needs in utils.py to be appended.
+FIX_JOB_TITLE = "def fix_job_title(job):\n    return job.title\n"
 
 SECTOR = 2048
 PACKET = 192
-APPLIED_EDITS = 9
+APPLIED = 10
 
 
 def load_script(name: str) -> str:
@@ -67,6 +70,8 @@ class Patcher:
         self.whole_disc.write_text(load_script("arm-whole-disc.py"))
         self.duplicate_titles = self.root / "arm-duplicate-titles.py"
         self.duplicate_titles.write_text(load_script("arm-duplicate-titles.py"))
+        self.title_charset = self.root / "arm-title-charset.py"
+        self.title_charset.write_text(load_script("arm-title-charset.py"))
         ns = patcher_namespace()
         self.edits = [
             (name, Path(path.replace(RIPPER, str(self.ripper))), old)
@@ -76,12 +81,15 @@ class Patcher:
         for path in {path for _, path, _ in self.edits}:
             olds = [old for _, p, old in self.edits if p == path]
             path.write_text("# head\n" + "# between\n".join(olds) + "# tail\n")
+        self.utils = self.ripper / "utils.py"
+        self.utils.write_text(self.utils.read_text() + "\n" + FIX_JOB_TITLE)
         script = load_script("arm-source-patches.py")
         for original, replacement in (
             (RIPPER, self.ripper),
             (ARM_LOG, self.log),
             (WHOLE_DISC_PY, self.whole_disc),
             (DUPLICATE_TITLES_PY, self.duplicate_titles),
+            (TITLE_CHARSET_PY, self.title_charset),
         ):
             if original not in script:
                 message = (
@@ -118,7 +126,7 @@ class Patching(unittest.TestCase):
         result = self.p.run()
         self.assertEqual(result.returncode, 0, result.stderr)
         applied = [line for line in self.p.log_lines() if "applied" in line]
-        self.assertEqual(len(applied), APPLIED_EDITS, applied)
+        self.assertEqual(len(applied), APPLIED, applied)
         for name, path, old in self.p.edits:
             text = path.read_text()
             self.assertIn(f"_arm_source_patch {name}", text)
@@ -144,7 +152,7 @@ class Patching(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual({path: path.read_text() for path in before}, before)
         applied = [line for line in self.p.log_lines() if "applied" in line]
-        self.assertEqual(len(applied), APPLIED_EDITS)
+        self.assertEqual(len(applied), APPLIED)
 
     def test_moved_text_is_skipped_loudly_and_the_rest_still_apply(self) -> None:
         # An ARM update that rewrites makemkv()'s routing must not take the D14
@@ -159,6 +167,19 @@ class Patching(unittest.TestCase):
         self.assertIn("cannot apply whole-disc-route", log)
         self.assertIn("applied d14-encode", log)
         self.assertNotIn("_arm_source_patch whole-disc-route", makemkv.read_text())
+
+    def test_an_append_whose_module_lacks_what_it_needs_is_skipped(self) -> None:
+        # The charset wrapper binds fix_job_title as it loads, so appended to a
+        # utils.py without it, it would stop ARM importing the module at all.
+        self.p.utils.write_text(self.p.utils.read_text().replace(FIX_JOB_TITLE, ""))
+        result = self.p.run()
+        self.assertNotEqual(result.returncode, 0)
+        log = "\n".join(self.p.log_lines())
+        self.assertIn("cannot apply title-charset-code", log)
+        self.assertIn("applied keep-main-feature-name", log)
+        self.assertNotIn(
+            "_arm_source_patch title-charset-code", self.p.utils.read_text()
+        )
 
     def test_patch_names_are_not_prefixes_of_each_other(self) -> None:
         # The marker check is a substring test, so a name that prefixes another

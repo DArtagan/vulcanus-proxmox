@@ -1,4 +1,4 @@
-# --- _arm_charset_patch, appended by arm-title-charset.sh -------------------
+# --- _arm_source_patch title-charset-code, appended by arm-source-patches.py --
 """Job titles reduced to what the fileserver can write.
 
 The fileserver's Samba runs `unix charset = ISO-8859-1`, so a path holding any

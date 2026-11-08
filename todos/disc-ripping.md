@@ -179,14 +179,13 @@ current ring buffer and nothing older. Capture it while a failure is fresh.
   `abcde.conf` and `vulcanus-handbrake-preset.json`
 - `kubernetes/apps/automatic-ripping-machine/deployment.yaml` — mounts, resources
 - `kubernetes/apps/automatic-ripping-machine/scripts/` — the udev rule,
-  `arm-disc-wrapper.sh`, `arm-audio-handoff.sh`, `arm-title-charset.*`,
-  `arm-source-patches.py` and the `arm-whole-disc.py` and
-  `arm-duplicate-titles.py` it appends
+  `arm-disc-wrapper.sh`, `arm-audio-handoff.sh`,
+  `arm-source-patches.py` and the `arm-whole-disc.py`,
+  `arm-duplicate-titles.py` and `arm-title-charset.py` it appends
 - `kubernetes/apps/automatic-ripping-machine/api-keys` — SOPS; MakeMKV, OMDb and
   Pushover
-- `tools/arm-disc-wrapper/`, `tools/arm-audio-handoff/`, `tools/arm-title-charset/`,
-  `tools/arm-source-patches/` — tests for those scripts, extracted from the
-  ConfigMap
+- `tools/arm-disc-wrapper/`, `tools/arm-audio-handoff/`,
+  `tools/arm-source-patches/` — tests for those scripts
 - `kubernetes/infrastructure/prometheus-rules.yaml` — the `disc-ripping` group
 - `kubernetes/infrastructure/devices.yaml` — how the drive is advertised
 - `ansible/proxmoxer.yaml` — the host's udev rule and `optical-drive-ata-monitor`

@@ -15,13 +15,28 @@ RIPPER = "/opt/arm/arm/ripper"
 ARMLOG = "/home/arm/logs/arm.log"
 
 # Whole functions, appended so that they resolve the module's own globals as
-# ARM's code does. Applied before EDITS, which call them.
+# ARM's code does. Applied before EDITS, which call them. The last field is text
+# the module must hold for the code to load at all, or None: the title-charset
+# wrapper binds fix_job_title as it is appended, so appended to a utils.py
+# without it, it would stop the module importing and every job with it.
 APPENDS = [
-    ("whole-disc-code", f"{RIPPER}/makemkv.py", "/usr/local/bin/arm-whole-disc.py"),
+    (
+        "whole-disc-code",
+        f"{RIPPER}/makemkv.py",
+        "/usr/local/bin/arm-whole-disc.py",
+        None,
+    ),
     (
         "duplicate-titles-code",
         f"{RIPPER}/handbrake.py",
         "/usr/local/bin/arm-duplicate-titles.py",
+        None,
+    ),
+    (
+        "title-charset-code",
+        f"{RIPPER}/utils.py",
+        "/usr/local/bin/arm-title-charset.py",
+        "\ndef fix_job_title(",
     ),
 ]
 
@@ -187,8 +202,13 @@ def log(message: str) -> None:
 
 
 failed = False
-for name, path, code in APPENDS:
-    if f"_arm_source_patch {name}" in Path(path).read_text():
+for name, path, code, requires in APPENDS:
+    source = Path(path).read_text()
+    if f"_arm_source_patch {name}" in source:
+        continue
+    if requires is not None and requires not in source:
+        log(f"cannot apply {name}: {requires.strip()!r} not found in {path}; skipped")
+        failed = True
         continue
     with Path(path).open("a") as f:
         f.write(f"\n\n{Path(code).read_text()}")

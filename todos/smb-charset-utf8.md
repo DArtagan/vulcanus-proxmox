@@ -112,7 +112,7 @@ The general fix is still worth doing. The question is whether it blocks phase 2b
 or runs alongside it.
 
 **Decided 2026-09-02: it runs alongside.** The workaround shipped as
-`arm-title-charset.sh`, so ripping is unblocked and this migration is no longer
+ARM's `arm-title-charset.py` source patch, so ripping is unblocked and this migration is no longer
 urgent — but the landmine is untouched. Everything except ARM still writes
 provider-supplied names straight to the share, and `beets`, `photoprism` and
 `Stump` have no equivalent guard. Note the workaround targets **Latin-1**, not
