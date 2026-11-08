@@ -419,6 +419,13 @@ Key encoding settings (defined in the `vulcanus-handbrake-preset` custom preset)
 
 A disc often offers the same material twice: a TV disc's "play all" title is every episode end to end, a bonus disc plays its featurettes in turn or as one documentary, and a film can be offered again with featurettes cut into it. Encoding both copies costs hours, and on a movie disc the play-all is often the longest title, so the one ARM takes for the film. So before encoding, the titles are compared by what they play from the disc — a Blu-ray playlist's clips and times, a DVD title's cells in the ISO — and a title is not transcoded when the titles kept play at least 99% of it. Length alone decides nothing.
 
+Titles that each play at least 99% of the other's clips are **one title**, and only one of them is transcoded:
+
+- **Copies**, playing their clips in the same order, keep the lowest-numbered.
+- **Shuffles**, playing them in different orders, are playlist obfuscation: a disc offers an episode or a film as dozens or hundreds of playlists, only one of them in order, and the player's BD-J program picks it. The PBS releases of *Downton Abbey* from season 5 on cut one episode a disc this way, and Lionsgate does it to films. MakeMKV runs the BD-J program to guess, and on job 100's disc made none. On a Blu-ray the one kept is the one whose joins match best, from 1 − SSIM between the frames either side of each join, summed. In order, a join continues a shot; out of order, nearly every join is a jump. It picked the playlists published for *Downton Abbey* S6 D1 (job 100) from 150 and 148 shuffles. It is a guess, and the one a disc cut only at scene changes would defeat, as was reported on *Moonlight*. So the notification names the title kept, its score and the runner-up's, and a wrong pick is transcoded by hand from the raw copy. A DVD's shuffles are all transcoded, as reading its frames would mean reading cells out of the ISO.
+
+The rest of the comparison sees only the title kept, so a play-all of a shuffled episode is still found.
+
 A **whole** is a title played by two or more others, its **parts**, each inside it and none overlapping another. Which of the two is kept:
 
 - **A series keeps the parts**: each episode is an item of its own in the library, and the play-all is skipped.
@@ -428,7 +435,7 @@ A **whole** is a title played by two or more others, its **parts**, each inside 
 
 If a skipped title was the main feature, the longest title kept becomes it, which decides only which transcode sits outside `extras/`. A disc whose structure can't be read has every title transcoded, with a warning in the job log. Nothing is skipped from the raw copy, only from the transcodes.
 
-The stamp's `duplicates` records the outcome, once HandBrake's scan has run: `skipped` lists each title not transcoded (`handbrake_title`; `playlist` for a Blu-ray or `disc_title` for a DVD; and `reason`), and `wholes` each whole found, with `kept` (`parts`, `whole` or `both`), `interleaved`, and its `parts`, each with `start`, the second of the whole at which it begins, in the playback time its transcode's chapters keep, a DVD's as a Blu-ray's. That is what cuts a kept whole into its parts, or rejoins a series disc's episodes, when a disc turns out misidentified — a series filed as a movie keeps one long file and the joins to split it at. Both lists are empty when nothing repeats. A stamp without `duplicates` comes from a job before it, one that ended before transcoding began, or one whose structure couldn't be read.
+The stamp's `duplicates` records the outcome, once HandBrake's scan has run: `skipped` lists each title not transcoded (`handbrake_title`; `playlist` for a Blu-ray or `disc_title` for a DVD; and `reason`), and `wholes` each whole found, with `kept` (`parts`, `whole` or `both`), `interleaved`, and its `parts`, each with `start`, the second of the whole at which it begins, in the playback time its transcode's chapters keep, a DVD's as a Blu-ray's. That is what cuts a kept whole into its parts, or rejoins a series disc's episodes, when a disc turns out misidentified — a series filed as a movie keeps one long file and the joins to split it at. `orders` has an entry for each group of shuffles: the title kept, with its `mismatch`, the number of `titles` in the group, and `runner_up`, the best title in another order, with its `mismatch`; both `mismatch` and `runner_up` are null when the joins couldn't be read, and the lowest-numbered was kept. The lists are empty when nothing repeats. A stamp without `duplicates` comes from a job before it, one that ended before transcoding began, or one whose structure couldn't be read.
 
 In ARM's database, and so in a manifest's track rows, a skipped title keeps `ripped` true and an empty `filename`. ARM sets `ripped` when it registers a title longer than `MINLENGTH`, before any transcode, so it means eligible, not transcoded. A title has a transcode when its `filename` is set.
 
@@ -555,6 +562,10 @@ kubectl exec -n automatic-ripping-machine <pod> -- tail -100 /root/logs/<logfile
 
 # Check disc/drive state
 kubectl exec -n automatic-ripping-machine <pod> -- makemkvcon --robot info disc:0
+
+# Stop the running job: it is marked failed and the disc ejected. HandBrake
+# outlives main.py, so it is stopped too. The raw copy stays.
+kubectl exec -n automatic-ripping-machine <pod> -- sh -c 'pkill -TERM -f "[m]ain.py"; sleep 15; pkill -TERM -f "[H]andBrakeCLI"'
 
 # Watch rip progress
 kubectl exec -n automatic-ripping-machine <pod> -- ls -lh /root/video/raw/<job-dir>/

@@ -715,6 +715,9 @@ data:
     # lsdvd's lengths are 0.1% short, and unscaled a part's start lands seconds
     # early against the transcode's chapters, which keep playback time.
     _ARM_DVD_SECOND = {25.0: 1.0, 29.97: 1001 / 1000}
+    # The frames compared either side of a join: small and grey, as what tells a
+    # continuing shot from a jump is the picture's structure, not its detail.
+    _ARM_FRAME = (64, 36)
 
 
     def _arm_duplicate_titles(srcpath, job):
@@ -732,15 +735,18 @@ data:
         }
         series = job.video_type == "series"
         try:
-            titles, skip, wholes = {}, {}, []
+            titles, skip, wholes, orders = {}, {}, [], []
             # A Blu-ray is scanned whatever its count, as the scan is its title map.
             if job.disctype == "bluray":
                 titles = _arm_bluray_titles(srcpath, tracks)
             elif len(tracks) >= 3:
                 titles = _arm_dvd_titles(raw, tracks)
+            skip, orders = _arm_orders(srcpath if job.disctype == "bluray" else None, titles)
+            remaining = {number: title for number, title in titles.items() if number not in skip}
             # A whole and two parts, or nothing to compare.
-            if len(tracks) >= 3:
-                skip, wholes = _arm_duplicates(titles, series)
+            if len(remaining) >= 3:
+                repeats, wholes = _arm_duplicates(remaining, series)
+                skip.update(repeats)
         except Exception as error:  # noqa: BLE001
             # Skipping is an economy. Whatever it trips on costs encoding time,
             # never the job.
@@ -750,7 +756,26 @@ data:
         for number, reason in sorted(skip.items()):
             logging.info(f"Title {number} is not transcoded: it {reason}")
         _arm_move_main_feature(tracks, skip)
-        _arm_record_scan(raw, titles, skip, wholes)
+        _arm_record_scan(raw, titles, skip, wholes, orders)
+        for order in orders:
+            playlist = titles[order["title"]]["source"]["playlist"]
+            if order["mismatch"] is None:
+                choice = (
+                    "Their joins could not be compared, so title "
+                    f"{order['title']} ({playlist}) is transcoded and is likely out of order."
+                )
+            else:
+                runner_up = order["runner_up"]
+                choice = (
+                    f"Title {order['title']} ({playlist}) is transcoded, as its joins match best: "
+                    f"{order['mismatch']:.2f}, against {runner_up['mismatch']:.2f} for title {runner_up['title']}."
+                )
+            utils.notify(
+                job,
+                utils.NOTIFY_TITLE,
+                f"{job.title}: {order['titles']} titles play the same clips in different orders. {choice} "
+                "If it plays out of order, transcode another by hand from the raw copy.",
+            )
         for whole in wholes:
             # A series' play-all can open on a recap its episodes share, which
             # reads as interleaved and is no film.
@@ -762,6 +787,137 @@ data:
                     "If it is an extended cut of the film, transcode it by hand from the raw copy.",
                 )
         return skip
+
+
+    def _arm_orders(srcpath, titles):
+        # One title of each group that plays the same clips: playlist obfuscation
+        # offers an episode or a film as hundreds of playlists of its clips in
+        # different orders, only one of them in order. Kept is the first, when they
+        # all play their clips in one order, and on a Blu-ray otherwise the one
+        # whose joins match best. A DVD's are left to _arm_duplicates, as reading
+        # its frames would mean reading cells out of the ISO.
+        skip, orders, cache = {}, [], {}
+        for group in _arm_same_content(titles):
+            order = {number: tuple(segment[:3] for segment in titles[number]["segments"]) for number in group}
+            if len(set(order.values())) > 1 and srcpath is None:
+                continue
+            mismatch = None
+            if len(set(order.values())) > 1:
+                try:
+                    mismatch = {number: _arm_mismatch(srcpath, titles[number]["segments"], cache) for number in group}
+                except (OSError, ValueError, subprocess.SubprocessError) as error:
+                    logging.warning(f"The joins of titles {group} cannot be compared: {error!r}")
+                ranked = sorted(group, key=lambda number: (mismatch[number], number)) if mismatch else group
+                kept = ranked[0]
+                runner_up = next(number for number in ranked if order[number] != order[kept])
+                orders.append({
+                    "title": kept,
+                    "mismatch": mismatch and mismatch[kept],
+                    "titles": len(group),
+                    "runner_up": mismatch and {"title": runner_up, "mismatch": mismatch[runner_up]},
+                })
+            else:
+                kept = group[0]
+            for number in group:
+                if number == kept:
+                    continue
+                if order[number] == order[kept]:
+                    skip[number] = f"is a copy of title {kept}"
+                else:
+                    skip[number] = f"plays title {kept}'s clips out of order"
+        return skip, orders
+
+
+    def _arm_same_content(titles):
+        # Groups of two or more titles, each playing all but 1% of each other.
+        units = {number: _arm_units(title["segments"]) for number, title in titles.items()}
+
+        def plays(number, other):
+            covered = _arm_covered(titles[number]["segments"], [titles[other]["segments"]])
+            return covered >= _ARM_COVERED * units[number]
+
+        groups = []
+        for number in sorted(number for number in titles if units[number]):
+            for group in groups:
+                if plays(number, group[0]) and plays(group[0], number):
+                    group.append(number)
+                    break
+            else:
+                groups.append([number])
+        return [group for group in groups if len(group) > 1]
+
+
+    def _arm_mismatch(srcpath, segments, cache):
+        # 1 - SSIM between the last frame before each join and the first after it,
+        # summed. In order, a join cuts within a shot and scores near 0; out of
+        # order nearly every join is a jump. A join on a cut between shots is a
+        # jump either way, which is why the sum decides and no one join does.
+        total = 0.0
+        for (clip, _, end, _), (following, start, _, _) in zip(segments, segments[1:]):
+            pair = ((clip, end, True), (following, start, False))
+            if pair not in cache:
+                cache[pair] = 1 - _arm_ssim(*(_arm_frame(srcpath, *frame, cache) for frame in pair))
+            total += cache[pair]
+        return total
+
+
+    def _arm_frame(srcpath, clip, time, last, cache):
+        # A clip's frame at `time`, in the ticks its play items count: the last
+        # before it, or the first from it. ffmpeg is named, not taken from
+        # FFMPEG_LOCAL, whose default "FFMPEG" is no binary.
+        key = (clip, time, last)
+        if key not in cache:
+            stream = os.path.join(srcpath, "BDMV", "STREAM", f"{clip}.m2ts")
+            at = (time - _arm_clip_start(srcpath, clip, cache)) / _ARM_BD_TICK
+            window = ["-ss", f"{max(at - 1, 0):.3f}", "-t", f"{min(at, 1):.3f}"] if last else ["-ss", f"{at:.3f}"]
+            width, height = _ARM_FRAME
+            picture = subprocess.run(
+                [
+                    "ffmpeg", "-v", "error", "-nostdin", *window, "-i", stream, "-map", "0:v:0",
+                    *([] if last else ["-frames:v", "1"]),
+                    "-vf", f"scale={width}:{height},format=gray", "-f", "rawvideo", "-",
+                ],
+                capture_output=True,
+                check=True,
+            ).stdout
+            if len(picture) < width * height:
+                raise ValueError(f"{stream} has no frame at {at:.3f}s")
+            cache[key] = picture[-width * height:] if last else picture[:width * height]
+        return cache[key]
+
+
+    def _arm_clip_start(srcpath, clip, cache):
+        # When a clip's first frame is presented, which its play items' times count
+        # from: the presentation start of its CLIPINF's only STC sequence.
+        if clip not in cache:
+            path = os.path.join(srcpath, "BDMV", "CLIPINF", f"{clip}.clpi")
+            with open(path, "rb") as f:
+                data = f.read()
+            if data[:4] != b"HDMV":
+                raise ValueError(f"{path} is not clip information")
+            sequences = _arm_struct.unpack_from(">I", data, 8)[0]
+            if data[sequences + 5] != 1 or data[sequences + 10] != 1:
+                raise ValueError(f"{path} has more than one time base")
+            cache[clip] = _arm_struct.unpack_from(">I", data, sequences + 18)[0]
+        return cache[clip]
+
+
+    def _arm_ssim(first, second):
+        # Structural similarity of two frames: the mean over 8x8 windows half a
+        # window apart, with SSIM's constants for 8-bit samples.
+        width, height = _ARM_FRAME
+        c1, c2 = (0.01 * 255) ** 2, (0.03 * 255) ** 2
+        scores = []
+        for top in range(0, height - 7, 4):
+            for left in range(0, width - 7, 4):
+                cells = [row * width + column for row in range(top, top + 8) for column in range(left, left + 8)]
+                xs, ys = [first[cell] for cell in cells], [second[cell] for cell in cells]
+                mx, my = sum(xs) / 64, sum(ys) / 64
+                vx = sum((x - mx) ** 2 for x in xs) / 63
+                vy = sum((y - my) ** 2 for y in ys) / 63
+                cov = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / 63
+                scores.append(((2 * mx * my + c1) * (2 * cov + c2)) / ((mx * mx + my * my + c1) * (vx + vy + c2)))
+        return sum(scores) / len(scores)
 
 
     def _arm_duplicates(titles, series):
@@ -782,7 +938,9 @@ data:
         for whole in sorted(titles, key=lambda number: (-units[number], number)):
             parts = []
             for part in sorted(titles, key=lambda number: (-units[number], number)):
-                if part == whole or inside(part, whole) < _ARM_PART_INSIDE:
+                # A part playing the whole is the whole again: taken as a part, it
+                # would overlap every real one and leave the whole with none.
+                if part == whole or inside(part, whole) < _ARM_PART_INSIDE or inside(whole, part) >= _ARM_COVERED:
                     continue
                 if all(
                     _arm_covered(titles[part]["segments"], [titles[other]["segments"]])
@@ -1020,7 +1178,7 @@ data:
         db.session.commit()
 
 
-    def _arm_record_scan(raw, titles, skip, wholes):
+    def _arm_record_scan(raw, titles, skip, wholes, orders):
         # The map from each whole to its parts, with where each part starts, is what
         # cuts a kept whole into its parts later.
         path = os.path.join(raw, "arm-job.json")
@@ -1044,6 +1202,18 @@ data:
                     "parts": [{**entry(part["title"]), "start": part["start"]} for part in whole["parts"]],
                 }
                 for whole in wholes
+            ],
+            "orders": [
+                {
+                    **entry(order["title"]),
+                    "mismatch": order["mismatch"] and round(order["mismatch"], 3),
+                    "titles": order["titles"],
+                    "runner_up": order["runner_up"] and {
+                        **entry(order["runner_up"]["title"]),
+                        "mismatch": round(order["runner_up"]["mismatch"], 3),
+                    },
+                }
+                for order in orders
             ],
         }
         if any("playlist" in title["source"] for title in titles.values()):

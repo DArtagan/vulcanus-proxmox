@@ -385,6 +385,23 @@ run found nothing left to change.
   movie disc, a title playing the film and then a featurette, with a chapter at
   the join, would be kept whole and taken for the film. No disc ripped here has
   that shape.
+- **Playlist obfuscation: built 2026-11-08, verified read-only on job 100's
+  backup, never run in a job.** Job 100, Downton Abbey S6 D1, offered 301
+  titles: one episode in 150 shuffled orders and its play-all in 148, which the
+  check let through and which would have taken about two months to encode. It
+  is stopped, its backup complete (evidence, 2026-11-08). Titles playing each
+  other's clips are now one title, and a Blu-ray's shuffles keep the one whose
+  joins match best by SSIM; the docs (*Titles that repeat other titles*) hold
+  the rule. Decided (Will, 2026-11-08), on the choice of always taking the best
+  score, asking first only when the margin is close, or never choosing:
+  *"proceed with 'Always take the best score'"*. MakeMKV's BD-J guess marked
+  nothing on this disc. Run against the backup, the code kept the published
+  `00990.mpls` and `00445.mpls`; it also keeps `00625.mpls`, episode 1's clips
+  shuffled with a 60 s clip nothing else plays, which no rule here can tell
+  from real material. **To verify:** job 100's disc re-run, which should
+  transcode `00990`, `00475`, `00319` and `00625` and send two notifications.
+  S6 D3 is obfuscated too (episode 8, `00354.mpls`, per the evidence), S6 D2 is
+  not. A DVD's shuffles are all still transcoded.
 - **The main feature keeps its `title_N` name: verified 2026-10-29, job 87.**
   Decided (Will, 2026-10-26): ARM's rename to `<Title (Year)>.mkv`
   is disabled, the folder naming kept. The rename erased the film's title
@@ -409,7 +426,8 @@ run found nothing left to change.
   essentially in prolonged iterative feature development, before release"*):
   `extracted` and a Blu-ray's `playlists` became one `title_map`, each entry's
   identifiers in the order the title passes through them, and `length` went,
-  since nothing reads it.
+  since nothing reads it. `duplicates.orders` added 2026-11-08, schema left at 1
+  by the rule; reelbarrow has no fixture with it until a job writes one.
 - **A Blu-ray stamp's title map: built (Will, 2026-10-28).** Parked until
   reelbarrow found fingerprint pairing ambiguous on a Blu-ray, and job 79 did:
   four of its featurettes come in variants 1–3 s apart that share 99–100% of
@@ -455,7 +473,9 @@ run found nothing left to change.
   on later output, *Sherlock* filed as `tv/Sherlock (2010-2017)/`, job 80's
   Downton D1 transcodes, which include its 207-minute play-all (`title_6.mkv`),
   and job 82's two partial transcodes in
-  `transcode/tv/Downton-Abbey (2010-2015)_179295226579/`.
+  `transcode/tv/Downton-Abbey (2010-2015)_179295226579/`, and job 100's seven
+  transcodes and partial `title_14.mkv`, shuffles of S6 D1's episode 1 and its
+  play-all, in `transcode/movies/Downton Abbey/`.
 - **Downstream.** Nothing watches `video/import/automatic-ripping-machine/`; that is
   [`video-library-ingest.md`](video-library-ingest.md), which also holds what the
   rips showed about TV numbering and the duplicate Blu-ray feature.

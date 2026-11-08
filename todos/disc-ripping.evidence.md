@@ -3535,3 +3535,72 @@ folder left as before. MakeMKV's `info disc:9999` logged `Failed to open
 disc` at 01:33:56, as it does in jobs 76's and 77's logs; the backup that
 followed opened the drive. The stamp is reelbarrow's fixture `job-87.json`,
 copied by checksum.
+
+### 2026-11-08 — job 100, Downton Abbey S6 D1: playlist obfuscation
+
+Job 100 (a retry of job 99, which a pod restart ended with `Received SIGTERM`)
+backed up 00:16–04:12 UTC on 2026-11-06 and was still transcoding 46 h later,
+on title 14: titles 7–13 had taken 7.3 h each for the 2 h 49 m ones and 3 h for
+the 70 min ones, SVT-AV1 at its usual pace. HandBrake listed 309 titles, 301 of
+them past `MINLENGTH`, against 4–9 on the S3 and S4 discs. At that pace the
+rest would have run about two months. Stopped 2026-11-07 22:59 by SIGTERM to
+`main.py`, which marked the job `fail` and ejected; HandBrake ran on as an
+orphan of PID 1 and needed its own SIGTERM.
+
+The disc holds 317 playlists. Past `MINLENGTH`, HandBrake's 301 are: 150 of
+4174 s, episode 1 as clips 00101–00115, 00012 and 00289 in different orders;
+148 of 10116 s, those followed by 00013 and 00102; 00475 (00013, 2968 s, episode
+2) and 00319 (00102, 2975 s, episode 3); and 00625 (4234 s), episode 1's clips
+shuffled with 00107, a 60 s clip no other long playlist plays. MakeMKV counts
+151 and 150 before libbluray's merging, and its own scan merged 4 pairs (MSG
+3309). Every play item starts at 600.0 s of its clip's clock, so time stamps
+give nothing away. `MovieObject.bdmv` plays only `PlayPL reg2757`-style
+register operands, set by the BD-J title (`JAR/01714.jar`, 1.2 MB, present in
+the backup). MakeMKV 1.18.4, with `Using Java runtime from
+/usr/lib/jvm/java-11-openjdk-amd64`, ran `info file:` on the backup and marked
+no title `(FPL_MainFeature)`; every TINFO attribute but the playlist, segment
+map and output name was identical across the 301.
+
+The duplicate check skipped nothing (`"skipped": [], "wholes": []`) for two
+reasons. Shuffles of one episode overlap completely, so none is a whole of the
+others. And for each play-all the longest title inside it was another play-all,
+taken as its first part; every real part overlapped that one, so no play-all
+ever had two parts.
+
+**The published answer.** javahotchocolate.com/notes/pbs.html lists the
+correct playlist for every obfuscated PBS *Downton Abbey* disc: S6 D1 episode 1
+`00990.mpls` (segment map `101,12,113,289,111,109,114,103,105,104,108,110,112,115,106`),
+episode 2 `00475.mpls`, episode 3 `00319.mpls`, the play-all `00445.mpls`; S6 D3
+episode 8 `00354.mpls`, episode 9 `00317.mpls`, play-all `00558.mpls`; S6 D2
+"MakeMKV reads this disc normally". It describes the pattern: from season 5,
+one episode a disc has a middle section cut into about 15 segments.
+
+**What others do** (read 2026-11-08): MakeMKV's BD-J guess, which its forum's
+moderators call fallible (forum.makemkv.com t=16791, t=24357); tracing which
+`.m2ts` a real player opens, with Process Monitor (t=16251) or `inotifywait` and
+a player under Wine (t=41326, 2026-03); per-disc forum threads; GetMPLS, a
+Windows GUI whose recommendation is "occasionally" wrong (t=21777). ARM upstream
+issue #904 (Knives Out, 289 titles) was closed pointing at `MAINFEATURE`.
+t=15570 (2017) scores each playlist's joins by the last frame before against the
+first frame after, with MSE and SSIM: SSIM alone was right on its author's two
+discs, and a user reported it failing on *Moonlight*, the right playlist "not
+even one of the top few".
+
+**Frames at the joins, measured.** A first pass, mean absolute difference of
+32x18 grey frames, ranked 00990 first: 297 against 399 for the runner-up, median
+550. The patch's SSIM over 64x36 grey frames, run in the pod against the backup
+with the real code (scan, `_arm_orders`, `_arm_duplicates`; not
+`_arm_duplicate_titles`, which would have rewritten the stamp):
+
+```
+titles 301  scan 280s  orders 17s
+order group of 148: kept 141 00445.mpls mismatch 5.992; runner-up 26 00068.mpls 7.691
+order group of 150: kept 306 00990.mpls mismatch 5.992; runner-up 160 00517.mpls 7.850
+kept: [(102, '00319.mpls', 2975), (151, '00475.mpls', 2968), (194, '00625.mpls', 4234), (306, '00990.mpls', 4174)]
+whole 141 00445.mpls parts [194, 151, 102]
+```
+
+Both picks match the published playlists. The kept episode's 5.99 is spread
+over its 14 joins, the large ones in its first 12 minutes, at what look like
+cuts between scenes. Each clip's first presentation time in its `.clpi` matched
+ffprobe's `start_time` on the six clips read.
