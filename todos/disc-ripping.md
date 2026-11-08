@@ -401,21 +401,23 @@ run found nothing left to change.
   episode 1 shuffled with the disc's 60 s "Copy detected" card. Run against
   the backup, the code keeps the published `00990.mpls`, `00475.mpls` and
   `00319.mpls` and nothing else, and skips the play-all `00445.mpls`, which it
-  also picked. **To verify:** job 100's disc re-run, which should transcode
-  those three and send two notifications.
+  also picked. **To verify:** job 103, S6 D1 again on the deployed code
+  (started 2026-11-08 21:52; jobs 101 and 102 were stopped by a pod restart
+  and for the deploy), should transcode those three and send two
+  notifications.
   S6 D3 is obfuscated too (episode 8, `00354.mpls`, per the evidence), S6 D2 is
   not. A DVD's shuffles are all still transcoded.
-- **ARM's scripts tidied against upstream 2.24.4: built 2026-11-08, not yet
-  deployed.** Upstream's `main` was 2.24.4 itself. The title-charset patch is
-  now one of the patcher's appends, the setup script is trimmed and runs twice
-  cleanly, and the udev rule is mounted at `/etc/udev/rules.d/`. Upstream's
-  setup script cannot replace ours while ARM runs as root; that is
-  [`arm-non-root.md`](arm-non-root.md). **To verify, after a deploy with ARM
-  idle:** ten `source-patches: applied` lines in `arm.log`, among them
-  `title-charset-code`; `/opt/arm/setup/51-docker-arm.rules` in the pod showing
-  upstream's rule rather than ours; the next disc of any kind logging
-  `disc-wrapper` lines and starting a job; and the next audio CD ripping with
-  `abcde.conf` read from `/etc/arm/config/`.
+- **ARM's scripts tidied against upstream 2.24.4: deployed 2026-11-08 21:51,
+  verified but for an audio CD.** Upstream's `main` was 2.24.4 itself. The
+  title-charset patch is one of the patcher's appends, the setup script is
+  trimmed and runs twice cleanly, and the udev rule is mounted at
+  `/etc/udev/rules.d/`. Upstream's setup script cannot replace ours while ARM
+  runs as root; that is [`arm-non-root.md`](arm-non-root.md). Verified in the
+  pod: ten `source-patches: applied` lines, `title-charset-code` among them;
+  `/opt/arm/setup/51-docker-arm.rules` holds upstream's rule; `udevadm test`
+  skips it for ours and runs `arm-disc-wrapper.sh`; job 103's disc went that
+  way, with `main.py` off CPU 0 (mask `3e`). **To verify:** the next audio CD
+  rips with `abcde.conf` read from `/etc/arm/config/`.
 - **The main feature keeps its `title_N` name: verified 2026-10-29, job 87.**
   Decided (Will, 2026-10-26): ARM's rename to `<Title (Year)>.mkv`
   is disabled, the folder naming kept. The rename erased the film's title

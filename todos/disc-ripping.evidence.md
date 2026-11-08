@@ -3625,3 +3625,30 @@ kept: [(102, '00319.mpls', 2975), (151, '00475.mpls', 2968), (306, '00990.mpls',
 whole 141 00445.mpls parts [306, 151, 102]
 194: plays title 306's clips and a still picture
 ```
+
+### 2026-11-08 — the tidied scripts deployed, and job 103
+
+Job 102 was stopped at 21:47, three hours into its backup, to deploy the
+review's last nine commits (Will: test against the new code as soon as
+possible). The merge into main conflicted on `init-scripts.yaml`, which main's
+`65121aa` (transcode-cpu-contention) had changed and this branch deleted; the
+change, `taskset` in `arm-disc-wrapper.sh`, went into
+`scripts/arm-disc-wrapper.sh` in both. ARM is applied by its own Flux
+Kustomization, `automatic-ripping-machine`, not by `apps`: reconciling `apps`
+left a later change unapplied until that one was reconciled. Each deploy
+rolled the pod once; `flux diff` against main was empty before the disc went
+in.
+
+In the pod at 21:51: ten `applied` lines, the patched modules compiling,
+upstream's rule in `/opt/arm/setup/`, and `udevadm test --action=change
+/sys/block/sr0` reading `/etc/udev/rules.d/51-docker-arm.rules` and skipping
+`/usr/lib/udev/rules.d/51-docker-arm.rules`. Its warnings that the rule was
+executable and world-writable, from the volume's `defaultMode: 0777`, went
+with `1c39519`. Job 103 started at 21:52:36 through the wrapper, `main.py`'s
+affinity mask `3e`.
+
+Stopping job 102, `pkill -f "[m]ain.py"` killed the exec'd shell rather than
+`main.py`: the shell's own command line held `echo "left after main.py:"`,
+which the pattern matches. The bracket only keeps the pattern from matching
+itself; the docs' command names neither process anywhere else. `kill -TERM`
+on `main.py`'s PID stopped the job, and MakeMKV exited with it.
