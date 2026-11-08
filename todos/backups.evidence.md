@@ -1392,6 +1392,31 @@ and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
   71. The container's conf was unchanged, so it was not
   restarted.
 
+### `vm/100` excluded from the pull — 2026-11-08
+
+Raised in PR #27's review: is there a cheaper way to handle the frozen snapshot?
+
+- **The re-sync is weekly, and costs the pull nothing.** Every pull from 10-21 to
+  11-08 logs `re-sync snapshot` for `vm/100/2026-09-18T23:24:23Z`. It is rewritten
+  (no "no data changes" line) only on 10-22, 10-28 and 11-02, the first pull after
+  each verify, and none of those re-sends an archive. The primary runs no verify, so
+  only PBS #2's own verify sets this off.
+- **Its cost, from the verify task logs:** `vm/100` took 50.8 of the 85 minutes of
+  11-01's verify (14:00:00-15:25:12) and 63.8 of the 104 minutes of 11-08's
+  (14:00:00-15:43:40). The next largest was `vm/910`'s newest, 13-14 minutes.
+- **The fix is a sync group filter**, `exclude:group:vm/100`. PBS 4.2's
+  `sync-job update` takes `--group-filter [<exclude:|include:>]…`, and PBS's
+  *Managing Remotes* reads an exclude-only list as "all but those matching the
+  exclude filters". With no re-sync the verify state survives, so `ignore-verified`
+  with `outdated-after = 30` re-reads it monthly instead of weekly.
+- **nixos-pbs passes each setting as one `--flag value`** (`renderArgs`, pin
+  `57c3aafe`), and updates without deleting, so a setting removed from Nix stays in
+  PBS until `--delete group-filter`.
+- **Considered and not taken:** moving the group to its own namespace does the same
+  job but means moving data on both stores. Stopping the re-sync itself would take a
+  change upstream: `pull.rs` compares raw manifest bytes, and those include the
+  unprotected verify section.
+
 ### Narrowing `rpool/data`: done — 2026-10-29
 
 - mini-nas `main` `25f47f8` deployed 04:40 UTC, confirmed;

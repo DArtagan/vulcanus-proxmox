@@ -140,8 +140,9 @@ def assess(
     is measured from its arrival, not from when it was taken, because a pull
     re-syncs each group's newest snapshot whenever its manifest differs from the
     primary's, which a verify's recorded result makes it: so the first pull
-    after each verify strips that snapshot's verify state, and a frozen group's
-    one old snapshot arrives anew every week.
+    after each verify strips that snapshot's verify state, however old it is.
+    A frozen group the pull still covers has its one snapshot arrive anew every
+    week.
     """
     primary = list(primary)
     local = list(local)

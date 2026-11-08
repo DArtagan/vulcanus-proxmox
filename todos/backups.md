@@ -33,7 +33,7 @@ squashing.
 | 2 | Application backups — K8up + restic | done 2026-10-12 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13) |
 | 2b | Delete the borg tree | done 2026-10-13 — [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) |
 | 3 | Performance — drop the OpenEBS disks from vzdump | applied 2026-10-16, review closed; checks B-E outstanding, carried by the user |
-| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — sync, verify, GC, mirror, freshness both ways and both restores proven by 10-28; `rpool/data` narrowed and docs written 10-29; one incremental send left to see |
+| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — sync, verify, GC, mirror, freshness both ways and both restores proven by 10-28; `rpool/data` narrowed and docs written 10-29; `vm/100` excluded from the pull 11-08, to deploy and see; one incremental send left to see |
 | 4b | The primary into a NixOS container on vulcanus | designed 2026-10-17; after 4a |
 | 5 | The offline copy — external disk | not started; needs a ~$200 purchase |
 | 6 | Verification, notification, runbook | not started |
@@ -967,7 +967,8 @@ it gets no `discard`: it retires rather than trims.
   8 days after it last arrived — the primary's own verification waits for its verify
   job at 4b. Arrival, not backup time, because the first pull after each verify
   re-syncs every group's newest snapshot and strips its verify state, so a frozen
-  group's one snapshot arrives anew every week. Comparing newest snapshots rather than ages lets a frozen group pass,
+  group's one snapshot arrives anew every week unless the group is excluded from the
+  pull, as `vm/100` is. Comparing newest snapshots rather than ages lets a frozen group pass,
   having nothing new to copy, while a live group fails within a day of its sync
   stopping. Asserted from the stores rather than from the jobs, as `pbs-freshness`
   is, and it dies with PBS #2, which the check's period catches. A group on PBS #2
@@ -1177,6 +1178,12 @@ What phases 0 to 2b asserted is in the evidence.
     past `keep-last` survives PBS #2's prune.
   - **A frozen group passes `pbs-offsite-freshness`**: `vm/100` reads green, and a
     group forgotten on the primary only is reported, not failed.
+  - **`vm/100`'s exclusion holds its verify state:** after the deploy, no pull logs
+    `[vm/100]`, its `index.json.blob` keeps the 11-08 verify's mtime, and the 11-15
+    verify logs `SKIPPED: verify offsite:vm/100/2026-09-18T23:24:23Z (recently
+    verified)`, finishing in well under 11-08's 104 minutes. The first re-read due is
+    the 12-13 verify, 30 days on, and `pbs-offsite-freshness` stays green across all
+    of it.
   - **Reuse detection** ignores a protected snapshot, in `test_pbs_freshness.py`.
   - **`rpool/data`'s narrowing at the end of 4a:** `zfs-replication-freshness` stays
     green across it, which is what says the source-root change and the replica

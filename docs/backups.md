@@ -131,6 +131,12 @@ group's newest snapshot, whose manifest now differs from the primary's by the ve
 result, so in the GUI that snapshot reads unverified until the next Sunday. That is
 expected.
 
+**A large frozen group is excluded from the pull.** Its one snapshot would otherwise
+lose its verify state every week and be read in full by every verify: `vm/100`'s
+141 GiB was about 60% of each verify's time. Excluded, it keeps its verify state and
+is re-read once that is 30 days old. Retiring a large guest is the time to add its
+group to `pull-primary`'s `group-filter`; a group left out costs only verify time.
+
 **Nothing rate-limits a sync.** An ordinary day's is 3.5-4.5 GiB, in 10-35 minutes.
 A full one saturates the vulcanus site's upload: the first, 577 GiB, took 40 hours at
 4.1 MiB/s, and re-seeding after either store is rebuilt costs the same. PBS's
@@ -429,7 +435,9 @@ snapshot, and the vzdump job prunes every group it touches to `keep-last 31`. So
 reused VMID appends the new guest's backups to the retired guest's group and evicts one
 old backup per run: **after 31 runs the prior machine is gone from both stores**,
 PBS #2 pruning its copy to the same count. Nothing fails, and the group simply stops
-being frozen.
+being frozen. A group excluded from PBS #2's pull is the exception: PBS #2 keeps the
+prior machine, and `pbs-offsite-freshness` fails on the new guest's backups until the
+exclusion is lifted.
 
 Before reissuing a VMID, look at what its PBS group still holds. If any of it matters,
 protect it on the primary first — see *Archiving is protecting* — since reuse evicts
