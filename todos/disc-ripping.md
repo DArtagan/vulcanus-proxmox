@@ -395,11 +395,13 @@ run found nothing left to change.
   the rule. Decided (Will, 2026-11-08), on the choice of always taking the best
   score, asking first only when the margin is close, or never choosing:
   *"proceed with 'Always take the best score'"*. MakeMKV's BD-J guess marked
-  nothing on this disc. Run against the backup, the code kept the published
-  `00990.mpls` and `00445.mpls`; it also keeps `00625.mpls`, episode 1's clips
-  shuffled with a 60 s clip nothing else plays, which no rule here can tell
-  from real material. **To verify:** job 100's disc re-run, which should
-  transcode `00990`, `00475`, `00319` and `00625` and send two notifications.
+  nothing on this disc. A shuffle with a still picture cut in is one title too
+  (Will, 2026-11-08, *"Yes please, make that change"*): `00625.mpls` is
+  episode 1 shuffled with the disc's 60 s "Copy detected" card. Run against
+  the backup, the code keeps the published `00990.mpls`, `00475.mpls` and
+  `00319.mpls` and nothing else, and skips the play-all `00445.mpls`, which it
+  also picked. **To verify:** job 100's disc re-run, which should transcode
+  those three and send two notifications.
   S6 D3 is obfuscated too (episode 8, `00354.mpls`, per the evidence), S6 D2 is
   not. A DVD's shuffles are all still transcoded.
 - **The main feature keeps its `title_N` name: verified 2026-10-29, job 87.**

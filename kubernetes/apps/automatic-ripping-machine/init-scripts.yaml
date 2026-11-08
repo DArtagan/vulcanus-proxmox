@@ -718,6 +718,10 @@ data:
     # The frames compared either side of a join: small and grey, as what tells a
     # continuing shot from a jump is the picture's structure, not its detail.
     _ARM_FRAME = (64, 36)
+    # Frames this alike are one picture. A piece of a clip whose frames all match
+    # its first is a still card, like the anti-ripping warning job 100's disc
+    # splices into a decoy.
+    _ARM_STILL = 0.01
 
 
     def _arm_duplicate_titles(srcpath, job):
@@ -797,7 +801,8 @@ data:
         # whose joins match best. A DVD's are left to _arm_duplicates, as reading
         # its frames would mean reading cells out of the ISO.
         skip, orders, cache = {}, [], {}
-        for group in _arm_same_content(titles):
+        still = None if srcpath is None else (lambda piece: _arm_still(srcpath, piece, cache))
+        for group in _arm_same_content(titles, still):
             order = {number: tuple(segment[:3] for segment in titles[number]["segments"]) for number in group}
             if len(set(order.values())) > 1 and srcpath is None:
                 continue
@@ -821,25 +826,35 @@ data:
             for number in group:
                 if number == kept:
                     continue
-                if order[number] == order[kept]:
+                extra = _arm_own(titles[number]["segments"], [titles[kept]["segments"]])
+                if _arm_units(extra) > (1 - _ARM_COVERED) * _arm_units(titles[number]["segments"]):
+                    skip[number] = f"plays title {kept}'s clips and a still picture"
+                elif order[number] == order[kept]:
                     skip[number] = f"is a copy of title {kept}"
                 else:
                     skip[number] = f"plays title {kept}'s clips out of order"
         return skip, orders
 
 
-    def _arm_same_content(titles):
-        # Groups of two or more titles, each playing all but 1% of each other.
+    def _arm_same_content(titles, still=None):
+        # Groups of two or more titles, each playing all but 1% of each other. With
+        # `still`, what one title inside another plays beyond it counts as played
+        # when every piece of it is a still picture.
         units = {number: _arm_units(title["segments"]) for number, title in titles.items()}
 
         def plays(number, other):
-            covered = _arm_covered(titles[number]["segments"], [titles[other]["segments"]])
-            return covered >= _ARM_COVERED * units[number]
+            segments = titles[number]["segments"]
+            covered = _arm_covered(segments, [titles[other]["segments"]])
+            if covered >= _ARM_COVERED * units[number]:
+                return True
+            if still is None or covered < _ARM_PART_INSIDE * units[number]:
+                return False
+            return all(still(piece) for piece in _arm_own(segments, [titles[other]["segments"]]))
 
         groups = []
         for number in sorted(number for number in titles if units[number]):
             for group in groups:
-                if plays(number, group[0]) and plays(group[0], number):
+                if plays(group[0], number) and plays(number, group[0]):
                     group.append(number)
                     break
             else:
@@ -883,6 +898,24 @@ data:
             if len(picture) < width * height:
                 raise ValueError(f"{stream} has no frame at {at:.3f}s")
             cache[key] = picture[-width * height:] if last else picture[:width * height]
+        return cache[key]
+
+
+    def _arm_still(srcpath, piece, cache):
+        # Whether a piece of a clip shows one picture throughout: its frames at its
+        # quarters and its end all match its first. One that can't be read is not,
+        # so the title holding it is kept.
+        clip, start, end, _ = piece
+        key = ("still", clip, start, end)
+        if key not in cache:
+            try:
+                first = _arm_frame(srcpath, clip, start, False, cache)
+                samples = [_arm_frame(srcpath, clip, start + (end - start) * k // 4, False, cache) for k in (1, 2, 3)]
+                samples.append(_arm_frame(srcpath, clip, end, True, cache))
+                cache[key] = all(1 - _arm_ssim(first, sample) < _ARM_STILL for sample in samples)
+            except (OSError, ValueError, subprocess.SubprocessError) as error:
+                logging.warning(f"Taking clip {clip} for moving pictures, as its frames cannot be read: {error!r}")
+                cache[key] = False
         return cache[key]
 
 

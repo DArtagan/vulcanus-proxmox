@@ -3604,3 +3604,24 @@ Both picks match the published playlists. The kept episode's 5.99 is spread
 over its 14 joins, the large ones in its first 12 minutes, at what look like
 cuts between scenes. Each clip's first presentation time in its `.clpi` matched
 ffprobe's `start_time` on the six clips read.
+
+**`00625.mpls`, read 2026-11-08.** Its 16 items are episode 1's 15 clips with
+`00107` second: `101,107,289,115,103,113,112,114,108,104,111,12,105,109,110,106`,
+mismatch 14.453, the worst on the disc (00990 5.992, runner-up 00517 7.850).
+`00107` (60.018 s; two H.264, two DTS and two PGS streams) shows one frame
+throughout: 1 − SSIM between its first and last frames 0.00, luma average
+18.338–18.339 from end to end. Its picture is white text on black, "Copy
+detected (or a rip tool is running if you are trying to watch this movie on
+your PC).", and its audio is not silent (mean −20.8 dB). Its first frame
+matches the end of `00106` and its last the start of `00101` (0.25 each), both
+black. With still pieces counted as played inside a near-match, the real-code
+run gave:
+
+```
+titles 301  scan 264s  orders 7s
+order group of 148: kept 141 00445.mpls mismatch 5.992; runner-up 26 00068.mpls 7.691
+order group of 151: kept 306 00990.mpls mismatch 5.992; runner-up 160 00517.mpls 7.850
+kept: [(102, '00319.mpls', 2975), (151, '00475.mpls', 2968), (306, '00990.mpls', 4174)]
+whole 141 00445.mpls parts [306, 151, 102]
+194: plays title 306's clips and a still picture
+```

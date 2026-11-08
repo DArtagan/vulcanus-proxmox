@@ -628,11 +628,12 @@ def picture(seed: object) -> bytes:
     return hashlib.shake_256(str(seed).encode()).digest(WIDTH * HEIGHT)
 
 
-def continuous(*clips: str) -> object:
+def continuous(*clips: str, stills: tuple[str, ...] = ()) -> object:
     """Stand in for _arm_frame on a film whose clips run in `clips`' order.
 
     Each clip ends on the frame the next one opens with, as when a shot is cut
-    into segments, and every other pairing is a jump.
+    into segments, and every other pairing is a jump. A clip of `stills` shows
+    one picture throughout.
     """
     following = dict(itertools.pairwise(clips))
     calls = []
@@ -640,6 +641,8 @@ def continuous(*clips: str) -> object:
     def frame(*args: object) -> bytes:
         _, clip, _, last, _ = args
         calls.append(clip)
+        if clip in stills:
+            return picture(clip)
         if last:
             return picture((clip, following.get(clip)))
         previous = next((c for c, n in following.items() if n == clip), None)
@@ -714,6 +717,46 @@ class Orders(unittest.TestCase):
     def test_titles_playing_less_of_each_other_are_not(self) -> None:
         titles = {1: title(("A", 0, 1000)), 2: title(("A", 0, 989))}
         self.assertEqual(self.ns["_arm_same_content"](titles), [])
+
+    def padded(self, length: int, *, still: bool) -> tuple[dict, dict]:
+        """Group a shuffle with `length` seconds of clip S added to it."""
+        asked = []
+
+        def is_still(piece: tuple) -> bool:
+            asked.append(piece[0])
+            return still
+
+        self.ns["_arm_still"] = lambda _src, piece, _cache: is_still(piece)
+        titles = {
+            1: self.episode("A", "B", "C", "D"),
+            2: title(
+                *((c, 0, 300) for c in "BA"),
+                ("S", 0, length),
+                *((c, 0, 300) for c in "CD"),
+            ),
+        }
+        skip, _ = self.ns["_arm_orders"]("/raw", titles)
+        return skip, {"asked": asked}
+
+    def test_a_shuffle_with_a_still_picture_added_is_one_title(self) -> None:
+        # Job 100's 00625.mpls: episode 1 shuffled, with a 60 s warning card.
+        skip, seen = self.padded(60, still=True)
+        self.assertEqual(skip, {2: "plays title 1's clips and a still picture"})
+        self.assertEqual(seen["asked"], ["S"])
+
+    def test_moving_pictures_added_keep_it_apart(self) -> None:
+        skip, _ = self.padded(60, still=False)
+        self.assertEqual(skip, {})
+
+    def test_an_addition_of_five_percent_is_looked_at(self) -> None:
+        # 1200 s of the episode is 95% of 1263 s.
+        skip, seen = self.padded(63, still=True)
+        self.assertEqual(list(skip), [2])
+        self.assertEqual(seen["asked"], ["S"])
+
+    def test_a_larger_addition_is_not(self) -> None:
+        skip, seen = self.padded(64, still=True)
+        self.assertEqual((skip, seen["asked"]), ({}, []))
 
     def test_joins_that_cannot_be_compared_keep_the_first(self) -> None:
         def unreadable(*_: object) -> bytes:
@@ -812,6 +855,28 @@ class Frames(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.frame(10, last=False)
 
+    def still(self, frames: list[bytes]) -> bool:
+        reads = iter(frames)
+        self.ns["_arm_frame"] = lambda *_: next(reads)
+        return self.ns["_arm_still"]("/raw", ("00107", 0, 60 * TICK, 60.0), {})
+
+    def test_one_picture_throughout_is_still(self) -> None:
+        self.assertTrue(self.still([picture(1)] * 5))
+
+    def test_a_change_by_its_end_is_not(self) -> None:
+        self.assertFalse(self.still([picture(1)] * 4 + [picture(2)]))
+
+    def test_a_piece_that_cannot_be_read_is_not(self) -> None:
+        def unreadable(*_: object) -> bytes:
+            raise ValueError
+
+        self.ns["_arm_frame"] = unreadable
+        logging.disable(logging.CRITICAL)
+        try:
+            self.assertFalse(self.ns["_arm_still"]("/raw", ("00107", 0, TICK, 1.0), {}))
+        finally:
+            logging.disable(logging.NOTSET)
+
     def test_a_frame_matches_itself(self) -> None:
         self.assertAlmostEqual(self.ns["_arm_ssim"](picture(1), picture(1)), 1.0)
 
@@ -828,8 +893,9 @@ class Obfuscated(unittest.TestCase):
     """Downton Abbey S6 D1's shape: an episode offered in shuffled orders.
 
     Episode 1 is clips 00101-00104, of which only playlist 00002 plays them in
-    order; episodes 2 and 3 are one clip each; and the play-alls are episode 1's
-    shuffles followed by the other two.
+    order; episodes 2 and 3 are one clip each; the play-alls are episode 1's
+    shuffles followed by the other two; and playlist 00008 is a shuffle with
+    00107, a still warning card, cut in.
     """
 
     def setUp(self) -> None:
@@ -845,14 +911,26 @@ class Obfuscated(unittest.TestCase):
         playlists[5] = [("00012", 0, 2975 * TICK)]
         playlists[6] = playlists[3] + playlists[4] + playlists[5]
         playlists[7] = playlists[2] + playlists[4] + playlists[5]
+        playlists[8] = [*playlists[1][:1], ("00107", 0, 60 * TICK), *playlists[1][1:]]
         for n, items in playlists.items():
             (folder / f"0000{n}.mpls").write_bytes(mpls(items, [(1, 0, 0)]))
         (self.raw / "arm-job.json").write_text(json.dumps({"job_id": 100}) + "\n")
         self.fake = FakeSubprocess()
         self.fake.outputs["HandBrakeCLI"] = handbrake_scan([(n, n) for n in playlists])
         self.ns = load(self.fake)
-        self.ns["_arm_frame"] = continuous(*EPISODE, "00013", "00012")
-        lengths = {1: 1200, 2: 1200, 3: 1200, 4: 2968, 5: 2975, 6: 7143, 7: 7143}
+        self.ns["_arm_frame"] = continuous(
+            *EPISODE, "00013", "00012", stills=("00107",)
+        )
+        lengths = {
+            1: 1200,
+            2: 1200,
+            3: 1200,
+            4: 2968,
+            5: 2975,
+            6: 7143,
+            7: 7143,
+            8: 1260,
+        }
         self.tracks = Tracks(
             types.SimpleNamespace(
                 track_number=str(n),
@@ -876,7 +954,8 @@ class Obfuscated(unittest.TestCase):
 
     def test_only_the_episodes_in_order_are_transcoded(self) -> None:
         skip = self.ns["_arm_duplicate_titles"](str(self.raw), self.job)
-        self.assertEqual(sorted(skip), [1, 3, 6, 7])
+        self.assertEqual(sorted(skip), [1, 3, 6, 7, 8])
+        self.assertEqual(skip[8], "plays title 2's clips and a still picture")
         self.assertEqual(skip[6], "plays title 7's clips out of order")
         self.assertTrue(skip[7].startswith("plays titles"))
 
@@ -886,7 +965,7 @@ class Obfuscated(unittest.TestCase):
         orders = {o["handbrake_title"]: o for o in duplicates["orders"]}
         self.assertEqual(sorted(orders), [2, 7])
         self.assertEqual(orders[2]["playlist"], "00002.mpls")
-        self.assertEqual(orders[2]["titles"], 3)
+        self.assertEqual(orders[2]["titles"], 4)
         self.assertEqual(orders[2]["mismatch"], 0.0)
         self.assertIn(orders[2]["runner_up"]["handbrake_title"], (1, 3))
         self.assertGreater(orders[2]["runner_up"]["mismatch"], 1.0)
@@ -901,7 +980,7 @@ class Obfuscated(unittest.TestCase):
         notices = self.ns["notices"]
         self.assertEqual(len(notices), 2)
         self.assertIn("Title 2 (00002.mpls) is transcoded", notices[0])
-        self.assertIn("3 titles play the same clips", notices[0])
+        self.assertIn("4 titles play the same clips", notices[0])
 
     def test_the_main_feature_moves_off_a_shuffle(self) -> None:
         self.ns["_arm_duplicate_titles"](str(self.raw), self.job)
