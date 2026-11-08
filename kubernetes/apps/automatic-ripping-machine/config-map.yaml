@@ -127,7 +127,7 @@ data:
 
     # Location of your ABCDE config file
     # This over-rides any other abcde.conf files
-    ABCDE_CONFIG_FILE: "/etc/root/config/abcde.conf"
+    ABCDE_CONFIG_FILE: "/etc/arm/config/abcde.conf"
 
     # Path to raw MakeMKV directory
     # Destination for MakeMKV and source for HandBrake
@@ -792,7 +792,7 @@ data:
     # output directory, and beets-flask enqueues an album 30s after it stops
     # changing — a gap that falls between tracks. Writing here and handing the
     # finished album over in one step is what stops it importing a partial
-    # album and never retrying. See arm-audio-handoff.sh in init-scripts.yaml.
+    # album and never retrying. See scripts/arm-audio-handoff.sh.
     #
     # Not a second mount of the audio share: ARM's write access stays limited
     # to import/.

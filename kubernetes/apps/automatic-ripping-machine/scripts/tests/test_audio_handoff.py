@@ -1,11 +1,8 @@
 """Tests for arm-audio-handoff.sh, which moves a finished CD rip into the inbox.
 
-Run with `python3 -m unittest discover tools/arm-audio-handoff`.
+Run with `python3 -m unittest discover -s .` from this directory.
 
-Like the wrapper tests next door, the script under test lives in
-`kubernetes/apps/automatic-ripping-machine/init-scripts.yaml`, because that
-ConfigMap is what gets mounted into the pod. These tests extract it from there
-so there is one copy, and rewrite its absolute paths into a sandbox.
+The script runs with its absolute paths rewritten into a sandbox.
 
 Why the script exists at all: abcde encodes each track straight to its output
 directory, and beets-flask's watchdog enqueues an album 30s after it stops
@@ -34,13 +31,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import yaml
-
-HERE = Path(__file__).resolve().parent
-REPO = HERE.parent.parent
-INIT_SCRIPTS = (
-    REPO / "kubernetes" / "apps" / "automatic-ripping-machine" / "init-scripts.yaml"
-)
+SCRIPTS = Path(__file__).resolve().parent.parent
 
 STAGING = "/home/arm/arm-incoming"
 INBOX = "/root/audio"
@@ -63,12 +54,7 @@ TRACKS = [
 
 
 def load_script() -> str:
-    doc = yaml.safe_load(INIT_SCRIPTS.read_text())
-    try:
-        return doc["data"]["arm-audio-handoff.sh"]
-    except KeyError:
-        message = "init-scripts.yaml has no arm-audio-handoff.sh entry"
-        raise AssertionError(message) from None
+    return (SCRIPTS / "arm-audio-handoff.sh").read_text()
 
 
 def sandbox(script: str, staging: Path, inbox: Path, log: Path) -> str:

@@ -345,7 +345,7 @@ This enables guest kernel polling every 2 seconds when `sr0` is created at boot.
 
 ### The udev rule and wrapper script
 
-A udev rule mounted into the ARM container (`kubernetes/apps/automatic-ripping-machine/init-scripts.yaml`) fires on block device change events:
+A udev rule mounted into the ARM container at `/etc/udev/rules.d/`, where it takes the place of upstream's rule of the same name (`kubernetes/apps/automatic-ripping-machine/scripts/51-docker-arm.rules`), fires on block device change events:
 
 ```
 ACTION=="change", SUBSYSTEM=="block", KERNEL=="sr[0-9]*", RUN+="/usr/local/bin/arm-disc-wrapper.sh %k"
@@ -381,10 +381,22 @@ The disc stays in the drive, locked, until the whole job is complete, transcode
 included, and is ejected once at the end. An open tray is therefore the signal
 that a disc is finished. That, HandBrake encoding each title once and skipping
 the titles others already play, a movie's main feature keeping its `title_N`
-name, and the whole DVD as its raw copy come from edits to ARM's own source. `arm-source-patches.py` (`init-scripts.yaml`) applies them at
+name, the whole DVD as its raw copy, and job titles reduced to Latin-1, which
+the fileserver's Samba can write ([`todos/smb-charset-utf8.md`](../todos/smb-charset-utf8.md)),
+come from edits to ARM's own source. `scripts/arm-source-patches.py` applies them at
 container start. Each edit is skipped, and logged as `source-patches: cannot
 apply` in `arm.log`, if an ARM update moves the text it replaces. After an image
-bump, check that log for nine `applied` lines.
+bump, check that log for ten `applied` lines.
+
+ARM's scripts are mounted with `subPath`, which Kubernetes never updates in
+place, from a ConfigMap generated out of `scripts/` with a hash of their
+contents in its name. A merged change to a script therefore rolls ARM by itself,
+once, killing any job then running with `Received SIGTERM`: merge one only while
+ARM is idle. `kubectl rollout restart` rolls twice: Flux's next scheduled
+reconcile, up to ten minutes later, strips the annotation and rolls the pod
+again. Job 101 died that way seven minutes into its backup. After one, insert a
+disc only once a scheduled reconcile has passed, `flux get kustomizations apps` showing a run after the
+restart and the pod's start time later than that run or unchanged by it.
 
 ### Data flow
 

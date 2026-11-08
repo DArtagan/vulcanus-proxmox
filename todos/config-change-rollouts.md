@@ -55,6 +55,11 @@ apps/headscale                   apps/homepage     apps/mumble
 apps/youtube-dl
 ```
 
+ARM's scripts are already generated (Option B, 2026-11-08); its
+`automatic-ripping-machine` ConfigMap, `arm.yaml` and the rest, is not. Any
+automatic rollout of ARM kills a rip in progress, which neither option avoids,
+so ARM's changes are merged while it is idle.
+
 The three CronJobs that consume ConfigMaps (`beets`, `beets-replaygain`,
 `pinepods`) are unaffected — each run gets a fresh pod.
 

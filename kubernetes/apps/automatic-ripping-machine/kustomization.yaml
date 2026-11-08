@@ -9,8 +9,21 @@ resources:
   - deployment.yaml
   - image.yaml
   - image-update-automation.yaml
-  - init-scripts.yaml
   - ingress.yaml
   - namespace.yaml
   - service.yaml
   - video-arm-pvc.yaml
+configMapGenerator:
+  # A changed script changes this ConfigMap's name, so Flux rolls ARM and
+  # kills any job running: merge a change here only while ARM is idle.
+  - name: automatic-ripping-machine-init-scripts
+    files:
+      - scripts/arm_user_files_setup.sh
+      - scripts/51-docker-arm.rules
+      - scripts/arm-disc-wrapper.sh
+      - scripts/arm-audio-handoff.sh
+      - scripts/arm-title-charset.py
+      - scripts/arm-source-patches.py
+      - scripts/arm-whole-disc.py
+      - scripts/arm-duplicate-titles.py
+      - scripts/armui.sh
