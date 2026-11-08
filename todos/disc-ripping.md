@@ -405,6 +405,17 @@ run found nothing left to change.
   those three and send two notifications.
   S6 D3 is obfuscated too (episode 8, `00354.mpls`, per the evidence), S6 D2 is
   not. A DVD's shuffles are all still transcoded.
+- **ARM's scripts tidied against upstream 2.24.4: built 2026-11-08, not yet
+  deployed.** Upstream's `main` was 2.24.4 itself. The title-charset patch is
+  now one of the patcher's appends, the setup script is trimmed and runs twice
+  cleanly, and the udev rule is mounted at `/etc/udev/rules.d/`. Upstream's
+  setup script cannot replace ours while ARM runs as root; that is
+  [`arm-non-root.md`](arm-non-root.md). **To verify, after a deploy with ARM
+  idle:** ten `source-patches: applied` lines in `arm.log`, among them
+  `title-charset-code`; `/opt/arm/setup/51-docker-arm.rules` in the pod showing
+  upstream's rule rather than ours; the next disc of any kind logging
+  `disc-wrapper` lines and starting a job; and the next audio CD ripping with
+  `abcde.conf` read from `/etc/arm/config/`.
 - **The main feature keeps its `title_N` name: verified 2026-10-29, job 87.**
   Decided (Will, 2026-10-26): ARM's rename to `<Title (Year)>.mkv`
   is disabled, the folder naming kept. The rename erased the film's title
@@ -624,7 +635,11 @@ Sources:
 Will is willing to run ARM off a **forked image** where a fix can only be made in
 code (2026-08-25), and wants what we find carried back to
 `automatic-ripping-machine/automatic-ripping-machine` rather than kept as local
-workarounds. **Nothing has been reported yet.**
+workarounds. **Nothing has been reported from here yet.** Another contributor,
+`ecatuogno1`, opened about thirty bug-fix PRs from 2026-10-17; checked
+2026-11-08, none merged, and five bear on rows below, noted in them. Test or
+comment on those rather than file duplicates, and re-check them before filing
+anything.
 
 The first block was found against **2.23.2**, the last against **2.24.x**. Re-check
 each against `main` before filing — some may already be fixed.
@@ -636,20 +651,21 @@ each against `main` before filing — some may already be fixed.
 | `duplicate_run_check()` runs before `clean_old_jobs()` | `ripper/main.py:201` vs `:232` | The guard rejects the new job before the cleanup that would have cleared the stale one. The wedge cannot self-heal. |
 | A job killed without SIGTERM is later marked `fail` with no error and no stop time | `ripper/utils.py:702` | D3. `clean_old_jobs()` cannot know the cause, but it could record *that* this is what happened rather than producing a failure indistinguishable from a real one. |
 | HandBrake failing on every track still yields `status: success` | `ripper/handbrake.py`, `ripper/main.py` | D4, and the reason this repo believed it had working rips for four months. Completion should test for output, not for having reached the end. |
-| `rip_music()` checks only abcde's exit code | `ripper/utils.py:466` | Carries upstream's own `# TODO check output and confirm all tracks ripped`. |
+| `rip_music()` checks only abcde's exit code | `ripper/utils.py:466` | Carries upstream's own `# TODO check output and confirm all tracks ripped`. Open upstream: #1855 checks abcde's output per track, wrapping its `run_command` and `OUTPUTDIR`, which `arm-audio-handoff.sh` depends on; #1872 stops a failed music rip being overwritten as `success`. |
 | `update_key.sh` has a bash syntax error | `scripts/update_key.sh:52` | `((: > 0 : syntax error (error token is "> 0 ")`. It still writes a valid `settings.conf` and exits 0, so it is cosmetic — but it is on the path everyone hits. |
 | The abandon notification prints the PID as if it were the job id | `ui/json_api.py` | `Job: 366 was Abandoned!` where 366 is a PID. Makes the notification history unreadable against the job table. |
 | One insert produces two jobs, and `duplicate_run_check` does not catch it | `ripper/utils.py:758` | D2. The docstring says this is exactly what it is for, but the first job finishes failing before the second starts, so there is no overlap to detect. Gating on `ID_CDROM_MEDIA_*` is what actually fixes it — our `arm-disc-wrapper.sh` does it outside ARM, and it belongs inside. |
-| `parse_udev()` lets the last matching key win | `models/job.py:170` | A `for` loop of `elif`s with no `break`, so `disctype` depends on udev's iteration order rather than on precedence. |
+| `parse_udev()` lets the last matching key win | `models/job.py:170` | A `for` loop of `elif`s with no `break`, so `disctype` depends on udev's iteration order rather than on precedence. Open upstream: #1850 makes `ID_CDROM_MEDIA_BD` win over `_DVD`. |
 | The music notification names `job.label`, which is always empty for an audio CD | `ripper/utils.py:115` | The video branch two lines up uses `job.title` and appends a link to the job. For music it uses `label`, so every Pushover message reads "Found music CD: None" — while `job.title` is sitting there correctly populated. One word. |
 | `job.label` is never set for an audio CD | `ripper/identify.py:65-70` | `job.get_disc_type()` — the only thing that assigns `label` for music — is inside `if mounted:`, and an audio CD has no mountable filesystem. So the field the notification reads can never be filled for the one disc type that reads it. |
 | The UI offers no way to identify a music job, so its manual wait can never end early | `ui/static/js/common.js:79` | `musicCheck()` renders Title Search, Custom Title and Edit Settings only when `video_type !== "Music"`. `check_for_wait()` exits early only when `title_manual` is set, and nothing can set it. The full `MANUAL_WAIT_TIME` therefore always elapses on an audio CD, doing nothing that could be acted on. |
 | ARM rewrites the operator's `arm.yaml` in place | `config/config.py:33-38` | It merges its shipped template under the user's file and writes the result back, so a key removed by the operator is silently restored and the operator's comments are replaced by `comments.json`. Hostile to anything that manages the file declaratively — a ConfigMap, Ansible, a Nix module. The merge itself is reasonable; writing it back over the source is not. |
 | `identify_bluray` returns true when it has only guessed from the label | `ripper/identify.py:106` | D12. The caller cannot tell disc metadata from a label guess, so a placeholder label gets `hasnicetitle`. Upstream marks the spot `# Maybe call OMdb with label…`. On the success path, the year comes from `bdmt_eng.xml`'s mtime (`:130`), the authoring date, which is wrong for every re-issue. |
-| One unreadable title fails the whole job | not yet located | D13. The titles that ripped are never transcoded. |
+| One unreadable title fails the whole job | `ripper/makemkv.py`, `MakeMKVOutputChecker.check()` | D13. The titles that ripped are never transcoded. Open upstream: #1845 treats MakeMKV's `RIP_TITLE_ERROR` (5003) as the warning `LOG_ONLY_CODES` already lists. |
 | The disc is ejected after the rip, not after processing | `ripper/makemkv.py:760` | D8. `makemkv()` calls `job.eject()` before the transcode starts, so the open tray stops meaning "done". |
-| Every multi-title DVD is transcoded twice | `ripper/makemkv.py:1055`, `ripper/handbrake.py:307` | D14. MakeMKV's and HandBrake's tracks are both registered and both encoded, and MakeMKV's track 0 becomes HandBrake's "scan all titles" `-t 0`. |
+| Every multi-title DVD is transcoded twice | `ripper/makemkv.py:1055`, `ripper/handbrake.py:307` | D14. MakeMKV's and HandBrake's tracks are both registered and both encoded, and MakeMKV's track 0 becomes HandBrake's "scan all titles" `-t 0`. Open upstream #1858 stops fuzzy matching substituting another title number, but keeps padding equal, so `C3_t01` may still match `title_1`: `d14-move-series` stays until a test against it says otherwise. |
 | A job started by udev has no `HOME` | `scripts/docker/docker_arm_wrapper.sh` | D15. MakeMKV then runs unregistered, on its built-in drive definitions, and an expired MakeMKV refuses every disc. |
+| A job stopped by SIGTERM leaves HandBrake encoding | `ripper/main.py`'s SIGTERM handler | Found 2026-11-07, job 100: `main.py` marked the job failed and ejected, and HandBrake ran on as an orphan of PID 1. Open upstream: #1878 kills the children when a job is abandoned from the UI, which is a different path; `main.py`'s own handler still leaves them. |
 
 The first three are one report, not three: they compose into the wedge.
 

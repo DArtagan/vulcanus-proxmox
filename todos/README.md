@@ -188,6 +188,7 @@ Separate track; these do not compete with the infrastructure ordering.
 | [video-library-ingest.md](video-library-ingest.md) | Ripped films stop in `import/` and never reach the library. The fix is [reelbarrow](https://github.com/DArtagan/reelbarrow), which holds the design and the application work; this spec is the deployment half: ARM's manifest hook, `kubernetes/apps/reelbarrow/`, secrets and alerts |
 | [acoustid-identification.md](acoustid-identification.md) | Identifying discs MusicBrainz has no disc ID for, by fingerprinting the audio rather than the table of contents |
 | [disc-ripping.md](disc-ripping.md) | Getting ARM to rip audio CD, DVD, Blu-ray and 4K reliably into the `import/` folders. CD, DVD and Blu-ray rip end to end; 4K is unproven, and the drive intermittently drops off its SATA link |
+| [arm-non-root.md](arm-non-root.md) | ARM runs as root with its files under `/root`, so upstream's setup script and UI launcher are replaced rather than used. Moving to upstream's `arm` user means device permissions, the SMB volumes' mount options, the local volume's ownership and every `/root` path |
 
 The nine beets-flask v2.0.0-rc5 bugs that used to sit here moved to
 `~/repositories/beets-flask/todos/` on 2026-08-14, decomposed one spec per bug.
