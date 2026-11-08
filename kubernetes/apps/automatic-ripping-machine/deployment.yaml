@@ -124,12 +124,14 @@ spec:
         - name: init-scripts
           configMap:
             name: automatic-ripping-machine-init-scripts
-            defaultMode: 0777
+            defaultMode: 0755
             items:
               - key: arm_user_files_setup.sh
                 path: arm_user_files_setup.sh
               - key: 51-docker-arm.rules
                 path: 51-docker-arm.rules
+                # udev warns of a rules file that is executable.
+                mode: 0644
               - key: arm-disc-wrapper.sh
                 path: arm-disc-wrapper.sh
               - key: arm-audio-handoff.sh
