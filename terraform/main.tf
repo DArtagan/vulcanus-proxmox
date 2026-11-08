@@ -161,8 +161,9 @@ resource "proxmox_lxc" "restic_repository" {
     size = "1M"
   }
 
-  # Read-only in effect, though the provider has no `ro=1`: owned outside the
-  # container's uid range, they appear as `nobody` inside.
+  # Read-only in effect, though the provider has no `ro=1`: owned by a uid
+  # outside the container's range, and readable only through the other bits or
+  # storage-read, the one host gid mapped in (ansible/zfs.yaml).
   mountpoint {
     key = "1"
     slot = 1
@@ -245,14 +246,6 @@ resource "proxmox_lxc" "fileserver" {
     slot = 2
     volume = "/rpool/storage/photos"
     mp = "/mnt/storage/photos"
-    size = "1M"
-  }
-
-  mountpoint {
-    key = "3"
-    slot = 3
-    volume = "/rpool/storage/books"
-    mp = "/mnt/storage/books"
     size = "1M"
   }
 
