@@ -59,7 +59,8 @@ A **library** is a tree the cluster writes and everything else at most reads.
   would take every other account's access away.
 
 `photos` and `filesync` are not libraries yet. They are world-readable, and
-restic reads them through that. Nothing in either is world-writable.
+restic reads them through that. `ansible/zfs.yaml` keeps both free of
+world-writable entries.
 
 ## How restic reads
 
@@ -80,7 +81,7 @@ its own source.
 | what | where |
 |---|---|
 | exports, server options, library tier | `ansible/nfs.yaml` |
-| `sharenfs=off` on `rpool/storage`, `acltype=posix` on libraries, restic's id mapping | `ansible/zfs.yaml` |
+| `sharenfs=off` on `rpool/storage`, `acltype=posix` on libraries, restic's id mapping, no world-writable entries in restic's other mounts | `ansible/zfs.yaml` |
 | accounts, groups, Samba | `ansible/fileserver.yaml`, `ansible/templates/smb.conf.j2` |
 | the fileserver's and restic container's mounts | `terraform/main.tf` |
 | the cluster's volumes | `kubernetes/infrastructure/*-pv.yaml`, `kubernetes/apps/*-pvc.yaml` |
@@ -94,10 +95,42 @@ whole tree read-write to the LAN with nothing in this repository saying so;
 SOPS cannot do under Ansible with a passphrase-protected key; its header says how
 to run it.
 
+## Adding a dataset
+
+In this order; each step needs the ones before it. Skip any a dataset does
+not need.
+
+1. **The dataset.** A `community.general.zfs` task in `ansible/zfs.yaml`, with
+   its `pvesm add dir` handler, and `acltype: posix` if it will be a library.
+   Run `zfs.yaml`. Snapshots and the offsite copy then follow with nothing
+   more: sanoid snapshots `rpool` recursively, mini-nas pulls `rpool/storage`
+   recursively, and `zfs-replication-freshness` flags a source dataset that
+   never reaches the target ([backups.md](backups.md)).
+2. **People, over SMB.** A `mountpoint` on the fileserver in
+   `terraform/main.tf`, in the next slot (they must stay contiguous), and a share in
+   `ansible/templates/smb.conf.j2`; then `tofu apply` and `fileserver.yaml`.
+   If Proxmox holds the mountpoint as pending (`[pve:pending]` in
+   `/etc/pve/lxc/105.conf`), restart the fileserver, which drops every SMB
+   session for a few seconds.
+3. **restic.** A `mountpoint` on container 108 in `terraform/main.tf`, the path
+   in `services.restic.backups.massfiles.paths` in
+   `nixos/hosts/restic-repository`, `tofu apply` and `colmena apply --on
+   restic-repository`, and a restart if the mountpoint is pending. From then
+   on, whatever `storage-read` or the world may write in the dataset, the
+   container may too (*How restic reads*): list it in `zfs.yaml`'s
+   never-world-writable task, or make it a library.
+4. **The cluster, over NFS**, once it is a library. If restic already mounts
+   it, take group write off by hand first (`find <path> -perm -g+w -exec chmod
+   g-w {} +`): the ownership task gives the tree gid 1200 before it tightens
+   the modes. Then add it to `nfs_exports` in `ansible/nfs.yaml`, take it out of
+   `zfs.yaml`'s never-world-writable task, and run `nfs.yaml`. Then the
+   cluster's volume, below.
+
+Removing a mountpoint is not the reverse of adding one; see *When it breaks*.
+
 ## Giving the cluster an NFS volume
 
-1. Add the dataset to `nfs_exports` in `ansible/nfs.yaml`, once it is a library,
-   and run the playbook.
+1. The dataset exported, as in step 4 above.
 2. A static `nfs` PersistentVolume naming the hypervisor by address and the
    dataset's path, `Retain`, with `nfsvers=4.2`; and a PersistentVolumeClaim bound
    to it by `volumeName`, carrying `k8up.io/backup: "false"` like every claim on

@@ -38,12 +38,10 @@ What phase 1 established that later phases rely on:
   same source and options and a pod with the workload's security context,
   then read the result with `stat` on the hypervisor. `chown` under squash
   fails with EPERM, so images that chown their mounts at start will fail.
-- **Taking a tree that restic mounts to the library tier:** set
-  `acltype=posix` on its dataset in `zfs.yaml` first, since `setfacl` fails
-  without it, and take group write off by hand before adding it to
-  `nfs_exports`. The ownership task chowns to gid 1200 before it chmods, so a
-  group-writable tree would be writable from the restic container between the
-  two. photos and filesync are both mounted there.
+- **photos and filesync are mounted by restic,** so taking either to the
+  library tier follows step 4 of *Adding a dataset* in
+  `docs/shared-storage.md`, group write off first, after `acltype=posix` on its
+  dataset, without which `setfacl` fails.
 - **Measure what an app stores before moving it**, as Stump's was: read its
   database for paths with non-ASCII or mangled names, and what is attached to
   them. Stump lost one 0% reading session and re-added 19 books under their
