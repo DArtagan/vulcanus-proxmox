@@ -342,7 +342,9 @@ log and matches it. The field is `title_map`, without lengths (below).
 
 Logs age out 90 days after their job, so job 15's goes around 2026-11-30, and the
 rest follow week by week. Run the backfill before then, or keep the mapping
-somewhere durable.
+somewhere durable. The DVD jobs it leaves without a stamp aren't kept: those
+discs are to be re-ripped, for their images (Will, 2026-10-28), and each re-rip
+writes its own stamp.
 
 **The backfill is limited to folders holding the whole disc** (Will, 2026-10-28):
 a `BDMV/` or an image, which no DVD job before the stamp left, so Blu-ray jobs
@@ -352,9 +354,10 @@ current form in one pass. Its dry run on 2026-10-28: ten rewrites (jobs 76–80,
 their `_<stage>` suffixes. Every copy passed the size check. `complete` is left
 out unless that check fails, because the backup's hash check can't be rerun, and
 a stamp carries no mark of being backfilled (both Will, 2026-10-28). Job 2's row
-names job 61's log, which the tool rejects by its first line's time. **To do:**
-run it with `--write` once the code below is deployed, and again after any job
-that ran on the old code in between.
+names job 61's log, which the tool rejects by its first line's time. Written
+with `--write` on 2026-10-28, the share's ten stamps copied out first, and every
+stamp read back in the current form. After the deploy and ARM's restart, a dry
+run found nothing left to change.
 
 ## Other open items
 
@@ -363,7 +366,8 @@ that ran on the old code in between.
   to Opus. Nothing is lost — the raw backup keeps it — but the intent recorded was
   passthrough. Will's call which is wanted; the docs describe the re-encode, and
   change with the preset if passthrough is chosen.
-- **Titles that repeat other titles: verified 2026-10-26, job 83.** The
+- **Titles that repeat other titles: verified on a Blu-ray series disc (job
+  83, 2026-10-26) and a movie DVD (job 87, 2026-10-29).** The
   rule and its outcomes are in the docs (*Titles that repeat other titles*), the
   survey behind it in the evidence (2026-10-24). Decided (Will, 2026-10-24):
   apply it to every disc, not TV alone, since the series/movie label is OMDb's
@@ -371,20 +375,41 @@ that ran on the old code in between.
   disc keeps a sequential whole; an in-film extras mode like *X-Men: First
   Class*'s is not the film and is left out, where an extended edition would be
   the film. Job 83, Downton Abbey D2, skipped its 157-minute play-all and
-  recorded it in the stamp. Still unrun in a job on a DVD or a movie disc: next
-  are the *Robin Hood* bonus DVD (its documentary kept whole, the three parts
-  skipped) and *Sylvester and Tweety* D1 (a TV DVD's play-all). Unproven too: a
+  recorded it in the stamp. Job 87, the *Robin Hood* bonus DVD, transcoded its
+  62.7-minute documentary and skipped the three parts it plays, placed at 0,
+  1086.118 and 2854.385 s, its MKV's own chapters. Still unrun in a job: a TV
+  DVD's play-all, next *Sylvester and Tweety* D1. Unproven too: a
   job has never sent the movie-disc notification for an interleaved title, and
   a series filed as a movie (as job 63's animated *Mummy* was) keeping one
   whole has only run read-only. Open: on a
   movie disc, a title playing the film and then a featurette, with a chapter at
   the join, would be kept whole and taken for the film. No disc ripped here has
   that shape.
-- **The main feature keeps its `title_N` name: deployed 2026-10-26, no job
-  has run with it yet.** Decided (Will, 2026-10-26): ARM's rename to `<Title (Year)>.mkv`
+- **Playlist obfuscation: built 2026-11-08, verified read-only on job 100's
+  backup, never run in a job.** Job 100, Downton Abbey S6 D1, offered 301
+  titles: one episode in 150 shuffled orders and its play-all in 148, which the
+  check let through and which would have taken about two months to encode. It
+  is stopped, its backup complete (evidence, 2026-11-08). Titles playing each
+  other's clips are now one title, and a Blu-ray's shuffles keep the one whose
+  joins match best by SSIM; the docs (*Titles that repeat other titles*) hold
+  the rule. Decided (Will, 2026-11-08), on the choice of always taking the best
+  score, asking first only when the margin is close, or never choosing:
+  *"proceed with 'Always take the best score'"*. MakeMKV's BD-J guess marked
+  nothing on this disc. A shuffle with a still picture cut in is one title too
+  (Will, 2026-11-08, *"Yes please, make that change"*): `00625.mpls` is
+  episode 1 shuffled with the disc's 60 s "Copy detected" card. Run against
+  the backup, the code keeps the published `00990.mpls`, `00475.mpls` and
+  `00319.mpls` and nothing else, and skips the play-all `00445.mpls`, which it
+  also picked. **To verify:** job 100's disc re-run, which should transcode
+  those three and send two notifications.
+  S6 D3 is obfuscated too (episode 8, `00354.mpls`, per the evidence), S6 D2 is
+  not. A DVD's shuffles are all still transcoded.
+- **The main feature keeps its `title_N` name: verified 2026-10-29, job 87.**
+  Decided (Will, 2026-10-26): ARM's rename to `<Title (Year)>.mkv`
   is disabled, the folder naming kept. The rename erased the film's title
-  number, and reelbarrow identifies the film itself. To verify: the *Robin
-  Hood* bonus DVD should leave `title_N.mkv` at the top of its folder.
+  number, and reelbarrow identifies the film itself. Job 87 left
+  `title_3.mkv` at the top of `Robin Hood (2010)/` and the two featurettes
+  under `extras/`.
 - **A skipped title's track row reads `ripped`.** ARM sets `ripped` at
   registration for any title over `MINLENGTH`, so job 83's skipped play-all
   has `ripped = 1` and no `filename`, and a manifest exports that. Documented
@@ -393,9 +418,9 @@ that ran on the old code in between.
   sets `ripped = False` on each title it skips. Nothing in ARM's move reads
   it otherwise: an empty `filename` is already passed over.
 - **The stamp is a contract with reelbarrow.** Its evolution rule is in the
-  docs (*Stage 1*). reelbarrow keeps real stamps as test fixtures (jobs 76–80,
-  82, 83), so a change to the stamp should come with a fixture there. Fields
-  renamed 2026-10-26 (Will), schema left at 1 because nothing had read it:
+  docs (*Stage 1*). reelbarrow keeps every stamp on the share as a test
+  fixture (jobs 76–80 and 82–87, and the five backfilled), so a change to
+  the stamp should come with a fixture there. Fields renamed 2026-10-26 (Will), schema left at 1 because nothing had read it:
   `titles` became `extracted`, and every HandBrake number `handbrake_title`.
   The seven stamps on the share were rewritten once that code ran, and match
   reelbarrow's fixtures byte for byte. Changed again 2026-10-28, still at schema
@@ -403,7 +428,8 @@ that ran on the old code in between.
   essentially in prolonged iterative feature development, before release"*):
   `extracted` and a Blu-ray's `playlists` became one `title_map`, each entry's
   identifiers in the order the title passes through them, and `length` went,
-  since nothing reads it.
+  since nothing reads it. `duplicates.orders` added 2026-11-08, schema left at 1
+  by the rule; reelbarrow has no fixture with it until a job writes one.
 - **A Blu-ray stamp's title map: built (Will, 2026-10-28).** Parked until
   reelbarrow found fingerprint pairing ambiguous on a Blu-ray, and job 79 did:
   four of its featurettes come in variants 1–3 s apart that share 99–100% of
@@ -414,6 +440,15 @@ that ran on the old code in between.
   come from their own logs (the backfill above). **To verify:** the next Blu-ray
   job's `title_map` matches the `+ playlist:` line beside each `Transcoding title
   N` in its job log.
+- **Two ways the DVD duplicate check can fail to read a disc, neither seen on
+  one yet.** `_arm_dvd_titles` takes lsdvd's `-Oy` output after its first `=`,
+  and libdvdread writes its warnings to stdout ahead of it, `CHECK_VALUE failed
+  … == 0` among them: lsdvd printed those for an image built from IFOs alone,
+  though not for job 76's ISO. And lsdvd copies the device path, so a raw
+  folder's name, into that output unescaped, and a name with an apostrophe ends
+  its string early. Either raises, and every title is transcoded, which costs
+  encoding time and nothing else. reelbarrow's reader starts at `lsdvd = {` and
+  lifts the free-text lines out before parsing; the same would do here.
 - **The transcode preset has never been reviewed** against a finished file: SVT-AV1
   10-bit, CRF 30, preset 4, Opus audio. Finished files now exist.
 - **`LOGLEVEL: DEBUG`** was kept through phase 3 for detail when a rip failed, to be
@@ -440,7 +475,9 @@ that ran on the old code in between.
   on later output, *Sherlock* filed as `tv/Sherlock (2010-2017)/`, job 80's
   Downton D1 transcodes, which include its 207-minute play-all (`title_6.mkv`),
   and job 82's two partial transcodes in
-  `transcode/tv/Downton-Abbey (2010-2015)_179295226579/`.
+  `transcode/tv/Downton-Abbey (2010-2015)_179295226579/`, and job 100's seven
+  transcodes and partial `title_14.mkv`, shuffles of S6 D1's episode 1 and its
+  play-all, in `transcode/movies/Downton Abbey/`.
 - **Downstream.** Nothing watches `video/import/automatic-ripping-machine/`; that is
   [`video-library-ingest.md`](video-library-ingest.md), which also holds what the
   rips showed about TV numbering and the duplicate Blu-ray feature.
@@ -723,7 +760,7 @@ the remaining work could repeat.
 ## Prompt to open with
 
 > Read `todos/disc-ripping.md` in full. ARM rips CD, DVD and Blu-ray end to end;
-> what is left is proving the duplicate-title skip on a DVD and a movie disc,
+> what is left is proving the duplicate-title skip on a TV DVD,
 > D17's backfill before the job logs age out, the drive's intermittent SATA link
 > loss, the other open defects and items, and 4K.
 > Work is on the `disc-ripping` branch in `.worktrees/disc-ripping`, with its review
