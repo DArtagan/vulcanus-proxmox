@@ -53,5 +53,12 @@ ignore = [
 # A unittest method's name is already the sentence describing it; a docstring
 # would say the same thing twice.
 "test_*.py" = ["D1"]
-# Moved out of a ConfigMap unlinted; the next commit fixes them.
-"kubernetes/apps/automatic-ripping-machine/scripts/*.py" = ["ALL"]
+# Appended to one of ARM's modules, whose imports and functions they use as
+# their own globals.
+"kubernetes/apps/automatic-ripping-machine/scripts/arm-duplicate-titles.py" = [
+  "F821",
+]
+"kubernetes/apps/automatic-ripping-machine/scripts/arm-title-charset.py" = [
+  "F821",
+]
+"kubernetes/apps/automatic-ripping-machine/scripts/arm-whole-disc.py" = ["F821"]

@@ -132,9 +132,9 @@ class Patching(unittest.TestCase):
             order.index("duplicate-titles-code"), order.index("duplicate-titles-scan")
         )
         makemkv = (self.p.ripper / "makemkv.py").read_text()
-        self.assertIn("def _arm_backup_dvd(job, rawpath):", makemkv)
+        self.assertIn("\ndef _arm_backup_dvd(", makemkv)
         handbrake = (self.p.ripper / "handbrake.py").read_text()
-        self.assertIn("def _arm_duplicate_titles(srcpath, job):", handbrake)
+        self.assertIn("\ndef _arm_duplicate_titles(", handbrake)
 
     def test_a_restart_applies_nothing_again(self) -> None:
         # The container keeps its patched files across a restart.

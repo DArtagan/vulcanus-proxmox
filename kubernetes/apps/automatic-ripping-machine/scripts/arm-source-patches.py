@@ -9,6 +9,7 @@ the already-patched files, re-applies nothing.
 
 import datetime
 import sys
+from pathlib import Path
 
 RIPPER = "/opt/arm/arm/ripper"
 ARMLOG = "/home/arm/logs/arm.log"
@@ -32,10 +33,17 @@ EDITS = [
         # transcode still holds the drive. See todos/disc-ripping.md, D8.
         "eject-after-processing",
         f"{RIPPER}/makemkv.py",
-        "    job.eject()\n"
-        '    logging.info(f"Exiting MakeMKV processing with return value of: {rawpath}")\n',
-        "    # _arm_source_patch eject-after-processing: main.py ejects when the job ends\n"
-        '    logging.info(f"Exiting MakeMKV processing with return value of: {rawpath}")\n',
+        (
+            "    job.eject()\n"
+            '    logging.info(f"Exiting MakeMKV processing with return value '
+            'of: {rawpath}")\n'
+        ),
+        (
+            "    # _arm_source_patch eject-after-processing: main.py ejects when "
+            "the job ends\n"
+            '    logging.info(f"Exiting MakeMKV processing with return value '
+            'of: {rawpath}")\n'
+        ),
     ),
     (
         # On the DVD path every title is registered twice: by MakeMKV numbered
@@ -45,10 +53,15 @@ EDITS = [
         # files. See todos/disc-ripping.md, D14.
         "d14-encode",
         f"{RIPPER}/handbrake.py",
-        "    for track in job.tracks:\n"
-        "        # Don't raise error if we past max titles",
-        '    for track in job.tracks.filter_by(source="HandBrake"):  # _arm_source_patch d14-encode\n'
-        "        # Don't raise error if we past max titles",
+        (
+            "    for track in job.tracks:\n"
+            "        # Don't raise error if we past max titles"
+        ),
+        (
+            '    for track in job.tracks.filter_by(source="HandBrake"):  '
+            "# _arm_source_patch d14-encode\n"
+            "        # Don't raise error if we past max titles"
+        ),
     ),
     (
         # The series branch moves each track by its filename. With d14-encode in
@@ -60,11 +73,14 @@ EDITS = [
         "d14-move-series",
         f"{RIPPER}/arm_ripper.py",
         '    if job.video_type == "series":\n        for track in tracks:\n',
-        '    if job.video_type == "series":\n'
-        "        # _arm_source_patch d14-move-series: only HandBrake's tracks name files it wrote\n"
-        '        if tracks.filter_by(source="HandBrake").count():\n'
-        '            tracks = tracks.filter_by(source="HandBrake")\n'
-        "        for track in tracks:\n",
+        (
+            '    if job.video_type == "series":\n'
+            "        # _arm_source_patch d14-move-series: only HandBrake's tracks "
+            "name files it wrote\n"
+            '        if tracks.filter_by(source="HandBrake").count():\n'
+            '            tracks = tracks.filter_by(source="HandBrake")\n'
+            "        for track in tracks:\n"
+        ),
     ),
     (
         # ARM backs up the whole disc only for a Blu-ray, and a DVD's raw copy
@@ -73,20 +89,28 @@ EDITS = [
         # short. See todos/disc-ripping.md, phase 2c, D16 and D17.
         "whole-disc-route",
         f"{RIPPER}/makemkv.py",
-        '    logging.info(f"Processing files to: {rawpath}")\n'
-        "    # Rip BluRay\n"
-        '    if (job.config.RIPMETHOD in ("backup", "backup_dvd")) and job.disctype == "bluray":\n'
-        "        makemkv_backup(job, rawpath)\n"
-        "    # Rip BluRay or DVD\n",
-        '    logging.info(f"Processing files to: {rawpath}")\n'
-        "    # _arm_source_patch whole-disc-route: stamp the folder, back up a DVD whole, check the backup\n"
-        "    _arm_write_stamp(job, rawpath)\n"
-        "    # Rip BluRay\n"
-        '    if (job.config.RIPMETHOD in ("backup", "backup_dvd")) and job.disctype == "bluray":\n'
-        "        _arm_record_check(job, rawpath, _arm_backup(job, rawpath) + _arm_bluray_problems(rawpath))\n"
-        '    elif job.config.RIPMETHOD == "backup_dvd" and job.disctype == "dvd":\n'
-        "        rawpath = _arm_backup_dvd(job, rawpath)\n"
-        "    # Rip BluRay or DVD\n",
+        (
+            '    logging.info(f"Processing files to: {rawpath}")\n'
+            "    # Rip BluRay\n"
+            '    if (job.config.RIPMETHOD in ("backup", "backup_dvd")) and '
+            'job.disctype == "bluray":\n'
+            "        makemkv_backup(job, rawpath)\n"
+            "    # Rip BluRay or DVD\n"
+        ),
+        (
+            '    logging.info(f"Processing files to: {rawpath}")\n'
+            "    # _arm_source_patch whole-disc-route: stamp the folder, back up a "
+            "DVD whole, check the backup\n"
+            "    _arm_write_stamp(job, rawpath)\n"
+            "    # Rip BluRay\n"
+            '    if (job.config.RIPMETHOD in ("backup", "backup_dvd")) and '
+            'job.disctype == "bluray":\n'
+            "        _arm_record_check(job, rawpath, _arm_backup(job, rawpath) + "
+            "_arm_bluray_problems(rawpath))\n"
+            '    elif job.config.RIPMETHOD == "backup_dvd" and job.disctype == "dvd":\n'
+            "        rawpath = _arm_backup_dvd(job, rawpath)\n"
+            "    # Rip BluRay or DVD\n"
+        ),
     ),
     (
         # HandBrake otherwise encodes every title over MINLENGTH, a disc's
@@ -96,14 +120,19 @@ EDITS = [
         # whose marker would read as applied wherever the text appeared.
         "duplicate-titles-scan",
         f"{RIPPER}/handbrake.py",
-        "    get_track_info(srcpath, job)\n"
-        "\n"
-        '    logging.debug(f"Total number of tracks is {job.no_of_titles}")\n',
-        "    get_track_info(srcpath, job)\n"
-        "    # _arm_source_patch duplicate-titles-scan: titles the kept ones already play\n"
-        "    duplicates = _arm_duplicate_titles(srcpath, job)\n"
-        "\n"
-        '    logging.debug(f"Total number of tracks is {job.no_of_titles}")\n',
+        (
+            "    get_track_info(srcpath, job)\n"
+            "\n"
+            '    logging.debug(f"Total number of tracks is {job.no_of_titles}")\n'
+        ),
+        (
+            "    get_track_info(srcpath, job)\n"
+            "    # _arm_source_patch duplicate-titles-scan: titles the kept ones "
+            "already play\n"
+            "    duplicates = _arm_duplicate_titles(srcpath, job)\n"
+            "\n"
+            '    logging.debug(f"Total number of tracks is {job.no_of_titles}")\n'
+        ),
     ),
     (
         # A movie's main feature keeps its title_N name instead of taking the
@@ -115,51 +144,58 @@ EDITS = [
         # largest file, come through here.
         "keep-main-feature-name",
         f"{RIPPER}/utils.py",
-        "    if is_main_feature:\n"
-        '        movie_file = os.path.join(movie_path, video_title + "." + job.config.DEST_EXT)\n',
-        "    if is_main_feature:\n"
-        "        # _arm_source_patch keep-main-feature-name: the film is identified downstream\n"
-        "        movie_file = os.path.join(movie_path, filename)\n",
+        (
+            "    if is_main_feature:\n"
+            "        movie_file = os.path.join(movie_path, video_title + "
+            '"." + job.config.DEST_EXT)\n'
+        ),
+        (
+            "    if is_main_feature:\n"
+            "        # _arm_source_patch keep-main-feature-name: the film is "
+            "identified downstream\n"
+            "        movie_file = os.path.join(movie_path, filename)\n"
+        ),
     ),
     (
         "duplicate-titles-skip",
         f"{RIPPER}/handbrake.py",
-        "            continue\n"
-        '        if track.length < int(cfg.arm_config["MINLENGTH"]):\n'
-        "            # too short\n",
-        "            continue\n"
-        "        # _arm_source_patch duplicate-titles-skip\n"
-        "        if int(track.track_number) in duplicates:\n"
-        '            logging.info(f"Track #{track.track_number} of {job.no_of_titles}. "\n'
-        '                         f"It {duplicates[int(track.track_number)]}. Skipping...")\n'
-        '        elif track.length < int(cfg.arm_config["MINLENGTH"]):\n'
-        "            # too short\n",
+        (
+            "            continue\n"
+            '        if track.length < int(cfg.arm_config["MINLENGTH"]):\n'
+            "            # too short\n"
+        ),
+        (
+            "            continue\n"
+            "        # _arm_source_patch duplicate-titles-skip\n"
+            "        if int(track.track_number) in duplicates:\n"
+            '            logging.info(f"Track #{track.track_number} of '
+            '{job.no_of_titles}. "\n'
+            '                         f"It {duplicates[int(track.track_number)]}. '
+            'Skipping...")\n'
+            '        elif track.length < int(cfg.arm_config["MINLENGTH"]):\n'
+            "            # too short\n"
+        ),
     ),
 ]
 
 
-def log(message):
-    with open(ARMLOG, "a") as f:
-        f.write(
-            f"{datetime.datetime.now(datetime.timezone.utc):%a %b %d %H:%M:%S UTC %Y} [ARM] source-patches: {message}\n"
-        )
+def log(message: str) -> None:
+    """Append a line to arm.log, stamped as ARM stamps its own."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    with Path(ARMLOG).open("a") as f:
+        f.write(f"{now:%a %b %d %H:%M:%S UTC %Y} [ARM] source-patches: {message}\n")
 
 
 failed = False
 for name, path, code in APPENDS:
-    with open(path) as f:
-        source = f.read()
-    if f"_arm_source_patch {name}" in source:
+    if f"_arm_source_patch {name}" in Path(path).read_text():
         continue
-    with open(code) as f:
-        addition = f.read()
-    with open(path, "a") as f:
-        f.write(f"\n\n{addition}")
+    with Path(path).open("a") as f:
+        f.write(f"\n\n{Path(code).read_text()}")
     log(f"applied {name} to {path}")
 
 for name, path, old, new in EDITS:
-    with open(path) as f:
-        source = f.read()
+    source = Path(path).read_text()
     if f"_arm_source_patch {name}" in source:
         continue
     count = source.count(old)
@@ -169,8 +205,7 @@ for name, path, old, new in EDITS:
         )
         failed = True
         continue
-    with open(path, "w") as f:
-        f.write(source.replace(old, new))
+    Path(path).write_text(source.replace(old, new))
     log(f"applied {name} to {path}")
 
 sys.exit(1 if failed else 0)

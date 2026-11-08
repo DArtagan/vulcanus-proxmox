@@ -116,7 +116,7 @@ class Decision(unittest.TestCase):
         self.ns = load()
 
     def decide(self, titles: dict, *, series: bool) -> tuple[dict, list]:
-        skip, wholes = self.ns["_arm_duplicates"](titles, series)
+        skip, wholes = self.ns["_arm_duplicates"](titles, series=series)
         kept = [t["segments"] for n, t in titles.items() if n not in skip]
         units = self.ns["_arm_units"]
         for number in skip:
@@ -638,8 +638,9 @@ def continuous(*clips: str, stills: tuple[str, ...] = ()) -> object:
     following = dict(itertools.pairwise(clips))
     calls = []
 
-    def frame(*args: object) -> bytes:
-        _, clip, _, last, _ = args
+    def frame(
+        _srcpath: str, clip: str, _time: int, _cache: dict, *, last: bool
+    ) -> bytes:
         calls.append(clip)
         if clip in stills:
             return picture(clip)
@@ -759,7 +760,7 @@ class Orders(unittest.TestCase):
         self.assertEqual((skip, seen["asked"]), ({}, []))
 
     def test_joins_that_cannot_be_compared_keep_the_first(self) -> None:
-        def unreadable(*_: object) -> bytes:
+        def unreadable(*_: object, **__: object) -> bytes:
             raise ValueError
 
         self.ns["_arm_frame"] = unreadable
@@ -816,7 +817,7 @@ class Frames(unittest.TestCase):
 
     def frame(self, at: float, *, last: bool) -> bytes:
         time = int((600 + at) * TICK)
-        return self.ns["_arm_frame"](str(self.raw), "00101", time, last, {})
+        return self.ns["_arm_frame"](str(self.raw), "00101", time, {}, last=last)
 
     def test_the_last_frame_before_a_join(self) -> None:
         self.fake.outputs["ffmpeg"] = picture(1) + picture(2)
@@ -857,7 +858,7 @@ class Frames(unittest.TestCase):
 
     def still(self, frames: list[bytes]) -> bool:
         reads = iter(frames)
-        self.ns["_arm_frame"] = lambda *_: next(reads)
+        self.ns["_arm_frame"] = lambda *_, **__: next(reads)
         return self.ns["_arm_still"]("/raw", ("00107", 0, 60 * TICK, 60.0), {})
 
     def test_one_picture_throughout_is_still(self) -> None:
@@ -867,7 +868,7 @@ class Frames(unittest.TestCase):
         self.assertFalse(self.still([picture(1)] * 4 + [picture(2)]))
 
     def test_a_piece_that_cannot_be_read_is_not(self) -> None:
-        def unreadable(*_: object) -> bytes:
+        def unreadable(*_: object, **__: object) -> bytes:
             raise ValueError
 
         self.ns["_arm_frame"] = unreadable

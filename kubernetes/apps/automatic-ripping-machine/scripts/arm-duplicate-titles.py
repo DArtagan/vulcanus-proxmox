@@ -1,16 +1,24 @@
 # --- _arm_source_patch duplicate-titles-code, appended by arm-source-patches.py -
-# A title is not transcoded when the titles that are kept already play it: a
-# TV disc's play-all, a bonus disc's play-all of its featurettes, a film with
-# featurettes cut into it. Titles are compared by what they play from the
-# disc, a Blu-ray playlist's clip times or a DVD title's cell sectors, never by
-# length alone. Appended to handbrake.py, whose os, logging, subprocess, cfg,
-# db and utils it uses as module globals.
-import ast as _arm_ast  # noqa: E402
-import json as _arm_json  # noqa: E402
-import struct as _arm_struct  # noqa: E402
+"""Titles the kept titles already play, which are not transcoded.
 
+A title is not transcoded when the titles that are kept already play it: a
+TV disc's play-all, a bonus disc's play-all of its featurettes, a film with
+featurettes cut into it. Titles are compared by what they play from the
+disc, a Blu-ray playlist's clip times or a DVD title's cell sectors, never by
+length alone. Appended to handbrake.py, whose os, logging, subprocess, cfg,
+db and utils it uses as module globals.
+"""
+
+import ast as _arm_ast
+import collections.abc as _arm_abc
+import itertools as _arm_itertools
+import json as _arm_json
+import pathlib as _arm_pathlib
+import struct as _arm_struct
 
 _ARM_BD_TICK = 45000
+# A whole is played by at least this many parts.
+_ARM_MIN_PARTS = 2
 # A part is inside a whole when this much of it is. Parts of one whole overlap
 # each other by less than _ARM_PARTS_OVERLAP: a DVD's episodes can share a
 # closing cell, which its play-all leaves out.
@@ -36,7 +44,7 @@ _ARM_FRAME = (64, 36)
 _ARM_STILL = 0.01
 
 
-def _arm_duplicate_titles(srcpath, job):
+def _arm_duplicate_titles(srcpath: str, job: "Job") -> dict[int, str]:
     # HandBrake's numbers for the titles not to transcode, each with the reason.
     if job.disctype not in ("bluray", "dvd"):
         return {}
@@ -55,7 +63,7 @@ def _arm_duplicate_titles(srcpath, job):
         # A Blu-ray is scanned whatever its count, as the scan is its title map.
         if job.disctype == "bluray":
             titles = _arm_bluray_titles(srcpath, tracks)
-        elif len(tracks) >= 3:
+        elif len(tracks) > _ARM_MIN_PARTS:
             titles = _arm_dvd_titles(raw, tracks)
         skip, orders = _arm_orders(
             srcpath if job.disctype == "bluray" else None, titles
@@ -64,54 +72,77 @@ def _arm_duplicate_titles(srcpath, job):
             number: title for number, title in titles.items() if number not in skip
         }
         # A whole and two parts, or nothing to compare.
-        if len(remaining) >= 3:
-            repeats, wholes = _arm_duplicates(remaining, series)
+        if len(remaining) > _ARM_MIN_PARTS:
+            repeats, wholes = _arm_duplicates(remaining, series=series)
             skip.update(repeats)
     except Exception as error:  # noqa: BLE001
         # Skipping is an economy. Whatever it trips on costs encoding time,
         # never the job.
         logging.warning(
-            f"Transcoding every title, as the disc's structure cannot be read: {error!r}"
+            "Transcoding every title, as the disc's structure cannot be read: %r",
+            error,
         )
         return {}
 
     for number, reason in sorted(skip.items()):
-        logging.info(f"Title {number} is not transcoded: it {reason}")
+        logging.info("Title %s is not transcoded: it %s", number, reason)
     _arm_move_main_feature(tracks, skip)
     _arm_record_scan(raw, titles, skip, wholes, orders)
+    _arm_notify(job, titles, skip, wholes, orders)
+    return skip
+
+
+def _arm_notify(
+    job: "Job",
+    titles: dict[int, dict],
+    skip: dict[int, str],
+    wholes: list[dict],
+    orders: list[dict],
+) -> None:
+    # What a person should check: each choice among shuffles, and on a movie
+    # disc a title skipped as interleaved, which an extended cut can resemble.
     for order in orders:
         playlist = titles[order["title"]]["source"]["playlist"]
         if order["mismatch"] is None:
             choice = (
                 "Their joins could not be compared, so title "
-                f"{order['title']} ({playlist}) is transcoded and is likely out of order."
+                f"{order['title']} ({playlist}) is transcoded and is likely out "
+                "of order."
             )
         else:
             runner_up = order["runner_up"]
             choice = (
-                f"Title {order['title']} ({playlist}) is transcoded, as its joins match best: "
-                f"{order['mismatch']:.2f}, against {runner_up['mismatch']:.2f} for title {runner_up['title']}."
+                f"Title {order['title']} ({playlist}) is transcoded, as its joins "
+                f"match best: {order['mismatch']:.2f}, against "
+                f"{runner_up['mismatch']:.2f} for title {runner_up['title']}."
             )
         utils.notify(
             job,
             utils.NOTIFY_TITLE,
-            f"{job.title}: {order['titles']} titles play the same clips in different orders. {choice} "
-            "If it plays out of order, transcode another by hand from the raw copy.",
+            f"{job.title}: {order['titles']} titles play the same clips in different "
+            f"orders. {choice} If it plays out of order, transcode another by hand "
+            "from the raw copy.",
         )
     for whole in wholes:
         # A series' play-all can open on a recap its episodes share, which
         # reads as interleaved and is no film.
-        if whole["interleaved"] and whole["title"] in skip and not series:
+        if (
+            whole["interleaved"]
+            and whole["title"] in skip
+            and job.video_type != "series"
+        ):
             utils.notify(
                 job,
                 utils.NOTIFY_TITLE,
-                f"{job.title}: title {whole['title']} is not transcoded, as it {skip[whole['title']]}. "
-                "If it is an extended cut of the film, transcode it by hand from the raw copy.",
+                f"{job.title}: title {whole['title']} is not transcoded, as it "
+                f"{skip[whole['title']]}. If it is an extended cut of the film, "
+                "transcode it by hand from the raw copy.",
             )
-    return skip
 
 
-def _arm_orders(srcpath, titles):
+def _arm_orders(
+    srcpath: str | None, titles: dict[int, dict]
+) -> tuple[dict[int, str], list[dict]]:
     # One title of each group that plays the same clips: playlist obfuscation
     # offers an episode or a film as hundreds of playlists of its clips in
     # different orders, only one of them in order. Kept is the first, when they
@@ -138,7 +169,7 @@ def _arm_orders(srcpath, titles):
                 }
             except (OSError, ValueError, subprocess.SubprocessError) as error:
                 logging.warning(
-                    f"The joins of titles {group} cannot be compared: {error!r}"
+                    "The joins of titles %s cannot be compared: %r", group, error
                 )
             ranked = (
                 sorted(group, key=lambda number: (mismatch[number], number))
@@ -175,13 +206,15 @@ def _arm_orders(srcpath, titles):
     return skip, orders
 
 
-def _arm_same_content(titles, still=None):
+def _arm_same_content(
+    titles: dict[int, dict], still: _arm_abc.Callable[[tuple], bool] | None = None
+) -> list[list[int]]:
     # Groups of two or more titles, each playing all but 1% of each other. With
     # `still`, what one title inside another plays beyond it counts as played
     # when every piece of it is a still picture.
     units = {number: _arm_units(title["segments"]) for number, title in titles.items()}
 
-    def plays(number, other):
+    def plays(number: int, other: int) -> bool:
         segments = titles[number]["segments"]
         covered = _arm_covered(segments, [titles[other]["segments"]])
         if covered >= _ARM_COVERED * units[number]:
@@ -203,23 +236,25 @@ def _arm_same_content(titles, still=None):
     return [group for group in groups if len(group) > 1]
 
 
-def _arm_mismatch(srcpath, segments, cache):
+def _arm_mismatch(srcpath: str, segments: list[tuple], cache: dict) -> float:
     # 1 - SSIM between the last frame before each join and the first after it,
     # summed. In order, a join cuts within a shot and scores near 0; out of
     # order nearly every join is a jump. A join on a cut between shots is a
     # jump either way, which is why the sum decides and no one join does.
     total = 0.0
-    for (clip, _, end, _), (following, start, _, _) in zip(segments, segments[1:]):
-        pair = ((clip, end, True), (following, start, False))
+    for (clip, _, end, _), (following, start, _, _) in _arm_itertools.pairwise(
+        segments
+    ):
+        pair = ("join", clip, end, following, start)
         if pair not in cache:
-            cache[pair] = 1 - _arm_ssim(
-                *(_arm_frame(srcpath, *frame, cache) for frame in pair)
-            )
+            before = _arm_frame(srcpath, clip, end, cache, last=True)
+            after = _arm_frame(srcpath, following, start, cache, last=False)
+            cache[pair] = 1 - _arm_ssim(before, after)
         total += cache[pair]
     return total
 
 
-def _arm_frame(srcpath, clip, time, last, cache):
+def _arm_frame(srcpath: str, clip: str, time: int, cache: dict, *, last: bool) -> bytes:
     # A clip's frame at `time`, in the ticks its play items count: the last
     # before it, or the first from it. ffmpeg is named, not taken from
     # FFMPEG_LOCAL, whose default "FFMPEG" is no binary.
@@ -255,12 +290,13 @@ def _arm_frame(srcpath, clip, time, last, cache):
             check=True,
         ).stdout
         if len(picture) < width * height:
-            raise ValueError(f"{stream} has no frame at {at:.3f}s")
+            message = f"{stream} has no frame at {at:.3f}s"
+            raise ValueError(message)
         cache[key] = picture[-width * height :] if last else picture[: width * height]
     return cache[key]
 
 
-def _arm_still(srcpath, piece, cache):
+def _arm_still(srcpath: str, piece: tuple, cache: dict) -> bool:
     # Whether a piece of a clip shows one picture throughout: its frames at its
     # quarters and its end all match its first. One that can't be read is not,
     # so the title holding it is kept.
@@ -268,40 +304,45 @@ def _arm_still(srcpath, piece, cache):
     key = ("still", clip, start, end)
     if key not in cache:
         try:
-            first = _arm_frame(srcpath, clip, start, False, cache)
+            first = _arm_frame(srcpath, clip, start, cache, last=False)
             samples = [
-                _arm_frame(srcpath, clip, start + (end - start) * k // 4, False, cache)
+                _arm_frame(
+                    srcpath, clip, start + (end - start) * k // 4, cache, last=False
+                )
                 for k in (1, 2, 3)
             ]
-            samples.append(_arm_frame(srcpath, clip, end, True, cache))
+            samples.append(_arm_frame(srcpath, clip, end, cache, last=True))
             cache[key] = all(
                 1 - _arm_ssim(first, sample) < _ARM_STILL for sample in samples
             )
         except (OSError, ValueError, subprocess.SubprocessError) as error:
             logging.warning(
-                f"Taking clip {clip} for moving pictures, as its frames cannot be read: {error!r}"
+                "Taking clip %s for moving pictures, as its frames cannot be read: %r",
+                clip,
+                error,
             )
             cache[key] = False
     return cache[key]
 
 
-def _arm_clip_start(srcpath, clip, cache):
+def _arm_clip_start(srcpath: str, clip: str, cache: dict) -> int:
     # When a clip's first frame is presented, which its play items' times count
     # from: the presentation start of its CLIPINF's only STC sequence.
     if clip not in cache:
         path = os.path.join(srcpath, "BDMV", "CLIPINF", f"{clip}.clpi")
-        with open(path, "rb") as f:
-            data = f.read()
+        data = _arm_pathlib.Path(path).read_bytes()
         if data[:4] != b"HDMV":
-            raise ValueError(f"{path} is not clip information")
+            message = f"{path} is not clip information"
+            raise ValueError(message)
         sequences = _arm_struct.unpack_from(">I", data, 8)[0]
         if data[sequences + 5] != 1 or data[sequences + 10] != 1:
-            raise ValueError(f"{path} has more than one time base")
+            message = f"{path} has more than one time base"
+            raise ValueError(message)
         cache[clip] = _arm_struct.unpack_from(">I", data, sequences + 18)[0]
     return cache[clip]
 
 
-def _arm_ssim(first, second):
+def _arm_ssim(first: bytes, second: bytes) -> float:
     # Structural similarity of two frames: the mean over 8x8 windows half a
     # window apart, with SSIM's constants for 8-bit samples.
     width, height = _ARM_FRAME
@@ -318,7 +359,7 @@ def _arm_ssim(first, second):
             mx, my = sum(xs) / 64, sum(ys) / 64
             vx = sum((x - mx) ** 2 for x in xs) / 63
             vy = sum((y - my) ** 2 for y in ys) / 63
-            cov = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / 63
+            cov = sum((x - mx) * (y - my) for x, y in zip(xs, ys, strict=True)) / 63
             scores.append(
                 ((2 * mx * my + c1) * (2 * cov + c2))
                 / ((mx * mx + my * my + c1) * (vx + vy + c2))
@@ -326,7 +367,9 @@ def _arm_ssim(first, second):
     return sum(scores) / len(scores)
 
 
-def _arm_duplicates(titles, series):
+def _arm_duplicates(
+    titles: dict[int, dict], *, series: bool
+) -> tuple[dict[int, str], list[dict]]:
     # A whole is a title that two or more others, each inside it and none
     # overlapping another, play between them. A series keeps the parts, since
     # each episode is an item of its own in the library. Otherwise the whole is
@@ -337,70 +380,97 @@ def _arm_duplicates(titles, series):
     units = {number: _arm_units(title["segments"]) for number, title in titles.items()}
     titles = {number: title for number, title in titles.items() if units[number]}
 
-    def inside(part, whole):
-        return (
-            _arm_covered(titles[part]["segments"], [titles[whole]["segments"]])
-            / units[part]
-        )
-
     wholes = []
     for whole in sorted(titles, key=lambda number: (-units[number], number)):
-        parts = []
-        for part in sorted(titles, key=lambda number: (-units[number], number)):
-            # A part playing the whole is the whole again: taken as a part, it
-            # would overlap every real one and leave the whole with none.
-            if (
-                part == whole
-                or inside(part, whole) < _ARM_PART_INSIDE
-                or inside(whole, part) >= _ARM_COVERED
-            ):
-                continue
-            if all(
-                _arm_covered(titles[part]["segments"], [titles[other]["segments"]])
-                < _ARM_PARTS_OVERLAP * units[part]
-                for other in parts
-            ):
-                parts.append(part)
-        if len(parts) < 2:
+        parts = _arm_parts(titles, units, whole)
+        if len(parts) < _ARM_MIN_PARTS:
             continue
         played = _arm_covered(
             titles[whole]["segments"], [titles[part]["segments"] for part in parts]
         )
-        if played < _ARM_COVERED * units[whole]:
+        if played >= _ARM_COVERED * units[whole]:
+            wholes.append(_arm_whole(titles, whole, parts, series=series))
+
+    skip = _arm_whole_skips(titles, units, wholes)
+    _arm_unskip(titles, units, skip)
+    for whole in wholes:
+        del whole["keep_whole"]
+        if whole["title"] in skip:
+            whole["kept"] = "parts"
+        elif all(part["title"] in skip for part in whole["parts"]):
+            whole["kept"] = "whole"
+        else:
+            whole["kept"] = "both"
+    return skip, wholes
+
+
+def _arm_inside(
+    titles: dict[int, dict], units: dict[int, float], part: int, whole: int
+) -> float:
+    # How much of `part` the title `whole` plays.
+    covered = _arm_covered(titles[part]["segments"], [titles[whole]["segments"]])
+    return covered / units[part]
+
+
+def _arm_parts(
+    titles: dict[int, dict], units: dict[int, float], whole: int
+) -> list[int]:
+    # The titles inside `whole`, longest first, each overlapping none before it.
+    parts = []
+    for part in sorted(titles, key=lambda number: (-units[number], number)):
+        # A part playing the whole is the whole again: taken as a part, it
+        # would overlap every real one and leave the whole with none.
+        if (
+            part == whole
+            or _arm_inside(titles, units, part, whole) < _ARM_PART_INSIDE
+            or _arm_inside(titles, units, whole, part) >= _ARM_COVERED
+        ):
             continue
+        if all(
+            _arm_covered(titles[part]["segments"], [titles[other]["segments"]])
+            < _ARM_PARTS_OVERLAP * units[part]
+            for other in parts
+        ):
+            parts.append(part)
+    return parts
 
-        def place(part, parts=parts, whole=whole):
-            # By what only this part plays: featurettes sharing an intro, or
-            # episodes a recap, would otherwise all start where it does and
-            # read as interleaved.
-            others = [titles[other]["segments"] for other in parts if other != part]
-            own = _arm_own(titles[part]["segments"], others) or titles[part]["segments"]
-            return _arm_span(own, titles[whole]["segments"])
 
-        spans = sorted((place(part), part) for part in parts)
-        interleaved = any(
-            later[0][0] < earlier[0][1] - _ARM_JOIN
-            for earlier, later in zip(spans, spans[1:])
-        )
-        joined = all(
-            any(
-                abs(chapter - start) <= _ARM_JOIN
-                for chapter in titles[whole]["chapters"]
-            )
-            for (start, _), _ in spans[1:]
-        )
-        wholes.append(
-            {
-                "title": whole,
-                "parts": [
-                    {"title": part, "start": round(start, 3)}
-                    for (start, _), part in spans
-                ],
-                "interleaved": interleaved,
-                "keep_whole": not (series or interleaved or not joined),
-            }
-        )
+def _arm_whole(
+    titles: dict[int, dict], whole: int, parts: list[int], *, series: bool
+) -> dict:
+    # Where each part starts in `whole`, whether they interleave, and whether
+    # the whole is the one to keep.
+    def place(part: int) -> tuple:
+        # By what only this part plays: featurettes sharing an intro, or
+        # episodes a recap, would otherwise all start where it does and
+        # read as interleaved.
+        others = [titles[other]["segments"] for other in parts if other != part]
+        own = _arm_own(titles[part]["segments"], others) or titles[part]["segments"]
+        return _arm_span(own, titles[whole]["segments"])
 
+    spans = sorted((place(part), part) for part in parts)
+    interleaved = any(
+        later[0][0] < earlier[0][1] - _ARM_JOIN
+        for earlier, later in _arm_itertools.pairwise(spans)
+    )
+    joined = all(
+        any(abs(chapter - start) <= _ARM_JOIN for chapter in titles[whole]["chapters"])
+        for (start, _), _ in spans[1:]
+    )
+    return {
+        "title": whole,
+        "parts": [
+            {"title": part, "start": round(start, 3)} for (start, _), part in spans
+        ],
+        "interleaved": interleaved,
+        "keep_whole": not (series or interleaved or not joined),
+    }
+
+
+def _arm_whole_skips(
+    titles: dict[int, dict], units: dict[int, float], wholes: list[dict]
+) -> dict[int, str]:
+    # A whole kept skips the titles it plays; otherwise the whole is skipped.
     skip = {}
     for whole in wholes:
         number = whole["title"]
@@ -411,7 +481,7 @@ def _arm_duplicates(titles, series):
                 if (
                     other != number
                     and other not in skip
-                    and inside(other, number) >= _ARM_COVERED
+                    and _arm_inside(titles, units, other, number) >= _ARM_COVERED
                 ):
                     skip[other] = f"is played whole by title {number}"
         elif whole["interleaved"]:
@@ -420,7 +490,12 @@ def _arm_duplicates(titles, series):
         else:
             parts = ", ".join(str(part["title"]) for part in whole["parts"])
             skip[number] = f"plays titles {parts} in turn"
+    return skip
 
+
+def _arm_unskip(
+    titles: dict[int, dict], units: dict[int, float], skip: dict[int, str]
+) -> None:
     # Unskip until every skipped title is played by those kept.
     while True:
         kept = [
@@ -433,25 +508,15 @@ def _arm_duplicates(titles, series):
             < _ARM_COVERED * units[number]
         ]
         if not short:
-            break
+            return
         del skip[short[0]]
 
-    for whole in wholes:
-        del whole["keep_whole"]
-        if whole["title"] in skip:
-            whole["kept"] = "parts"
-        elif all(part["title"] in skip for part in whole["parts"]):
-            whole["kept"] = "whole"
-        else:
-            whole["kept"] = "both"
-    return skip, wholes
 
-
-def _arm_units(segments):
+def _arm_units(segments: list[tuple]) -> float:
     return sum(end - start for _, start, end, _ in segments)
 
 
-def _arm_covered(segments, others):
+def _arm_covered(segments: list[tuple], others: list[list[tuple]]) -> float:
     # How much of `segments` at least one of `others` also plays, in the
     # segments' own units: ticks of a clip, or sectors of a title set.
     total = 0
@@ -464,14 +529,14 @@ def _arm_covered(segments, others):
         )
         reached = start
         for span_start, span_end in spans:
-            span_start = max(span_start, reached)
-            if span_end > span_start:
-                total += span_end - span_start
+            begins = max(span_start, reached)
+            if span_end > begins:
+                total += span_end - begins
                 reached = span_end
     return total
 
 
-def _arm_own(segments, others):
+def _arm_own(segments: list[tuple], others: list[list[tuple]]) -> list[tuple]:
     # `segments` less whatever any of `others` also plays.
     own = []
     for source, start, end, seconds in segments:
@@ -483,7 +548,7 @@ def _arm_own(segments, others):
             if other_source == source
         )
         reached = start
-        for span_start, span_end in spans + [(end, end)]:
+        for span_start, span_end in [*spans, (end, end)]:
             if min(span_start, end) > reached:
                 own.append(
                     (
@@ -497,7 +562,7 @@ def _arm_own(segments, others):
     return own
 
 
-def _arm_span(part, whole):
+def _arm_span(part: list[tuple], whole: list[tuple]) -> tuple:
     # The first and last second of `whole` that plays any of `part`.
     first = last = None
     elapsed = 0.0
@@ -514,7 +579,7 @@ def _arm_span(part, whole):
     return first, last
 
 
-def _arm_bluray_titles(srcpath, tracks):
+def _arm_bluray_titles(srcpath: str, tracks: dict[int, "Track"]) -> dict[int, dict]:
     # HandBrake numbers only the playlists libbluray keeps, and its JSON scan
     # names each one's playlist. --min-duration leaves the numbering as ARM's
     # own scan has it and skips decoding previews of every short playlist,
@@ -555,13 +620,13 @@ def _arm_bluray_titles(srcpath, tracks):
     return titles
 
 
-def _arm_mpls(path):
+def _arm_mpls(path: str) -> tuple[list[tuple], list[float]]:
     # A playlist's play items, each a clip between two times, and its chapter
     # marks in seconds from the playlist's start.
-    with open(path, "rb") as f:
-        data = f.read()
+    data = _arm_pathlib.Path(path).read_bytes()
     if data[:4] != b"MPLS":
-        raise ValueError(f"{path} is not a playlist")
+        message = f"{path} is not a playlist"
+        raise ValueError(message)
     items_at, marks_at = _arm_struct.unpack_from(">II", data, 8)
     offset = items_at + 10
     segments, starts, elapsed = [], [], 0.0
@@ -584,15 +649,16 @@ def _arm_mpls(path):
     return segments, chapters
 
 
-def _arm_dvd_titles(raw, tracks):
+def _arm_dvd_titles(raw: str, tracks: dict[int, "Track"]) -> dict[int, dict]:
     # The stamp maps HandBrake's numbers to the DVD's own, and lsdvd reads each
     # of those titles' cells and chapters from the ISO. A cell's sectors count
     # within its title set, whose number, like the frame rate, only -v prints.
-    with open(os.path.join(raw, "arm-job.json")) as f:
-        mapped = _arm_json.load(f).get("title_map") or []
+    stamp = _arm_pathlib.Path(raw, "arm-job.json").read_text()
+    mapped = _arm_json.loads(stamp).get("title_map") or []
     images = [name for name in os.listdir(raw) if name.endswith(".iso")]
     if not mapped or len(images) != 1:
-        raise ValueError(f"{raw} has no title map, or not exactly one ISO")
+        message = f"{raw} has no title map, or not exactly one ISO"
+        raise ValueError(message)
     listing = subprocess.run(
         ["lsdvd", "-c", "-d", "-v", "-Oy", os.path.join(raw, images[0])],
         capture_output=True,
@@ -627,7 +693,7 @@ def _arm_dvd_titles(raw, tracks):
     return titles
 
 
-def _arm_move_main_feature(tracks, skip):
+def _arm_move_main_feature(tracks: dict[int, "Track"], skip: dict[int, str]) -> None:
     # A movie's transcodes are named from the HandBrake track marked as its main
     # feature, and a skipped title has no transcode to name.
     if not any(tracks[number].main_feature for number in skip):
@@ -639,18 +705,23 @@ def _arm_move_main_feature(tracks, skip):
     db.session.commit()
 
 
-def _arm_record_scan(raw, titles, skip, wholes, orders):
+def _arm_record_scan(
+    raw: str,
+    titles: dict[int, dict],
+    skip: dict[int, str],
+    wholes: list[dict],
+    orders: list[dict],
+) -> None:
     # The map from each whole to its parts, with where each part starts, is what
     # cuts a kept whole into its parts later.
     path = os.path.join(raw, "arm-job.json")
     try:
-        with open(path) as f:
-            stamp = _arm_json.load(f)
+        stamp = _arm_json.loads(_arm_pathlib.Path(path).read_text())
     except (OSError, ValueError) as error:
-        logging.warning(f"Not recording the skipped titles in {path}: {error}")
+        logging.warning("Not recording the skipped titles in %s: %s", path, error)
         return
 
-    def entry(number):
+    def entry(number: int) -> dict:
         return {"handbrake_title": number, **titles[number]["source"]}
 
     stamp["duplicates"] = {
@@ -692,7 +763,7 @@ def _arm_record_scan(raw, titles, skip, wholes, orders):
             {**titles[number]["source"], "handbrake_title": number}
             for number in sorted(titles)
         ]
-    with open(f"{path}.tmp", "w") as f:
+    with _arm_pathlib.Path(f"{path}.tmp").open("w") as f:
         _arm_json.dump(stamp, f, indent=2)
         f.write("\n")
     os.replace(f"{path}.tmp", path)
