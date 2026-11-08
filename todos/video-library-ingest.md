@@ -7,7 +7,7 @@
 > in its own repository (<https://github.com/DArtagan/reelbarrow>, checked out
 > at `~/repositories/reelbarrow`). Its `docs/design.md` is the design, and its
 > `todos/` holds the application work, one spec per step. This spec is the
-> vulcanus-proxmox half: ARM's manifest hook, reelbarrow's deployment, its
+> vulcanus-proxmox half: ARM's manifest exporter, reelbarrow's deployment, its
 > secrets and its alerts. Read `todos/video-library-ingest.md`, then
 > reelbarrow's `todos/README.md`, whose first spec is the next step.
 
@@ -23,8 +23,8 @@ reelbarrow's `todos/README.md` orders the work, and a spec still in its
 `todos/` is not done. Most steps are application work there alone. These also
 need work here:
 
-- **arm-manifest-hook**: the dispatcher and its wiring, under *ARM's manifest
-  hook*.
+- **arm-manifest-export**: the exporter's sidecar in ARM's pod, under *ARM's
+  manifest exporter*.
 - **movie-filing**: the switch, under *The switch to live filing*.
 - **metrics**: the alert rules, under *Alerting*.
 - **Each step that calls an outside service** adds its key to reelbarrow's
@@ -96,34 +96,42 @@ share is unknown until tested.
 
 ---
 
-## ARM's manifest hook
+## ARM's manifest exporter
 
-The one interface between ARM and reelbarrow. **The script that writes the
-manifests ships in reelbarrow** (decided 2026-10-19), so every user runs the
-same one: reelbarrow's `todos/arm-manifest-hook.md` builds it, along with its
-export mode for jobs 1–41. What the manifest carries is in reelbarrow's design,
-*The ARM manifest*.
+The one interface between ARM and reelbarrow. **What writes the manifests
+ships in reelbarrow** (decided 2026-10-19), so every user runs the same one:
+`reelbarrow export-manifests`, which reads `arm.db` read-only every 30 s and
+writes `job-<id>.json` for every job, plus `exporter.json` for liveness.
+reelbarrow's `docs/exporter.md` is its use; its `todos/arm-manifest-export.md`
+holds the checks that need it running. It replaced a `BASH_SCRIPT` hook
+(2026-11-08) because ARM sets a job's final status after its last
+notification, so no hook ever sees `success` or `fail`. Nothing here needs a
+dispatcher: `BASH_SCRIPT` stays `arm-audio-handoff.sh`.
 
-What stays here is wiring it into this ARM:
+What stays here is running it beside this ARM, from the first reelbarrow
+release that ships the command:
 
-1. **A dispatcher as `BASH_SCRIPT`.** The setting is single-valued and holds
-   `arm-audio-handoff.sh` today. The dispatcher calls that and reelbarrow's
-   hook, both with ARM's `$1` (title) and `$2` (body). It runs them as children,
-   so it must pass its own `$PPID`, the ripper's pid, to reelbarrow's hook in the
-   environment variable that spec names. Otherwise the hook sees the dispatcher
-   as its parent and selects no job.
-2. **reelbarrow's script in ARM's container**, by whichever route that spec
-   chooses (a copy pinned to a release, a release asset, or an init container).
-   It writes to `/root/video/manifests/`, which is
-   `import/automatic-ripping-machine/manifests/` on the share, where reelbarrow
-   looks by default.
-3. **The export for jobs 1–41**, run with reelbarrow's script against a copy of
-   `/root/db/arm.db`, since ARM is live.
+1. **A sidecar in ARM's pod**, reelbarrow's image, with
+   `reelbarrow export-manifests --db /root/db/arm.db --out /manifests`. Its tag
+   follows reelbarrow's `ImagePolicy`, so exporter and reader move together.
+2. **ARM's database read-only**: the `db` subpath of
+   `automatic-ripping-machine-pvc`. `PRAGMA journal_mode` reads `delete`
+   (2026-11-08), a rollback journal, which SQLite reads from a read-only mount.
+3. **Of the share, only the manifest directory**: the `video` volume's
+   `import/automatic-ripping-machine/manifests` subpath, which is where
+   reelbarrow looks by default. Create it first. The exporter refuses a missing
+   directory rather than write into the container.
+4. **uid 0.** `video-arm-pv` mounts as CIFS with `uid=0,gid=0` and 0755 modes
+   (read in ARM's pod, 2026-11-08), and the client enforces them, so no other
+   uid can write there. Run the sidecar as root with a read-only root
+   filesystem and every capability dropped. `arm.db` is `0:0` 0644 in a 0777
+   directory, readable by any uid.
+5. **No export for jobs 1–41.** The sidecar's first pass writes a manifest for
+   every job in the database.
 
-ARM's scripts are generated into a ConfigMap whose name hashes their contents,
-so a merged script change rolls ARM by itself and kills any job running: merge
-one while ARM is idle, and check it in the container, not in the ConfigMap.
-`docs/automatic-ripping-machine.md` gets the hook once it is in place.
+Adding the sidecar changes ARM's pod template, and the Deployment's `Recreate`
+strategy kills any job running: merge it while ARM is idle.
+`docs/automatic-ripping-machine.md` gets the sidecar once it is in place.
 
 ---
 
@@ -143,7 +151,7 @@ This half spans most of reelbarrow's steps, so expect several review cycles
 under this slug, closed at phase boundaries. See "A phased project spans several
 reviews" in `CLAUDE.md`. The spec retires once the case photo works. What stays
 true then goes into a `docs/reelbarrow.md`: how it is deployed, how it is turned
-on and off, and where manifests are written. The hook goes into
+on and off, and where manifests are written. The exporter's sidecar goes into
 `docs/automatic-ripping-machine.md`.
 
 ---
@@ -156,7 +164,5 @@ on and off, and where manifests are written. The hook goes into
 - [smb-charset-utf8.md](smb-charset-utf8.md): the share rejects filenames above
   U+00FF with `EIO`, and TMDB names contain them. reelbarrow folds to Latin-1
   until that lands.
-- [config-change-rollouts.md](config-change-rollouts.md): the hook is a `subPath`
-  mount.
 - [backups.md](backups.md): `media/video` is snapshotted and replicated, which
   is what makes deleting leftovers acceptable.
