@@ -57,8 +57,10 @@
 
     # restic reads the libraries through storage-read, so host gid 1200 passes
     # into the container unshifted and every other id keeps the default shift.
-    # It grants read only because the libraries give that group nothing more
-    # (nfs.yaml). nixos/hosts/restic-repository puts restic in the group.
+    # The container gets whatever that gid may do on the trees mounted into it,
+    # read-write mounts, so it stays read-only only while no mounted entry
+    # gives the group write; nfs.yaml holds the libraries to that.
+    # nixos/hosts/restic-repository puts restic in the group.
     #
     # Line by line, not blockinfile: Proxmox reads a config's # lines as the
     # container's description and moves them. Its API updates rewrite only the

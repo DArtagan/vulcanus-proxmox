@@ -254,35 +254,48 @@ List them again before starting, and do not start while ARM is ripping.
      admits only `piraeus`). Its log in the fileserver showed no connection
      to it from any desktop.
 
-   The order, so backups never lose access:
+   The order, so backups never lose access and the restic container never
+   gains write. The mapping gives it whatever host gid 1200 may do on the
+   trees mounted into it, read-write mounts since the provider has no
+   `ro=1`, and container root can take any gid in its namespace. Books was
+   2775/775, group-writable, so its group write goes before the mapping can
+   exist; photos and filesync held no gid-1200 entries on 2026-11-05.
    1. **Plan Terraform from the checkout that holds the state.** The root
       checkout's `terraform/terraform.tfstate` here is from 2026-02-04 and
       lacks container 108. Expected: no change to either container. The
       provider reads back as many mountpoints as are declared, so dropping
-      the fileserver's last one plans nothing and leaves it mounted; step 7
+      the fileserver's last one plans nothing and leaves it mounted; step 8
       removes it.
    2. **Deploy NixOS to the restic container.** Harmless alone: in-container
       gid 1200 still maps to host 101200, which owns nothing.
-   3. **`ansible-playbook zfs.yaml`**, then check `/etc/pve/lxc/108.conf` has
+   3. **Take group write off books**, before the idmap lines are written,
+      since any start of container 108 from then on applies them:
+      `find /rpool/storage/books -perm -g+w -exec chmod g-w {} +`, leaving
+      2755/0644. Done when `find /rpool/storage/books -perm -g+w` prints
+      nothing. Run the playbooks from this branch only until step 7: `main`'s
+      `nfs.yaml` still adds `ug+rw` and would put it back.
+   4. **`ansible-playbook zfs.yaml`**, then check `/etc/pve/lxc/108.conf` has
       all four `lxc.idmap` lines and nothing else changed: with some but not
       all, the container will not start.
-   4. **Restart container 108** away from 02:00 (the backup) and the 1st at
+   5. **Restart container 108** away from 02:00 (the backup) and the 1st at
       03:00 (the prune). Check inside: `id restic` lists 1200, and `ls -ln
       /mnt/storage/books` shows group 1200, not 65534. That proves the
-      mapping while the world-read bit still covers any mistake.
-   5. **Test the default ACL over NFS.** On the host, `mkdir` a probe
+      mapping while the world-read bit still covers any mistake. Also check
+      that a write from the container is refused: `touch
+      /mnt/storage/books/.probe` as root inside should fail with EACCES.
+   6. **Test the default ACL over NFS.** On the host, `mkdir` a probe
       directory in books owned 1100:1200 at 2750 with the default ACL above,
       then from a pod with bookdrop's security context write a file and a
       directory into it through a throwaway static PV, as in step 1 of
       *Applying it*. Expect 0640 and 2750 on the host; remove the probe. If
       it fails, give bookdrop, this repository's own image, a 027 umask, and
       let the ownership task correct anything else on its runs.
-   6. **`ansible-playbook nfs.yaml`**: books goes to 2750/0640 with default
+   7. **`ansible-playbook nfs.yaml`**: books goes to 2750/0640 with default
       ACLs. Then `systemctl start restic-backups-massfiles` in the container:
       done when it succeeds and the new snapshot holds as many files under
       books as the one before, which it can only read through the group.
       Stump keeps reading, as the owner over NFS.
-   7. **The fileserver:** run `fileserver.yaml` to drop `[books]`, then
+   8. **The fileserver:** run `fileserver.yaml` to drop `[books]`, then
       `pct set 105 --delete mp3`. Its pending changes already delete `mp4`
       and turn `mp3` from the retired borg mount into a second books mount;
       with `mp3` deleted too, its next restart leaves media, filesync and
