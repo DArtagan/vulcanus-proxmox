@@ -1,6 +1,6 @@
 """Tests for arm-duplicate-titles.py, which is appended to ARM's handbrake.py.
 
-Run with `python3 -m unittest discover tools/arm-source-patches`.
+Run with `python3 -m unittest discover -s .` from this directory.
 
 The decision is tested on titles built from segments, shaped after discs
 ripped here: a TV play-all, a bonus disc's documentary in parts, a film with
@@ -24,7 +24,7 @@ import types
 import unittest
 from pathlib import Path
 
-from test_patches import load_script
+from test_source_patches import load_script
 
 TICK = 45000
 

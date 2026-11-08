@@ -17,8 +17,14 @@ from pathlib import Path
 
 import stamps
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "arm-source-patches"))
-from test_patches import FakeMakeMKV, whole_disc, write_clip, write_iso
+sys.path.insert(
+    0,
+    str(
+        Path(__file__).resolve().parents[2]
+        / "kubernetes/apps/automatic-ripping-machine/scripts/tests"
+    ),
+)
+from test_source_patches import FakeMakeMKV, whole_disc, write_clip, write_iso
 
 DVD = {
     "schema": 1,

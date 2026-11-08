@@ -1,6 +1,6 @@
 """Tests for arm-title-charset.py, which makes ARM's output paths writable.
 
-Run with `python3 -m unittest discover tools/arm-source-patches`.
+Run with `python3 -m unittest discover -s .` from this directory.
 
 The fileserver runs Samba with `unix charset = ISO-8859-1`, so creating any file
 whose name contains a character above U+00FF fails with EIO on every share.
@@ -31,9 +31,7 @@ today, and `Mànran` already exists in the library under a Latin-1 name.
 import unittest
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-REPO = HERE.parent.parent
-SCRIPTS = REPO / "kubernetes" / "apps" / "automatic-ripping-machine" / "scripts"
+SCRIPTS = Path(__file__).resolve().parent.parent
 
 # Samba's `unix charset = ISO-8859-1` writes every code point below this.
 BEYOND_LATIN1 = 0x100

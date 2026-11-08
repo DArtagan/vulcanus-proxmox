@@ -184,8 +184,8 @@ current ring buffer and nothing older. Capture it while a failure is fresh.
   `arm-duplicate-titles.py` and `arm-title-charset.py` it appends
 - `kubernetes/apps/automatic-ripping-machine/api-keys` — SOPS; MakeMKV, OMDb and
   Pushover
-- `tools/arm-disc-wrapper/`, `tools/arm-audio-handoff/`,
-  `tools/arm-source-patches/` — tests for those scripts
+- `kubernetes/apps/automatic-ripping-machine/scripts/tests/` — tests for those
+  scripts
 - `kubernetes/infrastructure/prometheus-rules.yaml` — the `disc-ripping` group
 - `kubernetes/infrastructure/devices.yaml` — how the drive is advertised
 - `ansible/proxmoxer.yaml` — the host's udev rule and `optical-drive-ata-monitor`
@@ -537,7 +537,7 @@ HandBrake's input. HandBrake's folder scan counts every regular file at its top
 level as a title and skips subfolders (`libhb/batch.c`, `S_ISREG`). MakeMKV's
 track rows come from `info iso:`, not the drive, because D14's patches match on
 them. Both ISO runs pass `--noscan`. The tests are
-`tools/arm-source-patches/test_patches.py`.
+`scripts/tests/test_source_patches.py`.
 
 **Established without the drive** (2026-10-21, ARM's 2.24.4 image under podman
 locally, no devices, the month's beta key; scripts in

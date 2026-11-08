@@ -1,6 +1,6 @@
 """Tests for arm-source-patches.py and the code it appends to ARM's makemkv.py.
 
-Run with `python3 -m unittest discover tools/arm-source-patches`.
+Run with `python3 -m unittest discover -s .` from this directory.
 
 The patcher is run in a sandbox against stub modules holding the text each edit
 replaces. Whether that text still matches ARM's real source is a property of
@@ -26,9 +26,7 @@ import types
 import unittest
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-REPO = HERE.parent.parent
-SCRIPTS = REPO / "kubernetes" / "apps" / "automatic-ripping-machine" / "scripts"
+SCRIPTS = Path(__file__).resolve().parent.parent
 RIPPER = "/opt/arm/arm/ripper"
 ARM_LOG = "/home/arm/logs/arm.log"
 WHOLE_DISC_PY = "/usr/local/bin/arm-whole-disc.py"

@@ -1,11 +1,8 @@
 """Tests for arm-audio-handoff.sh, which moves a finished CD rip into the inbox.
 
-Run with `python3 -m unittest discover tools/arm-audio-handoff`.
+Run with `python3 -m unittest discover -s .` from this directory.
 
-Like the wrapper tests next door, the script under test lives in
-`kubernetes/apps/automatic-ripping-machine/scripts/`, from which the ConfigMap
-mounted into the pod is generated. These tests read it from there so there is
-one copy, and rewrite its absolute paths into a sandbox.
+The script runs with its absolute paths rewritten into a sandbox.
 
 Why the script exists at all: abcde encodes each track straight to its output
 directory, and beets-flask's watchdog enqueues an album 30s after it stops
@@ -34,9 +31,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-REPO = HERE.parent.parent
-SCRIPTS = REPO / "kubernetes" / "apps" / "automatic-ripping-machine" / "scripts"
+SCRIPTS = Path(__file__).resolve().parent.parent
 
 STAGING = "/home/arm/arm-incoming"
 INBOX = "/root/audio"

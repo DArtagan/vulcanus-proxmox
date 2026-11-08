@@ -1,12 +1,9 @@
 """Tests for arm-disc-wrapper.sh, the udev gatekeeper in front of ARM.
 
-Run with `python3 -m unittest discover tools/arm-disc-wrapper`.
+Run with `python3 -m unittest discover -s .` from this directory.
 
-The script under test is not a file in this directory — it lives in
-`kubernetes/apps/automatic-ripping-machine/scripts/`, from which the ConfigMap
-mounted into the pod is generated. These tests read it from there so there is
-exactly one copy of it, and exercise it with `python3`, `udevadm`
-and ARM's own entry point stubbed onto PATH.
+The script runs with `python3`, `udevadm` and ARM's own entry point stubbed
+onto PATH.
 
 What the script decides matters more than it looks. `Job.parse_udev()` derives
 `disctype` solely from the `ID_CDROM_MEDIA_*` udev properties, so invoking ARM
@@ -26,9 +23,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-REPO = HERE.parent.parent
-SCRIPTS = REPO / "kubernetes" / "apps" / "automatic-ripping-machine" / "scripts"
+SCRIPTS = Path(__file__).resolve().parent.parent
 
 # CDROM_DRIVE_STATUS values, from <linux/cdrom.h>.
 CDS_NO_INFO = "0"
