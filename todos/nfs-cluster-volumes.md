@@ -5,16 +5,20 @@
 > The cluster reaches the fileserver's shares over SMB through `csi-driver-smb`,
 > and one smbd process per node serves every pod on it, single-threaded. NFS
 > from the host measured 3–15x faster for directory walks and small-file
-> opens. Read `todos/nfs-cluster-volumes.md`. Phase 1 moves the books share,
-> with bookdrop and Stump on it, and its section below is where to start. *The
-> permission model* is the target every phase builds toward. Later phases wait
-> on `todos/smb-charset-utf8.md` for any consumer that stores paths, then move
-> the rest one PVC at a time.
+> opens. Read `todos/nfs-cluster-volumes.md` and `docs/shared-storage.md`.
+> Phase 1 moved the books share and is finished; *Suggested order* says what
+> comes next. *The permission model* is the target every phase builds toward.
+> Later phases wait on `todos/smb-charset-utf8.md` for any consumer that
+> stores paths, then move the rest one PVC at a time.
 
 Verified **2026-10-12/13**, phase 1 **2026-11-05**. Measurements are in
 [nfs-cluster-volumes.evidence.md](nfs-cluster-volumes.evidence.md).
 
 ## Phase 1: books, with bookdrop and Stump
+
+**Finished 2026-11-07**, reviewed in #29, #30 and #31. What it left
+permanently true is in `docs/shared-storage.md`; this section is the record
+of how it got there.
 
 The first share to move. bookdrop (`todos/bookdrop.md`) is the reason: it is
 the first writer into the books share, and on 2026-11-05 no write could land
@@ -333,10 +337,14 @@ List them again before starting, and do not start while ARM is ripping.
    - **Found on the way:** `/rpool/storage/filesync` itself is 777, the
      one world-writable entry across the three trees the restic container
      mounts, so the container could rename or delete filesync's top-level
-     entries. Everything that writes there is `piraeus`, its owner.
-5. Write what is then true into `docs/`: where exports are declared, the
-   identity and permission model, the `hard` mount behaviour under what to
-   do when it breaks.
+     entries. Everything that writes there is `piraeus`, its owner. Will
+     approved 755 the same day ("`syncthing` is effectively the only
+     directory currently used there") and the deletion of `resilio`, 17 GB
+     of Resilio Sync folders untouched since April 2022 that nothing
+     referenced; filesync's snapshots and restic snapshot `7ee582aa` hold it.
+5. **`docs/shared-storage.md`**, written 2026-11-07: where exports are
+   declared, the identities and library tier, how restic reads, and what to
+   do when a share hangs or a write is refused.
 
 Done when a file written by bookdrop through NFS lands as 1100:1200 with the
 group bit set, Stump lists the 18 books under their real names, an SMB write

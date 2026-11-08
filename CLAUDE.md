@@ -100,7 +100,7 @@ what carries the result.
    - MetalLB pool `192.168.0.201-210` — load balancer IPs
    - Nginx ingress at `192.168.0.203` — internal ingress for `*.immortalkeep.com`
 
-5. **Storage:** OpenEBS for Kubernetes PVCs, backed by a dedicated disk on each worker VM (`terraform/main.tf`: each worker module's `openebs_disk`). The fileserver LXC at `192.168.0.105` serves the media datasets over SMB, and the hypervisor exports those listed in `ansible/nfs.yaml` to the cluster over NFS.
+5. **Storage:** OpenEBS for Kubernetes PVCs, backed by a dedicated disk on each worker VM (`terraform/main.tf`: each worker module's `openebs_disk`). The fileserver LXC at `192.168.0.105` serves the media datasets over SMB, and the hypervisor exports those listed in `ansible/nfs.yaml` to the cluster over NFS; see `docs/shared-storage.md`.
 
 ### Kubernetes Directory Layout
 
