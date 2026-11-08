@@ -109,14 +109,15 @@ all of `rpool`, a second, unused key sits beside it, and as a `will@` node it ge
 every `will@` grant. syncoid needs SSH and four trees. Placed here only because
 it is new; it is small, and mini-nas is about to start running AI agents.
 
-**14. [transcode-cpu-contention.md](transcode-cpu-contention.md) — why transcodes slow worker-1's Go processes more**
-A HandBrake transcode saturates worker-1, and since 2026-11-01 the same load
-lifts generic-device-plugin's median GC pause to ~0.5ms, half its alert's
-threshold, where earlier transcodes left it at ~0.1ms. metallb and alloy on the
-same node go further. Nothing is broken yet, which is why it is last; the risk
-is a false `DevicePluginDegraded`, and a starved node for the others.
-
 ## Waiting on evidence
+
+**[transcode-cpu-contention.md](transcode-cpu-contention.md) — keep ARM's transcodes from slowing worker-1's other tenants**
+HandBrake spent its CPU quota across every core at once, so worker-1's other
+tenants waited behind it, and `NodeSystemSaturation` fired on every Blu-ray.
+ARM's jobs now run off CPU 0 with no CPU limit, SVT-AV1 is held at parallelism
+level 3, and worker-1 goes to 6 vCPUs. Pinning a running job cut the device
+plugin's CPU wait by 68%. The first Blu-ray afterwards decides whether the alert
+stops and what the extra vCPUs bought.
 
 **[generic-device-plugin-gomaxprocs.md](generic-device-plugin-gomaxprocs.md) — does the plugin still need its GOMAXPROCS pin?**
 The plugin's degradation was its memory limit, and the pin's demonstrated effect

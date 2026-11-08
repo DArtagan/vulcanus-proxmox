@@ -1233,6 +1233,13 @@ data:
     ## DESKTOP NOTI
 
     ## EMAIL NOTI
+
+  # VideoOptionExtra fixes SVT-AV1's level of parallelism at 3. Left unset, it
+  # sizes its threads and picture buffers from the machine's CPU count rather
+  # than the CPUs arm-disc-wrapper.sh lets HandBrake use, and from six it picks
+  # level 4, at which CRF encodes run extra mini-GOPs in parallel for much more
+  # memory. Level 3 is its own choice for three to five CPUs, and with it the
+  # container already peaks at 6.7Gi resident of its 8Gi limit.
   vulcanus-handbrake-preset.json: |
     {
         "PresetList": [
@@ -1360,7 +1367,7 @@ data:
                 "VideoHWDecode": 0,
                 "VideoLevel": "auto",
                 "VideoMultiPass": false,
-                "VideoOptionExtra": "",
+                "VideoOptionExtra": "lp=3",
                 "VideoPreset": "4",
                 "VideoProfile": "auto",
                 "VideoQSVDecode": false,

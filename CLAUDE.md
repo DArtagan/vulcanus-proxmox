@@ -89,7 +89,7 @@ what carries the result.
 2. **Talos Linux Kubernetes cluster** — provisioned by `terraform/modules/talos/`. Three nodes:
    - Control plane: `192.168.0.190` (`piraeus-control-plane-0`)
    - Worker 0: `192.168.0.195` (`piraeus-worker-0`) — primary workload node, 24 GiB RAM / 8 cores, 1 TB OpenEBS disk
-   - Worker 1: `192.168.0.196` (`piraeus-worker-1`) — secondary node, 16 GiB / 4 cores, 100 GB OpenEBS disk; hosts the physical optical-drive passthrough for `automatic-ripping-machine` (vmid 911 in Proxmox)
+   - Worker 1: `192.168.0.196` (`piraeus-worker-1`) — secondary node, 16 GiB / 6 cores, 100 GB OpenEBS disk; hosts the physical optical-drive passthrough for `automatic-ripping-machine` (vmid 911 in Proxmox)
 
    New nodes MUST be booted from a factory.talos.dev image that bundles the required extensions (see "Talos extensions required" below) — booting a new node from a stock ISO will leave it on a different Talos minor/patch version than the rest of the cluster, which can break Flannel VXLAN pod-to-pod traffic.
 
