@@ -8,7 +8,7 @@ metadata:
     k8up-dump: "true"
 spec:
   backupCommand: >-
-    sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT; sqlite3 "/data/db.sqlite" ".backup $f"; test -s "$f"; cat "$f"'
+    sh -c 'set -e; f=$(mktemp); trap "rm -f $f" EXIT; sqlite3 "/data/db.sqlite" ".backup $f"; test -s "$f"; cat "$f"; sleep 60'
   fileExtension: .headscale.sqlite
   pod:
     spec:

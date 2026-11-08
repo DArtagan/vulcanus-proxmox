@@ -209,7 +209,7 @@ torn mid-import.
 Every dump, by annotation or PreBackupPod, follows one shape:
 
 ```sh
-set -e; f=$(mktemp); trap "rm -f $f" EXIT; <dump> > "$f"; test -s "$f"; cat "$f"
+set -e; f=$(mktemp); trap "rm -f $f" EXIT; <dump> > "$f"; test -s "$f"; cat "$f"; sleep 60
 ```
 
 Each part closes off a failure that would otherwise pass unseen:
@@ -226,6 +226,15 @@ Each part closes off a failure that would otherwise pass unseen:
   `pg_dump` holds locks that block an application's migrations.
 - **`mktemp`, never a fixed path.** K8up can run two Backups at once, and with a
   shared path the second dump truncates the file the first is still streaming.
+- **`sleep 60` after the `cat`.** When an exec'd command exits, the streaming server
+  closes the connection at once, dropping output still buffered for a reader that
+  has not caught up:
+  [kubernetes#142376](https://github.com/kubernetes/kubernetes/issues/142376), in
+  the kubelet and containerd alike. restic reads only as fast as it chunks and
+  uploads, so without the sleep about one dump in forty arrives short, on a 4096-byte
+  boundary, while the Backup, K8up and restic all report success. The sleep keeps the
+  command alive until restic has drained the stream; 60 s is twice the slowest whole
+  read, salamander's at 28 s.
 
 Beyond the shape:
 
@@ -244,8 +253,9 @@ Beyond the shape:
   backup and restore documentation says which files those are: Plex restores its
   library and blobs databases as a pair, so each has a PreBackupPod.
 
-The cost is the dump sitting in the container's writable layer while it streams:
-about 200 MB at most.
+The cost is the dump sitting in the container's writable layer while it streams,
+about 200 MB at most, and a minute of sleep per dump, which a namespace's dumps
+serve one after another.
 
 ## Retention
 
@@ -407,14 +417,34 @@ volume. Otherwise it names the newest snapshot in the whole repository.
   application scaled to zero. Give it `podSecurityContext: {runAsUser: 0}` like the
   Schedules, or every restored file belongs to 65532. Or, on the repository host:
   `restic restore latest --host <ns> --path /data/<pvc> --target <dir>`.
-- **A relational dump:** `restic dump --host apps --path <path> latest <path>`, piped
-  into `mariadb`, or into `psql -v ON_ERROR_STOP=1`. The MariaDB dumps create their
+- **A relational dump:** `restic dump --host apps --path <path> latest <path>` into a
+  file, checked as below, then loaded into `mariadb`, or into
+  `psql -v ON_ERROR_STOP=1`. The MariaDB dumps create their
   own database; pinepods' needs `pinepods_database` created first, and `psql` 17.6
   or later for the `\restrict` lines `pg_dump` 18 writes.
 - **A SQLite dump:** the same `restic dump`, into a file. With the application scaled
   to zero, put the file in place and remove its `-wal` and `-shm`. Check it with
   `PRAGMA integrity_check` first; Plex's copy needs the `Plex SQLite` binary from its
   own image, for its `icu_root` collation.
+
+**Check a dump is whole before loading it**, by the coverage check's own tests. A
+dump can be saved short with every status reporting success, and a short SQL dump
+loads partially without complaint. A SQL dump ends in its completion marker:
+
+```bash
+tail -c 1024 <file> | grep -a -e '-- Dump completed on' -e '-- PostgreSQL database dump complete'
+```
+
+A SQLite copy is as long as its header says, page size times page count; the two
+numbers must match:
+
+```bash
+python3 -c 'import sys; h = open(sys.argv[1], "rb").read(100); p = int.from_bytes(h[16:18], "big"); print((65536 if p == 1 else p) * int.from_bytes(h[28:32], "big"))' <file>
+stat -c %s <file>
+```
+
+If it is short, restore the snapshot before it, by ID from `restic snapshots --host
+<ns> --path <path>`, and check that one too.
 
 **Count the bytes that arrive.** A stream piped into `kubectl exec -i` can end before
 the remote command has read it, leaving an empty file and every exit status 0 — and
