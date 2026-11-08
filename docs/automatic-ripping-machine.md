@@ -317,7 +317,7 @@ This enables guest kernel polling every 2 seconds when `sr0` is created at boot.
 
 ### The udev rule and wrapper script
 
-A udev rule mounted into the ARM container (`kubernetes/apps/automatic-ripping-machine/scripts/51-docker-arm.rules`) fires on block device change events:
+A udev rule mounted into the ARM container at `/etc/udev/rules.d/`, where it takes the place of upstream's rule of the same name (`kubernetes/apps/automatic-ripping-machine/scripts/51-docker-arm.rules`), fires on block device change events:
 
 ```
 ACTION=="change", SUBSYSTEM=="block", KERNEL=="sr[0-9]*", RUN+="/usr/local/bin/arm-disc-wrapper.sh %k"

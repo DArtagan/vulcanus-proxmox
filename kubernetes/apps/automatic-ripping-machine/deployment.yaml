@@ -73,7 +73,10 @@ spec:
             # 'config-data` is the properly parsed source, also mount the plain `config` volume so that the pod restarts when it's updated
             - mountPath: /tmp/config
               name: config
-            - mountPath: /lib/udev/rules.d/51-docker-arm.rules
+            # Taking the place of upstream's rule of the same name, as /etc's do.
+            # Not /lib/udev/rules.d: the image's file there is a symlink, which
+            # the mount would follow onto /opt/arm/setup, upstream's own copy.
+            - mountPath: /etc/udev/rules.d/51-docker-arm.rules
               name: init-scripts
               subPath: 51-docker-arm.rules
             - mountPath: /usr/local/bin/arm-disc-wrapper.sh
