@@ -14,6 +14,7 @@ Work that has not been done yet lives in [`todos/`](../todos/), not here.
 | [kubernetes.md](kubernetes.md) | Workload conventions: probes, config rollouts, backing up a new workload, chart automation, safe teardown |
 | [talos.md](talos.md) | Talos cluster operations and upgrades |
 | [disk_management.md](disk_management.md) | Storage layout and resizing |
+| [shared-storage.md](shared-storage.md) | The media, photos, filesync and books datasets: SMB for people, NFS for the cluster, the identities and library permissions, how restic reads them, what to do when a share hangs |
 | [backups.md](backups.md) | What protects what — ZFS, PBS, restic and K8up — retention, restoring, reporting, and how large a disk to buy |
 | [nixos.md](nixos.md) | NixOS hosts: the flake, colmena deploys, sops-nix secrets, and NixOS in a Proxmox container |
 | [logging.md](logging.md) | Alloy → OTLP → VictoriaLogs pipeline, field model, retention |

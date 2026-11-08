@@ -90,7 +90,9 @@ LXC 108, `restic-repository`: unprivileged NixOS, deployed with colmena (see
 [`nixos.md`](nixos.md)). The repository is the `rpool/backups/restic` dataset,
 bind-mounted at `/mnt/backups/restic`. The host serves it to the cluster as
 `rest-server --append-only` on port 8000, and runs its own restic jobs against the
-local path.
+local path. It reads `books` through the `storage-read` group, mapped into the
+container from the host, and `photos` and `filesync` through their world-read bit;
+see [shared-storage.md](shared-storage.md#how-restic-reads).
 
 **Nothing in the cluster can delete history.** rest-server refuses every delete but a
 lock's, so `forget` through the served URL returns `403 Forbidden`. Retention and
@@ -124,8 +126,8 @@ per namespace, and the coverage check are in `kubernetes/k8up/`.
 **Every PVC in a namespace with a Schedule is backed up**, `ReadWriteMany` included,
 unless the claim carries `k8up.io/backup: "false"`. Three kinds carry it:
 
-- **Every SMB share**, covered by ZFS replication and the repository host's own
-  backup. Their manifests carry the annotation without comment: this is the policy.
+- **Every claim on the shared datasets**, SMB or NFS, covered by ZFS replication
+  and the repository host's own backup. Their manifests carry the annotation without comment: this is the policy.
 - **A database's own data directory**, when that is all the claim holds: pinepods',
   photoprism's and salamander's. The dump is its backup.
 - **Regenerable state:** pinepods' Valkey cache, rclone's bisync state, and the

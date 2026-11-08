@@ -153,7 +153,8 @@ Then work down the list and take the first that fits:
    SOPS Secrets — needs nothing. If the application has no PVC, it is done.
 2. **Exclude the claim** with `k8up.io/backup: "false"` when its contents are
    regenerable: caches, metrics, logs, sync state that a resync rebuilds. Also for
-   every SMB share, which ZFS snapshots and replication cover instead. An exclusion
+   every claim on the shared datasets, SMB or NFS, which ZFS snapshots and
+   replication cover instead. An exclusion
    is a statement, not an omission; the coverage check lists them.
 3. **Dump the database** when one writes to the claim continuously: PostgreSQL,
    MariaDB, or SQLite in WAL mode or with steady writes. A volume copy of a running
