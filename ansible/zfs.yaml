@@ -55,6 +55,19 @@
         group: 100291
         state: directory
 
+    # The restic container mounts these read-write, sees them owned by nobody,
+    # and so can change any entry that is world-writable: filesync's top
+    # directory was 777, which let it rename or delete syncthing/. nfs.yaml
+    # holds the libraries tighter; a tree leaves this list when it joins
+    # nfs_exports.
+    - name: 'trees the restic container mounts: never world-writable'
+      shell: find {{ item | quote }} -perm -o+w ! -type l -print -exec chmod o-w {} +
+      loop:
+        - "/{{ zpool }}/storage/photos"
+        - "/{{ zpool }}/storage/filesync"
+      register: world_writable
+      changed_when: world_writable.stdout != ''
+
     # restic reads the libraries through storage-read, so host gid 1200 passes
     # into the container unshifted and every other id keeps the default shift.
     # The container gets whatever that gid may do on the trees mounted into it,
