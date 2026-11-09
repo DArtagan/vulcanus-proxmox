@@ -24,6 +24,7 @@ configMapGenerator:
       - scripts/arm-audio-handoff.sh
       - scripts/arm-title-charset.py
       - scripts/arm-source-patches.py
+      - scripts/arm-raw-copy.py
       - scripts/arm-whole-disc.py
       - scripts/arm-duplicate-titles.py
       - scripts/armui.sh

@@ -44,12 +44,28 @@ _ARM_FRAME = (64, 36)
 _ARM_STILL = 0.01
 
 
+# A str holds no nonempty __slots__, and played_by is each instance's own.
+class _ArmSkip(str):  # noqa: SLOT000
+    """Why a title isn't transcoded, and the title kept that plays it.
+
+    It reads as the reason wherever that is logged or notified. `played_by` is
+    set where no whole's parts say what plays the title.
+    """
+
+    played_by: int | None
+
+    # ARM's Python is 3.10, which has no typing.Self.
+    def __new__(cls, reason: str, played_by: int | None = None) -> "_ArmSkip":  # noqa: PYI034
+        skip = super().__new__(cls, reason)
+        skip.played_by = played_by
+        return skip
+
+
 def _arm_duplicate_titles(srcpath: str, job: "Job") -> dict[int, str]:
     # HandBrake's numbers for the titles not to transcode, each with the reason.
     if job.disctype not in ("bluray", "dvd"):
         return {}
     srcpath = os.path.normpath(srcpath)
-    raw = srcpath if job.disctype == "bluray" else os.path.dirname(srcpath)
     minimum = int(cfg.arm_config["MINLENGTH"])
     maximum = int(cfg.arm_config["MAXLENGTH"])
     tracks = {
@@ -64,7 +80,7 @@ def _arm_duplicate_titles(srcpath: str, job: "Job") -> dict[int, str]:
         if job.disctype == "bluray":
             titles = _arm_bluray_titles(srcpath, tracks)
         elif len(tracks) > _ARM_MIN_PARTS:
-            titles = _arm_dvd_titles(raw, tracks)
+            titles = _arm_dvd_titles(utils._arm_raw_copy(job), tracks)  # noqa: SLF001
         skip, orders = _arm_orders(
             srcpath if job.disctype == "bluray" else None, titles
         )
@@ -87,7 +103,7 @@ def _arm_duplicate_titles(srcpath: str, job: "Job") -> dict[int, str]:
     for number, reason in sorted(skip.items()):
         logging.info("Title %s is not transcoded: it %s", number, reason)
     _arm_move_main_feature(tracks, skip)
-    _arm_record_scan(raw, titles, skip, wholes, orders)
+    _arm_record_scan(job, titles, skip, wholes, orders)
     _arm_notify(job, titles, skip, wholes, orders)
     return skip
 
@@ -198,11 +214,15 @@ def _arm_orders(
             if _arm_units(extra) > (1 - _ARM_COVERED) * _arm_units(
                 titles[number]["segments"]
             ):
-                skip[number] = f"plays title {kept}'s clips and a still picture"
+                skip[number] = _ArmSkip(
+                    f"plays title {kept}'s clips and a still picture", kept
+                )
             elif order[number] == order[kept]:
-                skip[number] = f"is a copy of title {kept}"
+                skip[number] = _ArmSkip(f"is a copy of title {kept}", kept)
             else:
-                skip[number] = f"plays title {kept}'s clips out of order"
+                skip[number] = _ArmSkip(
+                    f"plays title {kept}'s clips out of order", kept
+                )
     return skip, orders
 
 
@@ -483,7 +503,7 @@ def _arm_whole_skips(
                     and other not in skip
                     and _arm_inside(titles, units, other, number) >= _ARM_COVERED
                 ):
-                    skip[other] = f"is played whole by title {number}"
+                    skip[other] = _ArmSkip(f"is played whole by title {number}", number)
         elif whole["interleaved"]:
             parts = " and ".join(str(part["title"]) for part in whole["parts"])
             skip[number] = f"interleaves titles {parts}"
@@ -649,18 +669,22 @@ def _arm_mpls(path: str) -> tuple[list[tuple], list[float]]:
     return segments, chapters
 
 
-def _arm_dvd_titles(raw: str, tracks: dict[int, "Track"]) -> dict[int, dict]:
-    # The stamp maps HandBrake's numbers to the DVD's own, and lsdvd reads each
-    # of those titles' cells and chapters from the ISO. A cell's sectors count
-    # within its title set, whose number, like the frame rate, only -v prints.
-    stamp = _arm_pathlib.Path(raw, "arm-job.json").read_text()
-    mapped = _arm_json.loads(stamp).get("title_map") or []
-    images = [name for name in os.listdir(raw) if name.endswith(".iso")]
-    if not mapped or len(images) != 1:
-        message = f"{raw} has no title map, or not exactly one ISO"
+def _arm_dvd_titles(record: dict | None, tracks: dict[int, "Track"]) -> dict[int, dict]:
+    # The raw copy's titles pair HandBrake's numbers with the DVD's own, and
+    # lsdvd reads each of those titles' cells and chapters from the image. A
+    # cell's sectors count within its title set, whose number, like the frame
+    # rate, only -v prints.
+    mapped = [
+        entry
+        for entry in (record or {}).get("titles") or []
+        if entry.get("handbrake_title") is not None
+    ]
+    image = (record or {}).get("image")
+    if not mapped or not image:
+        message = "the raw copy has no titles, or no image"
         raise ValueError(message)
     listing = subprocess.run(
-        ["lsdvd", "-c", "-d", "-v", "-Oy", os.path.join(raw, images[0])],
+        ["lsdvd", "-c", "-d", "-v", "-Oy", image],
         capture_output=True,
         text=True,
         check=True,
@@ -706,64 +730,63 @@ def _arm_move_main_feature(tracks: dict[int, "Track"], skip: dict[int, str]) -> 
 
 
 def _arm_record_scan(
-    raw: str,
+    job: "Job",
     titles: dict[int, dict],
     skip: dict[int, str],
     wholes: list[dict],
     orders: list[dict],
 ) -> None:
-    # The map from each whole to its parts, with where each part starts, is what
-    # cuts a kept whole into its parts later.
-    path = os.path.join(raw, "arm-job.json")
-    try:
-        stamp = _arm_json.loads(_arm_pathlib.Path(path).read_text())
-    except (OSError, ValueError) as error:
-        logging.warning("Not recording the skipped titles in %s: %s", path, error)
+    # Each title not transcoded, with what plays it said once: by a whole's own
+    # parts, by the whole it is a part of, or by `played_by`. A whole's parts,
+    # with where each starts, are what cut it into its parts later.
+    record = utils._arm_raw_copy(job)  # noqa: SLF001
+    if record is None:
+        logging.warning("Not recording the skipped titles: no raw copy is recorded")
         return
 
-    def entry(number: int) -> dict:
-        return {"handbrake_title": number, **titles[number]["source"]}
+    def key(number: int) -> dict:
+        return dict(titles[number]["source"])
 
-    stamp["duplicates"] = {
-        "skipped": [
-            {**entry(number), "reason": reason}
-            for number, reason in sorted(skip.items())
-        ],
-        "wholes": [
-            {
-                **entry(whole["title"]),
-                "kept": whole["kept"],
-                "interleaved": whole["interleaved"],
-                "parts": [
-                    {**entry(part["title"]), "start": part["start"]}
-                    for part in whole["parts"]
-                ],
-            }
-            for whole in wholes
-        ],
-        "orders": [
-            {
-                **entry(order["title"]),
-                "mismatch": order["mismatch"] and round(order["mismatch"], 3),
-                "titles": order["titles"],
-                "runner_up": order["runner_up"]
-                and {
-                    **entry(order["runner_up"]["title"]),
-                    "mismatch": round(order["runner_up"]["mismatch"], 3),
-                },
-            }
-            for order in orders
-        ],
-    }
     if any("playlist" in title["source"] for title in titles.values()):
-        # A Blu-ray's title map, each playlist against its title_N, as a DVD's
-        # maps the disc's titles through their MKVs. Length can't stand in for
-        # it: featurette variants a second apart share all but a clip.
-        stamp["title_map"] = [
-            {**titles[number]["source"], "handbrake_title": number}
-            for number in sorted(titles)
-        ]
-    with _arm_pathlib.Path(f"{path}.tmp").open("w") as f:
-        _arm_json.dump(stamp, f, indent=2)
-        f.write("\n")
-    os.replace(f"{path}.tmp", path)
+        # A Blu-ray's titles, each playlist against its title_N, as a DVD's
+        # come from its extraction. Length can't stand in for the pairing:
+        # featurette variants a second apart share all but a clip.
+        entries = [{"handbrake_title": n, **key(n)} for n in sorted(titles)]
+    else:
+        entries = record.get("titles") or []
+    by_number = {e["handbrake_title"]: e for e in entries if e.get("handbrake_title")}
+    part_of = {
+        part["title"]: whole["title"] for whole in wholes for part in whole["parts"]
+    }
+    for number, reason in skip.items():
+        entry = by_number[number]
+        entry |= {"transcode": None, "reason": "played_by_kept_titles"}
+        played_by = getattr(reason, "played_by", None)
+        if played_by is not None and part_of.get(number) != played_by:
+            entry["played_by"] = key(played_by)
+    for whole in wholes:
+        by_number[whole["title"]] |= {
+            "interleaved": whole["interleaved"],
+            "parts": [
+                {**key(part["title"]), "start": part["start"]}
+                for part in whole["parts"]
+            ],
+        }
+    # How each choice among shuffles was made, for a person reading the record;
+    # nothing downstream reads it.
+    orders = [
+        {
+            **key(order["title"]),
+            "mismatch": order["mismatch"] and round(order["mismatch"], 3),
+            "titles": order["titles"],
+            "runner_up": order["runner_up"]
+            and {
+                **key(order["runner_up"]["title"]),
+                "mismatch": round(order["runner_up"]["mismatch"], 3),
+            },
+        }
+        for order in orders
+    ]
+    utils._arm_save_raw_copy(  # noqa: SLF001
+        job, titles=entries, titles_compared=True, orders=orders
+    )

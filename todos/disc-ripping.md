@@ -431,10 +431,16 @@ run found nothing left to change.
   take a transcode as `filename` set. Potential fix: `_arm_duplicate_titles`
   sets `ripped = False` on each title it skips. Nothing in ARM's move reads
   it otherwise: an empty `filename` is already passed over.
-- **The stamp is a contract with reelbarrow.** Its evolution rule is in the
-  docs (*Stage 1*). reelbarrow keeps every stamp on the share as a test
-  fixture (jobs 76–80 and 82–87, and the five backfilled), so a change to
-  the stamp should come with a fixture there. Fields renamed 2026-10-26 (Will), schema left at 1 because nothing had read it:
+- **The raw copy's record is a contract with reelbarrow.** Its evolution rule
+  is in the docs (*Stage 1*). It was `arm-job.json` in the raw folder until
+  2026-11-08, when reelbarrow's arm-manifest-export moved it into ARM's
+  database (`reelbarrow_raw_copy`), with each transcode's final path added,
+  so that one manifest carries a job whole; `tools/arm-stamps/raw_copies.py`
+  moves the stamps across. reelbarrow's fixtures are now real jobs exported
+  as manifests (`tests/fixtures/manifests/`), so a change to the record should
+  come with a fixture there. The manifest doesn't carry `duplicates.orders`,
+  which only the notification reads. The stamp's history, for a folder
+  restored from a snapshot: Fields renamed 2026-10-26 (Will), schema left at 1 because nothing had read it:
   `titles` became `extracted`, and every HandBrake number `handbrake_title`.
   The seven stamps on the share were rewritten once that code ran, and match
   reelbarrow's fixtures byte for byte. Changed again 2026-10-28, still at schema
@@ -713,8 +719,9 @@ limits (D6) and the alert rules, both of which are facts about this cluster.
   I would have expected most of these (especially the Polar Express) to be
   complete. So we really need to dig into the nature of these missing streams."*
   The seven Blu-rays with no complete copy go on the re-rip list.
-- **Raw is paired with its job by a stamp ARM writes** (Will, 2026-10-20), D17's
-  `arm-job.json`, not by fingerprint alone.
+- **Raw is paired with its job by a record ARM writes** (Will, 2026-10-20), D17's
+  `arm-job.json`, not by fingerprint alone. The record moved from the folder
+  into ARM's database on 2026-11-08 (*The raw copy's record is a contract*).
 - **No automatic tray movement, ever** (Will, 2026-08-25). The drive is inside an
   enclosure whose door is open only when someone is actively feeding it discs.
   An eject issued while nobody is there hits the door. `AUTO_EJECT` is only safe

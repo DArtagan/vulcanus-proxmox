@@ -23,8 +23,9 @@ DEV="/dev/${DEVNAME}"
 ARMLOG="/home/arm/logs/arm.log"
 
 # The drive needs a few seconds to read the TOC, longer for a Blu-ray than
-# for a CD.
-MEDIA_TIMEOUT=60
+# for a CD: up to a minute, polled every two seconds. Counted in polls, so the
+# interval can be a fraction of a second.
+MEDIA_POLLS=30
 MEDIA_INTERVAL=2
 
 log() {
@@ -57,14 +58,14 @@ if [ "${STATUS}" != "4" ]; then
     exit 0
 fi
 
-waited=0
+polls=0
 until udevadm info "${DEV}" 2>/dev/null | grep -q "ID_CDROM_MEDIA_"; do
-    if [ "${waited}" -ge "${MEDIA_TIMEOUT}" ]; then
-        log "udev published no ID_CDROM_MEDIA_* for ${DEV} after ${MEDIA_TIMEOUT}s, skipping"
+    if [ "${polls}" -ge "${MEDIA_POLLS}" ]; then
+        log "udev published no ID_CDROM_MEDIA_* for ${DEV} in ${MEDIA_POLLS} polls ${MEDIA_INTERVAL}s apart, skipping"
         exit 0
     fi
     sleep "${MEDIA_INTERVAL}"
-    waited=$(( waited + MEDIA_INTERVAL ))
+    polls=$(( polls + 1 ))
 done
 
 # udev starts this with no HOME, and makemkvcon finds its registration key

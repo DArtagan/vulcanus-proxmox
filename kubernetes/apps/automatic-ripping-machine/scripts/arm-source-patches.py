@@ -21,6 +21,14 @@ ARMLOG = "/home/arm/logs/arm.log"
 # without it, it would stop the module importing and every job with it.
 APPENDS = [
     (
+        # First, as the others call it. It wraps move_files only if utils.py
+        # has one, so it needs nothing to load.
+        "raw-copy-code",
+        f"{RIPPER}/utils.py",
+        "/usr/local/bin/arm-raw-copy.py",
+        None,
+    ),
+    (
         "whole-disc-code",
         f"{RIPPER}/makemkv.py",
         "/usr/local/bin/arm-whole-disc.py",
@@ -99,9 +107,9 @@ EDITS = [
     ),
     (
         # ARM backs up the whole disc only for a Blu-ray, and a DVD's raw copy
-        # is otherwise its long titles alone. This stamps the raw folder with
-        # its job, backs a DVD up whole, and fails the job on a backup that is
-        # short. See todos/disc-ripping.md, phase 2c, D16 and D17.
+        # is otherwise its long titles alone. This records the raw folder
+        # against its job, backs a DVD up whole, and fails the job on a backup
+        # that is short. See todos/disc-ripping.md, phase 2c, D16 and D17.
         "whole-disc-route",
         f"{RIPPER}/makemkv.py",
         (
@@ -114,13 +122,13 @@ EDITS = [
         ),
         (
             '    logging.info(f"Processing files to: {rawpath}")\n'
-            "    # _arm_source_patch whole-disc-route: stamp the folder, back up a "
+            "    # _arm_source_patch whole-disc-route: record the folder, back up a "
             "DVD whole, check the backup\n"
-            "    _arm_write_stamp(job, rawpath)\n"
+            "    _arm_record_raw_copy(job, rawpath)\n"
             "    # Rip BluRay\n"
             '    if (job.config.RIPMETHOD in ("backup", "backup_dvd")) and '
             'job.disctype == "bluray":\n'
-            "        _arm_record_check(job, rawpath, _arm_backup(job, rawpath) + "
+            "        _arm_record_check(job, rawpath, _arm_backup(job, rawpath), "
             "_arm_bluray_problems(rawpath))\n"
             '    elif job.config.RIPMETHOD == "backup_dvd" and job.disctype == "dvd":\n'
             "        rawpath = _arm_backup_dvd(job, rawpath)\n"

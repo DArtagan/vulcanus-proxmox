@@ -11,6 +11,8 @@ devenv shell
 
 This provides: `ansible`, `tofu` (OpenTofu), `flux`, `kubectl`, `k9s`, `sops`, `talosctl`, plus sets `KUBECONFIG` and `TALOSCONFIG` env vars automatically. A `.env` file is loaded via `dotenv.enable = true`.
 
+Python is a venv that devenv builds with uv from `pyproject.toml` and `uv.lock`; there is no package, only the environment the tests and tools run in. Add a test dependency with `uv add --group dev <package>`.
+
 ## Common Commands
 
 **Infrastructure (Terraform/OpenTofu):**

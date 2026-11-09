@@ -7,6 +7,9 @@
 
 {
   env = {
+    # uv's own interpreters are dynamically linked against an FHS layout and do
+    # not run on NixOS.
+    UV_PYTHON_DOWNLOADS = "never";
     # TODO: eliminate .env file, move contents to here and sops
     KUBECONFIG = "${config.git.root}/.kubeconfig";
     TALOSCONFIG = "${config.git.root}/.talosconfig";
@@ -18,7 +21,6 @@
     git
     k9s
     kubectl
-    python3
     sops
     talosctl
   ];
@@ -27,6 +29,15 @@
     ansible.enable = true;
     nix.enable = true;
     opentofu.enable = true;
+    python = {
+      enable = true;
+      package = pkgs.python313;
+      venv.enable = true;
+      uv = {
+        enable = true;
+        sync.enable = true;
+      };
+    };
   };
 
   # The driver .gitattributes names for SOPS files; and one provider cache for
