@@ -15,7 +15,9 @@ done
 
 status=0
 for dir in "${!suites[@]}"; do
-  if ! out=$(python3 -m unittest discover -s "$dir" -q 2>&1); then
+  # In the project's environment, whatever the shell has active: hooks run as
+  # devenv tasks, where the venv isn't, and --locked fails on a stale lock.
+  if ! out=$(uv run --locked python -m unittest discover -s "$dir" -q 2>&1); then
     echo "$dir:"
     echo "$out"
     status=1
