@@ -113,6 +113,40 @@ spec:
             - mountPath: /root/audio
               name: audio
               subPath: import
+        # reelbarrow's exporter: ARM's jobs, copied out as manifests. Same
+        # image policy as reelbarrow's service, so exporter and reader move
+        # together.
+        - name: manifest-exporter
+          image: ghcr.io/dartagan/reelbarrow:0.3.0 # {"$imagepolicy": "apps:reelbarrow"}
+          args:
+            - arm-export-manifests
+            - --db=/root/db/arm.db
+            - --out=/manifests
+            - --arm-path=/root/video=import/automatic-ripping-machine
+          # Root, as the share's CIFS mount here lets only uid 0 write.
+          securityContext:
+            runAsUser: 0
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          volumeMounts:
+            # Read-only: ARM's database keeps a rollback journal, which SQLite
+            # reads without writing beside it.
+            - mountPath: /root/db
+              name: data
+              subPath: db
+              readOnly: true
+            # Of the share, only the manifests: it never mounts the library.
+            - mountPath: /manifests
+              name: video
+              subPath: import/automatic-ripping-machine/manifests
       volumes:
         - name: audio
           persistentVolumeClaim:
