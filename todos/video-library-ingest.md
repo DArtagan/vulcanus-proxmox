@@ -100,7 +100,7 @@ share is unknown until tested.
 
 The one interface between ARM and reelbarrow. **What writes the manifests
 ships in reelbarrow** (decided 2026-10-19), so every user runs the same one:
-`reelbarrow export-manifests`, which reads `arm.db` read-only every 30 s and
+`reelbarrow arm-export-manifests`, which reads `arm.db` read-only every 30 s and
 writes one manifest per job, plus `exporter.json` for liveness. reelbarrow's
 `docs/exporter.md` is its use, *The manifest* in its design the contract, and
 its `todos/arm-manifest-export.md` the checks that need it running. It
@@ -132,10 +132,12 @@ In order, each confirmed with Will, while ARM is idle where it rolls ARM:
    `--write`. It adds rows to ARM's live database, in a table no ARM code reads.
 3. **Add the sidecar**, from the first reelbarrow release that ships the
    command:
-   1. reelbarrow's image, with `reelbarrow export-manifests --db
-      /root/db/arm.db --out /manifests --arm-root
-      /root/video=import/automatic-ripping-machine --arm-timezone Etc/UTC`
-      (ARM's `TZ`, read 2026-11-08). Its tag follows reelbarrow's
+   1. reelbarrow's image, with `reelbarrow arm-export-manifests --db
+      /root/db/arm.db --out /manifests --arm-path
+      /root/video=/video/import/automatic-ripping-machine`: one folder as ARM
+      mounts it and as reelbarrow's service does, under its `/video`. The
+      sidecar leaves `REELBARROW_VIDEO_ROOT` at the service's. ARM's `TZ` is
+      `Etc/UTC` (read 2026-11-08), the exporter's default. Its tag follows reelbarrow's
       `ImagePolicy`, so exporter and reader move together.
    2. **ARM's database read-only**: the `db` subpath of
       `automatic-ripping-machine-pvc`. `PRAGMA journal_mode` reads `delete`
