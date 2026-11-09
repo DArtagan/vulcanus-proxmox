@@ -117,7 +117,7 @@ spec:
         # image policy as reelbarrow's service, so exporter and reader move
         # together.
         - name: manifest-exporter
-          image: ghcr.io/dartagan/reelbarrow:0.3.0 # {"$imagepolicy": "apps:reelbarrow"}
+          image: ghcr.io/dartagan/reelbarrow:0.3.1 # {"$imagepolicy": "apps:reelbarrow"}
           # The image's CMD is `reelbarrow serve` and it has no ENTRYPOINT, so
           # args alone would replace the whole command.
           command: [reelbarrow]
