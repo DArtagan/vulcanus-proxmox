@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import shlex
+import sqlite3
 import struct
 import subprocess
 import tempfile
@@ -29,6 +30,7 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parent.parent
 RIPPER = "/opt/arm/arm/ripper"
 ARM_LOG = "/home/arm/logs/arm.log"
+RAW_COPY_PY = "/usr/local/bin/arm-raw-copy.py"
 WHOLE_DISC_PY = "/usr/local/bin/arm-whole-disc.py"
 DUPLICATE_TITLES_PY = "/usr/local/bin/arm-duplicate-titles.py"
 TITLE_CHARSET_PY = "/usr/local/bin/arm-title-charset.py"
@@ -37,7 +39,7 @@ FIX_JOB_TITLE = "def fix_job_title(job):\n    return job.title\n"
 
 SECTOR = 2048
 PACKET = 192
-APPLIED = 10
+APPLIED = 11
 
 
 def load_script(name: str) -> str:
@@ -64,6 +66,8 @@ class Patcher:
         self.ripper = self.root / "ripper"
         self.ripper.mkdir()
         self.log = self.root / "arm.log"
+        self.raw_copy = self.root / "arm-raw-copy.py"
+        self.raw_copy.write_text(load_script("arm-raw-copy.py"))
         self.whole_disc = self.root / "arm-whole-disc.py"
         self.whole_disc.write_text(load_script("arm-whole-disc.py"))
         self.duplicate_titles = self.root / "arm-duplicate-titles.py"
@@ -85,6 +89,7 @@ class Patcher:
         for original, replacement in (
             (RIPPER, self.ripper),
             (ARM_LOG, self.log),
+            (RAW_COPY_PY, self.raw_copy),
             (WHOLE_DISC_PY, self.whole_disc),
             (DUPLICATE_TITLES_PY, self.duplicate_titles),
             (TITLE_CHARSET_PY, self.title_charset),
@@ -134,6 +139,7 @@ class Patching(unittest.TestCase):
         self.p.run()
         order = [line.split("applied ", 1)[1].split()[0] for line in self.p.log_lines()]
         self.assertLess(order.index("whole-disc-code"), order.index("whole-disc-route"))
+        self.assertLess(order.index("raw-copy-code"), order.index("whole-disc-route"))
         self.assertLess(
             order.index("duplicate-titles-code"), order.index("duplicate-titles-scan")
         )
@@ -141,6 +147,7 @@ class Patching(unittest.TestCase):
         self.assertIn("\ndef _arm_backup_dvd(", makemkv)
         handbrake = (self.p.ripper / "handbrake.py").read_text()
         self.assertIn("\ndef _arm_duplicate_titles(", handbrake)
+        self.assertIn("\ndef _arm_save_raw_copy(", self.p.utils.read_text())
 
     def test_a_restart_applies_nothing_again(self) -> None:
         # The container keeps its patched files across a restart.
@@ -191,6 +198,42 @@ class Patching(unittest.TestCase):
 
 
 # --- the appended code ------------------------------------------------------
+
+
+class FakeDb:
+    """Flask-SQLAlchemy's `db`, as arm-raw-copy.py uses it, over real SQLite.
+
+    `db.text` is the identity, as sqlite3 takes SQLAlchemy's `:name`
+    parameters as they are, so the SQL that runs is the patch's own.
+    """
+
+    def __init__(self, path: str = ":memory:") -> None:
+        self.connection = sqlite3.connect(path)
+        self.session = self
+        self.commits = 0
+
+    @staticmethod
+    def text(sql: str) -> str:
+        return sql
+
+    def execute(self, sql: str, params: dict | None = None) -> types.SimpleNamespace:
+        cursor = self.connection.execute(sql, params or {})
+        row = cursor.fetchone() if cursor.description else None
+        return types.SimpleNamespace(scalar=lambda: row[0] if row else None)
+
+    def commit(self) -> None:
+        self.commits += 1
+        self.connection.commit()
+
+    def rollback(self) -> None:
+        self.connection.rollback()
+
+
+def raw_copy(db: FakeDb, **globals_: object) -> types.SimpleNamespace:
+    """Load arm-raw-copy.py into a namespace standing in for utils.py's."""
+    ns = {"os": os, "logging": logging, "db": db, **globals_}
+    exec(compile(load_script("arm-raw-copy.py"), "arm-raw-copy.py", "exec"), ns)  # noqa: S102
+    return types.SimpleNamespace(**ns)
 
 
 class Message:
@@ -280,7 +323,7 @@ class UnorderedOs:
         return sorted(os.listdir(path), reverse=True)  # noqa: PTH208 - stands in for it
 
 
-def whole_disc(fake: FakeMakeMKV) -> dict:
+def whole_disc(fake: FakeMakeMKV, utils: types.SimpleNamespace) -> dict:
     """Load the appended code into a namespace standing in for makemkv.py's."""
     ns = {
         "os": UnorderedOs(),
@@ -295,7 +338,7 @@ def whole_disc(fake: FakeMakeMKV) -> dict:
         "TrackInfoProcessor": TrackInfoProcessor,
         "TInfo": TInfo,
         "TrackID": types.SimpleNamespace(FILENAME=27),
-        "utils": types.SimpleNamespace(RipperException=RipperError),
+        "utils": utils,
     }
     exec(compile(load_script("arm-whole-disc.py"), "arm-whole-disc.py", "exec"), ns)  # noqa: S102
     return ns
@@ -310,7 +353,9 @@ def make_job(**overrides: object) -> types.SimpleNamespace:
         stage="179258877540",
         start_time=datetime.datetime(2026, 10, 21, 13, 19, 30, tzinfo=datetime.UTC),
         drive=types.SimpleNamespace(mdisc=0),
-        config=types.SimpleNamespace(MINLENGTH="420", MKV_ARGS=""),
+        config=types.SimpleNamespace(
+            MINLENGTH="420", MKV_ARGS="", RIPMETHOD="backup_dvd"
+        ),
     )
     for key, value in overrides.items():
         setattr(job, key, value)
@@ -351,7 +396,8 @@ class Base(unittest.TestCase):
         self.raw = Path(self.tmp.name, "Pinky-and-the-Brain_179258877540")
         self.raw.mkdir()
         self.fake = FakeMakeMKV()
-        self.ns = whole_disc(self.fake)
+        self.utils = raw_copy(FakeDb(), RipperException=RipperError)
+        self.ns = whole_disc(self.fake, self.utils)
         TrackInfoProcessor.seen = []
         logging.disable(logging.CRITICAL)
 
@@ -359,51 +405,52 @@ class Base(unittest.TestCase):
         logging.disable(logging.NOTSET)
         self.tmp.cleanup()
 
-    def stamp(self) -> dict:
-        return json.loads((self.raw / "arm-job.json").read_text())
+    def record(self) -> dict:
+        return self.utils._arm_raw_copy(make_job())  # noqa: SLF001
 
     def complete(self) -> str:
-        """Return the stamp's `complete` as JSON, where null and false differ."""
-        return json.dumps(self.stamp()["complete"])
+        """Return the record's `complete` as JSON, where null and false differ."""
+        return json.dumps(self.record()["complete"]["value"])
 
 
-class Stamp(Base):
-    def test_written_at_the_start_with_completeness_unknown(self) -> None:
-        self.ns["_arm_write_stamp"](make_job(), str(self.raw))
+class Record(Base):
+    def test_recorded_at_the_start_with_completeness_unchecked(self) -> None:
+        self.ns["_arm_record_raw_copy"](make_job(), str(self.raw))
         self.assertEqual(
-            self.stamp(),
+            self.record(),
             {
                 "schema": 1,
-                "job_id": 76,
-                "label": "PINKY_AND_THE_BRAIN_D2",
-                "disctype": "dvd",
-                "crc_id": "7969bce42a920b30",
-                "stage": "179258877540",
-                "start_time": "2026-10-21T13:19:30+00:00",
-                "complete": None,
+                "folder": str(self.raw),
+                "form": "dvd-image",
+                "complete": {"value": None, "reason": "not_checked"},
                 "problems": [],
                 "title_map": None,
             },
         )
 
-    def test_start_time_is_written_in_utc(self) -> None:
-        mountain = datetime.timezone(datetime.timedelta(hours=-6))
-        start = datetime.datetime(2026, 10, 21, 7, 19, 30, tzinfo=mountain)
-        self.ns["_arm_write_stamp"](make_job(start_time=start), str(self.raw))
-        self.assertEqual(self.stamp()["start_time"], "2026-10-21T13:19:30+00:00")
+    def test_the_form_is_what_the_folder_will_hold(self) -> None:
+        cases = (("bluray", "backup"), ("bluray", "backup_dvd"), ("dvd", "mkv"))
+        for (disctype, method), form in zip(
+            cases, ("bluray-backup", "bluray-backup", "titles"), strict=True
+        ):
+            job = make_job(disctype=disctype)
+            job.config.RIPMETHOD = method
+            self.ns["_arm_record_raw_copy"](job, str(self.raw))
+            self.assertEqual(self.record()["form"], form, (disctype, method))
 
-    def test_a_blu_ray_has_no_crc(self) -> None:
-        job = make_job(disctype="bluray", crc_id=None)
-        self.ns["_arm_write_stamp"](job, str(self.raw))
-        self.assertIsNone(self.stamp()["crc_id"])
-
-    def test_rewritten_in_place_and_leaves_no_temporary(self) -> None:
+    def test_a_check_updates_the_record_and_writes_nothing_beside_the_copy(
+        self,
+    ) -> None:
         job = make_job()
-        self.ns["_arm_write_stamp"](job, str(self.raw))
-        self.ns["_arm_write_stamp"](job, str(self.raw), ["x is missing"])
-        self.assertEqual([path.name for path in self.raw.iterdir()], ["arm-job.json"])
-        self.assertEqual(self.complete(), "false")
-        self.assertEqual(self.stamp()["problems"], ["x is missing"])
+        self.ns["_arm_record_raw_copy"](job, str(self.raw))
+        with self.assertRaises(RipperError):
+            self.ns["_arm_record_check"](job, str(self.raw), ["x is missing"])
+        self.assertEqual(
+            self.record()["complete"], {"value": False, "reason": "sizes_and_hashes"}
+        )
+        self.assertEqual(self.record()["problems"], ["x is missing"])
+        self.assertEqual(self.record()["folder"], str(self.raw))
+        self.assertEqual(list(self.raw.iterdir()), [])
 
     def test_a_failed_check_fails_the_job_after_recording_it(self) -> None:
         with self.assertRaises(RipperError):
@@ -524,6 +571,8 @@ class Dvd(Base):
         self.fake.backup = lambda dest: write_iso(dest, self.BLOCKS)
 
     def backup_dvd(self) -> str:
+        # As the whole-disc route does: recorded, then backed up.
+        self.ns["_arm_record_raw_copy"](make_job(), str(self.raw))
         return self.ns["_arm_backup_dvd"](make_job(), str(self.raw))
 
     def test_the_image_is_named_after_its_folder(self) -> None:
@@ -550,7 +599,7 @@ class Dvd(Base):
 
     def test_titles_go_to_their_own_folder_which_is_returned(self) -> None:
         # HandBrake scans the folder it is given and counts every file in it,
-        # so the image and the stamp stay one level up.
+        # so the image stays one level up.
         titles = self.backup_dvd()
         self.assertEqual(titles, str(self.raw / "titles"))
         names = sorted(path.name for path in Path(titles).iterdir())
@@ -566,9 +615,14 @@ class Dvd(Base):
         self.assertEqual(TrackInfoProcessor.seen[-1], "added")
         self.assertIn("--minlength=420", self.fake.commands[1])
 
-    def test_a_complete_image_is_stamped_complete(self) -> None:
+    def test_a_complete_image_is_recorded_complete(self) -> None:
         self.backup_dvd()
         self.assertEqual(self.complete(), "true")
+        iso = self.raw / "Pinky-and-the-Brain_179258877540.iso"
+        self.assertEqual(self.record()["image"], str(iso))
+        self.assertEqual(
+            sorted(p.name for p in self.raw.iterdir()), [iso.name, "titles"]
+        )
 
     def test_a_short_image_fails_before_anything_is_extracted(self) -> None:
         self.fake.backup = lambda dest: write_iso(
@@ -585,7 +639,7 @@ class Dvd(Base):
         with self.assertRaises(RipperError):
             self.backup_dvd()
         self.assertEqual(
-            self.stamp()["problems"], ["Backup done but 1 files failed hash check"]
+            self.record()["problems"], ["Backup done but 1 files failed hash check"]
         )
 
     def test_no_titles_extracted_fails_the_job(self) -> None:
@@ -599,12 +653,12 @@ class Dvd(Base):
     def test_each_title_is_mapped_from_the_disc_to_handbrake(self) -> None:
         # HandBrake numbers by file name, so A2_t01 is its title 1 and B1_t00
         # its title 2, whatever MakeMKV's own numbering.
-        self.backup_dvd()
+        titles = self.backup_dvd()
         self.assertEqual(
-            self.stamp()["title_map"],
+            self.record()["title_map"],
             [
-                {"disc_title": 1, "mkv": "B1_t00.mkv", "handbrake_title": 2},
-                {"disc_title": 4, "mkv": "A2_t01.mkv", "handbrake_title": 1},
+                {"disc_title": 1, "mkv": f"{titles}/B1_t00.mkv", "handbrake_title": 2},
+                {"disc_title": 4, "mkv": f"{titles}/A2_t01.mkv", "handbrake_title": 1},
             ],
         )
 
@@ -616,23 +670,160 @@ class Dvd(Base):
         ]
         self.fake.titles_saved = ["b_t00.mkv", "C_t01.mkv"]
         self.backup_dvd()
-        numbers = {t["mkv"]: t["handbrake_title"] for t in self.stamp()["title_map"]}
+        numbers = {
+            Path(t["mkv"]).name: t["handbrake_title"]
+            for t in self.record()["title_map"]
+        }
         self.assertEqual(numbers, {"C_t01.mkv": 1, "b_t00.mkv": 2})
 
     def test_a_title_listed_but_not_saved_has_no_handbrake_number(self) -> None:
         # The ones after it move up, because HandBrake counts what is there.
         self.fake.titles_saved = ["B1_t00.mkv"]
         self.backup_dvd()
-        numbers = {t["mkv"]: t["handbrake_title"] for t in self.stamp()["title_map"]}
+        numbers = {
+            Path(t["mkv"]).name: t["handbrake_title"]
+            for t in self.record()["title_map"]
+        }
         self.assertEqual(numbers, {"B1_t00.mkv": 1, "A2_t01.mkv": None})
 
-    def test_the_stamp_has_no_titles_until_they_are_extracted(self) -> None:
+    def test_the_record_has_no_titles_until_they_are_extracted(self) -> None:
         self.fake.backup = lambda dest: write_iso(
             dest, self.BLOCKS, size=self.BLOCKS * SECTOR - 1
         )
         with self.assertRaises(RipperError):
             self.backup_dvd()
-        self.assertIsNone(self.stamp()["title_map"])
+        self.assertIsNone(self.record()["title_map"])
+
+
+class Query(list):
+    """ARM's `job.tracks`, as far as the record queries it."""
+
+    def filter_by(self, **criteria: object) -> "Query":
+        return Query(
+            t for t in self if all(getattr(t, k) == v for k, v in criteria.items())
+        )
+
+    def first(self) -> object:
+        return self[0] if self else None
+
+
+class RawCopy(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.completed = Path(self.tmp.name, "completed", "Robin-Hood (2010)")
+        (self.completed / "extras").mkdir(parents=True)
+        self.moved: list[tuple] = []
+        self.db = FakeDb()
+        self.utils = raw_copy(self.db, move_files=self.move_files)
+        self.job = types.SimpleNamespace(
+            job_id=87,
+            path=str(self.completed),
+            video_type="movie",
+            config=types.SimpleNamespace(EXTRAS_SUB="extras"),
+            tracks=Query(
+                types.SimpleNamespace(source=s, filename=f, track_number=n)
+                for s, f, n in (
+                    ("MakeMKV", "ROBIN HOOD-E1_t00.mkv", "0"),
+                    ("HandBrake", "title_3.mkv", "3"),
+                    ("HandBrake", "title_4.mkv", "4"),
+                )
+            ),
+        )
+        logging.disable(logging.CRITICAL)
+
+    def tearDown(self) -> None:
+        logging.disable(logging.NOTSET)
+        self.tmp.cleanup()
+
+    def move_files(self, base_path, filename, job, is_main_feature=False):  # noqa: ANN001, ANN201, FBT002
+        """ARM's move_files, placing the file as ARM's own does."""
+        self.moved.append((base_path, filename, is_main_feature))
+        folder = self.completed if is_main_feature else self.completed / "extras"
+        if job.video_type == "series":
+            folder = self.completed
+        (folder / filename).write_bytes(b"")
+        return str(self.completed)
+
+    def record(self) -> dict | None:
+        return self.utils._arm_raw_copy(self.job)  # noqa: SLF001
+
+    def test_nothing_is_recorded_until_something_is_saved(self) -> None:
+        self.assertIsNone(self.record())
+
+    def test_fields_are_merged_into_one_document_and_committed(self) -> None:
+        self.utils._arm_save_raw_copy(self.job, folder="/root/video/raw/X")  # noqa: SLF001
+        self.utils._arm_save_raw_copy(self.job, image="/root/video/raw/X/X.iso")  # noqa: SLF001
+        self.assertEqual(
+            self.record(),
+            {
+                "schema": 1,
+                "folder": "/root/video/raw/X",
+                "image": "/root/video/raw/X/X.iso",
+            },
+        )
+        self.assertEqual(self.db.commits, 2)
+        rows = self.db.connection.execute("SELECT job_id FROM reelbarrow_raw_copy")
+        self.assertEqual(rows.fetchall(), [(87,)])
+
+    def test_the_table_declares_no_foreign_key(self) -> None:
+        # ARM's migrations rebuild `job`, which a key to it would trip over.
+        self.utils._arm_save_raw_copy(self.job)  # noqa: SLF001
+        keys = self.db.connection.execute(
+            "PRAGMA foreign_key_list(reelbarrow_raw_copy)"
+        ).fetchall()
+        self.assertEqual(keys, [])
+
+    def test_a_movies_transcodes_are_recorded_where_arm_put_them(self) -> None:
+        self.utils._arm_save_raw_copy(self.job)  # noqa: SLF001
+        self.utils.move_files("/root/video/transcode/x", "title_3.mkv", self.job, True)  # noqa: FBT003
+        self.utils.move_files("/root/video/transcode/x", "title_4.mkv", self.job, False)  # noqa: FBT003
+        self.assertEqual(
+            self.record()["transcodes"],
+            {
+                "3": str(self.completed / "title_3.mkv"),
+                "4": str(self.completed / "extras" / "title_4.mkv"),
+            },
+        )
+        self.assertEqual(len(self.moved), 2)
+
+    def test_a_series_transcodes_are_recorded_in_its_folder(self) -> None:
+        self.job.video_type = "series"
+        self.utils._arm_save_raw_copy(self.job)  # noqa: SLF001
+        self.utils.move_files("/t", "title_4.mkv", self.job, False)  # noqa: FBT003
+        self.assertEqual(
+            self.record()["transcodes"], {"4": str(self.completed / "title_4.mkv")}
+        )
+
+    def test_a_file_not_where_arm_put_it_is_not_recorded(self) -> None:
+        self.utils._arm_save_raw_copy(self.job)  # noqa: SLF001
+        self.move_files = lambda *_args, **_kw: None
+        utils = raw_copy(self.db, move_files=self.move_files)
+        utils.move_files("/t", "title_3.mkv", self.job, True)  # noqa: FBT003
+        self.assertNotIn("transcodes", self.record())
+
+    def test_a_file_no_handbrake_track_names_is_no_transcode(self) -> None:
+        self.utils._arm_save_raw_copy(self.job)  # noqa: SLF001
+        self.utils.move_files("/t", "ROBIN HOOD-E1_t00.mkv", self.job, True)  # noqa: FBT003
+        self.assertNotIn("transcodes", self.record())
+
+    def test_a_failure_to_record_leaves_the_move_alone(self) -> None:
+        # No document yet is one; a broken database another.
+        result = self.utils.move_files("/t", "title_3.mkv", self.job, True)  # noqa: FBT003
+        self.assertEqual(result, str(self.completed))
+
+        def locked(*_args: object) -> None:
+            message = "database is locked"
+            raise sqlite3.OperationalError(message)
+
+        self.db.execute = locked
+        result = self.utils.move_files("/t", "title_4.mkv", self.job, False)  # noqa: FBT003
+        self.assertEqual(result, str(self.completed))
+
+    def test_it_loads_into_a_utils_without_move_files(self) -> None:
+        utils = raw_copy(FakeDb())
+        self.assertFalse(hasattr(utils, "move_files"))
+        utils._arm_save_raw_copy(self.job, folder="f")  # noqa: SLF001
+        self.assertEqual(utils._arm_raw_copy(self.job)["folder"], "f")  # noqa: SLF001
 
 
 if __name__ == "__main__":

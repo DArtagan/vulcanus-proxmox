@@ -24,7 +24,7 @@ import types
 import unittest
 from pathlib import Path
 
-from test_source_patches import load_script
+from test_source_patches import FakeDb, load_script, raw_copy
 
 TICK = 45000
 
@@ -86,7 +86,8 @@ def load(fake: FakeSubprocess | None = None) -> dict:
         "db": types.SimpleNamespace(session=types.SimpleNamespace(commit=lambda: None)),
         "notices": [],
     }
-    ns["utils"] = types.SimpleNamespace(
+    ns["utils"] = raw_copy(
+        FakeDb(),
         NOTIFY_TITLE="ARM notification",
         notify=lambda _job, _title, body: ns["notices"].append(body),
     )
@@ -400,18 +401,14 @@ class Reading(unittest.TestCase):
 
     def dvd(self, fps: float) -> dict:
         """Read a play-all and its first episode, shaped after Pinky's D2."""
-        (self.raw / "disc.iso").write_bytes(b"")
-        (self.raw / "arm-job.json").write_text(
-            json.dumps(
-                {
-                    "title_map": [
-                        {"disc_title": 1, "handbrake_title": 1},
-                        {"disc_title": 4, "handbrake_title": 2},
-                        {"disc_title": 5, "handbrake_title": None},
-                    ]
-                }
-            )
-        )
+        record = {
+            "image": str(self.raw / "disc.iso"),
+            "title_map": [
+                {"disc_title": 1, "handbrake_title": 1},
+                {"disc_title": 4, "handbrake_title": 2},
+                {"disc_title": 5, "handbrake_title": None},
+            ],
+        }
         self.fake.lsdvd_tracks = (
             {
                 "track": [
@@ -445,9 +442,12 @@ class Reading(unittest.TestCase):
                 ]
             }
         )["track"]
-        return self.ns["_arm_dvd_titles"](str(self.raw), {1: None, 2: None})
+        titles = self.ns["_arm_dvd_titles"](record, {1: None, 2: None})
+        cmd = self.fake.commands[-1]
+        self.assertEqual(cmd[-1], str(self.raw / "disc.iso"))
+        return titles
 
-    def test_a_dvds_titles_are_found_through_the_stamp(self) -> None:
+    def test_a_dvds_titles_are_found_through_the_title_map(self) -> None:
         titles = self.dvd(25.0)
         self.assertEqual(
             titles[1]["segments"], [(1, 8483, 36723, 66.4), (1, 36723, 205855, 454.3)]
@@ -470,11 +470,15 @@ class Reading(unittest.TestCase):
         with self.assertRaises(KeyError):
             self.dvd(-1.0)
 
-    def test_a_dvd_without_a_title_map_is_refused(self) -> None:
-        (self.raw / "disc.iso").write_bytes(b"")
-        (self.raw / "arm-job.json").write_text(json.dumps({"title_map": None}))
-        with self.assertRaises(ValueError):
-            self.ns["_arm_dvd_titles"](str(self.raw), {1: None})
+    def test_a_dvd_without_a_title_map_or_an_image_is_refused(self) -> None:
+        mapped = [{"disc_title": 1, "handbrake_title": 1}]
+        for record in (
+            None,
+            {"image": "/root/video/raw/X/X.iso", "title_map": None},
+            {"title_map": mapped},
+        ):
+            with self.assertRaises(ValueError):
+                self.ns["_arm_dvd_titles"](record, {1: None})
 
 
 class EndToEnd(unittest.TestCase):
@@ -494,14 +498,14 @@ class EndToEnd(unittest.TestCase):
             ("00011", 0, 6 * TICK)
         ]
         (folder / "00006.mpls").write_bytes(mpls(clips, [(1, i, 0) for i in range(4)]))
-        (self.raw / "arm-job.json").write_text(
-            json.dumps({"job_id": 80, "title_map": None}) + "\n"
-        )
         self.fake = FakeSubprocess()
         self.fake.outputs["HandBrakeCLI"] = handbrake_scan(
             [(PLAY_ALL, 6), (2, 1), (3, 2), (4, 3), (5, 4), (7, 7)]
         )
         self.ns = load(self.fake)
+        self.ns["utils"]._arm_save_raw_copy(  # noqa: SLF001
+            self.job(), folder=str(self.raw), title_map=None
+        )
         lengths_by_title = {2: 3944, 3: 2858, 4: 2854, 5: 2767, PLAY_ALL: 12432, 7: 16}
         self.tracks = Tracks(
             types.SimpleNamespace(
@@ -520,14 +524,15 @@ class EndToEnd(unittest.TestCase):
 
     def job(self, video_type: str = "series") -> types.SimpleNamespace:
         return types.SimpleNamespace(
-            tracks=self.tracks,
+            job_id=80,
+            tracks=getattr(self, "tracks", None),
             disctype="bluray",
             video_type=video_type,
             title="Downton-Abbey",
         )
 
     def stamp(self) -> dict:
-        return json.loads((self.raw / "arm-job.json").read_text())
+        return self.ns["utils"]._arm_raw_copy(self.job())  # noqa: SLF001
 
     def test_the_play_all_is_skipped_and_recorded(self) -> None:
         skip = self.ns["_arm_duplicate_titles"](str(self.raw), self.job())
@@ -538,7 +543,8 @@ class EndToEnd(unittest.TestCase):
         whole = duplicates["wholes"][0]
         self.assertEqual((whole["kept"], whole["interleaved"]), ("parts", False))
         self.assertEqual([p["start"] for p in whole["parts"]], [0, 3944, 6802, 9656])
-        self.assertEqual(self.stamp()["job_id"], 80)
+        # What was recorded before the scan stays.
+        self.assertEqual(self.stamp()["folder"], str(self.raw))
 
     def test_a_blu_rays_title_map_is_recorded(self) -> None:
         # Every title HandBrake was given, skipped or not; title 7 is too short.
@@ -915,7 +921,6 @@ class Obfuscated(unittest.TestCase):
         playlists[8] = [*playlists[1][:1], ("00107", 0, 60 * TICK), *playlists[1][1:]]
         for n, items in playlists.items():
             (folder / f"0000{n}.mpls").write_bytes(mpls(items, [(1, 0, 0)]))
-        (self.raw / "arm-job.json").write_text(json.dumps({"job_id": 100}) + "\n")
         self.fake = FakeSubprocess()
         self.fake.outputs["HandBrakeCLI"] = handbrake_scan([(n, n) for n in playlists])
         self.ns = load(self.fake)
@@ -942,11 +947,13 @@ class Obfuscated(unittest.TestCase):
             for n, length in lengths.items()
         )
         self.job = types.SimpleNamespace(
+            job_id=100,
             tracks=self.tracks,
             disctype="bluray",
             video_type="series",
             title="Downton Abbey",
         )
+        self.ns["utils"]._arm_save_raw_copy(self.job, folder=str(self.raw))  # noqa: SLF001
         logging.disable(logging.CRITICAL)
 
     def tearDown(self) -> None:
@@ -962,7 +969,7 @@ class Obfuscated(unittest.TestCase):
 
     def test_the_choices_are_recorded(self) -> None:
         self.ns["_arm_duplicate_titles"](str(self.raw), self.job)
-        duplicates = json.loads((self.raw / "arm-job.json").read_text())["duplicates"]
+        duplicates = self.ns["utils"]._arm_raw_copy(self.job)["duplicates"]  # noqa: SLF001
         orders = {o["handbrake_title"]: o for o in duplicates["orders"]}
         self.assertEqual(sorted(orders), [2, 7])
         self.assertEqual(orders[2]["playlist"], "00002.mpls")

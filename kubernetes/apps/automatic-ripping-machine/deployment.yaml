@@ -86,6 +86,9 @@ spec:
             - mountPath: /usr/local/bin/arm-source-patches.py
               name: init-scripts
               subPath: arm-source-patches.py
+            - mountPath: /usr/local/bin/arm-raw-copy.py
+              name: init-scripts
+              subPath: arm-raw-copy.py
             - mountPath: /usr/local/bin/arm-whole-disc.py
               name: init-scripts
               subPath: arm-whole-disc.py
@@ -138,6 +141,8 @@ spec:
                 path: arm-title-charset.py
               - key: arm-source-patches.py
                 path: arm-source-patches.py
+              - key: arm-raw-copy.py
+                path: arm-raw-copy.py
               - key: arm-whole-disc.py
                 path: arm-whole-disc.py
               - key: arm-duplicate-titles.py

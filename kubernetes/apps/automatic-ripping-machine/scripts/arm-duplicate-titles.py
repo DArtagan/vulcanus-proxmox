@@ -49,7 +49,6 @@ def _arm_duplicate_titles(srcpath: str, job: "Job") -> dict[int, str]:
     if job.disctype not in ("bluray", "dvd"):
         return {}
     srcpath = os.path.normpath(srcpath)
-    raw = srcpath if job.disctype == "bluray" else os.path.dirname(srcpath)
     minimum = int(cfg.arm_config["MINLENGTH"])
     maximum = int(cfg.arm_config["MAXLENGTH"])
     tracks = {
@@ -64,7 +63,7 @@ def _arm_duplicate_titles(srcpath: str, job: "Job") -> dict[int, str]:
         if job.disctype == "bluray":
             titles = _arm_bluray_titles(srcpath, tracks)
         elif len(tracks) > _ARM_MIN_PARTS:
-            titles = _arm_dvd_titles(raw, tracks)
+            titles = _arm_dvd_titles(utils._arm_raw_copy(job), tracks)  # noqa: SLF001
         skip, orders = _arm_orders(
             srcpath if job.disctype == "bluray" else None, titles
         )
@@ -87,7 +86,7 @@ def _arm_duplicate_titles(srcpath: str, job: "Job") -> dict[int, str]:
     for number, reason in sorted(skip.items()):
         logging.info("Title %s is not transcoded: it %s", number, reason)
     _arm_move_main_feature(tracks, skip)
-    _arm_record_scan(raw, titles, skip, wholes, orders)
+    _arm_record_scan(job, titles, skip, wholes, orders)
     _arm_notify(job, titles, skip, wholes, orders)
     return skip
 
@@ -649,18 +648,18 @@ def _arm_mpls(path: str) -> tuple[list[tuple], list[float]]:
     return segments, chapters
 
 
-def _arm_dvd_titles(raw: str, tracks: dict[int, "Track"]) -> dict[int, dict]:
-    # The stamp maps HandBrake's numbers to the DVD's own, and lsdvd reads each
-    # of those titles' cells and chapters from the ISO. A cell's sectors count
-    # within its title set, whose number, like the frame rate, only -v prints.
-    stamp = _arm_pathlib.Path(raw, "arm-job.json").read_text()
-    mapped = _arm_json.loads(stamp).get("title_map") or []
-    images = [name for name in os.listdir(raw) if name.endswith(".iso")]
-    if not mapped or len(images) != 1:
-        message = f"{raw} has no title map, or not exactly one ISO"
+def _arm_dvd_titles(record: dict | None, tracks: dict[int, "Track"]) -> dict[int, dict]:
+    # The raw copy's title map pairs HandBrake's numbers with the DVD's own,
+    # and lsdvd reads each of those titles' cells and chapters from the image.
+    # A cell's sectors count within its title set, whose number, like the frame
+    # rate, only -v prints.
+    mapped = (record or {}).get("title_map") or []
+    image = (record or {}).get("image")
+    if not mapped or not image:
+        message = "the raw copy has no title map, or no image"
         raise ValueError(message)
     listing = subprocess.run(
-        ["lsdvd", "-c", "-d", "-v", "-Oy", os.path.join(raw, images[0])],
+        ["lsdvd", "-c", "-d", "-v", "-Oy", image],
         capture_output=True,
         text=True,
         check=True,
@@ -706,7 +705,7 @@ def _arm_move_main_feature(tracks: dict[int, "Track"], skip: dict[int, str]) -> 
 
 
 def _arm_record_scan(
-    raw: str,
+    job: "Job",
     titles: dict[int, dict],
     skip: dict[int, str],
     wholes: list[dict],
@@ -714,17 +713,15 @@ def _arm_record_scan(
 ) -> None:
     # The map from each whole to its parts, with where each part starts, is what
     # cuts a kept whole into its parts later.
-    path = os.path.join(raw, "arm-job.json")
-    try:
-        stamp = _arm_json.loads(_arm_pathlib.Path(path).read_text())
-    except (OSError, ValueError) as error:
-        logging.warning("Not recording the skipped titles in %s: %s", path, error)
+    if utils._arm_raw_copy(job) is None:  # noqa: SLF001
+        logging.warning("Not recording the skipped titles: no raw copy is recorded")
         return
+    fields = {}
 
     def entry(number: int) -> dict:
         return {"handbrake_title": number, **titles[number]["source"]}
 
-    stamp["duplicates"] = {
+    fields["duplicates"] = {
         "skipped": [
             {**entry(number), "reason": reason}
             for number, reason in sorted(skip.items())
@@ -759,11 +756,8 @@ def _arm_record_scan(
         # A Blu-ray's title map, each playlist against its title_N, as a DVD's
         # maps the disc's titles through their MKVs. Length can't stand in for
         # it: featurette variants a second apart share all but a clip.
-        stamp["title_map"] = [
+        fields["title_map"] = [
             {**titles[number]["source"], "handbrake_title": number}
             for number in sorted(titles)
         ]
-    with _arm_pathlib.Path(f"{path}.tmp").open("w") as f:
-        _arm_json.dump(stamp, f, indent=2)
-        f.write("\n")
-    os.replace(f"{path}.tmp", path)
+    utils._arm_save_raw_copy(job, **fields)  # noqa: SLF001

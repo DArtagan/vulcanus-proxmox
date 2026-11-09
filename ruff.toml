@@ -58,6 +58,7 @@ ignore = [
 "kubernetes/apps/automatic-ripping-machine/scripts/arm-duplicate-titles.py" = [
   "F821",
 ]
+"kubernetes/apps/automatic-ripping-machine/scripts/arm-raw-copy.py" = ["F821"]
 "kubernetes/apps/automatic-ripping-machine/scripts/arm-title-charset.py" = [
   "F821",
 ]

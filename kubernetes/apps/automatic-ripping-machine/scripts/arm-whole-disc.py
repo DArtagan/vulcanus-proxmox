@@ -1,15 +1,13 @@
 # --- _arm_source_patch whole-disc-code, appended by arm-source-patches.py -----
-"""A disc's raw copy: the whole disc, decrypted, stamped and checked.
+"""A disc's raw copy: the whole disc, decrypted, recorded and checked.
 
-The raw copy of a disc is the whole disc, decrypted, in a folder stamped with
-the job that made it, and a backup that is short fails its job rather than
-passing for complete. Appended to makemkv.py, whose run(), progress_log(),
+The raw copy of a disc is the whole disc, decrypted, in a folder recorded
+against the job that made it, and a backup that is short fails its job rather
+than passing for complete. Appended to makemkv.py, whose run(), progress_log(),
 OutputType, TInfo, TrackID, TrackInfoProcessor and utils it uses as module
-globals.
+globals; the record is utils.py's, from raw-copy-code.
 """
 
-import datetime as _arm_datetime
-import json as _arm_json
 import pathlib as _arm_pathlib
 import struct as _arm_struct
 
@@ -20,40 +18,33 @@ _ARM_CLPI_HEADER = 60
 _ARM_SECTOR = 2048
 
 
-def _arm_write_stamp(
-    job: "Job",
-    rawpath: str,
-    problems: list[str] | None = None,
-    title_map: list[dict] | None = None,
-) -> None:
-    # ARM's database records a job's completed path and never its raw one, and
-    # a title corrected later renames only the completed folder. The stamp
-    # travels with the raw folder through any rename. `complete` stays null
-    # until the backup has been checked, so a folder whose job died mid-backup
-    # never claims to be whole.
-    stamp = {
-        "schema": 1,
-        "job_id": job.job_id,
-        "label": job.label,
-        "disctype": job.disctype,
-        "crc_id": job.crc_id,
-        "stage": job.stage,
-        "start_time": job.start_time.astimezone(_arm_datetime.timezone.utc).isoformat()
-        if job.start_time
-        else None,
-        "complete": None if problems is None else not problems,
-        "problems": problems or [],
-        "title_map": title_map,
-    }
-    path = os.path.join(rawpath, "arm-job.json")
-    with _arm_pathlib.Path(f"{path}.tmp").open("w") as f:
-        _arm_json.dump(stamp, f, indent=2)
-        f.write("\n")
-    os.replace(f"{path}.tmp", path)
+def _arm_record_raw_copy(job: "Job", rawpath: str) -> None:
+    # Before anything is copied. `complete` stays unchecked until the backup
+    # has been, so a folder whose job died mid-backup never claims to be whole.
+    if job.disctype == "bluray" and job.config.RIPMETHOD in ("backup", "backup_dvd"):
+        form = "bluray-backup"
+    elif job.disctype == "dvd" and job.config.RIPMETHOD == "backup_dvd":
+        form = "dvd-image"
+    else:
+        form = "titles"
+    utils._arm_save_raw_copy(  # noqa: SLF001
+        job,
+        folder=rawpath,
+        form=form,
+        complete={"value": None, "reason": "not_checked"},
+        problems=[],
+        title_map=None,
+    )
 
 
 def _arm_record_check(job: "Job", rawpath: str, problems: list[str]) -> None:
-    _arm_write_stamp(job, rawpath, problems)
+    # Both checks ran: every size against the disc's own record of it, and
+    # MakeMKV's hashes as it copied.
+    utils._arm_save_raw_copy(  # noqa: SLF001
+        job,
+        complete={"value": not problems, "reason": "sizes_and_hashes"},
+        problems=problems,
+    )
     if problems:
         for problem in problems:
             logging.critical("Backup incomplete: %s", problem)
@@ -139,6 +130,7 @@ def _arm_backup_dvd(job: "Job", rawpath: str) -> str:
     # off the drive. For a DVD the destination is the image's file name: given
     # a folder, MakeMKV refuses it as already holding a backup.
     iso = os.path.join(rawpath, f"{os.path.basename(rawpath)}.iso")
+    utils._arm_save_raw_copy(job, image=iso)  # noqa: SLF001
     _arm_record_check(job, rawpath, _arm_backup(job, iso) + _arm_iso_problems(iso))
 
     titles = os.path.join(rawpath, "titles")
@@ -180,7 +172,7 @@ def _arm_backup_dvd(job: "Job", rawpath: str) -> str:
     if not any(name.endswith(".mkv") for name in os.listdir(titles)):
         message = f"MakeMKV extracted no titles from {iso}"
         raise utils.RipperException(message)
-    _arm_write_stamp(job, rawpath, [], _arm_title_map(found, titles))
+    utils._arm_save_raw_copy(job, title_map=_arm_title_map(found, titles))  # noqa: SLF001
     return titles
 
 
@@ -189,7 +181,8 @@ def _arm_title_map(found: dict[int, dict[int, str]], titles: str) -> list[dict]:
     # in the ISO once titles/ is gone: MakeMKV's _tNN counts only the titles it
     # kept. HandBrake numbers a folder's files from 1 in byte order of their
     # names (qsort in libhb/batch.c), and that number is ARM's title_N. It is
-    # null for a title MakeMKV listed but did not save.
+    # null for a title MakeMKV listed but did not save. `mkv` is the file's
+    # whole path, saved or not.
     saved = sorted(
         name
         for name in os.listdir(titles)
@@ -202,7 +195,7 @@ def _arm_title_map(found: dict[int, dict[int, str]], titles: str) -> list[dict]:
         entries.append(
             {
                 "disc_title": int(disc_title) if disc_title else None,
-                "mkv": mkv,
+                "mkv": os.path.join(titles, mkv) if mkv else None,
                 "handbrake_title": saved.index(mkv) + 1 if mkv in saved else None,
             }
         )
