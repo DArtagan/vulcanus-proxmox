@@ -33,7 +33,6 @@ def _arm_record_raw_copy(job: "Job", rawpath: str) -> None:
         form=form,
         check={"sizes": "not_run", "hashes": "not_run"},
         problems=[],
-        title_map=None,
     )
 
 
@@ -178,17 +177,17 @@ def _arm_backup_dvd(job: "Job", rawpath: str) -> str:
     if not any(name.endswith(".mkv") for name in os.listdir(titles)):
         message = f"MakeMKV extracted no titles from {iso}"
         raise utils.RipperException(message)
-    utils._arm_save_raw_copy(job, title_map=_arm_title_map(found, titles))  # noqa: SLF001
+    utils._arm_save_raw_copy(job, titles=_arm_titles(found, titles))  # noqa: SLF001
     return titles
 
 
-def _arm_title_map(found: dict[int, dict[int, str]], titles: str) -> list[dict]:
-    # Each MKV against the disc's own title number, which is what finds it again
+def _arm_titles(found: dict[int, dict[int, str]], titles: str) -> list[dict]:
+    # Each title by the disc's own number for it, which is what finds it again
     # in the ISO once titles/ is gone: MakeMKV's _tNN counts only the titles it
     # kept. HandBrake numbers a folder's files from 1 in byte order of their
-    # names (qsort in libhb/batch.c), and that number is ARM's title_N. It is
-    # null for a title MakeMKV listed but did not save. `mkv` is the file's
-    # whole path, saved or not.
+    # names (qsort in libhb/batch.c), and that number is ARM's title_N, kept as
+    # `handbrake_title` for the record's own use. A title MakeMKV listed but
+    # did not save has neither, and never a transcode.
     saved = sorted(
         name
         for name in os.listdir(titles)
@@ -198,11 +197,12 @@ def _arm_title_map(found: dict[int, dict[int, str]], titles: str) -> list[dict]:
     for _, attributes in sorted(found.items()):
         mkv = attributes.get(TrackID.FILENAME)
         disc_title = attributes.get(_ARM_DISC_TITLE)
-        entries.append(
-            {
-                "disc_title": int(disc_title) if disc_title else None,
-                "mkv": os.path.join(titles, mkv) if mkv else None,
-                "handbrake_title": saved.index(mkv) + 1 if mkv in saved else None,
-            }
-        )
+        entry = {"disc_title": int(disc_title) if disc_title else None}
+        if mkv in saved:
+            entry["handbrake_title"] = saved.index(mkv) + 1
+            entry["extracted"] = os.path.join(titles, mkv)
+        else:
+            entry["handbrake_title"] = None
+            entry |= {"transcode": None, "reason": "not_extracted"}
+        entries.append(entry)
     return entries

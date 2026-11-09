@@ -413,7 +413,7 @@ class Reading(unittest.TestCase):
         """Read a play-all and its first episode, shaped after Pinky's D2."""
         record = {
             "image": str(self.raw / "disc.iso"),
-            "title_map": [
+            "titles": [
                 {"disc_title": 1, "handbrake_title": 1},
                 {"disc_title": 4, "handbrake_title": 2},
                 {"disc_title": 5, "handbrake_title": None},
@@ -457,7 +457,7 @@ class Reading(unittest.TestCase):
         self.assertEqual(cmd[-1], str(self.raw / "disc.iso"))
         return titles
 
-    def test_a_dvds_titles_are_found_through_the_title_map(self) -> None:
+    def test_a_dvds_titles_are_found_through_the_record(self) -> None:
         titles = self.dvd(25.0)
         self.assertEqual(
             titles[1]["segments"], [(1, 8483, 36723, 66.4), (1, 36723, 205855, 454.3)]
@@ -480,12 +480,16 @@ class Reading(unittest.TestCase):
         with self.assertRaises(KeyError):
             self.dvd(-1.0)
 
-    def test_a_dvd_without_a_title_map_or_an_image_is_refused(self) -> None:
+    def test_a_dvd_without_titles_or_an_image_is_refused(self) -> None:
         mapped = [{"disc_title": 1, "handbrake_title": 1}]
         for record in (
             None,
-            {"image": "/root/video/raw/X/X.iso", "title_map": None},
-            {"title_map": mapped},
+            {"image": "/root/video/raw/X/X.iso"},
+            {
+                "image": "/root/video/raw/X/X.iso",
+                "titles": [{"disc_title": 5, "handbrake_title": None}],
+            },
+            {"titles": mapped},
         ):
             with self.assertRaises(ValueError):
                 self.ns["_arm_dvd_titles"](record, {1: None})
@@ -513,9 +517,7 @@ class EndToEnd(unittest.TestCase):
             [(PLAY_ALL, 6), (2, 1), (3, 2), (4, 3), (5, 4), (7, 7)]
         )
         self.ns = load(self, self.fake)
-        self.ns["utils"]._arm_save_raw_copy(  # noqa: SLF001
-            self.job(), folder=str(self.raw), title_map=None
-        )
+        self.ns["utils"]._arm_save_raw_copy(self.job(), folder=str(self.raw))  # noqa: SLF001
         lengths_by_title = {2: 3944, 3: 2858, 4: 2854, 5: 2767, PLAY_ALL: 12432, 7: 16}
         self.tracks = Tracks(
             types.SimpleNamespace(
@@ -541,30 +543,60 @@ class EndToEnd(unittest.TestCase):
             title="Downton-Abbey",
         )
 
-    def stamp(self) -> dict:
+    def record(self) -> dict:
         return self.ns["utils"]._arm_raw_copy(self.job())  # noqa: SLF001
+
+    def titles(self) -> dict:
+        return {t["handbrake_title"]: t for t in self.record()["titles"]}
 
     def test_the_play_all_is_skipped_and_recorded(self) -> None:
         skip = self.ns["_arm_duplicate_titles"](str(self.raw), self.job())
         self.assertEqual(list(skip), [6])
-        duplicates = self.stamp()["duplicates"]
-        self.assertEqual(duplicates["skipped"][0]["handbrake_title"], 6)
-        self.assertEqual(duplicates["skipped"][0]["playlist"], "00006.mpls")
-        whole = duplicates["wholes"][0]
-        self.assertEqual((whole["kept"], whole["interleaved"]), ("parts", False))
-        self.assertEqual([p["start"] for p in whole["parts"]], [0, 3944, 6802, 9656])
+        play_all = self.titles()[6]
+        self.assertEqual(play_all["playlist"], "00006.mpls")
+        self.assertEqual(
+            (play_all["transcode"], play_all["reason"]), (None, "played_by_kept_titles")
+        )
+        # Its parts say what plays it, so nothing else does.
+        self.assertNotIn("played_by", play_all)
+        self.assertFalse(play_all["interleaved"])
+        self.assertEqual(
+            [(p["playlist"], p["start"]) for p in play_all["parts"]],
+            [
+                ("00001.mpls", 0),
+                ("00002.mpls", 3944),
+                ("00003.mpls", 6802),
+                ("00004.mpls", 9656),
+            ],
+        )
+        self.assertTrue(self.record()["titles_compared"])
         # What was recorded before the scan stays.
-        self.assertEqual(self.stamp()["folder"], str(self.raw))
+        self.assertEqual(self.record()["folder"], str(self.raw))
 
-    def test_a_blu_rays_title_map_is_recorded(self) -> None:
+    def test_a_movie_discs_whole_kept_says_what_plays_its_parts(self) -> None:
+        # A chapter at each join, so a movie disc keeps the whole.
+        skip = self.ns["_arm_duplicate_titles"](str(self.raw), self.job("movie"))
+        self.assertEqual(sorted(skip), [2, 3, 4, 5])
+        titles = self.titles()
+        self.assertNotIn("reason", titles[6])
+        for number in (2, 3, 4, 5):
+            self.assertEqual(titles[number]["reason"], "played_by_kept_titles")
+            # The whole's own parts say so, once.
+            self.assertNotIn("played_by", titles[number])
+
+    def test_a_blu_rays_titles_are_recorded(self) -> None:
         # Every title HandBrake was given, skipped or not; title 7 is too short.
         self.ns["_arm_duplicate_titles"](str(self.raw), self.job())
         self.assertEqual(
-            self.stamp()["title_map"],
+            [(t["handbrake_title"], t["playlist"]) for t in self.record()["titles"]],
             [
-                {"playlist": f"0000{p}.mpls", "handbrake_title": n}
+                (n, f"0000{p}.mpls")
                 for n, p in ((2, 1), (3, 2), (4, 3), (5, 4), (PLAY_ALL, 6))
             ],
+        )
+        # Kept, and not yet transcoded: no transcode recorded, and no reason.
+        self.assertEqual(
+            self.titles()[2], {"handbrake_title": 2, "playlist": "00001.mpls"}
         )
 
     def test_the_main_feature_moves_to_the_longest_title_kept(self) -> None:
@@ -574,18 +606,16 @@ class EndToEnd(unittest.TestCase):
     def test_titles_under_minlength_are_not_compared(self) -> None:
         self.ns["_arm_duplicate_titles"](str(self.raw), self.job())
         self.assertNotIn("00007", "".join(map(str, self.fake.commands)))
-        compared = {
-            t["handbrake_title"]
-            for t in self.stamp()["duplicates"]["wholes"][0]["parts"]
-        }
-        self.assertNotIn(7, compared)
+        compared = {p["playlist"] for p in self.titles()[6]["parts"]}
+        self.assertNotIn("00007.mpls", compared)
+        self.assertNotIn(7, self.titles())
 
     def test_an_unreadable_disc_has_every_title_transcoded(self) -> None:
         (self.raw / "BDMV" / "PLAYLIST" / "00006.mpls").write_bytes(b"garbage")
         self.assertEqual(
             self.ns["_arm_duplicate_titles"](str(self.raw), self.job()), {}
         )
-        self.assertNotIn("duplicates", self.stamp())
+        self.assertNotIn("titles_compared", self.record())
         self.assertEqual([t.track_number for t in self.tracks if t.main_feature], ["6"])
 
     def test_too_few_titles_records_that_none_were_skipped(self) -> None:
@@ -595,12 +625,10 @@ class EndToEnd(unittest.TestCase):
             self.ns["_arm_duplicate_titles"](str(self.raw), self.job()), {}
         )
         self.assertEqual([c[0] for c in self.fake.commands], ["HandBrakeCLI"])
-        self.assertEqual(
-            self.stamp()["duplicates"], {"skipped": [], "wholes": [], "orders": []}
-        )
-        self.assertEqual(
-            [t["handbrake_title"] for t in self.stamp()["title_map"]], [2, 3]
-        )
+        self.assertTrue(self.record()["titles_compared"])
+        self.assertEqual(self.record()["orders"], [])
+        self.assertEqual(list(self.titles()), [2, 3])
+        self.assertFalse(any("reason" in t for t in self.titles().values()))
 
     def interleave(self) -> None:
         # Title 6 now plays title 3 cut into title 2.
@@ -979,25 +1007,37 @@ class Obfuscated(unittest.TestCase):
 
     def test_the_choices_are_recorded(self) -> None:
         self.ns["_arm_duplicate_titles"](str(self.raw), self.job)
-        duplicates = self.ns["utils"]._arm_raw_copy(self.job)["duplicates"]  # noqa: SLF001
+        record = self.ns["utils"]._arm_raw_copy(self.job)  # noqa: SLF001
+        titles = {t["playlist"]: t for t in record["titles"]}
         played_by = {
-            s["handbrake_title"]: s.get("played_by") for s in duplicates["skipped"]
+            playlist: (t.get("played_by") or {}).get("playlist")
+            for playlist, t in titles.items()
+            if t.get("reason")
         }
         # Each shuffle and the decoy by the title kept for it; the play-all by
-        # its parts, so by none.
-        self.assertEqual(played_by, {1: 2, 3: 2, 6: 7, 7: None, 8: 2})
-        orders = {o["handbrake_title"]: o for o in duplicates["orders"]}
-        self.assertEqual(sorted(orders), [2, 7])
-        self.assertEqual(orders[2]["playlist"], "00002.mpls")
-        self.assertEqual(orders[2]["titles"], 4)
-        self.assertEqual(orders[2]["mismatch"], 0.0)
-        self.assertIn(orders[2]["runner_up"]["handbrake_title"], (1, 3))
-        self.assertGreater(orders[2]["runner_up"]["mismatch"], 1.0)
-        whole = duplicates["wholes"][0]
-        self.assertEqual(whole["handbrake_title"], 7)
+        # its parts, so by none; and 6, a shuffle of the play-all, by the
+        # play-all, which its parts play in turn.
         self.assertEqual(
-            sorted(p["handbrake_title"] for p in whole["parts"]), [2, 4, 5]
+            played_by,
+            {
+                "00001.mpls": "00002.mpls",
+                "00003.mpls": "00002.mpls",
+                "00006.mpls": "00007.mpls",
+                "00007.mpls": None,
+                "00008.mpls": "00002.mpls",
+            },
         )
+        self.assertEqual(
+            sorted(p["playlist"] for p in titles["00007.mpls"]["parts"]),
+            ["00002.mpls", "00004.mpls", "00005.mpls"],
+        )
+        orders = {o["playlist"]: o for o in record["orders"]}
+        self.assertEqual(sorted(orders), ["00002.mpls", "00007.mpls"])
+        self.assertEqual(orders["00002.mpls"]["titles"], 4)
+        self.assertEqual(orders["00002.mpls"]["mismatch"], 0.0)
+        runner_up = orders["00002.mpls"]["runner_up"]
+        self.assertIn(runner_up["playlist"], ("00001.mpls", "00003.mpls"))
+        self.assertGreater(runner_up["mismatch"], 1.0)
 
     def test_each_choice_is_notified(self) -> None:
         self.ns["_arm_duplicate_titles"](str(self.raw), self.job)

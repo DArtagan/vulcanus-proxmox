@@ -670,14 +670,18 @@ def _arm_mpls(path: str) -> tuple[list[tuple], list[float]]:
 
 
 def _arm_dvd_titles(record: dict | None, tracks: dict[int, "Track"]) -> dict[int, dict]:
-    # The raw copy's title map pairs HandBrake's numbers with the DVD's own,
-    # and lsdvd reads each of those titles' cells and chapters from the image.
-    # A cell's sectors count within its title set, whose number, like the frame
+    # The raw copy's titles pair HandBrake's numbers with the DVD's own, and
+    # lsdvd reads each of those titles' cells and chapters from the image. A
+    # cell's sectors count within its title set, whose number, like the frame
     # rate, only -v prints.
-    mapped = (record or {}).get("title_map") or []
+    mapped = [
+        entry
+        for entry in (record or {}).get("titles") or []
+        if entry.get("handbrake_title") is not None
+    ]
     image = (record or {}).get("image")
     if not mapped or not image:
-        message = "the raw copy has no title map, or no image"
+        message = "the raw copy has no titles, or no image"
         raise ValueError(message)
     listing = subprocess.run(
         ["lsdvd", "-c", "-d", "-v", "-Oy", image],
@@ -732,61 +736,57 @@ def _arm_record_scan(
     wholes: list[dict],
     orders: list[dict],
 ) -> None:
-    # The map from each whole to its parts, with where each part starts, is what
-    # cuts a kept whole into its parts later.
-    if utils._arm_raw_copy(job) is None:  # noqa: SLF001
+    # Each title not transcoded, with what plays it said once: by a whole's own
+    # parts, by the whole it is a part of, or by `played_by`. A whole's parts,
+    # with where each starts, are what cut it into its parts later.
+    record = utils._arm_raw_copy(job)  # noqa: SLF001
+    if record is None:
         logging.warning("Not recording the skipped titles: no raw copy is recorded")
         return
-    fields = {}
 
-    def entry(number: int) -> dict:
-        return {"handbrake_title": number, **titles[number]["source"]}
+    def key(number: int) -> dict:
+        return dict(titles[number]["source"])
 
-    fields["duplicates"] = {
-        "skipped": [
-            {
-                **entry(number),
-                "reason": reason,
-                **(
-                    {"played_by": reason.played_by}
-                    if getattr(reason, "played_by", None) is not None
-                    else {}
-                ),
-            }
-            for number, reason in sorted(skip.items())
-        ],
-        "wholes": [
-            {
-                **entry(whole["title"]),
-                "kept": whole["kept"],
-                "interleaved": whole["interleaved"],
-                "parts": [
-                    {**entry(part["title"]), "start": part["start"]}
-                    for part in whole["parts"]
-                ],
-            }
-            for whole in wholes
-        ],
-        "orders": [
-            {
-                **entry(order["title"]),
-                "mismatch": order["mismatch"] and round(order["mismatch"], 3),
-                "titles": order["titles"],
-                "runner_up": order["runner_up"]
-                and {
-                    **entry(order["runner_up"]["title"]),
-                    "mismatch": round(order["runner_up"]["mismatch"], 3),
-                },
-            }
-            for order in orders
-        ],
-    }
     if any("playlist" in title["source"] for title in titles.values()):
-        # A Blu-ray's title map, each playlist against its title_N, as a DVD's
-        # maps the disc's titles through their MKVs. Length can't stand in for
-        # it: featurette variants a second apart share all but a clip.
-        fields["title_map"] = [
-            {**titles[number]["source"], "handbrake_title": number}
-            for number in sorted(titles)
-        ]
-    utils._arm_save_raw_copy(job, **fields)  # noqa: SLF001
+        # A Blu-ray's titles, each playlist against its title_N, as a DVD's
+        # come from its extraction. Length can't stand in for the pairing:
+        # featurette variants a second apart share all but a clip.
+        entries = [{"handbrake_title": n, **key(n)} for n in sorted(titles)]
+    else:
+        entries = record.get("titles") or []
+    by_number = {e["handbrake_title"]: e for e in entries if e.get("handbrake_title")}
+    part_of = {
+        part["title"]: whole["title"] for whole in wholes for part in whole["parts"]
+    }
+    for number, reason in skip.items():
+        entry = by_number[number]
+        entry |= {"transcode": None, "reason": "played_by_kept_titles"}
+        played_by = getattr(reason, "played_by", None)
+        if played_by is not None and part_of.get(number) != played_by:
+            entry["played_by"] = key(played_by)
+    for whole in wholes:
+        by_number[whole["title"]] |= {
+            "interleaved": whole["interleaved"],
+            "parts": [
+                {**key(part["title"]), "start": part["start"]}
+                for part in whole["parts"]
+            ],
+        }
+    # How each choice among shuffles was made, for a person reading the record;
+    # nothing downstream reads it.
+    orders = [
+        {
+            **key(order["title"]),
+            "mismatch": order["mismatch"] and round(order["mismatch"], 3),
+            "titles": order["titles"],
+            "runner_up": order["runner_up"]
+            and {
+                **key(order["runner_up"]["title"]),
+                "mismatch": round(order["runner_up"]["mismatch"], 3),
+            },
+        }
+        for order in orders
+    ]
+    utils._arm_save_raw_copy(  # noqa: SLF001
+        job, titles=entries, titles_compared=True, orders=orders
+    )

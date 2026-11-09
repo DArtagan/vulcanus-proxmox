@@ -94,6 +94,10 @@ class Plan(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
+    def titles(self) -> dict:
+        (doc,) = self.plan()[0].values()
+        return {t["handbrake_title"]: t for t in doc["titles"]}
+
     def stamped(self, name: str, stamp: dict, *, image: bool = False) -> Path:
         folder = self.raw / name
         folder.mkdir(parents=True)
@@ -127,31 +131,68 @@ class Plan(unittest.TestCase):
                 "form": "dvd-image",
                 "check": {"sizes": "passed", "hashes": "passed"},
                 "problems": [],
-                "title_map": [
+                "image": str(folder / "ROBIN_HOOD.iso"),
+                "titles": [
                     {
-                        "disc_title": 1,
-                        "mkv": str(folder / "titles/ROBIN HOOD-E1_t00.mkv"),
                         "handbrake_title": 3,
+                        "disc_title": 1,
+                        "extracted": str(folder / "titles/ROBIN HOOD-E1_t00.mkv"),
+                        "transcode": str(completed / "title_3.mkv"),
+                        "reason": None,
                     },
                     {
-                        "disc_title": 2,
-                        "mkv": str(folder / "titles/ROBIN HOOD-E2_t01.mkv"),
                         "handbrake_title": 4,
+                        "disc_title": 2,
+                        "extracted": str(folder / "titles/ROBIN HOOD-E2_t01.mkv"),
+                        "transcode": None,
+                        "reason": "played_by_kept_titles",
+                        # Named only in its reason, and no whole says it.
+                        "played_by": {"disc_title": 1},
                     },
                     {
-                        "disc_title": 9,
-                        "mkv": str(folder / "titles/ROBIN HOOD-B3_t04.mkv"),
                         "handbrake_title": None,
+                        "disc_title": 9,
+                        "transcode": None,
+                        "reason": "not_extracted",
                     },
                 ],
-                "image": str(folder / "ROBIN_HOOD.iso"),
-                "duplicates": {
-                    "skipped": [{**DVD["duplicates"]["skipped"][0], "played_by": 3}],
-                    "wholes": [],
-                },
-                "transcodes": {"3": str(completed / "title_3.mkv")},
+                "titles_compared": True,
+                "orders": [],
             },
         )
+
+    def test_a_whole_and_its_parts_say_what_plays_them_once(self) -> None:
+        def title(n: int) -> dict:
+            return {"handbrake_title": n, "playlist": f"0000{n}.mpls"}
+
+        skipped = [{**title(n), "reason": "is played whole by title 6"} for n in (2, 3)]
+        whole = {
+            **title(6),
+            "kept": "whole",
+            "interleaved": False,
+            "parts": [{**title(2), "start": 0.0}, {**title(3), "start": 9.5}],
+        }
+        stamp = {
+            **BLURAY,
+            "title_map": [title(n) for n in (2, 3, 6)],
+            "duplicates": {"skipped": skipped, "wholes": [whole]},
+        }
+        self.stamped("Downton", stamp)
+        titles = self.titles()
+        self.assertEqual(
+            {n: titles[n].get("reason") for n in titles},
+            {2: "played_by_kept_titles", 3: "played_by_kept_titles", 6: None},
+        )
+        self.assertFalse(any("played_by" in t for t in titles.values()))
+        self.assertEqual(
+            titles[6]["parts"],
+            [
+                {"playlist": "00002.mpls", "start": 0.0},
+                {"playlist": "00003.mpls", "start": 9.5},
+            ],
+        )
+        self.assertIn("interleaved", titles[6])
+        self.assertFalse(titles[6]["interleaved"])
 
     def test_a_transcode_is_found_in_extras_and_a_skipped_title_has_none(self) -> None:
         completed = self.stamped("Downton", BLURAY)
@@ -162,24 +203,48 @@ class Plan(unittest.TestCase):
         (doc,) = self.plan()[0].values()
         self.assertEqual(doc["form"], "bluray-backup")
         self.assertNotIn("image", doc)
-        self.assertEqual(
-            doc["transcodes"], {"2": str(completed / "extras/title_2.mkv")}
-        )
+        titles = self.titles()
+        self.assertEqual(titles[2]["transcode"], str(completed / "extras/title_2.mkv"))
+        self.assertEqual(titles[6]["transcode"], None)
 
-    def test_a_feature_renamed_for_the_film_is_not_recorded(self) -> None:
+    def renamed(self, features: list[int], files: list[str]) -> dict:
         completed = self.stamped("ROBIN_HOOD", DVD, image=True)
         completed.mkdir(parents=True)
-        (completed / "Robin Hood (2010).mkv").write_bytes(b"")
-        (doc,) = self.plan()[0].values()
-        self.assertNotIn("transcodes", doc)
+        for name in files:
+            (completed / name).write_bytes(b"")
+        self.jobs[0]["main_features"] = features
+        return self.titles()
+
+    def test_a_feature_renamed_for_the_film_is_arms_main_feature(self) -> None:
+        titles = self.renamed([3], ["Robin Hood (2010).mkv"])
+        self.assertTrue(titles[3]["transcode"].endswith("/Robin Hood (2010).mkv"))
+
+    def test_a_renamed_feature_is_recorded_only_when_unambiguous(self) -> None:
+        cases = (
+            ([], ["Robin Hood (2010).mkv"]),
+            ([3, 4], ["Robin Hood (2010).mkv"]),
+            ([3], ["Robin Hood (2010).mkv", "Robin Hood (2010) 2.mkv"]),
+            # Its own title_N already found: no rename to account for.
+            ([3], ["Robin Hood (2010).mkv", "title_3.mkv"]),
+        )
+        for features, files in cases:
+            with self.subTest(features=features, files=files):
+                titles = self.renamed(features, files)
+                self.assertFalse(
+                    any(
+                        str(t.get("transcode")).endswith("(2010).mkv")
+                        for t in titles.values()
+                    )
+                )
+                self.tearDown()
+                self.setUp()
 
     def test_a_title_in_both_places_is_not_recorded(self) -> None:
         completed = self.stamped("Downton", BLURAY)
         (completed / "extras").mkdir(parents=True)
         (completed / "title_2.mkv").write_bytes(b"")
         (completed / "extras" / "title_2.mkv").write_bytes(b"")
-        (doc,) = self.plan()[0].values()
-        self.assertNotIn("transcodes", doc)
+        self.assertNotIn("transcode", self.titles()[2])
 
     def test_each_check_by_its_own_result(self) -> None:
         hash_failed = "Backup done but 1 files failed hash check"
@@ -211,7 +276,8 @@ class Plan(unittest.TestCase):
         self.stamped("Rescuers_178961349896", BACKFILLED)
         (doc,) = self.plan()[0].values()
         self.assertEqual(doc["problems"], [])
-        self.assertNotIn("duplicates", doc)
+        self.assertNotIn("titles_compared", doc)
+        self.assertNotIn("orders", doc)
 
     def test_what_is_passed_over(self) -> None:
         self.stamped("ROBIN_HOOD", DVD, image=True)
@@ -232,7 +298,13 @@ class Plan(unittest.TestCase):
     def test_a_current_stamp_with_shuffles_is_not_retired(self) -> None:
         # `orders` counts its group's `titles`, which an earlier form used for
         # the title map.
-        order = {"handbrake_title": 2, "playlist": "00002.mpls", "titles": 4}
+        order = {
+            "handbrake_title": 2,
+            "playlist": "00002.mpls",
+            "mismatch": None,
+            "titles": 4,
+            "runner_up": None,
+        }
         duplicates = {**BLURAY["duplicates"], "wholes": [], "orders": [order]}
         self.stamped("Downton", {**BLURAY, "duplicates": duplicates})
         documents, passed = self.plan()
@@ -257,9 +329,10 @@ class Plan(unittest.TestCase):
             "plays titles 2, 3, 4 in turn": None,
             "interleaves titles 2 and 3": None,
         }
-        skipped = [{"handbrake_title": n, "reason": r} for n, r in enumerate(reasons)]
-        found = raw_copies.duplicates({"skipped": skipped, "wholes": []})["skipped"]
-        self.assertEqual([e.get("played_by") for e in found], list(reasons.values()))
+        found = [raw_copies.played_by({"reason": reason}) for reason in reasons]
+        self.assertEqual(found, list(reasons.values()))
+        # A stamp written after the patch recorded it says so itself.
+        self.assertEqual(raw_copies.played_by({"reason": "x", "played_by": 5}), 5)
 
     def test_writing_keeps_a_row_already_there(self) -> None:
         db = sqlite3.connect(":memory:")

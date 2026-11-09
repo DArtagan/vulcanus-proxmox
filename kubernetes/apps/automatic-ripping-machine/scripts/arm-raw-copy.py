@@ -4,7 +4,10 @@
 ARM's database records a job's completed folder and never its raw one, nor
 whether the copy is whole, nor which transcode each disc title became. The
 patches record those here, one JSON document a job, in a table of their own,
-and reelbarrow's exporter copies them out with the job. Appended to utils.py,
+and reelbarrow's exporter copies them out with the job. The document is in the
+shape of the manifest's `raw` and `titles`, so the exporter only translates
+ARM's paths and drops `handbrake_title`, the record's own key for a title:
+HandBrake and ARM's moves know a title by nothing else. Appended to utils.py,
 whose os, logging and db it uses as module globals, and whose move_files it
 wraps so that each transcode's final path is recorded where ARM put it.
 
@@ -55,19 +58,19 @@ def _arm_save_raw_copy(job: "Job", **fields: object) -> dict:
 
 
 def _arm_record_transcode(job: "Job", filename: str, path: str) -> None:
-    # Keyed by HandBrake's number for the title, which the title map holds. A
-    # file no HandBrake track names, such as a raw MKV ARM files untranscoded,
-    # is no transcode.
+    # On its title, found by HandBrake's number for it. A file no HandBrake
+    # track names, such as a raw MKV ARM files untranscoded, is no transcode.
     track = job.tracks.filter_by(source="HandBrake", filename=filename).first()
     if track is None:
         return
-    document = _arm_raw_copy(job)
-    if document is None:
-        logging.warning("Not recording %s: the job has no raw copy recorded", path)
+    titles = (_arm_raw_copy(job) or {}).get("titles") or []
+    number = int(track.track_number)
+    title = next((t for t in titles if t.get("handbrake_title") == number), None)
+    if title is None:
+        logging.warning("Not recording %s: no title %s is recorded", path, number)
         return
-    transcodes = document.get("transcodes", {})
-    transcodes[str(int(track.track_number))] = path
-    _arm_save_raw_copy(job, transcodes=transcodes)
+    title |= {"transcode": path, "reason": None}
+    _arm_save_raw_copy(job, titles=titles)
 
 
 def _arm_recording_moves(move_files):  # noqa: ANN001, ANN202 - ARM's own

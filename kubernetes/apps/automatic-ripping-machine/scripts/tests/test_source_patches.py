@@ -425,7 +425,6 @@ class Record(Base):
                 "form": "dvd-image",
                 "check": {"sizes": "not_run", "hashes": "not_run"},
                 "problems": [],
-                "title_map": None,
             },
         )
 
@@ -661,10 +660,18 @@ class Dvd(Base):
         # its title 2, whatever MakeMKV's own numbering.
         titles = self.backup_dvd()
         self.assertEqual(
-            self.record()["title_map"],
+            self.record()["titles"],
             [
-                {"disc_title": 1, "mkv": f"{titles}/B1_t00.mkv", "handbrake_title": 2},
-                {"disc_title": 4, "mkv": f"{titles}/A2_t01.mkv", "handbrake_title": 1},
+                {
+                    "disc_title": 1,
+                    "handbrake_title": 2,
+                    "extracted": f"{titles}/B1_t00.mkv",
+                },
+                {
+                    "disc_title": 4,
+                    "handbrake_title": 1,
+                    "extracted": f"{titles}/A2_t01.mkv",
+                },
             ],
         )
 
@@ -677,8 +684,8 @@ class Dvd(Base):
         self.fake.titles_saved = ["b_t00.mkv", "C_t01.mkv"]
         self.backup_dvd()
         numbers = {
-            Path(t["mkv"]).name: t["handbrake_title"]
-            for t in self.record()["title_map"]
+            Path(t["extracted"]).name: t["handbrake_title"]
+            for t in self.record()["titles"]
         }
         self.assertEqual(numbers, {"C_t01.mkv": 1, "b_t00.mkv": 2})
 
@@ -686,11 +693,18 @@ class Dvd(Base):
         # The ones after it move up, because HandBrake counts what is there.
         self.fake.titles_saved = ["B1_t00.mkv"]
         self.backup_dvd()
-        numbers = {
-            Path(t["mkv"]).name: t["handbrake_title"]
-            for t in self.record()["title_map"]
-        }
-        self.assertEqual(numbers, {"B1_t00.mkv": 1, "A2_t01.mkv": None})
+        saved, unsaved = self.record()["titles"]
+        self.assertEqual((saved["disc_title"], saved["handbrake_title"]), (1, 1))
+        # Never transcoded, and nothing to point at.
+        self.assertEqual(
+            unsaved,
+            {
+                "disc_title": 4,
+                "handbrake_title": None,
+                "transcode": None,
+                "reason": "not_extracted",
+            },
+        )
 
     def test_the_record_has_no_titles_until_they_are_extracted(self) -> None:
         self.fake.backup = lambda dest: write_iso(
@@ -698,7 +712,7 @@ class Dvd(Base):
         )
         with self.assertRaises(RipperError):
             self.backup_dvd()
-        self.assertIsNone(self.record()["title_map"])
+        self.assertNotIn("titles", self.record())
 
 
 class Query(list):
@@ -753,6 +767,18 @@ class RawCopy(unittest.TestCase):
     def record(self) -> dict | None:
         return self.utils._arm_raw_copy(self.job)  # noqa: SLF001
 
+    def titled(self) -> None:
+        """Record titles 3 and 4, as extraction or the scan would."""
+        titles = [{"disc_title": n, "handbrake_title": n} for n in (3, 4)]
+        self.utils._arm_save_raw_copy(self.job, titles=titles)  # noqa: SLF001
+
+    def transcodes(self) -> dict:
+        return {
+            t["handbrake_title"]: t["transcode"]
+            for t in self.record()["titles"]
+            if "transcode" in t
+        }
+
     def test_nothing_is_recorded_until_something_is_saved(self) -> None:
         self.assertIsNone(self.record())
 
@@ -778,37 +804,50 @@ class RawCopy(unittest.TestCase):
         self.assertEqual(keys, [])
 
     def test_a_movies_transcodes_are_recorded_where_arm_put_them(self) -> None:
-        self.utils._arm_save_raw_copy(self.job)  # noqa: SLF001
+        self.titled()
         self.utils.move_files("/root/video/transcode/x", "title_3.mkv", self.job, True)  # noqa: FBT003
         self.utils.move_files("/root/video/transcode/x", "title_4.mkv", self.job, False)  # noqa: FBT003
         self.assertEqual(
-            self.record()["transcodes"],
+            self.transcodes(),
             {
-                "3": str(self.completed / "title_3.mkv"),
-                "4": str(self.completed / "extras" / "title_4.mkv"),
+                3: str(self.completed / "title_3.mkv"),
+                4: str(self.completed / "extras" / "title_4.mkv"),
+            },
+        )
+        self.assertEqual(
+            self.record()["titles"][0],
+            {
+                "disc_title": 3,
+                "handbrake_title": 3,
+                "transcode": str(self.completed / "title_3.mkv"),
+                "reason": None,
             },
         )
         self.assertEqual(len(self.moved), 2)
 
+    def test_a_transcode_of_no_recorded_title_is_not_recorded(self) -> None:
+        self.utils._arm_save_raw_copy(self.job)  # noqa: SLF001
+        result = self.utils.move_files("/t", "title_3.mkv", self.job, True)  # noqa: FBT003
+        self.assertEqual(result, str(self.completed))
+        self.assertNotIn("titles", self.record())
+
     def test_a_series_transcodes_are_recorded_in_its_folder(self) -> None:
         self.job.video_type = "series"
-        self.utils._arm_save_raw_copy(self.job)  # noqa: SLF001
+        self.titled()
         self.utils.move_files("/t", "title_4.mkv", self.job, False)  # noqa: FBT003
-        self.assertEqual(
-            self.record()["transcodes"], {"4": str(self.completed / "title_4.mkv")}
-        )
+        self.assertEqual(self.transcodes(), {4: str(self.completed / "title_4.mkv")})
 
     def test_a_file_not_where_arm_put_it_is_not_recorded(self) -> None:
-        self.utils._arm_save_raw_copy(self.job)  # noqa: SLF001
+        self.titled()
         self.move_files = lambda *_args, **_kw: None
         utils = raw_copy(self.db, move_files=self.move_files)
         utils.move_files("/t", "title_3.mkv", self.job, True)  # noqa: FBT003
-        self.assertNotIn("transcodes", self.record())
+        self.assertEqual(self.transcodes(), {})
 
     def test_a_file_no_handbrake_track_names_is_no_transcode(self) -> None:
-        self.utils._arm_save_raw_copy(self.job)  # noqa: SLF001
+        self.titled()
         self.utils.move_files("/t", "ROBIN HOOD-E1_t00.mkv", self.job, True)  # noqa: FBT003
-        self.assertNotIn("transcodes", self.record())
+        self.assertEqual(self.transcodes(), {})
 
     def test_no_record_leaves_the_move_alone(self) -> None:
         result = self.utils.move_files("/t", "title_3.mkv", self.job, True)  # noqa: FBT003
@@ -819,16 +858,16 @@ class RawCopy(unittest.TestCase):
         self,
     ) -> None:
         # Another process holding ARM's database past the session's timeout.
-        self.utils._arm_save_raw_copy(self.job)  # noqa: SLF001
+        self.titled()
         with contextlib.closing(sqlite3.connect(self.db.path)) as other:
             other.execute("BEGIN EXCLUSIVE")
             result = self.utils.move_files("/t", "title_3.mkv", self.job, True)  # noqa: FBT003
             other.rollback()
         self.assertEqual(result, str(self.completed))
-        self.assertNotIn("transcodes", self.record())
+        self.assertEqual(self.transcodes(), {})
         # Rolled back, so ARM's next write through the session goes through.
         self.utils.move_files("/t", "title_4.mkv", self.job, False)  # noqa: FBT003
-        self.assertEqual(list(self.record()["transcodes"]), ["4"])
+        self.assertEqual(list(self.transcodes()), [4])
 
     def test_it_loads_into_a_utils_without_move_files(self) -> None:
         utils = raw_copy(arm_db(self))
