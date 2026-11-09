@@ -134,9 +134,8 @@ In order, each confirmed with Will, while ARM is idle where it rolls ARM:
    command:
    1. reelbarrow's image, with `reelbarrow arm-export-manifests --db
       /root/db/arm.db --out /manifests --arm-path
-      /root/video=/video/import/automatic-ripping-machine`: one folder as ARM
-      mounts it and as reelbarrow's service does, under its `/video`. The
-      sidecar leaves `REELBARROW_VIDEO_ROOT` at the service's. ARM's `TZ` is
+      /root/video=import/automatic-ripping-machine`: ARM's mount of its folder
+      of the share, and that folder's path on the share. ARM's `TZ` is
       `Etc/UTC` (read 2026-11-08), the exporter's default. Its tag follows reelbarrow's
       `ImagePolicy`, so exporter and reader move together.
    2. **ARM's database read-only**: the `db` subpath of
