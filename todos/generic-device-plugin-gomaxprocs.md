@@ -4,8 +4,7 @@
 
 > Read `todos/generic-device-plugin-gomaxprocs.md`. The plugin runs with
 > `GOMAXPROCS=2` and a 64Mi memory limit. Remove the pin, change nothing else,
-> and read the outcome off the measures below over two weeks. Do not run it
-> while `transcode-cpu-contention` is changing anything on worker-1.
+> and read the outcome off the measures below over two weeks.
 
 ## Where things stand
 
@@ -40,10 +39,11 @@ as the control.
 above the control plane's with memory.current well under the limit and no major
 faults.
 
-Ignore worker-1 during transcodes: CPU contention there lifts every Go
-process's pause, and a wider runtime may well feel it more. That is a finding
-for `transcode-cpu-contention`, not evidence about memory. Compare the hours
-when the node is idle.
+Worker-1's transcodes count. ARM's jobs run off CPU 0, and the first Blu-ray
+encoded that way, on 2026-11-09, left the plugin's median pause at 95µs at
+most. If the pause rises only while a transcode runs, check the job's CPU
+affinity ("Stage 2: Transcode" in `docs/automatic-ripping-machine.md`) before
+reading it as evidence about the pin.
 
 ## When it closes
 

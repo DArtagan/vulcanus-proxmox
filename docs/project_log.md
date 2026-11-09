@@ -17,6 +17,8 @@ oldest first — closing and reopening a review at a phase boundary is not a new
 project, so it gets no entry of its own. Entries with no review link predate the
 workflow. Sub-bullets carry whatever does not fit the one-line shape.
 
+- transcode-cpu-contention (2026-11-09): Stopped ARM's transcodes from starving worker-1's other tenants, by running each job off CPU 0 instead of under a CPU quota, holding SVT-AV1's parallelism at 3, and giving worker-1 six vCPUs at half the default host CPU weight. See [automatic-ripping-machine.md](automatic-ripping-machine.md). [PR #36](https://github.com/DArtagan/vulcanus-proxmox/pull/36)
+  - What raised the plugin's CPU wait by about a quarter from 2026-11-01 was never found; the change removes the mechanism it acted through.
 - dump-stream-truncation (2026-11-08): Stopped about one streamed database dump in forty reaching the restic repository short with no error, by sleeping 60 s after every backup command's last write to outlast kubernetes#142376, and taught the restore steps to check a dump is whole before loading it. See [backups.md](backups.md). [PR #33](https://github.com/DArtagan/vulcanus-proxmox/pull/33)
   - The sleep comes out when upstream's fix ships with a Talos release; `todos/README.md` watches for it, under *Watching upstream*.
 - bookdrop (2026-11-07): Deployed bookdrop, a web drop that takes a purchased ebook, a Kobo Adobe-DRM `.acsm` included, from phone or desktop into the Stump library with confirmed metadata. See [bookdrop.md](bookdrop.md). [PR #28](https://github.com/DArtagan/vulcanus-proxmox/pull/28)

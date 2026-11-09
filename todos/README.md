@@ -112,19 +112,10 @@ it is new; it is small, and mini-nas is about to start running AI agents.
 
 ## Waiting on evidence
 
-**[transcode-cpu-contention.md](transcode-cpu-contention.md) — keep ARM's transcodes from slowing worker-1's other tenants**
-HandBrake spent its CPU quota across every core at once, so worker-1's other
-tenants waited behind it, and `NodeSystemSaturation` fired on every Blu-ray.
-ARM's jobs now run off CPU 0 with no CPU limit, SVT-AV1 is held at parallelism
-level 3, and worker-1 goes to 6 vCPUs. Pinning a running job cut the device
-plugin's CPU wait by 68%. The first Blu-ray afterwards decides whether the alert
-stops and what the extra vCPUs bought.
-
 **[generic-device-plugin-gomaxprocs.md](generic-device-plugin-gomaxprocs.md) — does the plugin still need its GOMAXPROCS pin?**
 The plugin's degradation was its memory limit, and the pin's demonstrated effect
 is lowering resident memory. With 64Mi of headroom it may be unnecessary.
-Remove it, change nothing else, and read the spec's measures for two weeks. Not
-while transcode-cpu-contention is changing worker-1.
+Remove it, change nothing else, and read the spec's measures for two weeks.
 
 **[ingress-error-alerting.md](ingress-error-alerting.md) — alert on failed requests at the ingress**
 No ingress metric had ever reached Prometheus. Both controllers are scraped

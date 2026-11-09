@@ -293,10 +293,11 @@ degraded to dead.
 
 `DevicePluginDegraded` watches the median pause, and `DevicePluginMemoryHigh`
 watches for RSS growing past 16Mi or `memory.current` passing 75% of the limit.
-On the drive's node, a HandBrake transcode saturates the CPU and lifts the
-plugin's median pause to ~0.5ms, along with every other Go process there. That
-is contention, not degradation, and it clears when the transcode ends. To read
-the pause by hand, along with the parallelism the runtime is actually using:
+A transcode on the drive's node leaves the plugin's median pause near its idle
+~90µs, because the job runs off CPU 0 (see "Stage 2: Transcode"). A pause that
+rises only while a transcode runs points at the job's CPU affinity before the
+plugin. To read the pause by hand, along with the parallelism the runtime is
+actually using:
 
 ```bash
 kubectl exec -n infrastructure alertmanager-kube-prometheus-kube-prome-alertmanager-0 \
@@ -462,6 +463,15 @@ Key encoding settings (defined in the `vulcanus-handbrake-preset` custom preset)
 `MAX_CONCURRENT_TRANSCODES: 1` limits to one transcode at a time — AV1 at preset 4 saturates whatever it is given, and this runs on `piraeus-worker-1`, the smaller of the two workers, alongside everything else scheduled there.
 
 A job runs on every CPU of `piraeus-worker-1` but CPU 0, which stays free for the node's other tenants, and ARM has no CPU limit. What a transcode costs those tenants shows in their own CPU wait (`container_pressure_cpu_waiting_seconds_total` per container), not in the node's load average or CPU pressure: both count HandBrake's threads queueing behind each other for its own CPUs, and read the same whether or not anything else is waiting.
+
+A 1080p Blu-ray encodes at about 13 fps this way, with CPUs 1–5 each ~80% busy and CPU 0 ~15%. The job's affinity reads `1-5`:
+
+```bash
+kubectl exec -n automatic-ripping-machine deploy/automatic-ripping-machine -- \
+  sh -c 'grep Cpus_allowed_list /proc/$(pgrep -o HandBrakeCLI)/status'
+```
+
+The load averages near 9 through an encode, with peaks to 19 against `NodeSystemSaturation`'s threshold of 12 on six CPUs, so the alert can go pending, or fire, on the transcode alone. Whether anything else is suffering shows in the other containers' CPU wait.
 
 `MAINFEATURE: false` means all tracks above the minimum length are transcoded, not just the longest. This is necessary for TV show discs where multiple episodes need to be extracted.
 
