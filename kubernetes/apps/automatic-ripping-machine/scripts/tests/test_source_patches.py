@@ -13,6 +13,7 @@ tree whose size the test chooses. Sizes sit at the boundary that matters, a
 file of exactly the declared size against one a byte short.
 """
 
+import contextlib
 import dataclasses
 import datetime
 import json
@@ -26,6 +27,9 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
+
+import sqlalchemy
+import sqlalchemy.orm
 
 SCRIPTS = Path(__file__).resolve().parent.parent
 RIPPER = "/opt/arm/arm/ripper"
@@ -200,36 +204,34 @@ class Patching(unittest.TestCase):
 # --- the appended code ------------------------------------------------------
 
 
-class FakeDb:
-    """Flask-SQLAlchemy's `db`, as arm-raw-copy.py uses it, over real SQLite.
+def arm_db(test: unittest.TestCase, *, timeout: float = 5.0) -> types.SimpleNamespace:
+    """Return ARM's `db`, as far as arm-raw-copy.py uses it, for one test.
 
-    `db.text` is the identity, as sqlite3 takes SQLAlchemy's `:name`
-    parameters as they are, so the SQL that runs is the patch's own.
+    It is a real SQLAlchemy session and `text`, on a SQLite database of the
+    test's own. Flask-SQLAlchemy's `db.session` is a scoped session of exactly this, and
+    its `db.text` is SQLAlchemy's. The database is a file rather than memory so
+    that `committed` reads it over a connection of its own, as the exporter
+    reads ARM's from another process. Closed and removed with the test.
     """
-
-    def __init__(self, path: str = ":memory:") -> None:
-        self.connection = sqlite3.connect(path)
-        self.session = self
-        self.commits = 0
-
-    @staticmethod
-    def text(sql: str) -> str:
-        return sql
-
-    def execute(self, sql: str, params: dict | None = None) -> types.SimpleNamespace:
-        cursor = self.connection.execute(sql, params or {})
-        row = cursor.fetchone() if cursor.description else None
-        return types.SimpleNamespace(scalar=lambda: row[0] if row else None)
-
-    def commit(self) -> None:
-        self.commits += 1
-        self.connection.commit()
-
-    def rollback(self) -> None:
-        self.connection.rollback()
+    folder = tempfile.TemporaryDirectory()
+    path = Path(folder.name, "arm.db")
+    engine = sqlalchemy.create_engine(
+        f"sqlite:///{path}", connect_args={"timeout": timeout}
+    )
+    session = sqlalchemy.orm.Session(engine)
+    test.addCleanup(folder.cleanup)
+    test.addCleanup(engine.dispose)
+    test.addCleanup(session.close)
+    return types.SimpleNamespace(session=session, text=sqlalchemy.text, path=path)
 
 
-def raw_copy(db: FakeDb, **globals_: object) -> types.SimpleNamespace:
+def committed(db: types.SimpleNamespace, sql: str) -> list[tuple]:
+    """Return what another connection to ARM's database reads."""
+    with contextlib.closing(sqlite3.connect(db.path)) as connection:
+        return connection.execute(sql).fetchall()
+
+
+def raw_copy(db: types.SimpleNamespace, **globals_: object) -> types.SimpleNamespace:
     """Load arm-raw-copy.py into a namespace standing in for utils.py's."""
     ns = {"os": os, "logging": logging, "db": db, **globals_}
     exec(compile(load_script("arm-raw-copy.py"), "arm-raw-copy.py", "exec"), ns)  # noqa: S102
@@ -396,7 +398,7 @@ class Base(unittest.TestCase):
         self.raw = Path(self.tmp.name, "Pinky-and-the-Brain_179258877540")
         self.raw.mkdir()
         self.fake = FakeMakeMKV()
-        self.utils = raw_copy(FakeDb(), RipperException=RipperError)
+        self.utils = raw_copy(arm_db(self), RipperException=RipperError)
         self.ns = whole_disc(self.fake, self.utils)
         TrackInfoProcessor.seen = []
         logging.disable(logging.CRITICAL)
@@ -408,9 +410,8 @@ class Base(unittest.TestCase):
     def record(self) -> dict:
         return self.utils._arm_raw_copy(make_job())  # noqa: SLF001
 
-    def complete(self) -> str:
-        """Return the record's `complete` as JSON, where null and false differ."""
-        return json.dumps(self.record()["complete"]["value"])
+    def check(self) -> dict:
+        return self.record()["check"]
 
 
 class Record(Base):
@@ -422,7 +423,7 @@ class Record(Base):
                 "schema": 1,
                 "folder": str(self.raw),
                 "form": "dvd-image",
-                "complete": {"value": None, "reason": "not_checked"},
+                "check": {"sizes": "not_run", "hashes": "not_run"},
                 "problems": [],
                 "title_map": None,
             },
@@ -431,7 +432,7 @@ class Record(Base):
     def test_the_form_is_what_the_folder_will_hold(self) -> None:
         cases = (("bluray", "backup"), ("bluray", "backup_dvd"), ("dvd", "mkv"))
         for (disctype, method), form in zip(
-            cases, ("bluray-backup", "bluray-backup", "titles"), strict=True
+            cases, ("bluray-backup", "bluray-backup", "mkv-titles"), strict=True
         ):
             job = make_job(disctype=disctype)
             job.config.RIPMETHOD = method
@@ -444,22 +445,26 @@ class Record(Base):
         job = make_job()
         self.ns["_arm_record_raw_copy"](job, str(self.raw))
         with self.assertRaises(RipperError):
-            self.ns["_arm_record_check"](job, str(self.raw), ["x is missing"])
+            self.ns["_arm_record_check"](job, str(self.raw), [], ["x is missing"])
         self.assertEqual(
-            self.record()["complete"], {"value": False, "reason": "sizes_and_hashes"}
+            self.record()["check"], {"sizes": "failed", "hashes": "passed"}
         )
         self.assertEqual(self.record()["problems"], ["x is missing"])
         self.assertEqual(self.record()["folder"], str(self.raw))
         self.assertEqual(list(self.raw.iterdir()), [])
 
-    def test_a_failed_check_fails_the_job_after_recording_it(self) -> None:
+    def test_a_failed_hash_check_fails_the_job_after_recording_it(self) -> None:
         with self.assertRaises(RipperError):
-            self.ns["_arm_record_check"](make_job(), str(self.raw), ["x is missing"])
-        self.assertEqual(self.complete(), "false")
+            self.ns["_arm_record_check"](make_job(), str(self.raw), ["1 failed"], [])
+        self.assertEqual(
+            self.record()["check"], {"sizes": "passed", "hashes": "failed"}
+        )
 
-    def test_a_clean_check_records_complete(self) -> None:
-        self.ns["_arm_record_check"](make_job(), str(self.raw), [])
-        self.assertEqual(self.complete(), "true")
+    def test_a_clean_check_records_both_passed(self) -> None:
+        self.ns["_arm_record_check"](make_job(), str(self.raw), [], [])
+        self.assertEqual(
+            self.record()["check"], {"sizes": "passed", "hashes": "passed"}
+        )
 
 
 class Backup(Base):
@@ -617,7 +622,7 @@ class Dvd(Base):
 
     def test_a_complete_image_is_recorded_complete(self) -> None:
         self.backup_dvd()
-        self.assertEqual(self.complete(), "true")
+        self.assertEqual(self.check(), {"sizes": "passed", "hashes": "passed"})
         iso = self.raw / "Pinky-and-the-Brain_179258877540.iso"
         self.assertEqual(self.record()["image"], str(iso))
         self.assertEqual(
@@ -631,7 +636,7 @@ class Dvd(Base):
         with self.assertRaises(RipperError):
             self.backup_dvd()
         self.assertEqual([cmd[0] for cmd in self.fake.commands], ["backup"])
-        self.assertEqual(self.complete(), "false")
+        self.assertEqual(self.check(), {"sizes": "failed", "hashes": "passed"})
         self.assertFalse((self.raw / "titles").exists())
 
     def test_hash_check_failures_fail_the_job(self) -> None:
@@ -641,6 +646,7 @@ class Dvd(Base):
         self.assertEqual(
             self.record()["problems"], ["Backup done but 1 files failed hash check"]
         )
+        self.assertEqual(self.check(), {"sizes": "passed", "hashes": "failed"})
 
     def test_no_titles_extracted_fails_the_job(self) -> None:
         # The image is the archive and stays complete; the job still fails,
@@ -648,7 +654,7 @@ class Dvd(Base):
         self.fake.titles_saved = []
         with self.assertRaises(RipperError):
             self.backup_dvd()
-        self.assertEqual(self.complete(), "true")
+        self.assertEqual(self.check(), {"sizes": "passed", "hashes": "passed"})
 
     def test_each_title_is_mapped_from_the_disc_to_handbrake(self) -> None:
         # HandBrake numbers by file name, so A2_t01 is its title 1 and B1_t00
@@ -713,7 +719,7 @@ class RawCopy(unittest.TestCase):
         self.completed = Path(self.tmp.name, "completed", "Robin-Hood (2010)")
         (self.completed / "extras").mkdir(parents=True)
         self.moved: list[tuple] = []
-        self.db = FakeDb()
+        self.db = arm_db(self, timeout=0.05)
         self.utils = raw_copy(self.db, move_files=self.move_files)
         self.job = types.SimpleNamespace(
             job_id=87,
@@ -761,16 +767,14 @@ class RawCopy(unittest.TestCase):
                 "image": "/root/video/raw/X/X.iso",
             },
         )
-        self.assertEqual(self.db.commits, 2)
-        rows = self.db.connection.execute("SELECT job_id FROM reelbarrow_raw_copy")
-        self.assertEqual(rows.fetchall(), [(87,)])
+        # Committed, so the exporter, on a connection of its own, reads it.
+        rows = committed(self.db, "SELECT job_id, document FROM reelbarrow_raw_copy")
+        self.assertEqual([(n, json.loads(d)) for n, d in rows], [(87, self.record())])
 
     def test_the_table_declares_no_foreign_key(self) -> None:
         # ARM's migrations rebuild `job`, which a key to it would trip over.
         self.utils._arm_save_raw_copy(self.job)  # noqa: SLF001
-        keys = self.db.connection.execute(
-            "PRAGMA foreign_key_list(reelbarrow_raw_copy)"
-        ).fetchall()
+        keys = committed(self.db, "PRAGMA foreign_key_list(reelbarrow_raw_copy)")
         self.assertEqual(keys, [])
 
     def test_a_movies_transcodes_are_recorded_where_arm_put_them(self) -> None:
@@ -806,21 +810,28 @@ class RawCopy(unittest.TestCase):
         self.utils.move_files("/t", "ROBIN HOOD-E1_t00.mkv", self.job, True)  # noqa: FBT003
         self.assertNotIn("transcodes", self.record())
 
-    def test_a_failure_to_record_leaves_the_move_alone(self) -> None:
-        # No document yet is one; a broken database another.
+    def test_no_record_leaves_the_move_alone(self) -> None:
         result = self.utils.move_files("/t", "title_3.mkv", self.job, True)  # noqa: FBT003
         self.assertEqual(result, str(self.completed))
+        self.assertIsNone(self.record())
 
-        def locked(*_args: object) -> None:
-            message = "database is locked"
-            raise sqlite3.OperationalError(message)
-
-        self.db.execute = locked
-        result = self.utils.move_files("/t", "title_4.mkv", self.job, False)  # noqa: FBT003
+    def test_a_locked_database_leaves_the_move_alone_and_the_session_usable(
+        self,
+    ) -> None:
+        # Another process holding ARM's database past the session's timeout.
+        self.utils._arm_save_raw_copy(self.job)  # noqa: SLF001
+        with contextlib.closing(sqlite3.connect(self.db.path)) as other:
+            other.execute("BEGIN EXCLUSIVE")
+            result = self.utils.move_files("/t", "title_3.mkv", self.job, True)  # noqa: FBT003
+            other.rollback()
         self.assertEqual(result, str(self.completed))
+        self.assertNotIn("transcodes", self.record())
+        # Rolled back, so ARM's next write through the session goes through.
+        self.utils.move_files("/t", "title_4.mkv", self.job, False)  # noqa: FBT003
+        self.assertEqual(list(self.record()["transcodes"]), ["4"])
 
     def test_it_loads_into_a_utils_without_move_files(self) -> None:
-        utils = raw_copy(FakeDb())
+        utils = raw_copy(arm_db(self))
         self.assertFalse(hasattr(utils, "move_files"))
         utils._arm_save_raw_copy(self.job, folder="f")  # noqa: SLF001
         self.assertEqual(utils._arm_raw_copy(self.job)["folder"], "f")  # noqa: SLF001

@@ -44,6 +44,23 @@ _ARM_FRAME = (64, 36)
 _ARM_STILL = 0.01
 
 
+# A str holds no nonempty __slots__, and played_by is each instance's own.
+class _ArmSkip(str):  # noqa: SLOT000
+    """Why a title isn't transcoded, and the title kept that plays it.
+
+    It reads as the reason wherever that is logged or notified. `played_by` is
+    set where no whole's parts say what plays the title.
+    """
+
+    played_by: int | None
+
+    # ARM's Python is 3.10, which has no typing.Self.
+    def __new__(cls, reason: str, played_by: int | None = None) -> "_ArmSkip":  # noqa: PYI034
+        skip = super().__new__(cls, reason)
+        skip.played_by = played_by
+        return skip
+
+
 def _arm_duplicate_titles(srcpath: str, job: "Job") -> dict[int, str]:
     # HandBrake's numbers for the titles not to transcode, each with the reason.
     if job.disctype not in ("bluray", "dvd"):
@@ -197,11 +214,15 @@ def _arm_orders(
             if _arm_units(extra) > (1 - _ARM_COVERED) * _arm_units(
                 titles[number]["segments"]
             ):
-                skip[number] = f"plays title {kept}'s clips and a still picture"
+                skip[number] = _ArmSkip(
+                    f"plays title {kept}'s clips and a still picture", kept
+                )
             elif order[number] == order[kept]:
-                skip[number] = f"is a copy of title {kept}"
+                skip[number] = _ArmSkip(f"is a copy of title {kept}", kept)
             else:
-                skip[number] = f"plays title {kept}'s clips out of order"
+                skip[number] = _ArmSkip(
+                    f"plays title {kept}'s clips out of order", kept
+                )
     return skip, orders
 
 
@@ -482,7 +503,7 @@ def _arm_whole_skips(
                     and other not in skip
                     and _arm_inside(titles, units, other, number) >= _ARM_COVERED
                 ):
-                    skip[other] = f"is played whole by title {number}"
+                    skip[other] = _ArmSkip(f"is played whole by title {number}", number)
         elif whole["interleaved"]:
             parts = " and ".join(str(part["title"]) for part in whole["parts"])
             skip[number] = f"interleaves titles {parts}"
@@ -723,7 +744,15 @@ def _arm_record_scan(
 
     fields["duplicates"] = {
         "skipped": [
-            {**entry(number), "reason": reason}
+            {
+                **entry(number),
+                "reason": reason,
+                **(
+                    {"played_by": reason.played_by}
+                    if getattr(reason, "played_by", None) is not None
+                    else {}
+                ),
+            }
             for number, reason in sorted(skip.items())
         ],
         "wholes": [

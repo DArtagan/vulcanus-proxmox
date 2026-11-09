@@ -128,7 +128,7 @@ EDITS = [
             "    # Rip BluRay\n"
             '    if (job.config.RIPMETHOD in ("backup", "backup_dvd")) and '
             'job.disctype == "bluray":\n'
-            "        _arm_record_check(job, rawpath, _arm_backup(job, rawpath) + "
+            "        _arm_record_check(job, rawpath, _arm_backup(job, rawpath), "
             "_arm_bluray_problems(rawpath))\n"
             '    elif job.config.RIPMETHOD == "backup_dvd" and job.disctype == "dvd":\n'
             "        rawpath = _arm_backup_dvd(job, rawpath)\n"

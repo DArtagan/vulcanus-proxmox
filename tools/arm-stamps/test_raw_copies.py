@@ -61,7 +61,15 @@ BLURAY = {
         {"playlist": "00001.mpls", "handbrake_title": 2},
         {"playlist": "00006.mpls", "handbrake_title": 6},
     ],
-    "duplicates": {"skipped": [{"handbrake_title": 6, "playlist": "00006.mpls"}]},
+    "duplicates": {
+        "skipped": [
+            {
+                "handbrake_title": 6,
+                "playlist": "00006.mpls",
+                "reason": "plays titles 2, 3, 4 in turn",
+            }
+        ]
+    },
 }
 BACKFILLED = {
     "schema": 1,
@@ -117,7 +125,7 @@ class Plan(unittest.TestCase):
                 "schema": 1,
                 "folder": str(folder),
                 "form": "dvd-image",
-                "complete": {"value": True, "reason": "sizes_and_hashes"},
+                "check": {"sizes": "passed", "hashes": "passed"},
                 "problems": [],
                 "title_map": [
                     {
@@ -137,7 +145,10 @@ class Plan(unittest.TestCase):
                     },
                 ],
                 "image": str(folder / "ROBIN_HOOD.iso"),
-                "duplicates": DVD["duplicates"],
+                "duplicates": {
+                    "skipped": [{**DVD["duplicates"]["skipped"][0], "played_by": 3}],
+                    "wholes": [],
+                },
                 "transcodes": {"3": str(completed / "title_3.mkv")},
             },
         )
@@ -170,26 +181,31 @@ class Plan(unittest.TestCase):
         (doc,) = self.plan()[0].values()
         self.assertNotIn("transcodes", doc)
 
-    def test_completeness_says_what_was_checked(self) -> None:
+    def test_each_check_by_its_own_result(self) -> None:
+        hash_failed = "Backup done but 1 files failed hash check"
+        missing = "STREAM/00800.m2ts is missing"
         cases = (
+            ({**BLURAY, "complete": True}, ("passed", "passed")),
             (
-                {**BLURAY, "complete": True},
-                {"value": True, "reason": "sizes_and_hashes"},
+                {**BLURAY, "complete": False, "problems": [missing]},
+                ("failed", "passed"),
             ),
             (
-                {**BLURAY, "complete": False, "problems": ["x"]},
-                {"value": False, "reason": "sizes_and_hashes"},
+                {**BLURAY, "complete": False, "problems": [hash_failed]},
+                ("passed", "failed"),
             ),
-            ({**BLURAY, "complete": None}, {"value": None, "reason": "not_checked"}),
-            # Stamped afterwards: short, or not shown short.
+            ({**BLURAY, "complete": None}, ("not_run", "not_run")),
+            # Stamped afterwards: short, or not, and the hashes never rerun.
             (
-                {**BACKFILLED, "complete": False, "problems": ["x"]},
-                {"value": False, "reason": "sizes"},
+                {**BACKFILLED, "complete": False, "problems": [missing]},
+                ("failed", "not_run"),
             ),
-            (BACKFILLED, {"value": None, "reason": "sizes"}),
+            (BACKFILLED, ("passed", "not_run")),
         )
-        for stamp, expected in cases:
-            self.assertEqual(raw_copies.complete(stamp), expected, stamp)
+        for stamp, (sizes, hashes) in cases:
+            self.assertEqual(
+                raw_copies.check(stamp), {"sizes": sizes, "hashes": hashes}, stamp
+            )
 
     def test_a_backfilled_stamp_has_no_problems_or_duplicates(self) -> None:
         self.stamped("Rescuers_178961349896", BACKFILLED)
@@ -213,12 +229,37 @@ class Plan(unittest.TestCase):
             ],
         )
 
+    def test_a_current_stamp_with_shuffles_is_not_retired(self) -> None:
+        # `orders` counts its group's `titles`, which an earlier form used for
+        # the title map.
+        order = {"handbrake_title": 2, "playlist": "00002.mpls", "titles": 4}
+        duplicates = {**BLURAY["duplicates"], "wholes": [], "orders": [order]}
+        self.stamped("Downton", {**BLURAY, "duplicates": duplicates})
+        documents, passed = self.plan()
+        self.assertEqual((list(documents), passed), ([84], []))
+        retired = {**BLURAY, "duplicates": {"skipped": [{"title": 6}], "wholes": []}}
+        self.assertTrue(raw_copies.retired(retired))
+
     def test_a_job_stamped_twice_is_passed_over(self) -> None:
         self.stamped("Downton", BLURAY)
         self.stamped("Downton_2", BLURAY)
         documents, passed = self.plan()
         self.assertEqual(documents, {})
         self.assertEqual(passed[0][0], 84)
+
+    def test_a_skipped_title_names_the_title_kept_for_it(self) -> None:
+        reasons = {
+            "is a copy of title 3": 3,
+            "plays title 7's clips out of order": 7,
+            "plays title 2's clips and a still picture": 2,
+            "is played whole by title 6": 6,
+            # A whole skipped for its parts: they say what plays it.
+            "plays titles 2, 3, 4 in turn": None,
+            "interleaves titles 2 and 3": None,
+        }
+        skipped = [{"handbrake_title": n, "reason": r} for n, r in enumerate(reasons)]
+        found = raw_copies.duplicates({"skipped": skipped, "wholes": []})["skipped"]
+        self.assertEqual([e.get("played_by") for e in found], list(reasons.values()))
 
     def test_writing_keeps_a_row_already_there(self) -> None:
         db = sqlite3.connect(":memory:")

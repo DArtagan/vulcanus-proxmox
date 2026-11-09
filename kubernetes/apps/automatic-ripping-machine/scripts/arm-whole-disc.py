@@ -19,30 +19,36 @@ _ARM_SECTOR = 2048
 
 
 def _arm_record_raw_copy(job: "Job", rawpath: str) -> None:
-    # Before anything is copied. `complete` stays unchecked until the backup
-    # has been, so a folder whose job died mid-backup never claims to be whole.
+    # Before anything is copied. Neither check has run until the backup has,
+    # so a folder whose job died mid-backup never claims to be whole.
     if job.disctype == "bluray" and job.config.RIPMETHOD in ("backup", "backup_dvd"):
         form = "bluray-backup"
     elif job.disctype == "dvd" and job.config.RIPMETHOD == "backup_dvd":
         form = "dvd-image"
     else:
-        form = "titles"
+        form = "mkv-titles"
     utils._arm_save_raw_copy(  # noqa: SLF001
         job,
         folder=rawpath,
         form=form,
-        complete={"value": None, "reason": "not_checked"},
+        check={"sizes": "not_run", "hashes": "not_run"},
         problems=[],
         title_map=None,
     )
 
 
-def _arm_record_check(job: "Job", rawpath: str, problems: list[str]) -> None:
-    # Both checks ran: every size against the disc's own record of it, and
-    # MakeMKV's hashes as it copied.
+def _arm_record_check(
+    job: "Job", rawpath: str, hashes: list[str], sizes: list[str]
+) -> None:
+    # Each check by its own result: MakeMKV's hashes as it copied, then every
+    # size against the disc's own record of it.
+    problems = hashes + sizes
     utils._arm_save_raw_copy(  # noqa: SLF001
         job,
-        complete={"value": not problems, "reason": "sizes_and_hashes"},
+        check={
+            "sizes": "failed" if sizes else "passed",
+            "hashes": "failed" if hashes else "passed",
+        },
         problems=problems,
     )
     if problems:
@@ -131,7 +137,7 @@ def _arm_backup_dvd(job: "Job", rawpath: str) -> str:
     # a folder, MakeMKV refuses it as already holding a backup.
     iso = os.path.join(rawpath, f"{os.path.basename(rawpath)}.iso")
     utils._arm_save_raw_copy(job, image=iso)  # noqa: SLF001
-    _arm_record_check(job, rawpath, _arm_backup(job, iso) + _arm_iso_problems(iso))
+    _arm_record_check(job, rawpath, _arm_backup(job, iso), _arm_iso_problems(iso))
 
     titles = os.path.join(rawpath, "titles")
     os.makedirs(titles)

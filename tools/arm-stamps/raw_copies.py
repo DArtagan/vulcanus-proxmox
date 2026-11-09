@@ -16,6 +16,7 @@ better one. The stamp files are read, not changed. The container's Python is
 """
 
 import json
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -28,9 +29,21 @@ DB = Path("/root/db/arm.db")
 # written afterwards, when a backup's sizes could be checked again but not
 # MakeMKV's hashes.
 FIRST_LIVE_JOB = 76
-# Names a stamp lost in earlier reshapes. One still holding them predates the
-# form this reads.
-RETIRED = {"title", "titles", "extracted", "playlists", "length"}
+# MakeMKV's report of a file failing the disc's hash check, the one problem a
+# stamp held that isn't a size.
+HASH_FAILED = "failed hash check"
+# The patch's reasons that name the one title kept that plays the title
+# skipped. Stamps from before it recorded `played_by` say so only here.
+PLAYED_BY = re.compile(
+    r"^(?:is a copy of title|is played whole by title|plays title) (\d+)\b"
+)
+# Names a stamp lost in earlier reshapes, where it held them: `titles`,
+# `extracted` and a Blu-ray's `playlists` beside `title_map`, a `length` in its
+# entries, and a bare `title` for HandBrake's number in `duplicates`. One still
+# holding them predates the form this reads. `duplicates.orders` has a
+# `titles` of its own, a count, and is current.
+RETIRED_TOP = {"titles", "extracted", "playlists"}
+RETIRED_ENTRY = {"length", "title"}
 
 TABLE = (
     "CREATE TABLE IF NOT EXISTS reelbarrow_raw_copy"
@@ -41,15 +54,18 @@ Document = dict[str, Any]
 Job = dict[str, Any]
 
 
-def keys(value: object):  # noqa: ANN201
-    """Yield every key in a stamp, at any depth."""
-    if isinstance(value, dict):
-        for key, inner in value.items():
-            yield key
-            yield from keys(inner)
-    elif isinstance(value, list):
-        for inner in value:
-            yield from keys(inner)
+def retired(stamp: dict) -> bool:
+    """Return whether the stamp holds a name from an earlier form."""
+    if RETIRED_TOP & set(stamp):
+        return True
+    duplicates = stamp.get("duplicates") or {}
+    entries = [
+        *(stamp.get("title_map") or []),
+        *duplicates.get("skipped", []),
+        *duplicates.get("wholes", []),
+        *(part for whole in duplicates.get("wholes", []) for part in whole["parts"]),
+    ]
+    return any(RETIRED_ENTRY & set(entry) for entry in entries)
 
 
 def form(folder: Path) -> tuple[str, Path | None]:
@@ -59,20 +75,24 @@ def form(folder: Path) -> tuple[str, Path | None]:
     images = sorted(folder.glob("*.iso"))
     if len(images) == 1:
         return "dvd-image", images[0]
-    return "titles", None
+    return "mkv-titles", None
 
 
-def complete(stamp: dict) -> dict:
-    """Return the stamp's completeness as the record's value and reason."""
+def check(stamp: dict) -> dict:
+    """Return the stamp's completeness as the result of each check."""
     if stamp["job_id"] < FIRST_LIVE_JOB:
-        # Written afterwards, and only when the sizes fell short.
-        return {
-            "value": False if stamp.get("complete") is False else None,
-            "reason": "sizes",
-        }
+        # Written afterwards, `complete` only when the sizes fell short: a
+        # backup's hashes can't be checked again.
+        sizes = "failed" if stamp.get("complete") is False else "passed"
+        return {"sizes": sizes, "hashes": "not_run"}
     if stamp["complete"] is None:
-        return {"value": None, "reason": "not_checked"}
-    return {"value": stamp["complete"], "reason": "sizes_and_hashes"}
+        return {"sizes": "not_run", "hashes": "not_run"}
+    problems = stamp["problems"]
+    hashes = [p for p in problems if HASH_FAILED in p]
+    return {
+        "sizes": "failed" if len(hashes) < len(problems) else "passed",
+        "hashes": "failed" if hashes else "passed",
+    }
 
 
 def transcodes(job: Job, stamp: dict) -> dict[str, str]:
@@ -102,6 +122,21 @@ def transcodes(job: Job, stamp: dict) -> dict[str, str]:
     return found
 
 
+def duplicates(recorded: dict) -> dict:
+    """Return the stamp's `duplicates`, naming what plays each skipped title.
+
+    A stamp from before `played_by` names the title kept only in its reason.
+    """
+    skipped = []
+    for entry in recorded.get("skipped", []):
+        match = PLAYED_BY.match(entry["reason"])
+        named = (
+            {} if not match or "played_by" in entry else {"played_by": int(match[1])}
+        )
+        skipped.append({**entry, **named})
+    return {**recorded, "skipped": skipped}
+
+
 def document(stamp: dict, folder: Path, job: Job) -> Document:
     """Return the record the patch would have written for the stamp's job."""
     kind, image = form(folder)
@@ -115,14 +150,14 @@ def document(stamp: dict, folder: Path, job: Job) -> Document:
         "schema": 1,
         "folder": str(folder),
         "form": kind,
-        "complete": complete(stamp),
+        "check": check(stamp),
         "problems": stamp.get("problems", []),
         "title_map": title_map,
     }
     if image:
         result["image"] = str(image)
     if "duplicates" in stamp:
-        result["duplicates"] = stamp["duplicates"]
+        result["duplicates"] = duplicates(stamp["duplicates"])
     found = transcodes(job, stamp)
     if found:
         result["transcodes"] = found
@@ -150,7 +185,7 @@ def plan(
             passed.append((job_id, "no such job in ARM's database"))
         elif job["stage"] != stamp["stage"]:
             passed.append((job_id, f"{folder}'s stage isn't the job's"))
-        elif RETIRED & set(keys(stamp)):
+        elif retired(stamp):
             passed.append((job_id, f"{folder}'s stamp predates its current form"))
         elif job_id in recorded:
             passed.append((job_id, "already recorded"))

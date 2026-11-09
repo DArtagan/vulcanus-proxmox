@@ -24,7 +24,7 @@ import types
 import unittest
 from pathlib import Path
 
-from test_source_patches import FakeDb, load_script, raw_copy
+from test_source_patches import arm_db, load_script, raw_copy
 
 TICK = 45000
 
@@ -70,7 +70,11 @@ class FakeSubprocess:
         return types.SimpleNamespace(stdout=stdout, returncode=0)
 
 
-def load(fake: FakeSubprocess | None = None) -> dict:
+def load(test: unittest.TestCase, fake: FakeSubprocess | None = None) -> dict:
+    """Load the appended code into a namespace standing in for handbrake.py's.
+
+    Its database is the test's own, closed when the test ends.
+    """
     ns = {
         "os": __import__("os"),
         "logging": logging,
@@ -87,7 +91,7 @@ def load(fake: FakeSubprocess | None = None) -> dict:
         "notices": [],
     }
     ns["utils"] = raw_copy(
-        FakeDb(),
+        arm_db(test),
         NOTIFY_TITLE="ARM notification",
         notify=lambda _job, _title, body: ns["notices"].append(body),
     )
@@ -114,7 +118,7 @@ def back_to_back(*parts: dict) -> dict:
 
 class Decision(unittest.TestCase):
     def setUp(self) -> None:
-        self.ns = load()
+        self.ns = load(self)
 
     def decide(self, titles: dict, *, series: bool) -> tuple[dict, list]:
         skip, wholes = self.ns["_arm_duplicates"](titles, series=series)
@@ -135,6 +139,8 @@ class Decision(unittest.TestCase):
         skip, wholes = self.decide(self.episodes(), series=True)
         self.assertEqual(list(skip), [1])
         self.assertEqual(wholes[0]["kept"], "parts")
+        # Its parts say what plays it.
+        self.assertIsNone(getattr(skip[1], "played_by", None))
         self.assertEqual([p["title"] for p in wholes[0]["parts"]], [2, 3, 4, 5])
 
     def test_a_movie_keeps_the_whole_and_skips_its_parts(self) -> None:
@@ -142,6 +148,10 @@ class Decision(unittest.TestCase):
         skip, wholes = self.decide(self.episodes(), series=False)
         self.assertEqual(sorted(skip), [2, 3, 4, 5])
         self.assertEqual(wholes[0]["kept"], "whole")
+        self.assertEqual(
+            {n: r.played_by for n, r in skip.items()}, dict.fromkeys(skip, 1)
+        )
+        self.assertEqual(skip[2], "is played whole by title 1")
         self.assertEqual(
             [p["start"] for p in wholes[0]["parts"]], [0, 1300, 2600, 3900]
         )
@@ -346,7 +356,7 @@ class Reading(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.raw = Path(self.tmp.name)
         self.fake = FakeSubprocess()
-        self.ns = load(self.fake)
+        self.ns = load(self, self.fake)
         logging.disable(logging.CRITICAL)
 
     def tearDown(self) -> None:
@@ -502,7 +512,7 @@ class EndToEnd(unittest.TestCase):
         self.fake.outputs["HandBrakeCLI"] = handbrake_scan(
             [(PLAY_ALL, 6), (2, 1), (3, 2), (4, 3), (5, 4), (7, 7)]
         )
-        self.ns = load(self.fake)
+        self.ns = load(self, self.fake)
         self.ns["utils"]._arm_save_raw_copy(  # noqa: SLF001
             self.job(), folder=str(self.raw), title_map=None
         )
@@ -663,7 +673,7 @@ class Orders(unittest.TestCase):
     """Titles playing the same clips: copies, and one title shuffled."""
 
     def setUp(self) -> None:
-        self.ns = load()
+        self.ns = load(self)
         self.ns["_arm_frame"] = continuous("A", "B", "C", "D")
         logging.disable(logging.CRITICAL)
 
@@ -816,7 +826,7 @@ class Frames(unittest.TestCase):
             clip_information(600 * TICK)
         )
         self.fake = FakeSubprocess()
-        self.ns = load(self.fake)
+        self.ns = load(self, self.fake)
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -923,7 +933,7 @@ class Obfuscated(unittest.TestCase):
             (folder / f"0000{n}.mpls").write_bytes(mpls(items, [(1, 0, 0)]))
         self.fake = FakeSubprocess()
         self.fake.outputs["HandBrakeCLI"] = handbrake_scan([(n, n) for n in playlists])
-        self.ns = load(self.fake)
+        self.ns = load(self, self.fake)
         self.ns["_arm_frame"] = continuous(
             *EPISODE, "00013", "00012", stills=("00107",)
         )
@@ -970,6 +980,12 @@ class Obfuscated(unittest.TestCase):
     def test_the_choices_are_recorded(self) -> None:
         self.ns["_arm_duplicate_titles"](str(self.raw), self.job)
         duplicates = self.ns["utils"]._arm_raw_copy(self.job)["duplicates"]  # noqa: SLF001
+        played_by = {
+            s["handbrake_title"]: s.get("played_by") for s in duplicates["skipped"]
+        }
+        # Each shuffle and the decoy by the title kept for it; the play-all by
+        # its parts, so by none.
+        self.assertEqual(played_by, {1: 2, 3: 2, 6: 7, 7: None, 8: 2})
         orders = {o["handbrake_title"]: o for o in duplicates["orders"]}
         self.assertEqual(sorted(orders), [2, 7])
         self.assertEqual(orders[2]["playlist"], "00002.mpls")
