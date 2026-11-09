@@ -20,6 +20,7 @@ tray* is one. Only the `_MEDIA_` ones answer the question.
 import os
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -57,10 +58,10 @@ DVD = NO_MEDIA + "E: ID_CDROM_MEDIA=1\nE: ID_CDROM_MEDIA_DVD=1\n"
 ARM_ENTRY_POINT = "/opt/arm/scripts/docker/docker_arm_wrapper.sh"
 ARM_LOG = "/home/arm/logs/arm.log"
 LOCK_DIR = "/run/lock"
-# The real wait is 60s, which is right for a Blu-ray reading its TOC and far too
-# long to spend in a unit test. Shortened here rather than made configurable in
-# the script, so the running system keeps exactly one value.
-MEDIA_TIMEOUT = "MEDIA_TIMEOUT=60"
+# The real wait is 30 polls 2s apart, which is right for a Blu-ray reading its
+# TOC and far too long to spend in a unit test. Shortened here rather than made
+# configurable in the script, so the running system keeps exactly one value.
+MEDIA_POLLS = "MEDIA_POLLS=30"
 MEDIA_INTERVAL = "MEDIA_INTERVAL=2"
 
 
@@ -73,8 +74,8 @@ def sandbox_wrapper(script: str, entry_point: Path, log: Path, lock_dir: Path) -
         (ARM_ENTRY_POINT, entry_point),
         (ARM_LOG, log),
         (LOCK_DIR, lock_dir),
-        (MEDIA_TIMEOUT, "MEDIA_TIMEOUT=4"),
-        (MEDIA_INTERVAL, "MEDIA_INTERVAL=1"),
+        (MEDIA_POLLS, "MEDIA_POLLS=4"),
+        (MEDIA_INTERVAL, "MEDIA_INTERVAL=0.05"),
     ):
         if original not in script:
             message = (
@@ -101,7 +102,8 @@ class WrapperHarness:
         status: str,
         udev_output: str,
         flaky_until: int = 0,
-        arm_seconds: int = 0,
+        *,
+        hold: bool = False,
     ) -> None:
         self.tmpdir = Path(tmpdir)
         self.bindir = self.tmpdir / "bin"
@@ -129,12 +131,14 @@ class WrapperHarness:
         )
 
         # ARM's entry point is exec'd, so the wrapper's lock file descriptor is
-        # inherited by it and the lock is held for as long as it runs. Sleeping
-        # here stands in for a rip.
+        # inherited by it and the lock is held for as long as it runs. With
+        # `hold`, it stands in for a rip until the test calls `release`.
         self.entry_point = self.armdir / "docker_arm_wrapper.sh"
+        self.released = self.tmpdir / "released"
+        wait = f"until [ -e {self.released} ]; do sleep 0.01; done\n" if hold else ""
         self._write(
             self.entry_point,
-            f'#!/bin/sh\necho "$@" >> {self.calls}\nsleep {arm_seconds}\n',
+            f'#!/bin/sh\necho "$@" >> {self.calls}\n{wait}',
         )
 
         self.log = self.tmpdir / "home" / "arm" / "logs" / "arm.log"
@@ -165,6 +169,21 @@ class WrapperHarness:
             timeout=timeout,
             check=False,
         )
+
+    def start(self, devname: str = "sr0") -> subprocess.Popen[bytes]:
+        """Run the wrapper in the background, as udev does."""
+        env = dict(os.environ)
+        env["PATH"] = f"{self.bindir}{os.pathsep}{env['PATH']}"
+        return subprocess.Popen(
+            ["bash", self.script, devname],
+            env=env,
+            cwd=self.tmpdir,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    def release(self) -> None:
+        self.released.touch()
 
     def invocations(self) -> list[str]:
         if not self.calls.exists():
@@ -252,23 +271,23 @@ class ConcurrentEvents(unittest.TestCase):
     creating a notification, and on 2026-04-22 three did so in 90 seconds.
     """
 
-    def test_only_one_of_two_simultaneous_events_reaches_arm(self) -> None:
+    def test_an_event_while_a_job_holds_the_drive_doesnt_reach_arm(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            harness = WrapperHarness(tmpdir, CDS_DISC_OK, BLURAY, arm_seconds=5)
-            env = dict(os.environ)
-            env["PATH"] = f"{harness.bindir}{os.pathsep}{env['PATH']}"
-            processes = [
-                subprocess.Popen(
-                    ["bash", harness.script, "sr0"],
-                    env=env,
-                    cwd=tmpdir,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                for _ in range(2)
-            ]
-            for process in processes:
-                process.wait(timeout=30)
+            harness = WrapperHarness(tmpdir, CDS_DISC_OK, BLURAY, hold=True)
+            first = harness.start()
+            try:
+                deadline = time.monotonic() + 10
+                while not harness.invocations():
+                    self.assertLess(time.monotonic(), deadline, "ARM never started")
+                    time.sleep(0.01)
+                # The first job is in ARM, holding the lock, when the next
+                # event comes: it is turned away, not queued behind it.
+                result = harness.run(timeout=10)
+                self.assertEqual(result.returncode, 0)
+                self.assertIn("a job already holds", harness.log.read_text())
+            finally:
+                harness.release()
+                first.wait(timeout=10)
             self.assertEqual(harness.invocations(), ["sr0"])
 
     def test_the_lock_is_released_once_the_job_ends(self) -> None:
