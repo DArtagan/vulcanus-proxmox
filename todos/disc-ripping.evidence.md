@@ -3652,3 +3652,25 @@ Stopping job 102, `pkill -f "[m]ain.py"` killed the exec'd shell rather than
 which the pattern matches. The bracket only keeps the pattern from matching
 itself; the docs' command names neither process anywhere else. `kill -TERM`
 on `main.py`'s PID stopped the job, and MakeMKV exited with it.
+
+### 2026-11-09 — job 103, the obfuscation rules in a real job
+
+Downton Abbey S6 D1 on the deployed code, 2026-11-08 21:52 to 2026-11-09 07:11
+(9 h 19 m, against job 100's 46 h for seven decoys). Backup complete, 301
+titles mapped, 298 skipped: 296 "plays title N's clips out of order", one
+"plays titles N, N, N in turn" (the play-all `00445.mpls`), and `00625.mpls`
+"plays title 306's clips and a still picture". The two notifications:
+
+```
+Downton Abbey: 148 titles play the same clips in different orders. Title 140 (00445.mpls) is transcoded, as its joins match best: 5.99, against 7.69 for title 26. ...
+Downton Abbey: 151 titles play the same clips in different orders. Title 306 (00990.mpls) is transcoded, as its joins match best: 5.99, against 7.85 for title 160. ...
+```
+
+Transcoded, with
+duration and chapters read by ffprobe: `title_306.mkv`, `00990.mpls`, 4173 s,
+8 chapters, the published episode 1; `title_150.mkv`, `00475.mpls`, 2966 s, 5;
+`title_102.mkv`, `00319.mpls`, 2974 s, 5. HandBrake numbered `00475.mpls` 150
+here and 151 in job 100, so a title number is only good within its job; the
+stamp's `title_map` is what ties it to the playlist. The stamp's whole 140
+places its parts at 0, 4173.961 and 7141.509 s. The only traceback in the log
+is the `findmnt` one every job logs.
