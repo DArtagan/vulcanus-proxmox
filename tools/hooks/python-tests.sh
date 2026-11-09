@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Runs the unittest suite beside each changed file: a suite runs when anything
-# in its directory changes, its tests reading fixtures and scripts from there.
-# A suite may also sit in a tests/ directory beside what it tests, where the
-# directory holds only what is deployed, as ARM's scripts/ does.
+# Runs the test suite beside each changed file: a suite runs when anything in
+# its directory changes, its tests reading fixtures and scripts from there. A
+# suite may also sit in a tests/ directory beside what it tests, where the
+# directory holds only what is deployed, as ARM's scripts/ does. The suites are
+# unittest's; pytest runs them, all at once across the CPUs.
 set -uo pipefail
 
 declare -A suites=()
@@ -13,14 +14,8 @@ for file in "$@"; do
   done
 done
 
-status=0
-for dir in "${!suites[@]}"; do
-  # In the project's environment, whatever the shell has active: hooks run as
-  # devenv tasks, where the venv isn't, and --locked fails on a stale lock.
-  if ! out=$(uv run --locked python -m unittest discover -s "$dir" -q 2>&1); then
-    echo "$dir:"
-    echo "$out"
-    status=1
-  fi
-done
-exit "$status"
+[ "${#suites[@]}" -eq 0 ] && exit 0
+
+# In the project's environment, whatever the shell has active: hooks run as
+# devenv tasks, where the venv isn't, and --locked fails on a stale lock.
+exec uv run --locked pytest -q -n auto -p no:cacheprovider "${!suites[@]}"
