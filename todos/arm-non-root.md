@@ -65,7 +65,7 @@ None of this has been tried.
    (`scripts/docker/start_arm_container.sh`). Every `/root` path moves:
    `RAW_PATH`, `TRANSCODE_PATH`, `COMPLETED_PATH`, `LOGPATH`, `DBFILE` in the
    ConfigMap's `arm.yaml`, the Deployment's mounts, `HOME` in
-   `arm-disc-wrapper.sh`, `tools/arm-stamps/stamps.py`, the tests under `tools/`,
+   `arm-disc-wrapper.sh`, `tools/arm-stamps/raw_copies.py`, the tests under `tools/`,
    `docs/automatic-ripping-machine.md`, and the specs that quote paths
    (`disc-ripping`, `video-library-ingest`). reelbarrow, in its own repository,
    may hold paths too.
