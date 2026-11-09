@@ -126,6 +126,9 @@ spec:
             - --db=/root/db/arm.db
             - --out=/manifests
             - --arm-path=/root/video=import/automatic-ripping-machine
+            # Where ARM mounted the same folder until 2026-04-20; jobs keep the
+            # paths they ran with.
+            - --arm-path=/root/media=import/automatic-ripping-machine
           # Root, as the share's CIFS mount here lets only uid 0 write.
           securityContext:
             runAsUser: 0

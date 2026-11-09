@@ -124,13 +124,19 @@ one). Done, each with Will's go-ahead:
 - **reelbarrow 0.3.0**, the first release with `arm-export-manifests`,
   released 2026-11-09.
 
-On this branch, **the sidecar**, `manifest-exporter` in ARM's pod, described
-in `docs/automatic-ripping-machine.md` (*Manifests for reelbarrow*). Its tag
-carries `apps:reelbarrow`, which the `apps` namespace's image automation
-updates under all of `kubernetes/apps`, ARM's folder included. The manifests
-folder isn't created by hand: the kubelet creates a missing `subPath` when it
-mounts it. Merging it changes ARM's pod, and the `Recreate` strategy kills any
-job running: merge while ARM is idle.
+- **The sidecar**, `manifest-exporter` in ARM's pod, deployed 2026-11-09
+  (review #37) and described in `docs/automatic-ripping-machine.md`
+  (*Manifests for reelbarrow*). The kubelet created the manifests folder. Its
+  first deploy crash-looped, as reelbarrow's image has CMD and no ENTRYPOINT,
+  so `args` alone replaced the command; it has `command: [reelbarrow]`. The
+  image automation moved it and reelbarrow's service to 0.3.1 in one commit,
+  as the shared `apps:reelbarrow` marker meant it to.
+
+On this branch, the sidecar's second `--arm-path`, for
+`/root/media`, where ARM mounted its folder of the share until 2026-04-20:
+its first pass skipped jobs 1–3, 5 and 6, whose paths are recorded there.
+reelbarrow 0.3.1 takes the option more than once; 0.3.0 kept only the last.
+Merging it rolls ARM's pod: merge while ARM is idle.
 
 What is left is checking it on the cluster and a real disc, in reelbarrow's
 `todos/arm-manifest-export.md` (*Done when*).
