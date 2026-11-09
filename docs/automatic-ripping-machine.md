@@ -509,7 +509,7 @@ A sidecar in ARM's pod, `manifest-exporter`, runs reelbarrow's `arm-export-manif
 - **ARM's database read-only**, the `db` subpath of ARM's volume. The database keeps a rollback journal (`PRAGMA journal_mode` is `delete`), which SQLite reads from a read-only mount; a switch to WAL would need the mount writable.
 - **Of the share, only the manifests folder**, which the kubelet creates for the mount. It never sees the library.
 - **Root**, as the share's CIFS mount in this pod (`uid=0,gid=0`, modes 0755) lets no other uid write, with a read-only root filesystem and every capability dropped.
-- **`--arm-path /root/video=import/automatic-ripping-machine`**: ARM's mount of its folder of the share, and that folder's path on the share. ARM's `TZ` is `Etc/UTC`, the exporter's default; setting ARM's `TZ` means passing `--arm-timezone` the same.
+- **`--arm-path /root/video=import/automatic-ripping-machine`**: ARM's mount of its folder of the share, and that folder's path on the share; and **`--arm-path /root/media=import/automatic-ripping-machine`**, where ARM mounted the same folder until 2026-04-20, since jobs 1–6 keep the paths they ran with. A move of ARM's mount adds a mapping here rather than replacing one. ARM's `TZ` is `Etc/UTC`, the exporter's default; setting ARM's `TZ` means passing `--arm-timezone` the same.
 
 ## ATA Link Stability
 
