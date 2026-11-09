@@ -118,6 +118,9 @@ spec:
         # together.
         - name: manifest-exporter
           image: ghcr.io/dartagan/reelbarrow:0.3.0 # {"$imagepolicy": "apps:reelbarrow"}
+          # The image's CMD is `reelbarrow serve` and it has no ENTRYPOINT, so
+          # args alone would replace the whole command.
+          command: [reelbarrow]
           args:
             - arm-export-manifests
             - --db=/root/db/arm.db
