@@ -386,8 +386,7 @@ run found nothing left to change.
   movie disc, a title playing the film and then a featurette, with a chapter at
   the join, would be kept whole and taken for the film. No disc ripped here has
   that shape.
-- **Playlist obfuscation: built 2026-11-08, verified read-only on job 100's
-  backup, never run in a job.** Job 100, Downton Abbey S6 D1, offered 301
+- **Playlist obfuscation: verified 2026-11-09, job 103 (Downton Abbey S6 D1).** Job 100, Downton Abbey S6 D1, offered 301
   titles: one episode in 150 shuffled orders and its play-all in 148, which the
   check let through and which would have taken about two months to encode. It
   is stopped, its backup complete (evidence, 2026-11-08). Titles playing each
@@ -401,10 +400,9 @@ run found nothing left to change.
   episode 1 shuffled with the disc's 60 s "Copy detected" card. Run against
   the backup, the code keeps the published `00990.mpls`, `00475.mpls` and
   `00319.mpls` and nothing else, and skips the play-all `00445.mpls`, which it
-  also picked. **To verify:** job 103, S6 D1 again on the deployed code
-  (started 2026-11-08 21:52; jobs 101 and 102 were stopped by a pod restart
-  and for the deploy), should transcode those three and send two
-  notifications.
+  also picked. Job 103 did exactly that in a real job: three transcodes, two
+  notifications naming the runner-up, the decoy skipped for its still picture
+  (evidence, 2026-11-09). The S6 D3 disc is the next obfuscated one.
   S6 D3 is obfuscated too (episode 8, `00354.mpls`, per the evidence), S6 D2 is
   not. A DVD's shuffles are all still transcoded.
 - **ARM's scripts tidied against upstream 2.24.4: deployed 2026-11-08 21:51,
@@ -491,8 +489,10 @@ run found nothing left to change.
   and job 82's two partial transcodes in
   `transcode/tv/Downton-Abbey (2010-2015)_179295226579/`, and job 100's seven
   transcodes and partial `title_14.mkv`, shuffles of S6 D1's episode 1 and its
-  play-all, in `transcode/movies/Downton Abbey/`, and job 101's partial backup
-  in `raw/Downton Abbey_179416168414/`.
+  play-all, in `transcode/movies/Downton Abbey/`; job 100's backup (38G,
+  `raw/Downton Abbey_179392409480/`), which job 103's backup of the same disc
+  supersedes; and the partial backups of jobs 101 and 102,
+  `raw/Downton Abbey_179416168414/` and `raw/Downton Abbey_179416290776/`.
 - **Downstream.** Nothing watches `video/import/automatic-ripping-machine/`; that is
   [`video-library-ingest.md`](video-library-ingest.md), which also holds what the
   rips showed about TV numbering and the duplicate Blu-ray feature.
