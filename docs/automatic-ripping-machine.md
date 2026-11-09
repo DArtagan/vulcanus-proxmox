@@ -408,6 +408,7 @@ Disc inserted → udev event → ARM ripper
            MakeMKV mkv    → /root/video/raw/<Title>/titles/*_tNN.mkv  (from the ISO, one file per title of 7 min or more)
   either:  raw copy       → ARM's database, reelbarrow_raw_copy      (the folder, its check, its titles' transcodes)
   then:    HandBrake      → /root/video/completed/<movies|tv|unidentified>/<Title (Year)>/
+  always:  exporter       → /root/video/manifests/manifest-arm-<job_id>-<stage>.json  (the sidecar, every 30 s)
 ```
 
 Both directories live on the SMB share (`//192.168.0.105/media/video/import/automatic-ripping-machine/`).
@@ -499,6 +500,16 @@ If a skipped title was the main feature, the longest title kept becomes it, whic
 The record's `titles` hold the outcome once HandBrake's scan has run, and `titles_compared` is then `true`. A title not transcoded has `transcode` null and the reason `played_by_kept_titles`, and what plays it is said once: a whole skipped for its parts by its own `parts`, a part of a kept whole by that whole's, and otherwise, for a copy, a shuffle, or a title inside a kept whole that isn't one of its parts, by `played_by`, the disc's number for the one title kept that plays it. Each whole carries `interleaved` and its `parts`, each with `start`, the second of the whole at which it begins, in the playback time its transcode's chapters keep, a DVD's as a Blu-ray's; which side was kept is which side has no reason. That is what cuts a kept whole into its parts, or rejoins a series disc's episodes, when a disc turns out misidentified — a series filed as a movie keeps one long file and the joins to split it at. `orders` has an entry for each group of shuffles: the title kept, with its `mismatch`, the number of `titles` in the group, and `runner_up`, the best title in another order, with its `mismatch`; both `mismatch` and `runner_up` are null when the joins couldn't be read, and the lowest-numbered was kept. A record without `titles_compared` comes from a job before it, one that ended before transcoding began, or one whose structure couldn't be read.
 
 In ARM's track table a skipped title keeps `ripped` true and an empty `filename`: ARM sets `ripped` when it registers a title longer than `MINLENGTH`, before any transcode, so it means eligible, not transcoded. reelbarrow reads neither; each title's `transcode` in the record says what was transcoded, and where it went.
+
+### Manifests for reelbarrow
+
+A sidecar in ARM's pod, `manifest-exporter`, runs reelbarrow's `arm-export-manifests`. Every 30 seconds it reads ARM's database, the `job` rows and the raw copy's record, and writes a manifest for each job into `import/automatic-ripping-machine/manifests/` on the share, where reelbarrow's service finds them, rewriting one only when its job has changed. After every pass that read the database and wrote what changed, it rewrites `exporter.json` there too, so one older than a minute means the exporter is stopped or failing. How it works and what it needs are reelbarrow's `docs/exporter.md`; what this deployment gives it:
+
+- **reelbarrow's image, on reelbarrow's image policy** (`apps:reelbarrow`), so it moves with the service that reads what it writes.
+- **ARM's database read-only**, the `db` subpath of ARM's volume. The database keeps a rollback journal (`PRAGMA journal_mode` is `delete`), which SQLite reads from a read-only mount; a switch to WAL would need the mount writable.
+- **Of the share, only the manifests folder**, which the kubelet creates for the mount. It never sees the library.
+- **Root**, as the share's CIFS mount in this pod (`uid=0,gid=0`, modes 0755) lets no other uid write, with a read-only root filesystem and every capability dropped.
+- **`--arm-path /root/video=import/automatic-ripping-machine`**: ARM's mount of its folder of the share, and that folder's path on the share. ARM's `TZ` is `Etc/UTC`, the exporter's default; setting ARM's `TZ` means passing `--arm-timezone` the same.
 
 ## ATA Link Stability
 

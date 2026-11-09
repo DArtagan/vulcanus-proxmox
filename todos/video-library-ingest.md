@@ -111,51 +111,29 @@ status after its last notification, so no hook ever sees `success` or `fail`.
 A manifest carries the job's raw copy whole, so the patches record it in ARM's
 database rather than as `arm-job.json` in the raw folder (Will, 2026-11-08,
 in reelbarrow's arm-manifest-export: the stamp and the manifest condensed into
-one). Built on this branch and not yet deployed:
+one). Done, each with Will's go-ahead:
 
-- **`arm-raw-copy.py`**, appended to ARM's `utils.py`: the
-  `reelbarrow_raw_copy` table, written through ARM's own session, and a
-  wrapper on `move_files` that records each transcode's final path. The
-  whole-disc and duplicate-titles code record into it instead of the folder.
-  `docs/automatic-ripping-machine.md` (*Stage 1*) describes it.
-- **`tools/arm-stamps/raw_copies.py`**, run once after the patch is deployed,
-  moves the existing stamps into the table. It replaces `stamps.py`, whose
-  output it reads. Its dry run in ARM's pod on 2026-11-08 would write 32 rows
-  (jobs 7, 8, 23, 25, 27 and 76–103) and passed over none.
+- **The patch** (`arm-raw-copy.py` and the changed whole-disc and
+  duplicate-titles code) deployed 2026-11-09 08:21 UTC with the previous
+  review: ARM's pod logged `applied raw-copy-code` with the other ten edits,
+  and the patched modules compile under its Python 3.10.
+- **The migration** (`tools/arm-stamps/raw_copies.py --write`) ran 2026-11-09
+  with ARM idle: 32 rows, jobs 7, 8, 23, 25, 27 and 76–103, matching its dry
+  run byte for byte. `PRAGMA integrity_check` read `ok` after, journal mode
+  still `delete`, and a second dry run found nothing to write.
+- **reelbarrow 0.3.0**, the first release with `arm-export-manifests`,
+  released 2026-11-09.
 
-In order, each confirmed with Will, while ARM is idle where it rolls ARM:
+On this branch, **the sidecar**, `manifest-exporter` in ARM's pod, described
+in `docs/automatic-ripping-machine.md` (*Manifests for reelbarrow*). Its tag
+carries `apps:reelbarrow`, which the `apps` namespace's image automation
+updates under all of `kubernetes/apps`, ARM's folder included. The manifests
+folder isn't created by hand: the kubelet creates a missing `subPath` when it
+mounts it. Merging it changes ARM's pod, and the `Recreate` strategy kills any
+job running: merge while ARM is idle.
 
-1. **Deploy the patch.** It changes ARM's ConfigMap and pod, and the
-   Deployment's `Recreate` strategy kills any job running. Check in the
-   container that `arm-source-patches.py` logged `applied raw-copy-code`.
-2. **Run the migration**, dry run first (its count will have grown), then
-   `--write`. It adds rows to ARM's live database, in a table no ARM code reads.
-3. **Add the sidecar**, from the first reelbarrow release that ships the
-   command:
-   1. reelbarrow's image, with `reelbarrow arm-export-manifests --db
-      /root/db/arm.db --out /manifests --arm-path
-      /root/video=import/automatic-ripping-machine`: ARM's mount of its folder
-      of the share, and that folder's path on the share. ARM's `TZ` is
-      `Etc/UTC` (read 2026-11-08), the exporter's default. Its tag follows reelbarrow's
-      `ImagePolicy`, so exporter and reader move together.
-   2. **ARM's database read-only**: the `db` subpath of
-      `automatic-ripping-machine-pvc`. `PRAGMA journal_mode` reads `delete`
-      (2026-11-08), a rollback journal, which SQLite reads from a read-only
-      mount.
-   3. **Of the share, only the manifest directory**: the `video` volume's
-      `import/automatic-ripping-machine/manifests` subpath, which is where
-      reelbarrow looks by default. Create it first. The exporter refuses a
-      missing directory rather than write into the container.
-   4. **uid 0.** `video-arm-pv` mounts as CIFS with `uid=0,gid=0` and 0755
-      modes (read in ARM's pod, 2026-11-08), and the client enforces them, so
-      no other uid can write there. Run the sidecar as root with a read-only
-      root filesystem and every capability dropped. `arm.db` is `0:0` 0644 in a
-      0777 directory, readable by any uid.
-   5. **No export for old jobs.** The first pass writes a manifest for every
-      job in the database.
-
-   Adding the sidecar changes ARM's pod too. `docs/automatic-ripping-machine.md`
-   gets the sidecar once it is in place.
+What is left is checking it on the cluster and a real disc, in reelbarrow's
+`todos/arm-manifest-export.md` (*Done when*).
 
 ---
 
