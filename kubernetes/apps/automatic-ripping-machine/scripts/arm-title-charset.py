@@ -1,11 +1,14 @@
 # --- _arm_source_patch title-charset-code, appended by arm-source-patches.py --
-"""Job titles reduced to what the fileserver can write.
+"""Job titles reduced to ASCII, which the fileserver writes in any charset.
 
 The fileserver's Samba runs `unix charset = ISO-8859-1`, so a path holding any
 character above U+00FF cannot be written and fails with EIO. Map the
-punctuation metadata providers actually emit, then drop whatever has no
-Latin-1 form. Latin-1 rather than ASCII on purpose: the share accepts it, and
-`Mànran` is already in the library under a Latin-1 name.
+punctuation metadata providers actually emit, spell out the letters with no
+ASCII base, decompose the rest, then drop whatever still has no ASCII form.
+ASCII rather than Latin-1, to match reelbarrow, which files these titles into
+the library: an ASCII name is the same bytes in ISO-8859-1 and UTF-8, so the
+filename-charset migration (todos/smb-charset-utf8.md) never has to convert
+one, and media/video held none that wasn't ASCII when it was measured.
 
 Wrapping rather than editing fix_job_title's body, because every call site
 resolves the name at call time -- `utils.fix_job_title(...)` in arm_ripper.py
@@ -15,8 +18,9 @@ reaches both without depending on the function's internals.
 
 import unicodedata as _arm_ud
 
-_ARM_LATIN1_END = 0x100
+_ARM_ASCII_END = 0x80
 
+# Kept the same as reelbarrow's (reelbarrow.names), so both fold a title alike.
 _arm_charset_map = {
     0x2010: "-",
     0x2011: "-",
@@ -35,6 +39,26 @@ _arm_charset_map = {
     0x2032: "'",
     0x2033: '"',
     0x00A0: " ",
+    0x00AB: '"',
+    0x00BB: '"',
+    0x00D7: "x",
+    # Letters NFKD leaves whole, which would otherwise vanish.
+    0x00C6: "AE",
+    0x00E6: "ae",
+    0x0152: "OE",
+    0x0153: "oe",
+    0x00D8: "O",
+    0x00F8: "o",
+    0x00DF: "ss",
+    0x0141: "L",
+    0x0142: "l",
+    0x0110: "D",
+    0x0111: "d",
+    0x00D0: "D",
+    0x00F0: "d",
+    0x00DE: "Th",
+    0x00FE: "th",
+    0x0131: "i",
 }
 
 
@@ -42,13 +66,13 @@ def _arm_charset_patch(text: object) -> str:
     text = str(text).translate(_arm_charset_map)
     out = []
     for ch in text:
-        if ord(ch) < _ARM_LATIN1_END:
+        if ord(ch) < _ARM_ASCII_END:
             out.append(ch)
             continue
         # NFKD first, so an accented character keeps its base letter rather than
-        # vanishing entirely; then drop what still has no Latin-1 form.
+        # vanishing entirely; then drop what still has no ASCII form.
         decomposed = _arm_ud.normalize("NFKD", ch)
-        out.append("".join(c for c in decomposed if ord(c) < _ARM_LATIN1_END))
+        out.append("".join(c for c in decomposed if ord(c) < _ARM_ASCII_END))
     return "".join(out)
 
 

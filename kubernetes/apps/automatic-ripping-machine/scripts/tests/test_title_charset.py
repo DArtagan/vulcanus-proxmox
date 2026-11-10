@@ -24,8 +24,10 @@ body, because every call site resolves the name at call time
 `utils.move_files`), so rebinding the module global reaches all of them and does
 not depend on the function's internals.
 
-Latin-1 is the target rather than ASCII, deliberately: the fileserver accepts it
-today, and `Mànran` already exists in the library under a Latin-1 name.
+ASCII is the target rather than Latin-1 (2026-11-10), to match reelbarrow, which
+files these titles into the library: an ASCII name is the same bytes in
+ISO-8859-1 and UTF-8, so the charset migration never has to convert one, and
+media/video held no name that wasn't ASCII when it was measured.
 """  # noqa: RUF002 - quotes job 20's path, en dash and all
 
 import unittest
@@ -33,8 +35,9 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent.parent
 
-# Samba's `unix charset = ISO-8859-1` writes every code point below this.
-BEYOND_LATIN1 = 0x100
+# Samba's `unix charset = ISO-8859-1` writes every code point below 0x100;
+# the hook keeps to this, which every charset writes alike.
+BEYOND_ASCII = 0x80
 
 # Enough of ARM's utils.py to wrap.
 STUB_UTILS = """\
@@ -66,7 +69,7 @@ class Sanitising(unittest.TestCase):
             Job("The-Sylvester-and-Tweety-Mysteries", "1995\N{EN DASH}2002")
         )
         self.assertEqual(got, "The-Sylvester-and-Tweety-Mysteries (1995-2002)")
-        self.assertTrue(all(ord(c) < BEYOND_LATIN1 for c in got))
+        self.assertTrue(all(ord(c) < BEYOND_ASCII for c in got))
 
     def test_dashes_become_hyphens_not_deleted(self) -> None:
         # ARM's own clean_for_filename would give "19952002", which is a
@@ -93,14 +96,18 @@ class Sanitising(unittest.TestCase):
             "And Then... (1975)",
         )
 
-    def test_latin1_is_preserved(self) -> None:
-        # The share accepts it, and Mànran is already in the library this way.
-        self.assertEqual(fix_job_title(Job("Mànran", "2013")), "Mànran (2013)")
+    def test_an_accented_letter_keeps_its_base(self) -> None:
+        self.assertEqual(fix_job_title(Job("Mànran", "2013")), "Manran (2013)")
+        self.assertEqual(fix_job_title(Job("Amélie", "2001")), "Amelie (2001)")
 
-    def test_characters_with_no_latin1_form_are_dropped_not_left(self) -> None:
+    def test_a_letter_with_no_base_is_spelled_out_not_lost(self) -> None:
+        self.assertEqual(fix_job_title(Job("Æon Flux", "2005")), "AEon Flux (2005)")
+        self.assertEqual(fix_job_title(Job("Straße", "1990")), "Strasse (1990)")
+
+    def test_characters_with_no_ascii_form_are_dropped_not_left(self) -> None:
         got = fix_job_title(Job("Tokyo 中文", "2020"))
         self.assertTrue(
-            all(ord(c) < BEYOND_LATIN1 for c in got),
+            all(ord(c) < BEYOND_ASCII for c in got),
             f"{got!r} still has un-writable chars",
         )
 

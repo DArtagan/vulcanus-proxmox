@@ -382,8 +382,8 @@ The disc stays in the drive, locked, until the whole job is complete, transcode
 included, and is ejected once at the end. An open tray is therefore the signal
 that a disc is finished. That, HandBrake encoding each title once and skipping
 the titles others already play, a movie's main feature keeping its `title_N`
-name, the whole DVD as its raw copy, and job titles reduced to Latin-1, which
-the fileserver's Samba can write ([`todos/smb-charset-utf8.md`](../todos/smb-charset-utf8.md)),
+name, the whole DVD as its raw copy, and job titles reduced to ASCII, which
+the fileserver's Samba writes whatever its charset ([`todos/smb-charset-utf8.md`](../todos/smb-charset-utf8.md)),
 come from edits to ARM's own source. `scripts/arm-source-patches.py` applies them at
 container start. Each edit is skipped, and logged as `source-patches: cannot
 apply` in `arm.log`, if an ARM update moves the text it replaces. After an image

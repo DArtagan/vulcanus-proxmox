@@ -113,11 +113,12 @@ or runs alongside it.
 
 **Decided 2026-09-02: it runs alongside.** The workaround shipped as
 ARM's `arm-title-charset.py` source patch, so ripping is unblocked and this migration is no longer
-urgent — but the landmine is untouched. Everything except ARM still writes
-provider-supplied names straight to the share, and `beets`, `photoprism` and
-`Stump` have no equivalent guard. Note the workaround targets **Latin-1**, not
-ASCII, precisely so it stays correct after this migration rather than needing
-undoing.
+urgent — but the landmine is untouched. Everything except ARM and reelbarrow
+still writes provider-supplied names straight to the share, and `beets`,
+`photoprism` and `Stump` have no equivalent guard. Both guards fold to
+**ASCII** (2026-11-10). It stays correct after this migration as Latin-1
+would, and unlike Latin-1 it adds no name the migration has to convert:
+`media/video`, where both write, held none that wasn't ASCII when counted.
 
 **`dos charset = cp850` is a separate question** and matters far less: it applies
 to legacy SMB1 clients negotiating a codepage, and `min protocol = SMB2` is

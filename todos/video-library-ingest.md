@@ -173,7 +173,7 @@ on and off, and where manifests are written. The exporter's sidecar goes into
   owns DVD-to-ISO, and the drift in `docs/automatic-ripping-machine.md` about
   `backup_dvd`.
 - [smb-charset-utf8.md](smb-charset-utf8.md): the share rejects filenames above
-  U+00FF with `EIO`, and TMDB names contain them. reelbarrow folds to Latin-1
-  until that lands.
+  U+00FF with `EIO`, and TMDB names contain them. reelbarrow folds library
+  names to ASCII, as ARM's title hook does.
 - [backups.md](backups.md): `media/video` is snapshotted and replicated, which
   is what makes deleting leftovers acceptable.
