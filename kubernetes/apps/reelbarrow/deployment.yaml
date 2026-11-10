@@ -39,6 +39,11 @@ spec:
             # the flag's handling and the library.
             - name: REELBARROW_DRY_RUN
               value: "true"
+          # The keys of the outside services it calls, already named as
+          # reelbarrow reads them.
+          envFrom:
+            - secretRef:
+                name: reelbarrow
           ports:
             - containerPort: 8000
           readinessProbe:

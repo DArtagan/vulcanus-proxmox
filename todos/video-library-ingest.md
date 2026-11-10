@@ -25,7 +25,7 @@ need work here:
 
 - **arm-manifest-export**: the exporter's sidecar in ARM's pod, under *ARM's
   manifest exporter*.
-- **movie-filing**: the switch, under *The switch to live filing*.
+- **first-filing**: the switch, under *The switch to live filing*.
 - **metrics**: the alert rules, under *Alerting*.
 - **Each step that calls an outside service** adds its key to reelbarrow's
   secret; *Secrets, as each step needs them* says which.
@@ -67,7 +67,7 @@ under *Decisions already made*. These bind this half:
 - **A 5 Gi `openebs-hostpath` claim** at `/data`, for SQLite (job state, plans,
   the ledger). It gets K8up's default volume backup. That is sufficient while
   it holds regenerable dry-run plans, but not once the ledger records real
-  moves: reelbarrow's `movie-filing` decides the dump before filing starts.
+  moves: reelbarrow's `first-filing` decides the dump before filing starts.
 - **The internal ingress** at `reelbarrow.immortalkeep.com`, LAN-only like
   `arm.immortalkeep.com`. The `*.immortalkeep.com` wildcard in CoreDNS already
   resolves it.
@@ -76,18 +76,21 @@ under *Decisions already made*. These bind this half:
 
 ### Secrets, as each step needs them
 
-One SOPS secret, `kubernetes/apps/reelbarrow/secrets.sops.yaml`, grown step by step:
+One SOPS secret, `kubernetes/apps/reelbarrow/secrets.sops.yaml`, grown step by
+step. The Deployment takes it whole with `envFrom`, so each key is named as
+reelbarrow reads it.
 
 | key | first needed by |
 |---|---|
-| TMDB API key (free personal key) | `dry-run-planner` |
-| fanart.tv key, Plex token | `movie-filing` |
+| `REELBARROW_TMDB_TOKEN`, TMDB's API Read Access Token (free personal account) | `single-manifest-plan` |
+| fanart.tv key | `executor` |
+| Plex token | `first-filing` |
 | Pushover app token | `review-ui`. ARM's pair is in `automatic-ripping-machine/api-keys.sops.yaml`; a separate token keeps the messages distinguishable |
 | Anthropic API key, pay as you go, with a spend cap set in the Console | `episode-matching` |
 
 ### The switch to live filing
 
-Done in reelbarrow's `movie-filing`, and only after its preconditions pass. In
+Done in reelbarrow's `first-filing`, and only after its preconditions pass. In
 one commit, set `REELBARROW_DRY_RUN` to `"false"` and drop `readOnly` from the
 video mount. One precondition belongs here: `video-pv` mounts with options
 `rw` and nothing else (verified 2026-10-05). It sets no `uid`, `gid`,
