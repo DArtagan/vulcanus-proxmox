@@ -19,6 +19,17 @@
 # which is how 21,940 lines of generated flux-system YAML nearly got reformatted.
 trust-envrc = "direnv allow"
 
+# Link the primary checkout's .env, which devenv loads (dotenv.enable) and which
+# is gitignored, so a fresh worktree has none: without it there is no
+# KUBECONFIG or TALOSCONFIG, and kubectl there talks to localhost:8080. Linked
+# rather than copied, so there is one copy to keep current. Here rather than
+# later because the activate step below is when devenv first reads it.
+env-file = """
+primary=$(git worktree list --porcelain | awk '/^worktree /{print substr($0, 10); exit}')
+[ -e "$primary/.env" ] && [ ! -e .env ] && ln -s "$primary/.env" .env
+true
+"""
+
 # Give this worktree its own hooks directory.
 #
 # Worktrees otherwise share .git/hooks, and devenv reinstalls the pre-commit
@@ -60,6 +71,18 @@ command -v prek >/dev/null 2>&1 && prek install || true
 # .envrc not yet allowed would not load at all.
 [[post-start]]
 activate = "direnv exec . true"
+
+# Initialise terraform/ without a backend, which the tofu-validate hook needs:
+# until then `devenv test` fails in every fresh worktree with "terraform/ is not
+# initialised". After activate, for the environment's tofu and the
+# TF_PLUGIN_CACHE_DIR it sets, so providers come from the cache rather than the
+# registry. A failure, offline with an empty cache say, is reported rather than
+# failing the worktree: the hook names the same command to run by hand.
+[[post-start]]
+tofu-init = """
+direnv exec . tofu -chdir=terraform init -backend=false -input=false >/dev/null 2>&1 ||
+  echo "tofu init failed; run: tofu -chdir=terraform init -backend=false" >&2
+"""
 
 [aliases]
 
