@@ -39,6 +39,13 @@ spec:
             # the flag's handling and the library.
             - name: REELBARROW_DRY_RUN
               value: "true"
+            - name: REELBARROW_PLEX_URL
+              value: http://plex.apps.svc.cluster.local:32400
+            # Where Plex's own Deployment mounts each library, by the library's
+            # path on the share. Moving one of Plex's mounts means changing it
+            # here, or filing asks Plex to scan a folder it can't see.
+            - name: REELBARROW_PLEX_PATHS
+              value: '{"movies": "/data/movies"}'
           # The keys of the outside services it calls, already named as
           # reelbarrow reads them.
           envFrom:
