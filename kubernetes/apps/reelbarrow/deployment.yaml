@@ -5,7 +5,7 @@ metadata:
   labels:
     app: reelbarrow
 spec:
-  # One worker owns the ledger; a second pod would plan and file the same jobs.
+  # One worker: a second pod would plan and file the same jobs.
   replicas: 1
   strategy:
     type: Recreate

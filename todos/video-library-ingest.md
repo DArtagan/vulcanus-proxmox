@@ -64,10 +64,14 @@ under *Decisions already made*. These bind this half:
 - **The video share** through `video-pvc`, at `/video`, **read-only**. One
   mount covers both `import/` and the libraries, which filing needs, because
   filing is a `rename()` within one filesystem.
-- **A 5 Gi `openebs-hostpath` claim** at `/data`, for SQLite (job state, plans,
-  the ledger). It gets K8up's default volume backup. That is sufficient while
-  it holds regenerable dry-run plans, but not once the ledger records real
-  moves: reelbarrow's `first-filing` decides the dump before filing starts.
+- **A 5 Gi `openebs-hostpath` claim** at `/data`, for SQLite (job state and
+  the inbox's plans). It gets K8up's default volume backup. The library's
+  history isn't on it: each filing's record is written into the library,
+  beside the disc's `disc.json`, on the snapshotted and replicated share, and
+  reelbarrow keeps no ledger (Will, 2026-11-11, in reelbarrow's design), so
+  `first-filing` needs no dump. Whether the inbox's database needs one, as
+  `docs/kubernetes.md` asks of a database written continuously, is
+  reelbarrow's `plan-inbox` to decide.
 - **The internal ingress** at `reelbarrow.immortalkeep.com`, LAN-only like
   `arm.immortalkeep.com`. The `*.immortalkeep.com` wildcard in CoreDNS already
   resolves it.
