@@ -83,8 +83,8 @@ reelbarrow reads it.
 | key | first needed by |
 |---|---|
 | `REELBARROW_TMDB_TOKEN`, TMDB's API Read Access Token (free personal account) | `single-manifest-plan` |
-| fanart.tv key | `executor` |
-| Plex token | `first-filing` |
+| `REELBARROW_FANART_KEY`, fanart.tv's personal API key (free account). `reelbarrow file` refuses to run without it, dry run included | `executor` |
+| `REELBARROW_PLEX_TOKEN`, with `REELBARROW_PLEX_URL` and `REELBARROW_PLEX_PATHS` set in the Deployment. Only a live run reads them; they were added with the fanart.tv key (Will, 2026-11-11, on reelbarrow's PR #22: *"let's add these plex keys to the deployment repo too"*) | `executor` |
 | Pushover app token | `review-ui`. ARM's pair is in `automatic-ripping-machine/api-keys.sops.yaml`; a separate token keeps the messages distinguishable |
 | Anthropic API key, pay as you go, with a spend cap set in the Console | `episode-matching` |
 
