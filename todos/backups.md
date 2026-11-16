@@ -32,7 +32,7 @@ squashing.
 | 1 | Reclaim — dead guests, orphans | done 2026-09-18 — [PR #11](https://github.com/DArtagan/vulcanus-proxmox/pull/11) |
 | 2 | Application backups — K8up + restic | done 2026-10-12 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13) |
 | 2b | Delete the borg tree | done 2026-10-13 — [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) |
-| 3 | Performance — drop the OpenEBS disks from vzdump | applied 2026-10-16, review closed; checks B-E outstanding, carried by the user |
+| 3 | Performance — drop the OpenEBS disks from vzdump | applied 2026-10-16; A seen and E superseded by 11-16; B meets four bars of five, the user to judge the fifth; C after 11-21's GC; D for VM 910 when its QEMU restarts |
 | 4a | PBS #2 on mini-nas, NixOS container, pulling | done 2026-11-16 — sync, verify, GC, mirror, freshness both ways and both restores proven by 10-28; `rpool/data` narrowed and docs written 10-29; the narrowed send seen from 10-30; `vm/100`'s exclusion deployed 11-08 and seen holding through the 11-15 verify. Its 30-day re-read, due 12-13, is still to see |
 | 4b | The primary into a NixOS container on vulcanus | designed 2026-10-17; after 4a |
 | 5 | The offline copy — external disk | not started; needs a ~$200 purchase |
@@ -473,14 +473,10 @@ constraint stops binding.
   uid 994, where the syncoid user is 993. Cruft, not a dependency: the syncoid module
   grants what it needs around every run.
 - **No restore runbook until Phase 6.** See the sequencing hazard there.
-- **LXC 105 carries pending mountpoint changes until its next restart**: books moves
-  from `mp4` to `mp3`, replacing the borg tree's bind mount, already released by hand.
-  Proxmox cannot change a running container's mount points, and applies these before
-  the next start, so the missing borg dataset cannot fail that boot; books stays at
-  `/mnt/storage/books` throughout. `pct pending 105` shows them. The renumbering
-  closed a gap at slot 3 that hid books from the provider's read-back; done and
-  verified 2026-10-16, with no plan change for LXC 105 since. The apply after it
-  drops a stale slot-4 entry from the state file.
+- **LXC 105's pending mountpoints applied at its 11-08 restart**; see check E. What
+  `pct pending 105` shows now is `mp0` to `mp2` again, each with the same volume,
+  `mp`, `size` and `backup` as the running config, only in another order. Harmless:
+  the next restart mounts the same three.
 
 ---
 
@@ -514,14 +510,27 @@ vzdump starts at 10:00 UTC until US daylight saving ends on 11-01, and at 11:00 
 after — 06:00 Eastern throughout — and has been finishing by about 10:35. Each
 10:00-11:30 window below moves an hour later from 11-01.
 
-| When (UTC) | Check | Passes when |
-|---|---|---|
-| **10-17, after 11:00** | A. First night | `virtio1` gone from the backup, nothing restarted |
-| **10-24, after 11:00** | B. The week, nights 10-17 to 10-23 | clearly better than 10-10 to 10-16 |
-| 11-16 | 10-16's backup, the last holding a `virtio1`, leaves `keep-last 31` in that night's run | — |
-| **first GC after 11-16, ~11-24** | C. PBS space returned | PBS's own figure well under 643 GiB |
-| the morning after a worker's QEMU restarts | D. The full-read case | VM 910 far under 49 min |
-| after LXC 105's next restart | E. Books on `mp3` | see below |
+| When (UTC) | Check | Passes when | Seen |
+|---|---|---|---|
+| 10-17, after 11:00 | A. First night | `virtio1` gone from the backup, nothing restarted | passed, read 11-16 |
+| 10-24, after 11:00 | B. The week, nights 10-17 to 10-23 | clearly better than 10-10 to 10-16 | four bars of five; see below |
+| 11-16 | 10-16's backup, the last holding a `virtio1`, leaves `keep-last 31` in that night's run | — | both stores' oldest `vm/910` and `vm/911` are 10-17's |
+| **11-21, after 14:00** | C. PBS space returned | PBS's own figure well under 643 GiB | 499 GiB before the GC |
+| the morning after a worker's QEMU restarts | D. The full-read case | VM 910 far under 49 min | VM 911 only, 11-08 |
+| after LXC 105's next restart | E. Books on `mp3` | see below | superseded, 11-08 |
+
+**Where it stands, 2026-11-16.** Figures in the evidence, under *Phase 3's checks,
+read 2026-11-16*. A passed. B meets four of its five bars: VM 910's backup fell from
+7-14 minutes to 4.6-7.0, peak p99 from 0.81-1.24 s to 0.70-0.99 s, failed proposals
+were 0 every night, and the 24 h mean stayed within the baseline. Minutes with p99
+above 0.5 s fell from a mean of 13.9 a night to 10.0, inside the baseline's range
+rather than clearly below it. **Whether that is a pass is the user's call**, not yet
+made. What the window still holds is now known: 327 of the 336 minutes above 0.5 s
+across 10-17 to 11-16 fell while VMs 900, 910 or 911 were being backed up, the
+Talos boot disks, control plane's included; quiet windows read 0 almost every
+day. That is [`etcd-disk-latency.md`](etcd-disk-latency.md)'s ground, not this
+phase's. C waits for 11-21's GC; D has been seen for VM 911 and not VM 910; E no
+longer applies, since books left LXC 105 under `nfs-cluster-volumes`.
 
 **A — 10-17.** From the night's task log:
 
@@ -556,10 +565,12 @@ failures all week, and no `OOMKilled` init container. Phase 3's review closed on
 2026-10-16, ahead of B; when B passes, its results go into the evidence and the status
 table marks Phase 3 done. C can be recorded after.
 
-**C — ~11-24.** The 11-16 run prunes the last backup holding a `virtio1`; its chunks
-go at PBS's next weekly GC, whose day is not recorded — PBS refuses SSH from the
-workstation; the GUI shows it under Datastore → primary → Prune & GC. After it has
-run, record both views:
+**C — 11-21.** The 11-16 run pruned the last backup holding a `virtio1`; its chunks
+go at VM 107's next weekly GC, Saturday 07:00 Denver time, 14:00 UTC in winter. On
+11-16, before it: `pvesm status` 522,708,636 KiB used (499 GiB),
+`rpool/proxmox_backup_server` 1.61T by dataset and 142G by snapshots, and PBS #2's
+`rpool/pbs` 503G, whose own GC runs at the same hour. After the GC, record both
+views:
 
 ```bash
 ssh root@vulcanus.forge.local 'pvesm status --storage pbs; zfs get -H -o property,value usedbydataset,usedbysnapshots rpool/proxmox_backup_server'
@@ -577,11 +588,17 @@ and not a failure of C.
 worker; a reboot from inside Talos keeps the QEMU process and does not count. The
 largest win and the one that cannot be scheduled: before, VM 910 re-read 1.10 TiB in
 49 min with fsync p99 above 0.5 s for 52-56 min, and it now reads the 100 GiB boot
-disk. Run A's command the next morning.
+disk. Run A's command the next morning. Seen for VM 911 on 11-08, after a `qm reboot`
+at 05:33 UTC: a full read of its 100 GiB boot disk in 6m59s, against 8m05s for both
+disks on 10-09. VM 910 has run in one QEMU process since 10-09 04:26 UTC, so it is
+still to see.
 
-**E — opportunistic.** `pct config 105 --current` shows books as `mp3` and neither
-`mp4` nor the borg mount, the books share is still reachable, and a plan shows
-nothing for LXC 105.
+**E — superseded 11-08.** LXC 105 restarted at 05:23 UTC on 11-08 and applied its
+pending mountpoints: `pct config 105 --current` shows `mp0` to `mp2` (media,
+filesync, photos) and neither `mp4` nor the borg mount. Books is not on `mp3` because
+`nfs-cluster-volumes` took it off the fileserver deliberately the day before
+(`86bb572a`); the cluster reaches it over NFS. A plan targeting
+`proxmox_lxc.fileserver` shows no changes.
 
 ## Phase 4 — platform images offsite
 
