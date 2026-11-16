@@ -1471,8 +1471,64 @@ The user asked for both.
   `rpool/foreign-backups/vulcanus`; its children show it as inherited.
   `zfs unallow -u 994 rpool/foreign-backups/vulcanus` left that dataset with no
   permissions. syncoid's and sanoid's `ExecStartPre` grant their own per run.
-- **Found along the way:** the `syncoid_vulcanus_*` sync snapshots listed under
-  *Loose ends* in the spec.
+- **Found along the way:** the `syncoid_vulcanus_*` sync snapshots, below.
+
+### The January sync snapshots, read and destroyed — 2026-11-16
+
+These are leftovers from vulcanus's old push, 6-8 January 2026. 13 were on vulcanus
+and 14 on mini-nas. Sanoid never prunes them because they are not its own. None had
+a clone or a hold. On `rpool/ROOT` and `rpool/data` each was the only snapshot
+older than 10-18. On `storage` they sat between monthlies and held under 1 MB.
+
+**What they held**, read through a read-only `zfs clone` of each zvol snapshot, its
+XFS mounted `ro,norecovery,nouuid`, and through `zfs diff` for filesystems:
+
+| snapshot | unique | contents |
+|---|---|---|
+| `vm-910-disk-1`, worker-0's OpenEBS disk | 426G | 520G used: Loki's `pvc-b52710af` about 420G; the live claims' January state; Phase 1's orphans (both PhotoPrism stores, both MariaDB directories, the 2024 ARM skeletons); the four `traefik` `acme.json` claims; borgmatic's cache, 6.5G; Podgrab's database, 34M; and **`pvc-7ca1e9a9`, ARM's 2024 database and logs** |
+| `vm-910-disk-0`, worker-0's Talos disk | 84G | EPHEMERAL 81G used, almost all `lib/containerd` images; kubelet 1G |
+| `vm-900-disk-0`, the control plane | 7.0G | January etcd |
+| `ROOT/pve-1` | 6.7G | 359,908 changed paths to 10-18, nearly all the PVE 8 to 9 upgrade. Among the removed: `/root/sanoid` (a source checkout), the host's own `smb.conf`, `tailscaled.state`, `/root/.bash_history` |
+| `vm-107-disk-0` | 3.5G | PBS's OS disk |
+| `subvol-103`, `subvol-104` | 101M, 54M | LXC roots |
+
+This matches Phase 1's verdict on the diverged `vm-911` copy, which was the same
+January state. The user destroyed that one outright as eight months stale and
+superseded by K8up.
+
+**The one thing held nowhere else was ARM's 2024 history.** `pvc-7ca1e9a9`'s
+`arm.db` holds 109 jobs, 6-114, from 2024-01-15 to 2024-04-18, and passes
+`integrity_check`. The running ARM's database begins at job 1 on 2026-04-17, and
+none of its jobs predate 2024-05. Phase 1 never listed this claim among its orphans.
+It was gone before K8up's first backup, and whatever the borg tree held of it went
+with that tree in 2b.
+
+**Salvaged first, on the user's call.** That PVC was copied together with the three
+2024-01-14 ARM skeletons and a README, 183 files and 317 MiB. The copy was streamed
+from the clone into LXC 108, extracted as `restic`, then backed up as `restic`
+against the local repository: snapshot `7aced9c4`, host
+`automatic-ripping-machine`, path `/arm-2024-history`, tags `decommissioned` and
+`arm-2024-history`, 10.5 MiB stored. All 182 source files were checked by SHA-256,
+first against the extracted copy and then against a `restic restore` of `7aced9c4`.
+Both matched; the README is the 183rd file. The prune's `--keep-tag` keeps the
+snapshot. The coverage check reports it every run as decommissioned and does not
+fail on it.
+
+**Then destroyed**, each one dry-run first. Beforehand, every replica's newest
+snapshot was confirmed to be a recent autosnap that the source also holds, so no
+incremental base was among them.
+- **vulcanus:** the dry runs' reclaims totalled 527 GiB, 426 of it `vm-910-disk-1`.
+  `allocated` went from 26.1T to 25.0T, capacity 49%.
+- **mini-nas:** 10 GiB, its `rpool` staying at 83%.
+
+All four `syncoid-vulcanus-*` units succeeded at 21:00 UTC, after the destroys.
+
+**Wrong turns.**
+- The first clone was snapshotted by vulcanus's sanoid before it was destroyed.
+  `[rpool]` is `recursive` under the production template, so anything cloned under
+  `rpool` gains hourlies within 15 minutes and needs `zfs destroy -r`.
+- `du` across the whole of the January OpenEBS filesystem ran past 15 minutes on
+  Loki's chunks. The tree was sized by elimination instead.
 
 ### 4a's last checks — 2026-11-16
 
