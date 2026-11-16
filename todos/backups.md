@@ -26,7 +26,8 @@ from the browser on 2026-11-08. mini-nas's side merged as
 [mini-nas PR #6](https://github.com/DArtagan/mini-nas/pull/6) and
 [#7](https://github.com/DArtagan/mini-nas/pull/7); its re-pins go straight to its
 `main`. 4a's close-out and Phase 3's checks are on a `backups` branch cut from `main`
-on 2026-11-16, in `.worktrees/backups`.
+on 2026-11-16, in `.worktrees/backups`, under review in
+[PR #42](https://github.com/DArtagan/vulcanus-proxmox/pull/42).
 
 ## Status
 
