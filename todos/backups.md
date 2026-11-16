@@ -17,11 +17,16 @@ phases left. Only deleting this spec and adding the
 Slug `backups`. [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) closed
 at the 2b boundary on 2026-10-13, and
 [PR #19](https://github.com/DArtagan/vulcanus-proxmox/pull/19) at Phase 3's on
-2026-10-16. Phase 4 is on a `backups` branch in `.worktrees/backups`, under review in
-[PR #23](https://github.com/DArtagan/vulcanus-proxmox/pull/23). mini-nas's side is on
-a `backups` branch of that repository, under review in
-[mini-nas PR #6](https://github.com/DArtagan/mini-nas/pull/6), to be merged without
-squashing.
+2026-10-16. Phase 4's reviews were
+[PR #20](https://github.com/DArtagan/vulcanus-proxmox/pull/20),
+[PR #21](https://github.com/DArtagan/vulcanus-proxmox/pull/21),
+[PR #23](https://github.com/DArtagan/vulcanus-proxmox/pull/23), closed unmerged on
+2026-10-23, and [PR #27](https://github.com/DArtagan/vulcanus-proxmox/pull/27), closed
+from the browser on 2026-11-08. mini-nas's side merged as
+[mini-nas PR #6](https://github.com/DArtagan/mini-nas/pull/6) and
+[#7](https://github.com/DArtagan/mini-nas/pull/7); its re-pins go straight to its
+`main`. 4a's close-out and Phase 3's checks are on a `backups` branch cut from `main`
+on 2026-11-16, in `.worktrees/backups`.
 
 ## Status
 
