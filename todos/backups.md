@@ -33,7 +33,7 @@ squashing.
 | 2 | Application backups — K8up + restic | done 2026-10-12 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13) |
 | 2b | Delete the borg tree | done 2026-10-13 — [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) |
 | 3 | Performance — drop the OpenEBS disks from vzdump | applied 2026-10-16, review closed; checks B-E outstanding, carried by the user |
-| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — sync, verify, GC, mirror, freshness both ways and both restores proven by 10-28; `rpool/data` narrowed and docs written 10-29; `vm/100` excluded from the pull 11-08, to deploy and see; one incremental send left to see |
+| 4a | PBS #2 on mini-nas, NixOS container, pulling | done 2026-11-16 — sync, verify, GC, mirror, freshness both ways and both restores proven by 10-28; `rpool/data` narrowed and docs written 10-29; the narrowed send seen from 10-30; `vm/100`'s exclusion deployed 11-08 and seen holding through the 11-15 verify. Its 30-day re-read, due 12-13, is still to see |
 | 4b | The primary into a NixOS container on vulcanus | designed 2026-10-17; after 4a |
 | 5 | The offline copy — external disk | not started; needs a ~$200 purchase |
 | 6 | Verification, notification, runbook | not started |
@@ -750,9 +750,9 @@ that finds no problem.
 
 ### Picking 4a up again
 
-**Deployed state, 2026-10-28.** mini-nas runs its `main` at `19c32fb`, deployed
-17:19 UTC, pinning vulcanus-proxmox's `main` at `f4df242e`, which carries
-everything of this project's under `nixos/`. No unit failed in the container; the host's `nixos-upgrade.service` fails daily, a
+**Deployed state, 2026-11-16.** mini-nas runs its `main` at `69913f0`, deployed
+2026-11-08 21:29 UTC, pinning vulcanus-proxmox's `main` at `28d5782b`; nothing under
+`nixos/` has changed on `main` since. No unit failed in the container; the host's `nixos-upgrade.service` fails daily, a
 standing mini-nas fault outside this project (below). A vulcanus-proxmox change to `nixos/` reaches PBS #2 by `wt deploy`
 (the user's), then `nix flake update vulcanus-proxmox` committed straight to
 mini-nas's `main`, as the user chose for a re-pin, and the deploy below from that
@@ -829,12 +829,26 @@ the channel path and stops at evaluation. It has never switched the system. Whoe
 fixes it should know `allowReboot = true`: a working upgrade reboots mini-nas, which
 aborts any PBS #2 sync or verify in flight.
 
-**Then, in order:**
+**4a closed, 2026-11-16**, on the last two things it had to see:
 
-1. **See `syncoid-vulcanus-data` send VM 107's 10-30 00:00 UTC snapshot**
-   incrementally, and the next scheduled `zfs-replication-freshness` pass. That is
-   4a's last open item: a phase boundary, where the review can close and reopen
-   under the same slug for 4b.
+- **The narrowed send works.** `syncoid-vulcanus-data` sent VM 107's
+  `autosnap_2026-10-30_00:00:21_daily` incrementally at 01:00 UTC on 10-30, in 56 s,
+  and has sent one incremental a day since, 18 by 11-16, with no failed run.
+  `zfs-replication-freshness` passed all 19 runs from 10-29. The replica holds
+  snapshots through `autosnap_2026-11-16_00:00:23_daily` and is the only dataset
+  under `.../vulcanus/data`, whose parent stays `canmount=off`.
+- **`vm/100`'s exclusion holds.** `pull-primary` carries `exclude:group:vm/100` on
+  PBS #2. No pull from 11-09 to 11-16 mentions `vm/100`, against three lines in
+  every pull before; its `index.json.blob` keeps the 11-08 verify's mtime,
+  15:05:38 UTC; the 11-15 verify logged `SKIPPED: verify
+  offsite:vm/100/2026-09-18T23:24:23Z (recently verified)`; and
+  `pbs-offsite-freshness` passed every day. The verify did not finish "well under
+  104 minutes": it took 89, because mini-nas's monthly scrub ran from 08:30 UTC to
+  02:52 the next morning and every other group read about twice as slowly as on
+  11-08. `vm/100` itself went from 64 minutes to none. The 12-13 verify, a second
+  Sunday clear of the scrub, is the first to re-read it and the clean comparison.
+
+The review can reopen under the same slug for 4b.
 
 **The docs are written, 2026-10-29**: PBS #2's section, schedules, retention and
 archiving, restoring a guest from PBS #2, and reporting in `docs/backups.md`; the
@@ -1084,8 +1098,8 @@ merged (`25f47f8`) and deployed at 04:40 UTC; the 12 were destroyed one by one,
 each dry-run first to show it held only its own snapshots; the parent took
 `canmount=off`. `syncoid-vulcanus-data` then succeeded, finding the replica already
 at the source's newest snapshot, and `zfs-replication-freshness` passed. mini-nas's
-`rpool` went from 86% to 79%. Not yet seen: an incremental send in the narrowed
-form, which comes with vulcanus's 00:00 UTC snapshot.
+`rpool` went from 86% to 79%. The first incremental send in the narrowed form came
+with the 10-30 snapshot; see *Picking 4a up again*.
 
 **At 4b**, with the primary's configuration in git, `vulcanus-data` retires entirely:
 its syncoid command, its healthchecks check and sops secret, its source root in the
@@ -1181,9 +1195,9 @@ What phases 0 to 2b asserted is in the evidence.
   - **`vm/100`'s exclusion holds its verify state:** after the deploy, no pull logs
     `[vm/100]`, its `index.json.blob` keeps the 11-08 verify's mtime, and the 11-15
     verify logs `SKIPPED: verify offsite:vm/100/2026-09-18T23:24:23Z (recently
-    verified)`, finishing in well under 11-08's 104 minutes. The first re-read due is
-    the 12-13 verify, 30 days on, and `pbs-offsite-freshness` stays green across all
-    of it.
+    verified)`. All seen 11-16. Still to see: the 12-13 verify, 30 days on,
+    re-reads it, finishing near 11-08's 104 minutes rather than 11-15's
+    scrub-slowed 89, and `pbs-offsite-freshness` stays green across it.
   - **Reuse detection** ignores a protected snapshot, in `test_pbs_freshness.py`.
   - **`rpool/data`'s narrowing at the end of 4a:** `zfs-replication-freshness` stays
     green across it, which is what says the source-root change and the replica
@@ -1193,7 +1207,7 @@ What phases 0 to 2b asserted is in the evidence.
     newer than the narrowing, and that it is the only dataset left under
     `.../vulcanus/data`. A syncoid command narrowed to a dataset that stopped
     receiving would pass the source-root comparison and fail nothing until the 26 h
-    limit caught it the next morning.
+    limit caught it the next morning. All seen 2026-11-16.
   - **4b's cutover:** the first vzdump after it lands every in-scope guest in LXC 109,
     `pbs-freshness` reads it green under the backup-only credential, VM 107 receives
     nothing, and PBS #2's next sync pulls from LXC 109. After `vulcanus-data` retires,

@@ -1392,6 +1392,51 @@ and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
   71. The container's conf was unchanged, so it was not
   restarted.
 
+### 4a's last checks — 2026-11-16
+
+All reads, over SSH to mini-nas and inside the container with
+`nixos-container run pbs-offsite --`.
+
+- **What is deployed.** mini-nas's system profile switched 2026-11-08 21:29 UTC to
+  nixpkgs `f4a03c0`, which is mini-nas `69913f0`, pinning vulcanus-proxmox
+  `28d5782b`; `git diff 28d5782b main -- nixos/` is empty. `sync-job list` shows
+  `pull-primary` with `group-filter: ["exclude:group:vm/100"]`. No unit failed in the
+  container; the host's `nixos-upgrade.service` still fails on `nixos-config`.
+- **No pull touches `vm/100`.** `grep -c vm/100` over each sync task log: 3 for every
+  pull to 11-08, 0 for each of 11-09 to 11-16. `index.json.blob` in
+  `/mnt/pbs/ns/vulcanus/vm/100/2026-09-18T23:24:23Z/` has mtime
+  2026-11-08 15:05:38 UTC, the moment 11-08's verify moved on to `vm/107`.
+- **The verifies, per group**, from the timestamps in the raw task logs under
+  `/var/log/proxmox-backup/tasks/` (`task log` strips them). Each verified 8
+  snapshots per live group and skipped the rest as recently verified:
+
+  | group | 11-01 | 11-08 | 11-15 |
+  |---|---|---|---|
+  | ct/103 | 0:28 | 0:28 | 1:06 |
+  | ct/104 | 0:26 | 0:30 | 1:00 |
+  | ct/105 | 0:12 | 0:19 | 0:29 |
+  | ct/108 | 0:28 | 0:34 | 1:02 |
+  | vm/100 | 50:46 | 63:47 | skipped |
+  | vm/900 | 2:00 | 2:29 | 6:54 |
+  | vm/910 | 20:15 | 23:40 | 49:47 |
+  | vm/911 | 10:37 | 11:53 | 28:47 |
+  | total | 85:12 | 103:40 | 89:05 |
+
+  Everything but `vm/100` ran 1.5-2.8 times slower on 11-15. mini-nas's
+  `zfs-scrub.timer` is `Sun *-*-15..21 03:20`: the scrub ran 08:30 UTC 11-15 to
+  02:52 UTC 11-16 (18h22m, 0 errors), covering the verify. `vm/910`'s newest
+  snapshot alone took 32 minutes. The 12-13 verify falls on a second Sunday.
+- **`pbs-offsite-freshness`** finished successfully every day at 18:00 UTC, 11-08
+  to 11-16.
+- **The narrowed send.** `syncoid-vulcanus-data`'s journal at 01:00 UTC 10-30:
+  `Sending incremental …vm-107-disk-0@autosnap_2026-10-29_00:00:21_daily …
+  autosnap_2026-10-30_00:00:21_daily`, unit done in 56 s, 78.6M in. 18 `Sending
+  incremental` lines from 10-29 06:00 UTC to 11-16, one per day, and no failed run
+  of it or of `zfs-replication-freshness`, which finished 19 times. `zfs list -r
+  rpool/foreign-backups/vulcanus/data` shows the parent, `canmount=off`, and
+  `vm-107-disk-0` alone, 18.7G, newest snapshot
+  `autosnap_2026-11-16_00:00:23_daily`.
+
 ### `vm/100` excluded from the pull — 2026-11-08
 
 Raised in PR #27's review: is there a cheaper way to handle the frozen snapshot?

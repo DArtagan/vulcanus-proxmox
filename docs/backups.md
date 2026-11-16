@@ -116,7 +116,9 @@ anything mini-nas's own PVE might write there.
 **Its day is one sequence, not three schedules:** at 12:00 UTC the sync, then the
 protection mirror, then prune. A failure stops it, so nothing is pruned on a day the
 primary's flags could not be read. GC runs Saturday at 14:00 UTC, and verify Sunday
-at 14:00 UTC, taking each snapshot not verified in the last 30 days.
+at 14:00 UTC, taking each snapshot not verified in the last 30 days. On the third
+Sunday of the month the verify shares the disks with mini-nas's monthly scrub and
+takes about twice as long.
 
 **Sync does not carry the protected flag**, only a snapshot's manifest, indexes and
 chunks. The mirror reads the primary's snapshot list over the same read-only token and
