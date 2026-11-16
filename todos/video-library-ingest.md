@@ -181,3 +181,28 @@ on and off, and where manifests are written. The exporter's sidecar goes into
   names to ASCII, as ARM's title hook does.
 - [backups.md](backups.md): `media/video` is snapshotted and replicated, which
   is what makes deleting leftovers acceptable.
+- **ARM's 2024 history**, which the running ARM's database lacks. That database
+  begins at job 1 on 2026-04-17, so the exporter cannot see any earlier rip. The
+  older `arm.db` survives as restic snapshot `7aced9c4` (host
+  `automatic-ripping-machine`, tags `decommissioned` and `arm-2024-history`),
+  recovered 2026-11-16 from a January snapshot of worker-0's OpenEBS disk:
+  - It holds 109 jobs from 2024-01-15 to 2024-04-18: 80 succeeded and 29 failed;
+    55 were Blu-ray, 50 DVD, and 4 music or unknown.
+  - Their output paths are under `/home/root/media/completed/`.
+  - Its schema is alembic `469d88477c13`; the running ARM's is `edf2272c0a9d`.
+  - The job logs sit beside it in
+    `/arm-2024-history/pvc-7ca1e9a9-79c4-4c39-8e59-e5c8b0135a6f/`.
+  - A `README.txt` in the snapshot says what the other three directories are.
+
+  It lives in the repository host, LXC 108. Run restic there as `restic`, never
+  root: the repository is `restic`'s, and a lock root leaves behind is one
+  `restic` cannot clear.
+
+  ```bash
+  ssh root@vulcanus.forge.local
+  pct enter 108
+  runuser -u restic -- env RESTIC_PASSWORD_FILE=/run/secrets/restic/password \
+    restic -r /mnt/backups/restic restore 7aced9c4 --target /var/tmp/arm-2024
+  ```
+
+  `restic dump 7aced9c4 <path>` streams a single file instead.
