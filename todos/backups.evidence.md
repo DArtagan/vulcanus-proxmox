@@ -1023,6 +1023,66 @@ copy whatever the cause.
   moved, so C would have passed on space vulcanus never got back. Caught 10-16 while
   sizing PBS #2, by setting `zfs get` on `rpool/proxmox_backup_server` beside it.
 
+### Phase 3's checks, read 2026-11-16
+
+vzdump figures from the 40 most recent vzdump task logs in `/var/log/pve/tasks`,
+read over SSH; etcd figures from Prometheus by port-forward, with the spec's
+expressions over each night's 90 minutes from vzdump's start, 10:00 UTC to 10-31 and
+11:00 from 11-01. Prometheus keeps 30 days, so 10-10 to 10-16 can no longer be read
+again; the baseline is the 10-16 table above. 10-17's 24 h mean holds 950 of 1,440
+samples, the rest having aged out.
+
+**A.** On 10-17 and every night since, both workers' `virtio1` appears only as
+excluded, and `virtio0` reads `dirty-bitmap status: OK` except VM 911 on 11-08.
+
+**B, nights 10-17 to 10-23:**
+
+| night | VM 910 | 910 virtio0 dirty | VM 911 | job | > 0.5 s | peak | failed proposals | 24 h mean |
+|---|---|---|---|---|---|---|---|---|
+| 10-17 | 4m36s | 4.9 GiB | 2m39s | 27m | 7m | 0.70 s | 0 | 0.248 s |
+| 10-18 | 4m55s | 5.6 GiB | 2m35s | 28m | 10m | 0.90 s | 0 | 0.254 s |
+| 10-19 | 5m43s | 6.7 GiB | 2m39s | 28m | 8m | 0.86 s | 0 | 0.256 s |
+| 10-20 | 5m05s | 5.2 GiB | 2m49s | 29m | 7m | 0.99 s | 0 | 0.247 s |
+| 10-21 | 6m12s | 7.1 GiB | 3m22s | 30m | 11m | 0.98 s | 0 | 0.260 s |
+| 10-22 | 4m52s | 5.0 GiB | 3m10s | 28m | 13m | 0.95 s | 0 | 0.272 s |
+| 10-23 | 6m59s | 7.0 GiB | 3m21s | 33m | 14m | 0.87 s | 0 | 0.279 s |
+
+Against 10-10 to 10-16: VM 910 averages 5m29s against 9m11s; minutes above 0.5 s
+average 10.0 against 13.9, range 7-14 against 6-17; peak 0.70-0.99 s against
+0.81-1.24 s; failed proposals 0 against 0-17; the 24 h mean 0.247-0.279 s against
+0.246-0.301 s. The job itself barely shortened, 27-33 minutes against 27-47.
+
+Over all 31 nights, 10-17 to 11-16: VM 910 4m36s-9m03s, the longest on 10-30 and
+11-02 with 10.4 and 50.4 GiB dirty; minutes above 0.5 s 7-16; peak 0.70-1.60 s;
+failed proposals 0 on 21 nights and up to 37 (11-09) on the rest; 24 h mean
+0.244-0.306 s.
+
+**Where the remaining minutes fall.** The same count over three quiet 90-minute
+windows a day, from 04:00, 16:00 and 22:00 UTC, read 0 in 87 of 93 windows and at
+most 5. Inside the backup window, of 336 minutes above 0.5 s across the 31 nights,
+327 fell between VM 900's start and five minutes after VM 911's finish — the
+five covering the rate's `[5m]` — and 9 elsewhere. VM 900 is
+`talos-control-plane-0`. The guests run in a fixed order, the LXCs first and the
+three Talos VMs in the last 10-13 minutes.
+
+**C, before the GC.** On both stores the oldest `vm/910` and `vm/911` snapshots are
+`2026-10-17T10:19:34Z` and `2026-10-17T10:24:10Z`, 31 per group; the 11-16 vzdump
+logged `prune older backups with retention: keep-last=31`. `pvesm status --storage
+pbs`: 522,708,636 KiB used of 2,112,661,484 (24.74%). `rpool/proxmox_backup_server`:
+`usedbydataset` 1.61T, `usedbysnapshots` 142G. PBS #2's `rpool/pbs` `used` 503G.
+
+**D.** `qmreboot:911` at 05:33:16 UTC on 11-08, `qmstart:911` at 05:34:47. That
+night VM 911's `virtio0` read `created new` and took 6m59s; the job ran 47 minutes,
+with LXCs 103 and 104 also slow (8 and 9 minutes), 16 minutes above 0.5 s, peak
+1.60 s, 27 failed proposals. VM 910's QEMU process dates from 10-09 04:26 UTC, so
+its full read has not recurred.
+
+**E.** LXC 105 was shut down and started twice between 05:22:58 and 05:23:30 UTC on
+11-08, the last start's only warning being systemd 249's about nesting. `pct config 105 --current`: `mp0` media, `mp1` filesync, `mp2` photos.
+`/mnt/storage/books` inside is an empty directory. `86bb572a` (11-07,
+`nfs-cluster-volumes`) dropped the books share and its mountpoint. `tofu plan
+-target=proxmox_lxc.fileserver`: no changes.
+
 ## Phase 4 — reassessed before starting, 2026-10-16
 
 Asked whether Phase 4 could start while the mini-nas disks are still unbought. All
@@ -1391,6 +1451,129 @@ and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
   alongside it (profile 70 is theirs, 16:03:36 EDT); the retry confirmed, profile
   71. The container's conf was unchanged, so it was not
   restarted.
+
+### The stale grant and holds removed — 2026-11-16
+
+The user asked for both.
+
+- **Holds.** `zfs get -r -t snapshot userrefs` found ten, not five: the same five
+  snapshots held `syncoid_vulcanus` on vulcanus's `rpool/storage` and on mini-nas's
+  replica of it. Nothing still uses the tag. The mini-nas syncoid commands run
+  without `--use-hold`, and vulcanus has no syncoid timer. All ten were released, and
+  `userrefs` > 0 now matches nothing on either host. Vulcanus's `sanoid-prune` at
+  19:30 UTC destroyed its five as expired hourlies, and mini-nas's sanoid at 20:00
+  destroyed the replica's. `syncoid-vulcanus-storage` succeeded at 20:00 UTC after
+  both.
+- **What they cost was wrong in the spec.** It said they pinned every block freed
+  since January. Each snapshot's own `used` was 0-286 KB, because the
+  `2026-01-01` monthlies, kept for 24 months, pin the same blocks.
+- **The grant.** No user on mini-nas has uid 994. The grant was set only on
+  `rpool/foreign-backups/vulcanus`; its children show it as inherited.
+  `zfs unallow -u 994 rpool/foreign-backups/vulcanus` left that dataset with no
+  permissions. syncoid's and sanoid's `ExecStartPre` grant their own per run.
+- **Found along the way:** the `syncoid_vulcanus_*` sync snapshots, below.
+
+### The January sync snapshots, read and destroyed — 2026-11-16
+
+These are leftovers from vulcanus's old push, 6-8 January 2026. 13 were on vulcanus
+and 14 on mini-nas. Sanoid never prunes them because they are not its own. None had
+a clone or a hold. On `rpool/ROOT` and `rpool/data` each was the only snapshot
+older than 10-18. On `storage` they sat between monthlies and held under 1 MB.
+
+**What they held**, read through a read-only `zfs clone` of each zvol snapshot, its
+XFS mounted `ro,norecovery,nouuid`, and through `zfs diff` for filesystems:
+
+| snapshot | unique | contents |
+|---|---|---|
+| `vm-910-disk-1`, worker-0's OpenEBS disk | 426G | 520G used: Loki's `pvc-b52710af` about 420G; the live claims' January state; Phase 1's orphans (both PhotoPrism stores, both MariaDB directories, the 2024 ARM skeletons); the four `traefik` `acme.json` claims; borgmatic's cache, 6.5G; Podgrab's database, 34M; and **`pvc-7ca1e9a9`, ARM's 2024 database and logs** |
+| `vm-910-disk-0`, worker-0's Talos disk | 84G | EPHEMERAL 81G used, almost all `lib/containerd` images; kubelet 1G |
+| `vm-900-disk-0`, the control plane | 7.0G | January etcd |
+| `ROOT/pve-1` | 6.7G | 359,908 changed paths to 10-18, nearly all the PVE 8 to 9 upgrade. Among the removed: `/root/sanoid` (a source checkout), the host's own `smb.conf`, `tailscaled.state`, `/root/.bash_history` |
+| `vm-107-disk-0` | 3.5G | PBS's OS disk |
+| `subvol-103`, `subvol-104` | 101M, 54M | LXC roots |
+
+This matches Phase 1's verdict on the diverged `vm-911` copy, which was the same
+January state. The user destroyed that one outright as eight months stale and
+superseded by K8up.
+
+**The one thing held nowhere else was ARM's 2024 history.** `pvc-7ca1e9a9`'s
+`arm.db` holds 109 jobs, 6-114, from 2024-01-15 to 2024-04-18, and passes
+`integrity_check`. The running ARM's database begins at job 1 on 2026-04-17, and
+none of its jobs predate 2024-05. Phase 1 never listed this claim among its orphans.
+It was gone before K8up's first backup, and whatever the borg tree held of it went
+with that tree in 2b.
+
+**Salvaged first, on the user's call.** That PVC was copied together with the three
+2024-01-14 ARM skeletons and a README, 183 files and 317 MiB. The copy was streamed
+from the clone into LXC 108, extracted as `restic`, then backed up as `restic`
+against the local repository: snapshot `7aced9c4`, host
+`automatic-ripping-machine`, path `/arm-2024-history`, tags `decommissioned` and
+`arm-2024-history`, 10.5 MiB stored. All 182 source files were checked by SHA-256,
+first against the extracted copy and then against a `restic restore` of `7aced9c4`.
+Both matched; the README is the 183rd file. The prune's `--keep-tag` keeps the
+snapshot. The coverage check reports it every run as decommissioned and does not
+fail on it.
+
+**Then destroyed**, each one dry-run first. Beforehand, every replica's newest
+snapshot was confirmed to be a recent autosnap that the source also holds, so no
+incremental base was among them.
+- **vulcanus:** the dry runs' reclaims totalled 527 GiB, 426 of it `vm-910-disk-1`.
+  `allocated` went from 26.1T to 25.0T, capacity 49%.
+- **mini-nas:** 10 GiB, its `rpool` staying at 83%.
+
+All four `syncoid-vulcanus-*` units succeeded at 21:00 UTC, after the destroys.
+
+**Wrong turns.**
+- The first clone was snapshotted by vulcanus's sanoid before it was destroyed.
+  `[rpool]` is `recursive` under the production template, so anything cloned under
+  `rpool` gains hourlies within 15 minutes and needs `zfs destroy -r`.
+- `du` across the whole of the January OpenEBS filesystem ran past 15 minutes on
+  Loki's chunks. The tree was sized by elimination instead.
+
+### 4a's last checks — 2026-11-16
+
+All reads, over SSH to mini-nas and inside the container with
+`nixos-container run pbs-offsite --`.
+
+- **What is deployed.** mini-nas's system profile switched 2026-11-08 21:29 UTC to
+  nixpkgs `f4a03c0`, which is mini-nas `69913f0`, pinning vulcanus-proxmox
+  `28d5782b`; `git diff 28d5782b main -- nixos/` is empty. `sync-job list` shows
+  `pull-primary` with `group-filter: ["exclude:group:vm/100"]`. No unit failed in the
+  container; the host's `nixos-upgrade.service` still fails on `nixos-config`.
+- **No pull touches `vm/100`.** `grep -c vm/100` over each sync task log: 3 for every
+  pull to 11-08, 0 for each of 11-09 to 11-16. `index.json.blob` in
+  `/mnt/pbs/ns/vulcanus/vm/100/2026-09-18T23:24:23Z/` has mtime
+  2026-11-08 15:05:38 UTC, the moment 11-08's verify moved on to `vm/107`.
+- **The verifies, per group**, from the timestamps in the raw task logs under
+  `/var/log/proxmox-backup/tasks/` (`task log` strips them). Each verified 8
+  snapshots per live group and skipped the rest as recently verified:
+
+  | group | 11-01 | 11-08 | 11-15 |
+  |---|---|---|---|
+  | ct/103 | 0:28 | 0:28 | 1:06 |
+  | ct/104 | 0:26 | 0:30 | 1:00 |
+  | ct/105 | 0:12 | 0:19 | 0:29 |
+  | ct/108 | 0:28 | 0:34 | 1:02 |
+  | vm/100 | 50:46 | 63:47 | skipped |
+  | vm/900 | 2:00 | 2:29 | 6:54 |
+  | vm/910 | 20:15 | 23:40 | 49:47 |
+  | vm/911 | 10:37 | 11:53 | 28:47 |
+  | total | 85:12 | 103:40 | 89:05 |
+
+  Everything but `vm/100` ran 1.5-2.8 times slower on 11-15. mini-nas's
+  `zfs-scrub.timer` is `Sun *-*-15..21 03:20`: the scrub ran 08:30 UTC 11-15 to
+  02:52 UTC 11-16 (18h22m, 0 errors), covering the verify. `vm/910`'s newest
+  snapshot alone took 32 minutes. The 12-13 verify falls on a second Sunday.
+- **`pbs-offsite-freshness`** finished successfully every day at 18:00 UTC, 11-08
+  to 11-16.
+- **The narrowed send.** `syncoid-vulcanus-data`'s journal at 01:00 UTC 10-30:
+  `Sending incremental …vm-107-disk-0@autosnap_2026-10-29_00:00:21_daily …
+  autosnap_2026-10-30_00:00:21_daily`, unit done in 56 s, 78.6M in. 18 `Sending
+  incremental` lines from 10-29 06:00 UTC to 11-16, one per day, and no failed run
+  of it or of `zfs-replication-freshness`, which finished 19 times. `zfs list -r
+  rpool/foreign-backups/vulcanus/data` shows the parent, `canmount=off`, and
+  `vm-107-disk-0` alone, 18.7G, newest snapshot
+  `autosnap_2026-11-16_00:00:23_daily`.
 
 ### `vm/100` excluded from the pull — 2026-11-08
 

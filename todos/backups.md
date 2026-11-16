@@ -17,11 +17,17 @@ phases left. Only deleting this spec and adding the
 Slug `backups`. [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) closed
 at the 2b boundary on 2026-10-13, and
 [PR #19](https://github.com/DArtagan/vulcanus-proxmox/pull/19) at Phase 3's on
-2026-10-16. Phase 4 is on a `backups` branch in `.worktrees/backups`, under review in
-[PR #23](https://github.com/DArtagan/vulcanus-proxmox/pull/23). mini-nas's side is on
-a `backups` branch of that repository, under review in
-[mini-nas PR #6](https://github.com/DArtagan/mini-nas/pull/6), to be merged without
-squashing.
+2026-10-16. Phase 4's reviews were
+[PR #20](https://github.com/DArtagan/vulcanus-proxmox/pull/20),
+[PR #21](https://github.com/DArtagan/vulcanus-proxmox/pull/21),
+[PR #23](https://github.com/DArtagan/vulcanus-proxmox/pull/23), closed unmerged on
+2026-10-23, and [PR #27](https://github.com/DArtagan/vulcanus-proxmox/pull/27), closed
+from the browser on 2026-11-08. mini-nas's side merged as
+[mini-nas PR #6](https://github.com/DArtagan/mini-nas/pull/6) and
+[#7](https://github.com/DArtagan/mini-nas/pull/7); its re-pins go straight to its
+`main`. 4a's close-out and Phase 3's checks are on a `backups` branch cut from `main`
+on 2026-11-16, in `.worktrees/backups`, under review in
+[PR #42](https://github.com/DArtagan/vulcanus-proxmox/pull/42).
 
 ## Status
 
@@ -32,8 +38,8 @@ squashing.
 | 1 | Reclaim — dead guests, orphans | done 2026-09-18 — [PR #11](https://github.com/DArtagan/vulcanus-proxmox/pull/11) |
 | 2 | Application backups — K8up + restic | done 2026-10-12 — [PR #13](https://github.com/DArtagan/vulcanus-proxmox/pull/13) |
 | 2b | Delete the borg tree | done 2026-10-13 — [PR #17](https://github.com/DArtagan/vulcanus-proxmox/pull/17) |
-| 3 | Performance — drop the OpenEBS disks from vzdump | applied 2026-10-16, review closed; checks B-E outstanding, carried by the user |
-| 4a | PBS #2 on mini-nas, NixOS container, pulling | **in progress** — sync, verify, GC, mirror, freshness both ways and both restores proven by 10-28; `rpool/data` narrowed and docs written 10-29; `vm/100` excluded from the pull 11-08, to deploy and see; one incremental send left to see |
+| 3 | Performance — drop the OpenEBS disks from vzdump | applied 2026-10-16; A seen and E superseded by 11-16; B meets four bars of five, the user to judge the fifth; C after 11-21's GC; D for VM 910 when its QEMU restarts |
+| 4a | PBS #2 on mini-nas, NixOS container, pulling | done 2026-11-16 — sync, verify, GC, mirror, freshness both ways and both restores proven by 10-28; `rpool/data` narrowed and docs written 10-29; the narrowed send seen from 10-30; `vm/100`'s exclusion deployed 11-08 and seen holding through the 11-15 verify. Its 30-day re-read, due 12-13, is still to see |
 | 4b | The primary into a NixOS container on vulcanus | designed 2026-10-17; after 4a |
 | 5 | The offline copy — external disk | not started; needs a ~$200 purchase |
 | 6 | Verification, notification, runbook | not started |
@@ -465,22 +471,11 @@ constraint stops binding.
 
 ## Loose ends from finished phases
 
-- **Five stale `syncoid_vulcanus` holds on `storage`**, dated 5-6 January 2026, pin
-  every block freed since. Harmless but worth releasing:
-  `zfs release syncoid_vulcanus <snapshot>`. `zfs holds -r <dataset>` does not find
-  them; `zfs get -r -t snapshot userrefs <dataset>` does.
-- **A stale grant on mini-nas:** `zfs allow` on `rpool/foreign-backups/vulcanus` names
-  uid 994, where the syncoid user is 993. Cruft, not a dependency: the syncoid module
-  grants what it needs around every run.
 - **No restore runbook until Phase 6.** See the sequencing hazard there.
-- **LXC 105 carries pending mountpoint changes until its next restart**: books moves
-  from `mp4` to `mp3`, replacing the borg tree's bind mount, already released by hand.
-  Proxmox cannot change a running container's mount points, and applies these before
-  the next start, so the missing borg dataset cannot fail that boot; books stays at
-  `/mnt/storage/books` throughout. `pct pending 105` shows them. The renumbering
-  closed a gap at slot 3 that hid books from the provider's read-back; done and
-  verified 2026-10-16, with no plan change for LXC 105 since. The apply after it
-  drops a stale slot-4 entry from the state file.
+- **LXC 105's pending mountpoints applied at its 11-08 restart**; see check E. What
+  `pct pending 105` shows now is `mp0` to `mp2` again, each with the same volume,
+  `mp`, `size` and `backup` as the running config, only in another order. Harmless:
+  the next restart mounts the same three.
 
 ---
 
@@ -514,14 +509,27 @@ vzdump starts at 10:00 UTC until US daylight saving ends on 11-01, and at 11:00 
 after — 06:00 Eastern throughout — and has been finishing by about 10:35. Each
 10:00-11:30 window below moves an hour later from 11-01.
 
-| When (UTC) | Check | Passes when |
-|---|---|---|
-| **10-17, after 11:00** | A. First night | `virtio1` gone from the backup, nothing restarted |
-| **10-24, after 11:00** | B. The week, nights 10-17 to 10-23 | clearly better than 10-10 to 10-16 |
-| 11-16 | 10-16's backup, the last holding a `virtio1`, leaves `keep-last 31` in that night's run | — |
-| **first GC after 11-16, ~11-24** | C. PBS space returned | PBS's own figure well under 643 GiB |
-| the morning after a worker's QEMU restarts | D. The full-read case | VM 910 far under 49 min |
-| after LXC 105's next restart | E. Books on `mp3` | see below |
+| When (UTC) | Check | Passes when | Seen |
+|---|---|---|---|
+| 10-17, after 11:00 | A. First night | `virtio1` gone from the backup, nothing restarted | passed, read 11-16 |
+| 10-24, after 11:00 | B. The week, nights 10-17 to 10-23 | clearly better than 10-10 to 10-16 | four bars of five; see below |
+| 11-16 | 10-16's backup, the last holding a `virtio1`, leaves `keep-last 31` in that night's run | — | both stores' oldest `vm/910` and `vm/911` are 10-17's |
+| **11-21, after 14:00** | C. PBS space returned | PBS's own figure well under 643 GiB | 499 GiB before the GC |
+| the morning after a worker's QEMU restarts | D. The full-read case | VM 910 far under 49 min | VM 911 only, 11-08 |
+| after LXC 105's next restart | E. Books on `mp3` | see below | superseded, 11-08 |
+
+**Where it stands, 2026-11-16.** Figures in the evidence, under *Phase 3's checks,
+read 2026-11-16*. A passed. B meets four of its five bars: VM 910's backup fell from
+7-14 minutes to 4.6-7.0, peak p99 from 0.81-1.24 s to 0.70-0.99 s, failed proposals
+were 0 every night, and the 24 h mean stayed within the baseline. Minutes with p99
+above 0.5 s fell from a mean of 13.9 a night to 10.0, inside the baseline's range
+rather than clearly below it. **Whether that is a pass is the user's call**, not yet
+made. What the window still holds is now known: 327 of the 336 minutes above 0.5 s
+across 10-17 to 11-16 fell while VMs 900, 910 or 911 were being backed up, the
+Talos boot disks, control plane's included; quiet windows read 0 almost every
+day. That is [`etcd-disk-latency.md`](etcd-disk-latency.md)'s ground, not this
+phase's. C waits for 11-21's GC; D has been seen for VM 911 and not VM 910; E no
+longer applies, since books left LXC 105 under `nfs-cluster-volumes`.
 
 **A — 10-17.** From the night's task log:
 
@@ -556,10 +564,12 @@ failures all week, and no `OOMKilled` init container. Phase 3's review closed on
 2026-10-16, ahead of B; when B passes, its results go into the evidence and the status
 table marks Phase 3 done. C can be recorded after.
 
-**C — ~11-24.** The 11-16 run prunes the last backup holding a `virtio1`; its chunks
-go at PBS's next weekly GC, whose day is not recorded — PBS refuses SSH from the
-workstation; the GUI shows it under Datastore → primary → Prune & GC. After it has
-run, record both views:
+**C — 11-21.** The 11-16 run pruned the last backup holding a `virtio1`; its chunks
+go at VM 107's next weekly GC, Saturday 07:00 Denver time, 14:00 UTC in winter. On
+11-16, before it: `pvesm status` 522,708,636 KiB used (499 GiB),
+`rpool/proxmox_backup_server` 1.61T by dataset and 142G by snapshots, and PBS #2's
+`rpool/pbs` 503G, whose own GC runs at the same hour. After the GC, record both
+views:
 
 ```bash
 ssh root@vulcanus.forge.local 'pvesm status --storage pbs; zfs get -H -o property,value usedbydataset,usedbysnapshots rpool/proxmox_backup_server'
@@ -577,11 +587,17 @@ and not a failure of C.
 worker; a reboot from inside Talos keeps the QEMU process and does not count. The
 largest win and the one that cannot be scheduled: before, VM 910 re-read 1.10 TiB in
 49 min with fsync p99 above 0.5 s for 52-56 min, and it now reads the 100 GiB boot
-disk. Run A's command the next morning.
+disk. Run A's command the next morning. Seen for VM 911 on 11-08, after a `qm reboot`
+at 05:33 UTC: a full read of its 100 GiB boot disk in 6m59s, against 8m05s for both
+disks on 10-09. VM 910 has run in one QEMU process since 10-09 04:26 UTC, so it is
+still to see.
 
-**E — opportunistic.** `pct config 105 --current` shows books as `mp3` and neither
-`mp4` nor the borg mount, the books share is still reachable, and a plan shows
-nothing for LXC 105.
+**E — superseded 11-08.** LXC 105 restarted at 05:23 UTC on 11-08 and applied its
+pending mountpoints: `pct config 105 --current` shows `mp0` to `mp2` (media,
+filesync, photos) and neither `mp4` nor the borg mount. Books is not on `mp3` because
+`nfs-cluster-volumes` took it off the fileserver deliberately the day before
+(`86bb572a`); the cluster reaches it over NFS. A plan targeting
+`proxmox_lxc.fileserver` shows no changes.
 
 ## Phase 4 — platform images offsite
 
@@ -750,9 +766,9 @@ that finds no problem.
 
 ### Picking 4a up again
 
-**Deployed state, 2026-10-28.** mini-nas runs its `main` at `19c32fb`, deployed
-17:19 UTC, pinning vulcanus-proxmox's `main` at `f4df242e`, which carries
-everything of this project's under `nixos/`. No unit failed in the container; the host's `nixos-upgrade.service` fails daily, a
+**Deployed state, 2026-11-16.** mini-nas runs its `main` at `69913f0`, deployed
+2026-11-08 21:29 UTC, pinning vulcanus-proxmox's `main` at `28d5782b`; nothing under
+`nixos/` has changed on `main` since. No unit failed in the container; the host's `nixos-upgrade.service` fails daily, a
 standing mini-nas fault outside this project (below). A vulcanus-proxmox change to `nixos/` reaches PBS #2 by `wt deploy`
 (the user's), then `nix flake update vulcanus-proxmox` committed straight to
 mini-nas's `main`, as the user chose for a re-pin, and the deploy below from that
@@ -829,12 +845,26 @@ the channel path and stops at evaluation. It has never switched the system. Whoe
 fixes it should know `allowReboot = true`: a working upgrade reboots mini-nas, which
 aborts any PBS #2 sync or verify in flight.
 
-**Then, in order:**
+**4a closed, 2026-11-16**, on the last two things it had to see:
 
-1. **See `syncoid-vulcanus-data` send VM 107's 10-30 00:00 UTC snapshot**
-   incrementally, and the next scheduled `zfs-replication-freshness` pass. That is
-   4a's last open item: a phase boundary, where the review can close and reopen
-   under the same slug for 4b.
+- **The narrowed send works.** `syncoid-vulcanus-data` sent VM 107's
+  `autosnap_2026-10-30_00:00:21_daily` incrementally at 01:00 UTC on 10-30, in 56 s,
+  and has sent one incremental a day since, 18 by 11-16, with no failed run.
+  `zfs-replication-freshness` passed all 19 runs from 10-29. The replica holds
+  snapshots through `autosnap_2026-11-16_00:00:23_daily` and is the only dataset
+  under `.../vulcanus/data`, whose parent stays `canmount=off`.
+- **`vm/100`'s exclusion holds.** `pull-primary` carries `exclude:group:vm/100` on
+  PBS #2. No pull from 11-09 to 11-16 mentions `vm/100`, against three lines in
+  every pull before; its `index.json.blob` keeps the 11-08 verify's mtime,
+  15:05:38 UTC; the 11-15 verify logged `SKIPPED: verify
+  offsite:vm/100/2026-09-18T23:24:23Z (recently verified)`; and
+  `pbs-offsite-freshness` passed every day. The verify did not finish "well under
+  104 minutes": it took 89, because mini-nas's monthly scrub ran from 08:30 UTC to
+  02:52 the next morning and every other group read about twice as slowly as on
+  11-08. `vm/100` itself went from 64 minutes to none. The 12-13 verify, a second
+  Sunday clear of the scrub, is the first to re-read it and the clean comparison.
+
+The review can reopen under the same slug for 4b.
 
 **The docs are written, 2026-10-29**: PBS #2's section, schedules, retention and
 archiving, restoring a guest from PBS #2, and reporting in `docs/backups.md`; the
@@ -1084,8 +1114,8 @@ merged (`25f47f8`) and deployed at 04:40 UTC; the 12 were destroyed one by one,
 each dry-run first to show it held only its own snapshots; the parent took
 `canmount=off`. `syncoid-vulcanus-data` then succeeded, finding the replica already
 at the source's newest snapshot, and `zfs-replication-freshness` passed. mini-nas's
-`rpool` went from 86% to 79%. Not yet seen: an incremental send in the narrowed
-form, which comes with vulcanus's 00:00 UTC snapshot.
+`rpool` went from 86% to 79%. The first incremental send in the narrowed form came
+with the 10-30 snapshot; see *Picking 4a up again*.
 
 **At 4b**, with the primary's configuration in git, `vulcanus-data` retires entirely:
 its syncoid command, its healthchecks check and sops secret, its source root in the
@@ -1181,9 +1211,9 @@ What phases 0 to 2b asserted is in the evidence.
   - **`vm/100`'s exclusion holds its verify state:** after the deploy, no pull logs
     `[vm/100]`, its `index.json.blob` keeps the 11-08 verify's mtime, and the 11-15
     verify logs `SKIPPED: verify offsite:vm/100/2026-09-18T23:24:23Z (recently
-    verified)`, finishing in well under 11-08's 104 minutes. The first re-read due is
-    the 12-13 verify, 30 days on, and `pbs-offsite-freshness` stays green across all
-    of it.
+    verified)`. All seen 11-16. Still to see: the 12-13 verify, 30 days on,
+    re-reads it, finishing near 11-08's 104 minutes rather than 11-15's
+    scrub-slowed 89, and `pbs-offsite-freshness` stays green across it.
   - **Reuse detection** ignores a protected snapshot, in `test_pbs_freshness.py`.
   - **`rpool/data`'s narrowing at the end of 4a:** `zfs-replication-freshness` stays
     green across it, which is what says the source-root change and the replica
@@ -1193,7 +1223,7 @@ What phases 0 to 2b asserted is in the evidence.
     newer than the narrowing, and that it is the only dataset left under
     `.../vulcanus/data`. A syncoid command narrowed to a dataset that stopped
     receiving would pass the source-root comparison and fail nothing until the 26 h
-    limit caught it the next morning.
+    limit caught it the next morning. All seen 2026-11-16.
   - **4b's cutover:** the first vzdump after it lands every in-scope guest in LXC 109,
     `pbs-freshness` reads it green under the backup-only credential, VM 107 receives
     nothing, and PBS #2's next sync pulls from LXC 109. After `vulcanus-data` retires,
