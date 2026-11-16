@@ -310,8 +310,9 @@ Each part closes off a failure that would otherwise pass unseen:
   the kubelet and containerd alike. restic reads only as fast as it chunks and
   uploads, so without the sleep about one dump in forty arrives short, on a 4096-byte
   boundary, while the Backup, K8up and restic all report success. The sleep keeps the
-  command alive until restic has drained the stream; 60 s is twice the slowest whole
-  read, salamander's at 28 s.
+  command alive until restic has drained the stream; 60 s outlasts the slowest whole
+  read measured, salamander's: under 40 s ordinarily, 57 s on the first run after a
+  rollout.
 
 Beyond the shape:
 
