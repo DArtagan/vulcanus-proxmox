@@ -254,10 +254,15 @@ data:
     MAINFEATURE: false
 
     # Additional HandBrake arguments for DVDs.
-    HB_ARGS_DVD: "--preset-import-file /etc/arm/config/vulcanus-handbrake-preset.json"
+    # --subtitle-default=none: HandBrake up to 1.11 flags every default subtitle
+    # track forced as well, and keeps MakeMKV's default on the first track, so
+    # without it a full track plays over the whole film with subtitles off. It
+    # can go once ARM's image has a HandBrake release with its PR #8187.
+    HB_ARGS_DVD: "--preset-import-file /etc/arm/config/vulcanus-handbrake-preset.json --subtitle-default=none"
 
     # Additional Handbrake arguments for Bluray Discs.
-    HB_ARGS_BD: "--preset-import-file /etc/arm/config/vulcanus-handbrake-preset.json"
+    # --subtitle-default=none: as for DVDs.
+    HB_ARGS_BD: "--preset-import-file /etc/arm/config/vulcanus-handbrake-preset.json --subtitle-default=none"
 
 
     #####################

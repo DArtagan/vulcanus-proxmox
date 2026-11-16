@@ -25,6 +25,8 @@ need work here:
 
 - **arm-manifest-export**: the exporter's sidecar in ARM's pod, under *ARM's
   manifest exporter*.
+- **subtitle-flags**: ARM's HandBrake arguments, under *ARM's subtitle
+  flags*.
 - **first-filing**: the switch, under *The switch to live filing*.
 - **metrics**: the alert rules, under *Alerting*.
 - **Each step that calls an outside service** adds its key to reelbarrow's
@@ -147,6 +149,63 @@ Merging it rolls ARM's pod: merge while ARM is idle.
 
 What is left is checking it on the cluster and a real disc, in reelbarrow's
 `todos/arm-manifest-export.md` (*Done when*).
+
+---
+
+## ARM's subtitle flags
+
+reelbarrow's `subtitle-flags` spec. Every DVD transcode ARM has made flags
+its full subtitle track **forced**, so a player that obeys the flag shows the
+whole film's subtitles to a viewer who turned them off. MakeMKV flags the
+first subtitle track default; HandBrake keeps that, and its Matroska muxer
+flags every default subtitle forced as well (HandBrake `7e6a28f65`, 2015,
+removed by its PR #8187 on 2026-10-20, in no release yet; ARM's image runs
+1.11.2). reelbarrow clears the flag as it files, and *Subtitle flags* in its
+design has the rule and the evidence (its E42 and E44). This stops ARM making
+more.
+
+**The change:** append `--subtitle-default=none` to `HB_ARGS_DVD` and
+`HB_ARGS_BD` in `kubernetes/apps/automatic-ripping-machine/config-map.yaml`:
+
+```yaml
+HB_ARGS_DVD: "--preset-import-file /etc/arm/config/vulcanus-handbrake-preset.json --subtitle-default=none"
+HB_ARGS_BD: "--preset-import-file /etc/arm/config/vulcanus-handbrake-preset.json --subtitle-default=none"
+```
+
+HandBrakeCLI then clears the default flag from every subtitle track the
+preset selects, and with it the forced flag the muxer derives from it. The
+foreign-audio search's track isn't one of those, and keeps default and
+forced, as a track of only forced lines should. Transcodes have no default
+subtitle track otherwise; Will chose that over waiting for a release with
+#8187 (2026-11-16, *"--subtitle-default=none now"*). Once a release with
+#8187 reaches ARM's image, drop the argument: MakeMKV's default then carries
+through unforced, which is what reelbarrow leaves on a full track.
+
+**Verified** 2026-11-16 off the cluster, with nixpkgs' HandBrake 1.11.2 and
+this repository's preset, on an MKV made by ffmpeg with its subtitle track
+default: out default and forced without the argument, neither with it.
+**Not verified:** a real disc through ARM, which is the done-when below; and
+the foreign-audio search's track on a disc that has forced subtitles.
+
+**Made on this branch**, with a comment beside each argument saying when it
+can go. ARM appends `HB_ARGS_DVD` as it stands to its HandBrakeCLI command
+(`build_handbrake_command` in its `handbrake.py`), so the option reaches
+HandBrake unchanged. `arm.yaml` isn't a generated ConfigMap, and an init
+container copies it into an emptyDir as the pod starts, so a merged change
+neither rolls ARM nor reaches it until it restarts: restart it while it is
+idle, minding the double roll `docs/automatic-ripping-machine.md` describes.
+The test disc is *Shrek the Third* again (Will, 2026-11-16): its transcode from
+before the change is still in `completed/`, so one rip is a before and after
+of the same disc. Its English track holds 1,092 pictures, 1 of them forced, so
+the full track should come out with neither flag and the foreign-audio
+search's one-line track default and forced. *The Hunchback of Notre Dame*
+(1996), 1,294 pictures with 2 forced, is the same case on a disc not yet
+ripped (reelbarrow's `captures/subtitle-flags/forced-all.txt`).
+
+**Done when** a DVD ripped after the restart has no subtitle track forced but
+a forced-only one, read with ffprobe on the share, and HandBrake's log in the
+job lists no preset track as `Default`. Then the preset table's *Subtitles*
+row in `docs/automatic-ripping-machine.md` says so.
 
 ---
 
