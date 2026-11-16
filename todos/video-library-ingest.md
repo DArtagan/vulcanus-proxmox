@@ -187,9 +187,20 @@ default: out default and forced without the argument, neither with it.
 **Not verified:** a real disc through ARM, which is the done-when below; and
 the foreign-audio search's track on a disc that has forced subtitles.
 
-`arm.yaml` isn't a generated ConfigMap, so a merged change doesn't roll ARM:
-restart it while it is idle, minding the double roll
-`docs/automatic-ripping-machine.md` describes.
+**Made on this branch**, with a comment beside each argument saying when it
+can go. ARM appends `HB_ARGS_DVD` as it stands to its HandBrakeCLI command
+(`build_handbrake_command` in its `handbrake.py`), so the option reaches
+HandBrake unchanged. `arm.yaml` isn't a generated ConfigMap, and an init
+container copies it into an emptyDir as the pod starts, so a merged change
+neither rolls ARM nor reaches it until it restarts: restart it while it is
+idle, minding the double roll `docs/automatic-ripping-machine.md` describes.
+The test disc is *Shrek the Third* again (Will, 2026-11-16): its transcode from
+before the change is still in `completed/`, so one rip is a before and after
+of the same disc. Its English track holds 1,092 pictures, 1 of them forced, so
+the full track should come out with neither flag and the foreign-audio
+search's one-line track default and forced. *The Hunchback of Notre Dame*
+(1996), 1,294 pictures with 2 forced, is the same case on a disc not yet
+ripped (reelbarrow's `captures/subtitle-flags/forced-all.txt`).
 
 **Done when** a DVD ripped after the restart has no subtitle track forced but
 a forced-only one, read with ffprobe on the share, and HandBrake's log in the
