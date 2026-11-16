@@ -449,17 +449,10 @@ The same check applies by hand to a backup older than the record.
 
 HandBrake transcodes from the raw copy every title longer than `MINLENGTH` (420 seconds / 7 minutes) into standalone MKV files in `COMPLETED_PATH` (`/root/video/completed/<type>/<Title (Year)>/`).
 
-Key encoding settings (defined in the `vulcanus-handbrake-preset` custom preset):
-
-| Setting | Value | Notes |
-|---|---|---|
-| Video codec | SVT-AV1 10-bit | Royalty-free, ~30-50% smaller than H.264 at equivalent quality |
-| Quality | CRF 30 (constant quality) | Perceptually equivalent to x264 CRF 20 |
-| Encoder preset | 4 (SVT-AV1 scale: 0=slowest, 13=fastest) | Quality-focused; expect several hours per film |
-| Audio | Opus stereo 192 kbps + Opus 5.1 320 kbps | Lossless TrueHD and DTS-HD MA are re-encoded too; the raw copy keeps the originals |
-| Subtitles | All tracks (English + any) | Soft subs, not burned in |
-| Container | MKV | With chapter markers and metadata passthrough |
-| Deinterlace | Decomb (default) | Important for interlaced DVD content |
+Every transcode uses the custom preset `vulcanus-handbrake-preset`: SVT-AV1
+10-bit at CRF 30 and preset 4, Opus audio, every subtitle track, in MKV.
+[handbrake-preset.md](handbrake-preset.md) explains each of its settings, the
+accepted practice for each, and where it departs.
 
 `MAX_CONCURRENT_TRANSCODES: 1` limits to one transcode at a time — AV1 at preset 4 saturates whatever it is given, and this runs on `piraeus-worker-1`, the smaller of the two workers, alongside everything else scheduled there.
 
