@@ -1452,6 +1452,28 @@ and `MemoryMax=2G`. Secrets from a test age key; Tailscale off.
   71. The container's conf was unchanged, so it was not
   restarted.
 
+### The stale grant and holds removed — 2026-11-16
+
+The user asked for both.
+
+- **Holds.** `zfs get -r -t snapshot userrefs` found ten, not five: the same five
+  snapshots held `syncoid_vulcanus` on vulcanus's `rpool/storage` and on mini-nas's
+  replica of it. Nothing still uses the tag. The mini-nas syncoid commands run
+  without `--use-hold`, and vulcanus has no syncoid timer. All ten were released, and
+  `userrefs` > 0 now matches nothing on either host. Vulcanus's `sanoid-prune` at
+  19:30 UTC destroyed its five as expired hourlies, and mini-nas's sanoid at 20:00
+  destroyed the replica's. `syncoid-vulcanus-storage` succeeded at 20:00 UTC after
+  both.
+- **What they cost was wrong in the spec.** It said they pinned every block freed
+  since January. Each snapshot's own `used` was 0-286 KB, because the
+  `2026-01-01` monthlies, kept for 24 months, pin the same blocks.
+- **The grant.** No user on mini-nas has uid 994. The grant was set only on
+  `rpool/foreign-backups/vulcanus`; its children show it as inherited.
+  `zfs unallow -u 994 rpool/foreign-backups/vulcanus` left that dataset with no
+  permissions. syncoid's and sanoid's `ExecStartPre` grant their own per run.
+- **Found along the way:** the `syncoid_vulcanus_*` sync snapshots listed under
+  *Loose ends* in the spec.
+
 ### 4a's last checks — 2026-11-16
 
 All reads, over SSH to mini-nas and inside the container with

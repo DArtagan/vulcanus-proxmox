@@ -471,13 +471,14 @@ constraint stops binding.
 
 ## Loose ends from finished phases
 
-- **Five stale `syncoid_vulcanus` holds on `storage`**, dated 5-6 January 2026, pin
-  every block freed since. Harmless but worth releasing:
-  `zfs release syncoid_vulcanus <snapshot>`. `zfs holds -r <dataset>` does not find
-  them; `zfs get -r -t snapshot userrefs <dataset>` does.
-- **A stale grant on mini-nas:** `zfs allow` on `rpool/foreign-backups/vulcanus` names
-  uid 994, where the syncoid user is 993. Cruft, not a dependency: the syncoid module
-  grants what it needs around every run.
+- **Stale `syncoid_vulcanus_*` sync snapshots**, from 6-8 January 2026, holding
+  527 GiB on vulcanus and 6.9 GiB on mini-nas, read 2026-11-16. They come from
+  vulcanus's old push, which nothing runs now, and sanoid never prunes them because
+  they are not its own. 13 are on vulcanus across `rpool/ROOT`, `rpool/data` and
+  `rpool/storage`. Nearly all the space is `rpool/data/vm-910-disk-1@…` alone, at
+  426 GiB, with `vm-910-disk-0` at 84 GiB. Destroying them is the user's call, not
+  yet made. The current syncoid commands use `--no-sync-snap`, so none of them is an
+  incremental base. Their stale holds were released 2026-11-16; see the evidence.
 - **No restore runbook until Phase 6.** See the sequencing hazard there.
 - **LXC 105's pending mountpoints applied at its 11-08 restart**; see check E. What
   `pct pending 105` shows now is `mp0` to `mp2` again, each with the same volume,
