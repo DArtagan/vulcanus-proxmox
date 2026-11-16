@@ -19,6 +19,7 @@ Work that has not been done yet lives in [`todos/`](../todos/), not here.
 | [nixos.md](nixos.md) | NixOS hosts: the flake, colmena deploys and PBS #2's through mini-nas, sops-nix secrets, and NixOS in a Proxmox container |
 | [logging.md](logging.md) | Alloy → OTLP → VictoriaLogs pipeline, field model, retention |
 | [automatic-ripping-machine.md](automatic-ripping-machine.md) | ARM setup and disc handling |
+| [handbrake-preset.md](handbrake-preset.md) | ARM's HandBrake preset, setting by setting: what each does, the accepted practice, and where it departs |
 | [beets.md](beets.md) | Music/audiobook library, beets-flask, getting files in, import model, library concurrency |
 | [bookdrop.md](bookdrop.md) | Filing purchased ebooks into Stump from a phone: using it, its deployment, its two credentials, what to do when it fails |
 | [project_log.md](project_log.md) | Completed projects: slug, when it landed, where its review happened |
