@@ -20,6 +20,12 @@ creation_rules:
         - *thenixbeast_will
         - *restic_repository
 
+  - path_regex: "^nixos/hosts/pbs-primary/.*\\.sops\\.yaml$"
+    key_groups:
+      - age:
+        - *steamdeck_willy
+        - *thenixbeast_will
+
   - path_regex: "^nixos/hosts/pbs-offsite/.*\\.sops\\.yaml$"
     key_groups:
       - age:
