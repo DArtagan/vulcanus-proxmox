@@ -36,6 +36,10 @@
           module = ./hosts/restic-repository;
           address = "192.168.0.108";
         };
+        pbs-primary = {
+          module = ./hosts/pbs-primary;
+          address = "192.168.0.109";
+        };
       };
 
       # What every host module receives besides the usual module arguments.

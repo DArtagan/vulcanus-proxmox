@@ -1,6 +1,7 @@
-# What PBS #2's pull needs of the primary while it is still VM 107: a tailnet
-# node, and a read-only user and token for the sync. Retired with VM 107, whose
-# successor is configured in nixos/. See docs/backups.md.
+# What is pulled from the primary while it is still VM 107 needs: a tailnet
+# node, and a read-only user with a token for each puller -- PBS #2's sync, and
+# LXC 109's migration. Retired with VM 107, whose successor is configured in
+# nixos/. See docs/backups.md.
 #
 # Registration is by hand, once, as for every node -- see docs/tailnet.md:
 #   tailscale up --login-server https://headscale.immortalkeep.com --accept-dns=false
@@ -11,9 +12,11 @@
 
   vars:
     sync_user: sync@pbs
-    token_name: pbs-offsite
-    sync_token: "{{ sync_user }}!{{ token_name }}"
-    token_secret_file: /root/pbs-offsite-token-secret
+    # Each secret is copied from /root/<name>-token-secret into the puller's
+    # own secrets: pbs-offsite's, and pbs-primary's.
+    token_names:
+      - pbs-offsite
+      - migration
 
   tasks:
     # Without a subscription it answers 401, which fails every apt update on the
@@ -74,44 +77,47 @@
       register: pbs_tokens
       changed_when: false
 
-    - name: 'generate the sync token, keeping its secret on this host only'
+    - name: 'generate the sync tokens, keeping their secrets on this host only'
       # PBS shows a token's secret once. It goes to a root-only file rather than
-      # into the play's output, to be copied into PBS #2's secrets from there.
-      # Through the API rather than `user generate-token`, which takes no
+      # into the play's output, to be copied into the puller's secrets from
+      # there. Through the API rather than `user generate-token`, which takes no
       # --output-format and prints a table.
       shell: |
         set -o pipefail
         umask 077
         proxmox-backup-debug api create \
-          /access/users/{{ sync_user }}/token/{{ token_name }} --output-format json |
-          python3 -c 'import json, sys; print(json.load(sys.stdin)["value"])' > {{ token_secret_file }}
+          /access/users/{{ sync_user }}/token/{{ item }} --output-format json |
+          python3 -c 'import json, sys; print(json.load(sys.stdin)["value"])' > /root/{{ item }}-token-secret
       args:
         executable: /bin/bash
-      when: sync_token not in (pbs_tokens.stdout | from_json | map(attribute='tokenid'))
+      when: (sync_user ~ '!' ~ item) not in (pbs_tokens.stdout | from_json | map(attribute='tokenid'))
+      loop: "{{ token_names }}"
       no_log: true
 
-    - name: 'find the token secret'
+    - name: 'find the token secrets'
       stat:
-        path: "{{ token_secret_file }}"
-      register: token_secret
+        path: "/root/{{ item }}-token-secret"
+      loop: "{{ token_names }}"
+      register: token_secrets
 
     - name: 'refuse to continue with a token whose secret is lost'
       # PBS shows it once, so a token without its file can only be replaced.
       assert:
-        that: token_secret.stat.exists
+        that: item.stat.exists
         fail_msg: >
-          {{ sync_token }} exists but {{ token_secret_file }} does not, and PBS
-          will not show the secret again. Remove the token with
-          `proxmox-backup-manager user delete-token {{ sync_user }} {{ token_name }}`
+          {{ sync_user }}!{{ item.item }} exists but /root/{{ item.item }}-token-secret
+          does not, and PBS will not show the secret again. Remove the token with
+          `proxmox-backup-manager user delete-token {{ sync_user }} {{ item.item }}`
           and run this again.
+      loop: "{{ token_secrets.results }}"
+      loop_control:
+        label: "{{ item.item }}"
 
-    - name: "grant the sync user and its token read on the datastore, and nothing else"
+    - name: "grant the sync user and its tokens read on the datastore, and nothing else"
       # A token's privileges are the intersection of its own ACL and its user's,
       # so both need the grant.
       command: >
         proxmox-backup-manager acl update /datastore/primary DatastoreReader
         --auth-id {{ item }}
-      loop:
-        - "{{ sync_user }}"
-        - "{{ sync_token }}"
+      loop: "{{ [sync_user] + token_names | map('regex_replace', '^', sync_user ~ '!') | list }}"
       changed_when: false

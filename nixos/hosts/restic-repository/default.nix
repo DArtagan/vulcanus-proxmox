@@ -1,8 +1,6 @@
 {
-  address,
   config,
   inputs,
-  modulesPath,
   pkgs,
   ...
 }:
@@ -33,39 +31,11 @@ let
 in
 {
   imports = [
-    # Its two `manage*` defaults are overridden below.
-    "${modulesPath}/virtualisation/proxmox-lxc.nix"
+    ../../modules/proxmox-lxc.nix
     inputs.sops-nix.nixosModules.sops
   ];
 
-  # Proxmox writes no network into an `unmanaged` container, and sets only the
-  # hostname, at creation: hostName below must match terraform/main.tf's. See
-  # docs/nixos.md.
-  proxmoxLXC = {
-    manageNetwork = true;
-    manageHostName = true;
-  };
-
-  networking = {
-    hostName = "restic-repository";
-    useDHCP = false;
-    # CoreDNS, which also answers *.immortalkeep.com. See docs/network.md.
-    nameservers = [ "192.168.0.202" ];
-  };
-
-  # manageNetwork turns the module's networking off rather than handing it over.
-  systemd.network.enable = true;
-  # networkd turns resolved on, which refuses a container's default
-  # useHostResolvConf. One static nameserver needs no resolver daemon.
-  networking.useHostResolvConf = false;
-  services.resolved.enable = false;
-
-  systemd.network.networks."10-eth0" = {
-    matchConfig.Name = "eth0";
-    address = [ "${address}/24" ];
-    routes = [ { Gateway = "192.168.0.1"; } ];
-    linkConfig.RequiredForOnline = "routable";
-  };
+  networking.hostName = "restic-repository";
 
   # Like vulcanus, not UTC like the cluster. See docs/nixos.md.
   time.timeZone = "America/Denver";
