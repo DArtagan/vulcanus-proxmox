@@ -8,6 +8,8 @@ keys:
   - &restic_repository age1e3qt0s2l4mn8nfv94s7yqf6hp5jxvmyxut8jxklrz727yscqjqzq4ypqyn
   # PBS #2's, mini-nas's container pbs-offsite. The same form, for the same reason.
   - &pbs_offsite age1uh9x8gsmtat7ptn3h3fdj35zvvc0trzgyum3hremcwsdzpvx0u4qzn5x58
+  # The PBS primary's, LXC 109.
+  - &pbs_primary age1gg0pv0hud07l0a62hfcqvjsm4q0g20m5uudtauqs083l5slpyshs7r2q3x
 creation_rules:
   # NixOS hosts. First, because sops takes the first matching rule and the
   # Kubernetes rule below matches these paths too: its encrypted_regex would
@@ -19,6 +21,13 @@ creation_rules:
         - *steamdeck_willy
         - *thenixbeast_will
         - *restic_repository
+
+  - path_regex: "^nixos/hosts/pbs-primary/.*\\.sops\\.yaml$"
+    key_groups:
+      - age:
+        - *steamdeck_willy
+        - *thenixbeast_will
+        - *pbs_primary
 
   - path_regex: "^nixos/hosts/pbs-offsite/.*\\.sops\\.yaml$"
     key_groups:

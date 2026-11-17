@@ -55,6 +55,24 @@
         group: 100291
         state: directory
 
+    # PBS's GC marks chunks in use by their atime, and refuses a datastore
+    # without it; the pool is atime=off.
+    - name: 'backups/pbs dataset'
+      community.general.zfs:
+        name: "{{ zpool }}/backups/pbs"
+        state: present
+        extra_zfs_properties:
+          atime: 'on'
+
+    # PBS runs as uid 350 in the unprivileged container (nixos/modules/pbs.nix),
+    # so 100350 here. Bind-mounted by terraform/main.tf, so no PVE storage.
+    - name: 'backups/pbs ownership, shifted for the unprivileged container'
+      file:
+        path: "/{{ zpool }}/backups/pbs"
+        owner: 100350
+        group: 100350
+        state: directory
+
     # The restic container mounts these read-write, sees them owned by nobody,
     # and so can change any entry that is world-writable: filesync's top
     # directory was 777, which let it rename or delete syncthing/. nfs.yaml

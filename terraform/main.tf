@@ -203,6 +203,64 @@ resource "proxmox_lxc" "restic_repository" {
   }
 }
 
+# The PBS primary. See docs/backups.md. NixOS, as the restic repository is.
+#
+# A container with a bind-mounted dataset, not a VM: chunks GC deletes go
+# straight back to the pool, which a datastore on a guest's disk never returns.
+resource "proxmox_lxc" "pbs_primary" {
+  target_node = "vulcanus"
+  hostname = "pbs-primary"
+  vmid = 109
+
+  # Uploaded under a stable name; see docs/nixos.md.
+  ostemplate = "local:vztmpl/nixos-pbs-primary.tar.xz"
+
+  # Proxmox configures nothing in an `unmanaged` guest: address, resolver and
+  # keys are in nixos/hosts/pbs-primary.
+  ostype = "unmanaged"
+
+  unprivileged = true
+
+  memory = 2048
+  cores = 2
+  swap = 0
+  onboot = true
+  start = true
+
+  # Not nested virtualization: systemd needs it to isolate services, and
+  # nixos-pbs's bubblewrap to run PBS. Off by default through the API.
+  features {
+    nesting = true
+  }
+
+  rootfs {
+    storage = "local-zfs"
+    size = "20G"
+  }
+
+  mountpoint {
+    key = "0"
+    slot = 0
+    volume = "/rpool/backups/pbs"
+    mp = "/mnt/pbs"
+    size = "1M"
+  }
+
+  # Keep network IP in sync with `vmid` above.
+  network {
+    name = "eth0"
+    bridge = "vmbr0"
+    gw = "192.168.0.1"
+    ip = "192.168.0.109/24"
+  }
+
+  lifecycle {
+    # ostemplate matters only at creation, and changing it would destroy and
+    # recreate the container holding the backups.
+    ignore_changes = [ostemplate]
+  }
+}
+
 resource "proxmox_lxc" "fileserver" {
   target_node = "vulcanus"
   hostname = "fileserver"
