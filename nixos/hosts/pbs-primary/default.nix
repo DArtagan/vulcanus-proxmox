@@ -43,8 +43,10 @@ in
 
   services.proxmox-backup-server = {
     # Pinned, so a rebuilt primary presents the fingerprint that PVE's storage
-    # entry and PBS #2's remote already trust.
-    sslCertificate = ./proxy.pem;
+    # entry and PBS #2's remote already trust. Interpolated: the module's
+    # toString of a bare path drops its store reference, and the certificate
+    # is left out of the system.
+    sslCertificate = "${./proxy.pem}";
     sslCertificateKey = secrets."tls/key".path;
 
     ensureSyncJobs.migrate-vm107 = {
