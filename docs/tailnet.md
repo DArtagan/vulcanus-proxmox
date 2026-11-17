@@ -55,7 +55,7 @@ as a bridge rather than being routed, but a subnet router does need it.
 
 **Advertising a route is not granting access to it.** What the tailnet may
 actually reach is set by the Headscale policy in
-`kubernetes/apps/headscale/policy-config-map.sops.yaml`, and it is deliberately
+`kubernetes/apps/headscale/policy-config-map.yaml`, and it is deliberately
 narrow:
 
 | Source | Destination | Why |
@@ -66,11 +66,13 @@ narrow:
 | `will@` | `tag:pbs-primary:22,8007`, `tag:pbs-offsite:22,8007` | SSH and the GUI on both PBS hosts |
 | `tag:pbs-offsite` | `tag:pbs-primary:8007` | PBS #2's pull. Nothing grants the reverse: no tailnet node but `will@`'s reaches PBS #2, so nothing on vulcanus can write to the offsite copy |
 | `will@` | `192.168.0.108:22` | SSH to the restic repository LXC, for colmena deploys and restic on the host. rest-server's 8000 stays LAN-side, where the cluster reaches it |
+| `will@` | `192.168.0.109:22` | SSH to LXC 109, PBS's NixOS container, at the address colmena deploys to |
 | `will@` | `192.168.0.200:6443` | Kubernetes API, so `kubectl` and `k9s` work while roaming |
 | `will@` | `192.168.0.190,195,196:50000` | Talos API on all three nodes, so `talosctl` works while roaming — the tool needed when the cluster is the thing that is broken |
 | `will@` | `192.168.0.202:53` | CoreDNS, or no internal name resolves |
 | `will@` | `192.168.0.203:80,443` | Internal ingress — one door to every HTTP service |
 | `will@` | `192.168.0.205:64738` | Mumble, TCP and UDP. Split DNS answers this address, so a roaming client cannot fall back to the public port forward |
+| `will@` | `autogroup:internet:*` | Exit-node egress. `*:*` does not cover the public internet, and without this the exit node drops every forwarded packet while the client looks connected |
 | `will@` | `192.168.0.207:22` | Soft Serve's SSH, as `git.forge.local` — a Headscale extra record. Its HTTPS rides the internal ingress grant above; see [git.md](git.md) |
 
 Everything else on the LAN is routed but denied. RustDesk and Syncthing sync
@@ -134,7 +136,7 @@ When something on the LAN is unreachable and you think it should not be:
    ssh root@vulcanus.forge.local tailscale debug netmap | jq '.PacketFilter'
    ```
    If the destination does not appear in any `Dsts` there, it is the ACL.
-4. **Add the narrowest entry that covers it** to `policy-config-map.sops.yaml` — a
+4. **Add the narrowest entry that covers it** to `policy-config-map.yaml` — a
    specific IP and port, not a subnet and not `*` — with a comment saying what
    needed it.
 5. **Validate before applying.** `headscale policy check` connects to the server
