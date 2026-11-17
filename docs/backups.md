@@ -98,7 +98,7 @@ runs and deploys; see [`nixos.md`](nixos.md). Its datastore, `offsite`, is the
 `rpool/pbs` dataset on mini-nas, bind-mounted, with no quota and no snapshots: GC
 deleting a chunk file gives the pool the space back directly. The GUI is
 `https://pbs-offsite.forge.local:8007`, user `root`, realm *Proxmox Backup
-authentication server*, its password `gui/root-password` in
+authentication server*, its password `passwords/root` in
 `nixos/hosts/pbs-offsite/secrets.sops.yaml`.
 
 **It pulls; nothing is pushed to it.** It reaches VM 107 over the tailnet as the

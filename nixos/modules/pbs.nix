@@ -42,10 +42,6 @@ in
       type = lib.types.attrsOf (
         lib.types.submodule {
           options = {
-            passwordSecret = lib.mkOption {
-              type = lib.types.str;
-              description = "The key in the host's secrets file holding the user's password.";
-            };
             role = lib.mkOption {
               type = lib.types.str;
               description = "The one role the user holds.";
@@ -58,7 +54,8 @@ in
         }
       );
       description = ''
-        Users in PBS's own realm, keyed by user ID. Users and grants are only
+        Users in PBS's own realm, keyed by name: `<name>@pbs`, its password
+        `passwords/<name>` in the host's secrets. Users and grants are only
         ever added: one removed from here stays in PBS until deleted by hand.
       '';
     };
@@ -125,7 +122,7 @@ in
         "pushover/user-key".restartUnits = [ "pbs-notifications.service" ];
       }
       // lib.mapAttrs' (
-        _: user: lib.nameValuePair user.passwordSecret { restartUnits = [ "pbs-users.service" ]; }
+        name: _: lib.nameValuePair "passwords/${name}" { restartUnits = [ "pbs-users.service" ]; }
       ) cfg.users;
     };
 
@@ -174,8 +171,7 @@ in
     # The GUI login, in PBS's own realm rather than PAM. `root@pam` cannot serve
     # it: NixOS leaves root's password locked, so PAM has nothing to check, and
     # giving the account one to satisfy a web form widens what a password reaches.
-    forge.pbs.users."root@pbs" = {
-      passwordSecret = "gui/root-password";
+    forge.pbs.users.root = {
       role = "Admin";
       path = "/";
     };
@@ -209,16 +205,22 @@ in
       # field and says to come here -- so a password always goes through
       # /access/password, which is what writes the shadow store.
       script = lib.concatStrings (
-        lib.mapAttrsToList (id: user: ''
-          if ! proxmox-backup-manager user list --output-format json | grep -q ${lib.escapeShellArg ''"${id}"''}; then
-            proxmox-backup-manager user create ${lib.escapeShellArg id}
-          fi
-          password=$(cat ${secrets.${user.passwordSecret}.path})
-          proxmox-backup-debug api set /access/password \
-            --userid ${lib.escapeShellArg id} --password "$password"
-          proxmox-backup-manager acl update ${lib.escapeShellArg user.path} ${lib.escapeShellArg user.role} \
-            --auth-id ${lib.escapeShellArg id}
-        '') cfg.users
+        lib.mapAttrsToList (
+          name: user:
+          let
+            id = "${name}@pbs";
+          in
+          ''
+            if ! proxmox-backup-manager user list --output-format json | grep -q ${lib.escapeShellArg ''"${id}"''}; then
+              proxmox-backup-manager user create ${lib.escapeShellArg id}
+            fi
+            password=$(cat ${secrets."passwords/${name}".path})
+            proxmox-backup-debug api set /access/password \
+              --userid ${lib.escapeShellArg id} --password "$password"
+            proxmox-backup-manager acl update ${lib.escapeShellArg user.path} ${lib.escapeShellArg user.role} \
+              --auth-id ${lib.escapeShellArg id}
+          ''
+        ) cfg.users
       );
     };
 

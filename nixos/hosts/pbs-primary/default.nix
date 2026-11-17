@@ -19,14 +19,12 @@ in
     users = {
       # PVE's storage entry. It backs up and restores its own groups, and can
       # neither prune nor forget them: retention is the prune job's alone.
-      "vzdump@pbs" = {
-        passwordSecret = "users/vzdump-password";
+      vzdump = {
         role = "DatastoreBackup";
         path = "/datastore/primary";
       };
       # PBS #2's pull, its protection mirror and its freshness check.
-      "sync@pbs" = {
-        passwordSecret = "users/sync-password";
+      sync = {
         role = "DatastoreReader";
         path = "/datastore/primary";
       };
@@ -35,29 +33,17 @@ in
 
   sops = {
     defaultSopsFile = ./secrets.sops.yaml;
-    secrets = {
-      "tls/key" = { };
-      "vm107/token-secret".restartUnits = [ "pbs-remote-vm107.service" ];
-    };
+    secrets."vm107/token-secret".restartUnits = [ "pbs-remote-vm107.service" ];
   };
 
-  services.proxmox-backup-server = {
-    # Pinned, so a rebuilt primary presents the fingerprint that PVE's storage
-    # entry and PBS #2's remote already trust. Interpolated: the module's
-    # toString of a bare path drops its store reference, and the certificate
-    # is left out of the system.
-    sslCertificate = "${./proxy.pem}";
-    sslCertificateKey = secrets."tls/key".path;
-
-    ensureSyncJobs.migrate-vm107 = {
-      datastore = "primary";
-      settings = {
-        remote = "vm107";
-        remote-store = "primary";
-        # PVE's user, so after the cutover vzdump goes on appending to the
-        # groups this copies.
-        owner = "vzdump@pbs";
-      };
+  services.proxmox-backup-server.ensureSyncJobs.migrate-vm107 = {
+    datastore = "primary";
+    settings = {
+      remote = "vm107";
+      remote-store = "primary";
+      # PVE's user, so after the cutover vzdump goes on appending to the
+      # groups this copies.
+      owner = "vzdump@pbs";
     };
   };
 

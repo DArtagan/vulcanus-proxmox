@@ -66,6 +66,7 @@ narrow:
 | `will@` | `tag:pbs-primary:22,8007`, `tag:pbs-offsite:22,8007` | SSH and the GUI on both PBS hosts |
 | `tag:pbs-offsite` | `tag:pbs-primary:8007` | PBS #2's pull. Nothing grants the reverse: no tailnet node but `will@`'s reaches PBS #2, so nothing on vulcanus can write to the offsite copy |
 | `will@` | `192.168.0.108:22` | SSH to the restic repository LXC, for colmena deploys and restic on the host. rest-server's 8000 stays LAN-side, where the cluster reaches it |
+| `will@` | `192.168.0.109:22` | SSH to LXC 109, PBS's NixOS container, at the address colmena deploys to |
 | `will@` | `192.168.0.200:6443` | Kubernetes API, so `kubectl` and `k9s` work while roaming |
 | `will@` | `192.168.0.190,195,196:50000` | Talos API on all three nodes, so `talosctl` works while roaming — the tool needed when the cluster is the thing that is broken |
 | `will@` | `192.168.0.202:53` | CoreDNS, or no internal name resolves |

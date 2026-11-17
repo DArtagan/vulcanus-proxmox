@@ -95,6 +95,15 @@ data:
           "dst": ["192.168.0.108:22"],
         },
 
+        // LXC 109, PBS's NixOS container: SSH at the LAN address colmena
+        // deploys to. tag:pbs-primary's grant above reaches it only as a
+        // tailnet node.
+        {
+          "action": "accept",
+          "src": ["will@"],
+          "dst": ["192.168.0.109:22"],
+        },
+
         // SSH to the fileserver LXC. Reached through the subnet route rather
         // than as a tailnet node — it is not on the tailnet itself. Shell
         // access only; the NFS and SMB exports it serves stay LAN-side.
