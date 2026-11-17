@@ -1,0 +1,173 @@
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: headscale-policy
+data:
+  # Headscale ACL policy, in Tailscale's huJSON format. Referenced by
+  # `policy.path` in headscale's config.yaml; with no policy, headscale permits
+  # every node to reach every other node on every port.
+  #
+  # Deliberately narrow, and widened on demand — the other direction, opening it
+  # up and tightening later, does not actually happen. `docs/tailnet.md` has the
+  # procedure for working out what to add.
+  #
+  # Plaintext on purpose, though the repository's default for addresses and
+  # usernames is SOPS: everything here is already public in docs/tailnet.md,
+  # and a grant has to be readable in review, where an encrypted diff would
+  # hide one widened to `*:*`. A value that is genuinely private --
+  # another person's email, say -- goes in through Flux's
+  # postBuild.substituteFrom from a SOPS Secret, not by encrypting this file.
+  #
+  # Applying this file does NOT restart the pod (the ConfigMap is mounted
+  # un-hashed), so a change here needs:
+  #   kubectl rollout restart deployment/headscale -n apps
+  policy.hujson: |
+    {
+      // vulcanus is the only subnet router. The tag is named for the node
+      // rather than the role so that a second router later cannot inherit this
+      // autoApprovers entry and start advertising subnets of its own.
+      "tagOwners": {
+        "tag:vulcanus-subnet": ["will@"],
+        // The two PBS hosts. Tagged rather than reached as `will@` devices,
+        // so the offsite copy's grant is one port on one host instead of
+        // everything a personal device may reach. The tags name roles, not
+        // machines: at 4b `tag:pbs-primary` moves from VM 107 to the
+        // container that replaces it.
+        "tag:pbs-primary": ["will@"],
+        "tag:pbs-offsite": ["will@"],
+      },
+
+      // Fires only when a route is FIRST advertised, so a route already being
+      // advertised when this entry changes stays unapproved — and an
+      // unapproved route carries no traffic while still looking correct on the
+      // advertising host. Check with `headscale nodes list-routes` and approve
+      // with `headscale nodes approve-routes`.
+      "autoApprovers": {
+        "routes": {
+          "192.168.0.0/24": ["tag:vulcanus-subnet"],
+        },
+      },
+
+      "acls": [
+        // Personal devices reach each other freely — laptop to NAS, jetKVM,
+        // and so on. Broad on purpose: these are all the same person's
+        // machines, and the boundary worth enforcing is the one at the subnet
+        // router below, not between a laptop and its own NAS.
+        {
+          "action": "accept",
+          "src": ["will@"],
+          "dst": ["will@:*"],
+        },
+
+        // A tagged node is owned by the tag rather than by will@, so it is not
+        // covered by the rule above and needs its ports granted explicitly —
+        // without this, `ssh vulcanus` over the tailnet fails. :8006 is the
+        // Proxmox web UI, which the hypervisor authenticates itself.
+        {
+          "action": "accept",
+          "src": ["will@"],
+          "dst": ["tag:vulcanus-subnet:22,8006"],
+        },
+
+        // The offsite copy pulls the primary's backups over this, and it is
+        // the only traffic between the two hosts. Nothing is ever pushed:
+        // the primary holds no credential for the offsite store, so a
+        // compromised primary cannot delete the copy. The reverse grant is
+        // deliberately absent.
+        {
+          "action": "accept",
+          "src": ["tag:pbs-offsite"],
+          "dst": ["tag:pbs-primary:8007"],
+        },
+
+        // Both Proxmox Backup Server (PBS) hosts: 22 for colmena deploys, 8007 for the web UI.
+        {
+          "action": "accept",
+          "src": ["will@"],
+          "dst": ["tag:pbs-primary:22,8007", "tag:pbs-offsite:22,8007"],
+        },
+
+        // Restic backup server
+        // SSH access, necessary for configuration of NixOS via Colmena
+        {
+          "action": "accept",
+          "src": ["will@"],
+          "dst": ["192.168.0.108:22"],
+        },
+
+        // SSH to the fileserver LXC. Reached through the subnet route rather
+        // than as a tailnet node — it is not on the tailnet itself. Shell
+        // access only; the NFS and SMB exports it serves stay LAN-side.
+        {
+          "action": "accept",
+          "src": ["will@"],
+          "dst": ["192.168.0.105:22"],
+        },
+
+        // CoreDNS. Headscale's split-DNS config sends immortalkeep.com here, so
+        // without this rule no internal name resolves over the tailnet. Covers
+        // UDP and TCP: no "proto" means all protocols, and resolvers fall back
+        // to TCP for responses that do not fit a datagram.
+        {
+          "action": "accept",
+          "src": ["will@"],
+          "dst": ["192.168.0.202:53"],
+        },
+
+        // Internal ingress. One door to every *.immortalkeep.com HTTP service;
+        // :80 is only there for the redirect to :443.
+        {
+          "action": "accept",
+          "src": ["will@"],
+          "dst": ["192.168.0.203:80,443"],
+        },
+
+        // Mumble, reached through the subnet route. CoreDNS answers
+        // mumble.immortalkeep.com with this address and that beats the public
+        // record, so a roaming client never sees the WAN address the router
+        // forwards to the same Service — the internal address has to be granted
+        // or the tailnet and Mumble cannot both be up on one machine. No
+        // "proto": the control channel is TCP and voice is UDP, both on 64738,
+        // and restricting this to TCP would connect and then carry no audio.
+        {
+          "action": "accept",
+          "src": ["will@"],
+          "dst": ["192.168.0.205:64738"],
+        },
+
+        // Kubernetes API on the cluster VIP (piraeus-api), so kubectl and k9s
+        // work from a roaming device rather than only over WireGuard, plus the
+        // Talos API (50000) on the VMs - the tool wanted when the cluster
+        // itself is the thing that is broken. Same shape as the ingress rule
+        // above: reach the port, then the service authenticates, here by the
+        // client certificate in kubeconfig or talosconfig.
+        {
+          "action": "accept",
+          "src": ["will@"],
+          "dst": ["192.168.0.200:6443", "192.168.0.190:50000", "192.168.0.195:50000", "192.168.0.196:50000"],
+        },
+
+        // Exit-node egress (`ts-exit` on the clients). Tailscale treats the public
+        // internet as a destination class of its own: none of the rules above
+        // match it, and even "dst": ["*:*"] would not — autogroup:internet has to
+        // be named explicitly. Without it the exit node still completes the
+        // WireGuard handshake and peers still show 0.0.0.0/0 in AllowedIPs, so the
+        // client looks entirely correct while the exit node's packet filter
+        // silently drops every forwarded packet.
+        {
+          "action": "accept",
+          "src": ["will@"],
+          "dst": ["autogroup:internet:*"],
+        },
+
+        // Git Repository (hosted via Soft Serve)
+        // Self-hosting a git server, as a mirror of my GitHub repos
+        // and for more private repos I don't want in GitHub.
+        // Accessible over the tailnet at git.forge.local
+        {
+          "action": "accept",
+          "src": ["will@"],
+          "dst": ["192.168.0.207:22"],
+        },
+      ],
+    }

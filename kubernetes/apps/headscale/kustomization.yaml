@@ -9,6 +9,6 @@ resources:
   - headscale-config-map.yaml
   - image.yaml
   - ingress.yaml
-  - policy-config-map.sops.yaml
+  - policy-config-map.yaml
   - rbac.yaml
   - service.yaml
