@@ -204,8 +204,11 @@ ripped (reelbarrow's `captures/subtitle-flags/forced-all.txt`).
 
 **Done when** a DVD ripped after the restart has no subtitle track forced but
 a forced-only one, read with ffprobe on the share, and HandBrake's log in the
-job lists no preset track as `Default`. Then the preset table's *Subtitles*
-row in `docs/automatic-ripping-machine.md` says so.
+job lists no preset track as `Default`. The option is documented in
+`docs/handbrake-preset.md`, *Arguments beside the preset*, which the
+handbrake-preset branch adds (PR #44). If that hasn't landed when this closes,
+add that section's paragraph on `--subtitle-default=none` here instead, so the
+option isn't left undocumented.
 
 ---
 
