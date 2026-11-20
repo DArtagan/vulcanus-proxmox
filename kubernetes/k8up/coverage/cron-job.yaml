@@ -30,7 +30,7 @@ spec:
             # The python image has no restic and the restic image no python, so
             # this copies the binary across.
             - name: restic
-              image: restic/restic:0.19.1 # {"$imagepolicy": "infrastructure:backup-coverage-restic"}
+              image: restic/restic:0.20.0 # {"$imagepolicy": "infrastructure:backup-coverage-restic"}
               command: [cp, /usr/bin/restic, /tools/restic]
               securityContext:
                 allowPrivilegeEscalation: false
